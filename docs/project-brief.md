@@ -4,6 +4,7 @@
 - 版本：V1.0
 - 固化日期：2026-10-22
 - 产品类型：家庭 NAS 自托管媒体平台
+- 治理依据：[宪章 1.0.1](../.specify/memory/constitution.md) 与 [ADR-0003](adr/0003-constitution-alignment.md)。
 
 ## 1. 为什么做
 
@@ -54,9 +55,10 @@ Home Media Platform 的目标是提供一个家庭级入口：家庭只需要登
 
 ### 必须包含
 
-- 单个 Household 的资源边界；
+- 单个部署实例对应单个 Household 的资源边界；
 - 一个主要 Account 的登录和会话；
 - 多个成人或儿童 Profile；
+- Profile 归属主要 Account，并保留 Household 边界；个人数据以 Profile 隔离；
 - Profile 切换和可选 PIN 保护；
 - 设备注册与 DeviceSession；
 - 媒体源、媒体目录和播放来源的基本模型；
@@ -64,6 +66,7 @@ Home Media Platform 的目标是提供一个家庭级入口：家庭只需要登
 - 统一 Playback Resolver；
 - 个人观看历史、播放进度、收藏和 Watchlist；
 - 直播频道、电影、剧集和本地视频的统一媒体抽象。
+- Docker/Linux 容器化交付；个人观看记录和媒体元数据保存在本地私有基础设施，核心播放不依赖强制云服务或非授权遥测。
 
 ### 明确不包含
 

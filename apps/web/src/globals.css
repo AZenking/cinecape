@@ -1,0 +1,59 @@
+/* Tailwind CSS v4 必须在最前;HeroUI 样式紧随其后(HeroUI v3 安装要求) */
+@import 'tailwindcss';
+@import '@heroui/styles';
+
+/* 暗色优先(Netflix 式媒体审美基调,research D6) */
+:root {
+  color-scheme: dark;
+}
+
+.dark {
+  --accent: oklch(0.60 0.22 25);
+  --accent-foreground: oklch(0.99 0 0);
+  --focus: var(--accent);
+}
+
+html,
+body,
+#root {
+  min-height: 100vh;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* ---------- PIN 键盘错误抖动(T030,research D6「错误整排抖动清空」) ---------- */
+/* 用法:components/PinPad.tsx 给圆点行追加 .hmp-pin-shake,并以 key 重挂载重启动画 */
+@keyframes hmp-pin-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  15% {
+    transform: translateX(-10px);
+  }
+  30% {
+    transform: translateX(10px);
+  }
+  45% {
+    transform: translateX(-7px);
+  }
+  60% {
+    transform: translateX(7px);
+  }
+  80% {
+    transform: translateX(-3px);
+  }
+}
+
+.hmp-pin-shake {
+  animation: hmp-pin-shake 0.45s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hmp-pin-shake {
+    animation: none;
+  }
+}

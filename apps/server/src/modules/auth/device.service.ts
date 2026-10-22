@@ -1,0 +1,108 @@
+import { randomUUID } from 'node:crypto';
+import { and, asc, eq, isNull } from 'drizzle-orm';
+import { ProblemCode } from '@hmp/shared';
+import type { Device, NewDevice } from '../../database/schema';
+import { device, deviceSession } from '../../database/schema';
+import { DomainError } from '../../common/domain-error';
+import { getDb } from './db';
+
+/**
+ * 设备注册(T019/FR-009):设备身份由服务端记录,不依赖客户端上报的浏览器特征。
+ *
+ * 策略取舍(契约 LoginRequest 无 deviceId 入参 → 选「每次登录新建 Device 记录」):
+ * - 按「类型 + 客户端提供名」去重会把同名同型的两台物理设备误合并为同一 Device,
+ *   设备撤销(FR-011/012)将波及无关会话,违背"撤销影响该设备全部会话"的边界;
+ * - 无稳定客户端设备标识时逐次新建,保证「一会话 ↔ 一设备」的最小正确性;
+ * - 设备合并/改名/复用留待 US3 设备管理(届时由服务端下发并持久化 deviceId)。
+ */
+export type DeviceType = 'web' | 'mobile' | 'tv' | 'nas' | 'other';
+
+export interface RegisterDeviceInput {
+  householdId: string;
+  type: DeviceType;
+  name?: string | null;
+}
+
+export function registerDevice(input: RegisterDeviceInput): Device {
+  const now = new Date().toISOString();
+  const row: NewDevice = {
+    id: randomUUID(),
+    householdId: input.householdId,
+    name: input.name ?? null,
+    type: input.type,
+    lastSeenAt: now,
+    revokedAt: null,
+    createdAt: now,
+  };
+  getDb().insert(device).values(row).run();
+  return row as Device;
+}
+
+// ---------------------------------------------------------------------------
+// US3 设备管理(T035/FR-011/FR-012)
+// ---------------------------------------------------------------------------
+
+/** DeviceDto(契约 components/schemas/DeviceDto) */
+export interface DeviceDtoBody {
+  id: string;
+  name: string | null;
+  type: DeviceType;
+  lastSeenAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+function toDeviceDto(row: Device): DeviceDtoBody {
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type as DeviceType,
+    lastSeenAt: row.lastSeenAt,
+    revokedAt: row.revokedAt,
+    createdAt: row.createdAt,
+  };
+}
+
+/** GET /devices:当前家庭设备列表(含已撤销,以 revokedAt 标注;边界 FR-006) */
+export function listHouseholdDevices(householdId: string): DeviceDtoBody[] {
+  return getDb()
+    .select()
+    .from(device)
+    .where(eq(device.householdId, householdId))
+    .orderBy(asc(device.createdAt))
+    .all()
+    .map(toDeviceDto);
+}
+
+/**
+ * POST /devices/{deviceId}/revoke(T035/FR-011/012):
+ * - 设备必须属于当前 Household,否则 404(与他家庭「不存在」同形,不泄露存在性);
+ * - 事务内:device.revoked_at = now(已撤销则跳过)+ 该设备全部未注销会话
+ *   revoked_at = now(立即全量失效);
+ * - 幂等:重复调用 204 且无任何写副作用。
+ */
+export function revokeHouseholdDevice(householdId: string, deviceId: string): void {
+  getDb().transaction((tx) => {
+    const row = tx
+      .select({ id: device.id, revokedAt: device.revokedAt })
+      .from(device)
+      .where(and(eq(device.id, deviceId), eq(device.householdId, householdId)))
+      .get();
+    if (row === undefined) {
+      // 不存在 / 属于其他家庭:同形 404,不泄露跨家庭存在性
+      throw new DomainError(404, ProblemCode.NOT_FOUND);
+    }
+    if (row.revokedAt !== null) {
+      return; // 幂等:已撤销 no-op
+    }
+    const now = new Date().toISOString();
+    tx.update(device)
+      .set({ revokedAt: now })
+      .where(and(eq(device.id, deviceId), isNull(device.revokedAt)))
+      .run();
+    tx.update(deviceSession)
+      .set({ revokedAt: now })
+      .where(and(eq(deviceSession.deviceId, deviceId), isNull(deviceSession.revokedAt)))
+      .run();
+  });
+}

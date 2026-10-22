@@ -1,0 +1,40 @@
+{
+  "name": "@hmp/server",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.build.json && cp -R src/database/migrations dist/database/",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run test/unit",
+    "test:contract": "vitest run test/contract",
+    "migration:up": "tsx src/database/migrate.ts up",
+    "migration:down": "tsx src/database/migrate.ts down",
+    "migration:drill": "tsx src/database/migrate.ts drill"
+  },
+  "dependencies": {
+    "@hmp/shared": "workspace:*",
+    "@nestjs/common": "^12",
+    "@nestjs/core": "^12",
+    "@nestjs/platform-express": "^12",
+    "argon2": "^0.44",
+    "better-sqlite3": "^12",
+    "drizzle-orm": "^0.44",
+    "reflect-metadata": "^0.2",
+    "rxjs": "^7",
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^12",
+    "@types/better-sqlite3": "^7",
+    "@types/express": "^5",
+    "@types/node": "^24",
+    "@types/supertest": "^6",
+    "supertest": "^7",
+    "tsx": "^4",
+    "typescript": "^5.8",
+    "vitest": "^3"
+  }
+}

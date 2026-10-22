@@ -1,7 +1,8 @@
-# Home Media Platform 领域模型（V1.0 固化版）
+# Home Media Platform 领域模型（V1.1 固化版）
 
 - 状态：Frozen
-- 版本：V1.0
+- 版本：V1.1（按宪章 1.0.1 对齐）
+- 决策依据：[ADR-0003](docs/adr/0003-constitution-alignment.md)
 - 固化日期：2026-10-22
 - 适用范围：运行在个人或家庭 NAS 上的自托管媒体平台
 
@@ -13,7 +14,7 @@
 
 `Household` 表示一个家庭媒体空间，是媒体源、媒体库、设备、Profile 和家庭策略的归属边界。
 
-第一阶段只支持一个 Household，但模型必须保留 Household 边界。多家庭支持不能只靠以后给表增加 `household_id`，还必须让查询、缓存、播放授权和文件访问使用同一条边界规则。
+V1 固定为“一次部署实例对应一个 Household”。因此 V1 不引入 `Installation`、Tenant 或多 Household 管理层，但所有资源仍必须保留 Household 边界。未来如果一个部署实例托管多个 Household，必须通过新的 ADR 和数据迁移重新定义查询、缓存、播放授权和文件访问规则。
 
 ### 1.2 Account 只负责认证
 
@@ -23,7 +24,7 @@
 
 ### 1.3 Profile 代表当前观看者
 
-`Profile` 是家庭成员的观影档案，负责表达“现在是谁在观看”。Profile 不拥有完整的登录凭据。
+`Profile` 是家庭成员的观影档案，负责表达“现在是谁在观看”。Profile 归属于 Account，并保留所属 Household 的显式边界，不拥有完整的登录凭据。
 
 观看历史、播放进度、收藏、想看列表、偏好和内容策略都必须以 `profile_id` 为个人数据边界，而不是以 `account_id` 为边界。
 
@@ -61,21 +62,19 @@ Home Media Platform
     ├── Account
     │   ├── Credentials
     │   ├── Sessions
-    │   └── Admin Permission
-    │
-    ├── Profiles
-    │   ├── Personalization
-    │   │   ├── Watch History
-    │   │   ├── Watch Progress
-    │   │   ├── Favorites
-    │   │   ├── Watchlist
-    │   │   └── Preferences
-    │   │
-    │   └── Profile Policy
-    │       ├── Content Rating
-    │       ├── Content Restrictions
-    │       ├── Channel Restrictions
-    │       └── Profile PIN
+    │   ├── Admin Permission
+    │   └── Profiles
+    │       ├── Personalization
+    │       │   ├── Watch History
+    │       │   ├── Watch Progress
+    │       │   ├── Favorites
+    │       │   ├── Watchlist
+    │       │   └── Preferences
+    │       └── Profile Policy
+    │           ├── Content Rating
+    │           ├── Content Restrictions
+    │           ├── Channel Restrictions
+    │           └── Profile PIN
     │
     ├── Devices
     │   └── Device Sessions
@@ -152,6 +151,7 @@ interface Account {
 interface Profile {
   id: string;
   householdId: string;
+  accountId: string;
   name: string;
   avatar?: string;
   type: "adult" | "child";
@@ -164,7 +164,7 @@ interface Profile {
 
 约束：
 
-- Profile 直接归属于 Household，V1 不需要 `account_id`；
+- Profile 归属于 Account，必须保留 `account_id` 和 `household_id`，且 Account 的 Household 与 Profile 一致；
 - `type` 不是最终授权依据；
 - 受 PIN 保护的 Profile 在切换时必须重新验证；
 - 被停用的 Profile 不能成为新的会话上下文；
@@ -187,6 +187,7 @@ interface Device {
 
 interface DeviceSession {
   id: string;
+  householdId: string;
   accountId: string;
   deviceId: string;
   activeProfileId?: string;
@@ -199,6 +200,7 @@ interface DeviceSession {
 约束：
 
 - `accountId`、`deviceId` 和 `activeProfileId` 必须属于同一个 Household；
+- 所选 Profile 的 `accountId` 必须等于 DeviceSession 的 `accountId`；
 - 会话失效或被撤销后不能访问媒体；
 - `activeProfileId` 由服务端设置和验证；
 - 设备能力应由设备注册或能力协商记录，不能只依赖 User-Agent。
@@ -209,6 +211,7 @@ interface DeviceSession {
 
 ```ts
 interface ProfilePolicy {
+  householdId: string;
   profileId: string;
   maxContentLevel: number;
   allowUnrated: boolean;
@@ -239,6 +242,7 @@ type MediaType = "channel" | "movie" | "series" | "episode" | "video";
 
 interface MediaItem {
   id: string;
+  householdId: string;
   type: MediaType;
   title: string;
   poster?: string;
@@ -255,6 +259,7 @@ interface MediaSource {
 
 interface PlaybackSource {
   id: string;
+  householdId: string;
   mediaItemId: string;
   sourceId: string;
   protocol: "hls" | "dash" | "file" | "flv" | "http";
@@ -265,7 +270,7 @@ interface PlaybackSource {
 }
 ```
 
-`MediaItem` 可以在多个来源之间复用，但对用户可见的媒体、播放来源和文件访问必须经过当前 Household 的资源边界检查。
+`MediaItem` 可以在同一 Household 的多个来源之间复用。MediaItem、MediaSource 和 PlaybackSource 的 householdId 必须一致，媒体、播放来源和文件访问必须经过当前 Household 的资源边界检查。
 
 ### 3.7 Personalization
 
@@ -290,7 +295,8 @@ Series
 ## 4. 关系和数据边界
 
 ```text
-Household 1 ──── N Profile
+Household 1 ──── N Profile      （经 Account 归属，并保留 household_id）
+Account 1 ────── N Profile
 Household 1 ──── N Device
 Household 1 ──── N MediaSource
 Household 1 ──── N Account       （V1 实际为 1 个主要 Account）
@@ -308,6 +314,7 @@ Profile 1 ─────── N Watchlist
 
 强制边界：
 
+- 所有数据库表保留显式 `household_id`；个人数据同时保留 `profile_id`，不能以 `account_id` 替代个人数据边界；
 - 所有家庭资源查询必须带上 Household 边界；
 - 所有个人数据查询必须从服务端会话得到 `activeProfileId`；
 - 不允许只用 `account_id` 查询个人观影数据；
@@ -340,6 +347,8 @@ Account 登录
 校验 DeviceSession
       ↓
 校验目标 Profile 属于当前 Household
+      ↓
+校验目标 Profile 属于当前 Account
       ↓
 如有 PIN，执行 PIN 校验
       ↓

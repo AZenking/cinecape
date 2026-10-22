@@ -1,0 +1,295 @@
+# 身份边界先行契约 —— 001-scaffold-identity-foundation
+# OpenAPI 3.1 · 错误格式:RFC 9457 application/problem+json
+# 认证:双通道(httpOnly Cookie 或 Bearer),服务端会话为唯一信任源(规格 FR-018)
+openapi: 3.1.0
+info:
+  title: Home Media Platform — Identity Foundation API
+  version: 0.1.0
+  description: >
+    阶段 1(应用脚手架与身份基础)对外契约。领域模型 §6 的最小边界
+    (/auth/login、/household、/profiles、/profiles/:id/select、/profiles/:id/unlock)
+    在此扩展会话生命周期与设备管理。密码/PIN/令牌哈希永不置于任何响应。
+servers:
+  - url: http://{host}:{port}/api
+    variables:
+      host: { default: localhost }
+      port: { default: '3000' }
+
+tags:
+  - name: setup
+  - name: auth
+  - name: household
+  - name: profiles
+  - name: devices
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: hmp_session
+    bearerSession:
+      type: http
+      scheme: bearer
+      description: 不透明会话令牌(仅签发时返回一次)
+  schemas:
+    Problem:
+      type: object
+      description: RFC 9457 problem details
+      required: [type, title, status]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code: { type: string, description: 机器可读错误码,如 INITIALIZATION_ALREADY_DONE }
+    HouseholdDto:
+      type: object
+      required: [id, name, defaultLanguage, timezone, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        defaultLanguage: { type: string }
+        timezone: { type: string }
+        createdAt: { type: string, format: date-time }
+    ProfileDto:
+      type: object
+      description: 不包含 pinHash 等凭据字段
+      required: [id, name, type, isDefault, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        avatar: { type: string, nullable: true }
+        type: { type: string, enum: [adult, child] }
+        isDefault: { type: boolean }
+        pinProtected: { type: boolean, description: 是否设置了 PIN(不暴露哈希) }
+        status: { type: string, enum: [active, disabled] }
+        createdAt: { type: string, format: date-time }
+    DeviceDto:
+      type: object
+      required: [id, type, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, nullable: true }
+        type: { type: string, enum: [web, mobile, tv, nas, other] }
+        lastSeenAt: { type: string, format: date-time, nullable: true }
+        revokedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+    SessionDto:
+      description: 当前会话上下文;sessionToken 仅在登录响应出现一次
+      required: [sessionId, expiresAt]
+      properties:
+        sessionId: { type: string, format: uuid }
+        account: { type: object, required: [id, username, role], properties: { id: { type: string, format: uuid }, username: { type: string }, role: { type: string, enum: [owner, admin] } } }
+        activeProfile: { oneOf: [{ $ref: '#/components/schemas/ProfileDto' }, { type: 'null' }] }
+        sessionToken: { type: string, description: 仅 POST /auth/login 响应包含;凭此走 Bearer 通道 }
+        expiresAt: { type: string, format: date-time }
+    InitializeRequest:
+      type: object
+      required: [householdName, username, password]
+      properties:
+        householdName: { type: string, minLength: 1, maxLength: 100 }
+        defaultLanguage: { type: string, default: zh-CN }
+        timezone: { type: string, default: Asia/Shanghai }
+        username: { type: string, minLength: 3, maxLength: 64 }
+        password: { type: string, minLength: 8, maxLength: 128, format: password }
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string, format: password }
+        deviceType: { type: string, enum: [web, mobile, tv, nas, other], default: web }
+        deviceName: { type: string, maxLength: 100 }
+    CreateProfileRequest:
+      type: object
+      required: [name, type]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 50 }
+        type: { type: string, enum: [adult, child] }
+        avatar: { type: string }
+        isDefault: { type: boolean, default: false }
+        pin: { type: string, minLength: 4, maxLength: 12, format: password, description: 设置后该 Profile 受 PIN 保护 }
+    UpdateProfileRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 50 }
+        avatar: { type: string }
+        isDefault: { type: boolean }
+        status: { type: string, enum: [active, disabled] }
+        pin: { type: string, minLength: 4, maxLength: 12, format: password }
+        clearPin: { type: boolean, default: false }
+    UnlockRequest:
+      type: object
+      required: [pin]
+      properties:
+        pin: { type: string, format: password }
+  responses:
+    Problem401: { description: 未认证/会话无效或已过期, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Problem403: { description: 已认证但越权(资源不属于当前 Household/Account/会话), content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Problem404: { description: 资源不存在(不泄露跨家庭存在性), content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Problem409: { description: 状态冲突(重复初始化/最后可用 Profile 停用等), content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Problem423: { description: PIN 锁定窗口内(Locked), content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    SessionAuth:
+      description: 会话有效
+      security: [{ sessionCookie: [] }, { bearerSession: [] }]
+
+security: [{ sessionCookie: [] }, { bearerSession: [] }]
+
+paths:
+  /setup/status:
+    get:
+      tags: [setup]
+      security: []
+      summary: 查询是否已初始化(前端向导入口判断)
+      operationId: getSetupStatus
+      responses:
+        '200':
+          description: 初始化状态
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [initialized]
+                properties: { initialized: { type: boolean } }
+  /setup/initialize:
+    post:
+      tags: [setup]
+      security: []
+      summary: 一次性初始化:创建唯一 Household 与主 Account(FR-002/003)
+      operationId: initialize
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/InitializeRequest' } } }
+      responses:
+        '201': { description: 初始化完成并建立当前设备会话, content: { application/json: { schema: { $ref: '#/components/schemas/SessionDto' } } } }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /auth/login:
+    post:
+      tags: [auth]
+      security: []
+      summary: 登录并创建 DeviceSession(FR-008);失败统一提示不泄露账号存在性
+      operationId: login
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/LoginRequest' } } }
+      responses:
+        '200':
+          description: 登录成功(设置会话 Cookie 并返回 SessionDto)
+          content: { application/json: { schema: { $ref: '#/components/schemas/SessionDto' } } }
+        '401': { $ref: '#/components/responses/Problem401' }
+  /auth/session:
+    get:
+      tags: [auth]
+      summary: 恢复/校验当前会话(FR-010);过期或撤销一律 401
+      operationId: getSession
+      responses:
+        '200': { description: 会话有效, content: { application/json: { schema: { $ref: '#/components/schemas/SessionDto' } } } }
+        '401': { $ref: '#/components/responses/Problem401' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: 注销当前会话(幂等,FR-011/012)
+      operationId: logout
+      responses:
+        '204': { description: 已注销(重复调用同样成功) }
+        '401': { $ref: '#/components/responses/Problem401' }
+  /household:
+    get:
+      tags: [household]
+      summary: 获取当前 Household 信息(边界从服务端会话得出,不接受查询参数)
+      operationId: getHousehold
+      responses:
+        '200': { description: 家庭信息, content: { application/json: { schema: { $ref: '#/components/schemas/HouseholdDto' } } } }
+        '401': { $ref: '#/components/responses/Problem401' }
+  /profiles:
+    get:
+      tags: [profiles]
+      summary: 列出当前 Household 的 Profile(FR-014 前置)
+      operationId: listProfiles
+      responses:
+        '200':
+          description: Profile 列表
+          content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ProfileDto' } } } }
+        '401': { $ref: '#/components/responses/Problem401' }
+    post:
+      tags: [profiles]
+      summary: 创建 Profile(主 Account,FR-013)
+      operationId: createProfile
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateProfileRequest' } } }
+      responses:
+        '201': { description: 已创建, content: { application/json: { schema: { $ref: '#/components/schemas/ProfileDto' } } } }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+  /profiles/{profileId}:
+    patch:
+      tags: [profiles]
+      summary: 编辑/停用 Profile(停用最后可用者 409;停用后引用会话上下文清空,FR-013/016)
+      operationId: updateProfile
+      parameters: [{ name: profileId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateProfileRequest' } } }
+      responses:
+        '200': { description: 已更新, content: { application/json: { schema: { $ref: '#/components/schemas/ProfileDto' } } } }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /profiles/{profileId}/select:
+    post:
+      tags: [profiles]
+      summary: 选择当前观看者(服务端校验归属与状态后更新会话,FR-014)
+      operationId: selectProfile
+      parameters: [{ name: profileId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: 会话上下文已更新, content: { application/json: { schema: { $ref: '#/components/schemas/SessionDto' } } } }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+  /profiles/{profileId}/unlock:
+    post:
+      tags: [profiles]
+      summary: PIN 解锁(错误计数与锁定窗口见 FR-015;锁定期间 423)
+      operationId: unlockProfile
+      parameters: [{ name: profileId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UnlockRequest' } } }
+      responses:
+        '200': { description: 解锁成功(锁定状态解除), content: { application/json: { schema: { type: object, properties: { unlocked: { type: boolean, const: true } } } } } }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '423': { $ref: '#/components/responses/Problem423' }
+  /devices:
+    get:
+      tags: [devices]
+      summary: 列出当前 Household 的设备
+      operationId: listDevices
+      responses:
+        '200':
+          description: 设备列表
+          content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/DeviceDto' } } } }
+        '401': { $ref: '#/components/responses/Problem401' }
+  /devices/{deviceId}/revoke:
+    post:
+      tags: [devices]
+      summary: 撤销设备(其全部会话立即失效;幂等,FR-011/012)
+      operationId: revokeDevice
+      parameters: [{ name: deviceId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '204': { description: 已撤销(重复调用同样成功) }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+  /healthz:
+    get:
+      tags: [setup]
+      security: []
+      summary: 健康检查:服务与持久化存储就绪(FR-001)
+      operationId: healthz
+      responses:
+        '200': { description: 就绪, content: { application/json: { schema: { type: object, required: [status, database], properties: { status: { type: string, const: ok }, database: { type: string, const: ok } } } } } }
+        '503': { description: 未就绪, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }

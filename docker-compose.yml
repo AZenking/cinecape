@@ -1,0 +1,30 @@
+# Home Media Platform —— 单服务交付(T015;ADR-0002:一个部署 = 一个家庭)
+# 数据持久化:具名卷 hmp-data → 容器 /data(SQLite 与迁移备份)
+services:
+  app:
+    build: .
+    image: home-media-platform:local
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATA_DIR: /data
+    volumes:
+      - hmp-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  hmp-data:

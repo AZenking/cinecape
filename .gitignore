@@ -1,0 +1,43 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build outputs
+dist/
+build/
+*.tsbuildinfo
+.vite/
+
+# test & coverage
+coverage/
+
+# secrets(保留 .env.example)
+.env
+.env.*
+!.env.example
+
+# runtime data:SQLite + WAL 伴生 + 迁移备份(含全部用户数据,绝不入库)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+hmp.db.bak*
+/data/
+
+# generated(契约单一事实源 = contracts/openapi.yaml)
+packages/shared/src/schema.d.ts
+
+# logs
+logs/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# shared 构建产物
+packages/shared/dist/

@@ -1,0 +1,27 @@
+{
+  "name": "home-media-platform",
+  "private": true,
+  "packageManager": "pnpm@11.28.5",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "postinstall": "pnpm gen:types && pnpm --filter @hmp/shared build",
+    "dev": "pnpm -r --parallel --filter './apps/*' dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r --filter @hmp/server test",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r typecheck",
+    "gen:types": "pnpm --filter @hmp/shared gen:types",
+    "migration:up": "pnpm --filter @hmp/server migration:up",
+    "migration:down": "pnpm --filter @hmp/server migration:down",
+    "migration:drill": "pnpm --filter @hmp/server migration:drill",
+    "test:runtime": "node apps/server/test/runtime-smoke.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9",
+    "eslint": "^9",
+    "typescript": "^5.8",
+    "typescript-eslint": "^8"
+  }
+}

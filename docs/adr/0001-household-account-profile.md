@@ -1,6 +1,8 @@
 # ADR-0001：采用 Household、Account、Profile 三层身份模型
 
-- 状态：Accepted
+- 状态：Superseded
+- 替代决策： [ADR-0003](0003-constitution-alignment.md)（2026-10-22）
+- 历史说明：以下正文保留原始决策；Profile 直接归属 Household 的规则不再有效，当前模型以 ADR-0003 和宪章为准。
 - 日期：2026-10-22
 - 适用版本：V1.0
 - 相关文档：[`homeMediaDomainModel.md`](../../homeMediaDomainModel.md)

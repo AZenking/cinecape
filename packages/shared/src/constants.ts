@@ -1,0 +1,19 @@
+/** 会话 Cookie 名 —— 与 contracts/openapi.yaml securitySchemes 保持一致 */
+export const SESSION_COOKIE = 'hmp_session';
+
+/** RFC 9457 problem+json 稳定错误码(负向测试断言依据) */
+export const ProblemCode = {
+  INITIALIZATION_ALREADY_DONE: 'INITIALIZATION_ALREADY_DONE',
+  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
+  SESSION_INVALID: 'SESSION_INVALID',
+  PROFILE_PIN_REQUIRED: 'PROFILE_PIN_REQUIRED',
+  PROFILE_PIN_LOCKED: 'PROFILE_PIN_LOCKED',
+  PROFILE_NOT_SELECTABLE: 'PROFILE_NOT_SELECTABLE',
+  LAST_ACTIVE_PROFILE: 'LAST_ACTIVE_PROFILE',
+  NOT_FOUND: 'NOT_FOUND',
+  FORBIDDEN: 'FORBIDDEN',
+  VALIDATION_FAILED: 'VALIDATION_FAILED',
+  NOT_READY: 'NOT_READY',
+  INTERNAL: 'INTERNAL',
+} as const;
+export type ProblemCode = (typeof ProblemCode)[keyof typeof ProblemCode];
