@@ -42,3 +42,6 @@ Thumbs.db
 
 # shared 构建产物
 packages/shared/dist/
+
+# 本地工具索引(fleet-repo CodeGraph,机器本地)
+.codegraph/
