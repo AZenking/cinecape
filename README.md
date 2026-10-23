@@ -4,10 +4,10 @@
 
 ## 当前状态
 
-- 阶段：阶段 1「应用脚手架与身份基础」收尾完成（2026-10-23 重新验收）
+- 阶段：阶段 1「应用脚手架与身份基础」收尾完成（2026-10-23 重新验收）；阶段 2「ProfilePolicy」已实现并通过验收
 - 领域模型：V1.1 Frozen
-- 实现状态：身份闭环可用（初始化向导 / 登录 / Profile 选择与切换含 PIN / 设备管理 / 会话生命周期）；阶段 2「ProfilePolicy」尚未开始
-- 证据档案：[`docs/specs/001-scaffold-identity-foundation/evidence.md`](docs/specs/001-scaffold-identity-foundation/evidence.md)（65 测试 + 真实进程/浏览器 + 迁移恢复 + ARM64/AMD64 容器）
+- 实现状态：身份闭环可用（初始化向导 / 登录 / Profile 选择与切换含 PIN / 设备管理 / 会话生命周期）；内容策略可用（等级 / 未评级 / 名单 / 频道白名单 + 家长验证）
+- 证据档案：[`docs/specs/001-scaffold-identity-foundation/evidence.md`](docs/specs/001-scaffold-identity-foundation/evidence.md)（65 测试 + 真实进程/浏览器 + 迁移恢复 + ARM64/AMD64 容器）；[`docs/specs/002-profile-policy/evidence.md`](docs/specs/002-profile-policy/evidence.md)（109 用例 + 升级/回滚/恢复演练 + 容器内策略链路）
 - 最高治理依据： [项目宪章](.specify/memory/constitution.md)（1.0.1）
 - 当前领域规范：[`homeMediaDomainModel.md`](homeMediaDomainModel.md)
 
@@ -38,6 +38,8 @@ V1 采用一个 Household、一个主要 Account、多个 Profile 的模型。�
 | [`docs/adr/0004-technology-stack.md`](docs/adr/0004-technology-stack.md) | 技术栈选型（TS 单体 + SQLite + HeroUI v3） | Accepted |
 | [`docs/adr/0005-stage1-delivery-details.md`](docs/adr/0005-stage1-delivery-details.md) | 阶段 1 迁移、就绪检查和同源交付实施补充 | Accepted |
 | [`docs/specs/001-scaffold-identity-foundation/spec.md`](docs/specs/001-scaffold-identity-foundation/spec.md) | 阶段 1 功能规格：应用脚手架与身份基础 | Verified |
+| [`docs/specs/002-profile-policy/spec.md`](docs/specs/002-profile-policy/spec.md) | 阶段 2 功能规格：ProfilePolicy 内容策略 | Verified |
+| [`docs/adr/0006-profile-policy-authorization.md`](docs/adr/0006-profile-policy-authorization.md) | 内容策略顺序与家长管理边界 | Accepted |
 | [`docs/adr/0002-one-deployment-one-household.md`](docs/adr/0002-one-deployment-one-household.md) | 固化 V1 部署实例与 Household 的关系 | Accepted |
 | [`docs/roadmap.md`](docs/roadmap.md) | 阶段顺序、依赖和完成条件 | Living |
 
