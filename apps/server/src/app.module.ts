@@ -6,9 +6,10 @@ import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { HouseholdModule } from './modules/household/household.module';
 import { ProfileModule } from './modules/profile/profile.module';
+import { PolicyModule } from './modules/policy/policy.module';
 
 @Module({
-  imports: [HealthModule, AuthModule, HouseholdModule, ProfileModule],
+  imports: [HealthModule, AuthModule, HouseholdModule, ProfileModule, PolicyModule],
   providers: [
     { provide: APP_FILTER, useClass: ProblemJsonFilter },
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },

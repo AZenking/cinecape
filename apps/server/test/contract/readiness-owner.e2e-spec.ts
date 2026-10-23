@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Database } from '../../src/database/database';
-import { cleanupRigs, cookiePairOf, initialize, startFreshApp } from '../helpers';
+import { cleanupRigs, cookiePairOf, initialize, startFreshApp, INITIALIZE_BODY } from '../helpers';
 
 describe('阶段 1 收尾：就绪与主账号权限', () => {
   afterEach(cleanupRigs);
@@ -33,16 +33,16 @@ describe('阶段 1 收尾：就绪与主账号权限', () => {
     const init = await initialize(app);
     const cookie = cookiePairOf(init);
     const created = await request(app.getHttpServer()).post('/api/profiles').set('Cookie', cookie)
-      .send({ name: 'owner-created', type: 'adult' });
+      .send({ name: 'owner-created', type: 'adult', ownerPassword: INITIALIZE_BODY.password });
     expect(created.status).toBe(201);
     Database.db.prepare("UPDATE account SET role = 'admin'").run();
     expect((await request(app.getHttpServer()).get('/api/profiles').set('Cookie', cookie)).status).toBe(200);
     for (const action of ['create', 'edit']) {
       const response = action === 'create'
         ? await request(app.getHttpServer()).post('/api/profiles').set('Cookie', cookie)
-          .send({ name: 'forbidden', type: 'adult', role: 'owner' })
+          .send({ name: 'forbidden', type: 'adult', role: 'owner', ownerPassword: INITIALIZE_BODY.password })
         : await request(app.getHttpServer()).patch(`/api/profiles/${String(created.body.id)}`).set('Cookie', cookie)
-          .send({ name: 'forbidden', role: 'owner' });
+          .send({ name: 'forbidden', role: 'owner', ownerPassword: INITIALIZE_BODY.password });
       expect(response.status).toBe(403);
       expect(response.body.code).toBe('FORBIDDEN');
     }

@@ -68,16 +68,27 @@ async function bootstrap(): Promise<SessionFixture> {
 }
 
 function createProfile(s: SessionFixture, body: Record<string, unknown>): request.Test {
-  return request(s.app.getHttpServer()).post('/api/profiles').set('Cookie', s.cookie).send(body);
+  // 阶段 2(002 契约变更):创建/编辑为管理写操作,须携带主账号密码;
+  // 默认注入测试账号密码,个别用例可用 ownerPassword: undefined 显式省略
+  return request(s.app.getHttpServer())
+    .post('/api/profiles')
+    .set('Cookie', s.cookie)
+    .send({ ownerPassword: INITIALIZE_BODY.password, ...body });
 }
 
 function patchProfile(s: SessionFixture, profileId: string, body: Record<string, unknown>): request.Test {
-  return request(s.app.getHttpServer()).patch(`/api/profiles/${profileId}`).set('Cookie', s.cookie).send(body);
+  return request(s.app.getHttpServer())
+    .patch(`/api/profiles/${profileId}`)
+    .set('Cookie', s.cookie)
+    .send({ ownerPassword: INITIALIZE_BODY.password, ...body });
 }
 
-function selectProfile(s: SessionFixture, profileId: string, forgedQueryProfileId?: string): request.Test {
+function selectProfile(s: SessionFixture, profileId: string, forgedQueryProfileId?: string, ownerPassword?: string): request.Test {
   const suffix = forgedQueryProfileId === undefined ? '' : `?profileId=${forgedQueryProfileId}`;
-  return request(s.app.getHttpServer()).post(`/api/profiles/${profileId}/select${suffix}`).set('Cookie', s.cookie);
+  return request(s.app.getHttpServer())
+    .post(`/api/profiles/${profileId}/select${suffix}`)
+    .set('Cookie', s.cookie)
+    .send(ownerPassword === undefined ? {} : { ownerPassword });
 }
 
 function unlockProfile(s: SessionFixture, profileId: string, pin: string): request.Test {
@@ -347,8 +358,8 @@ describe('US2 选择与切换观看 Profile,含 PIN 保护(契约 e2e)', () => {
     expect(reSelected.status).toBe(403);
     expect(reSelected.body.code).toBe(ProblemCode.PROFILE_PIN_REQUIRED);
 
-    // 无 PIN 档案不受影响,可正常选择
-    const selectA = await selectProfile(s, a.body.id);
+    // 无 PIN 档案不受影响,可正常选择(家庭含儿童 B → 阶段 2 起需家长验证,002 契约变更)
+    const selectA = await selectProfile(s, a.body.id, undefined, INITIALIZE_BODY.password);
     expect(selectA.status).toBe(200);
     expect(activeProfileIdOf(s.sessionId)).toBe(a.body.id);
   });
@@ -357,7 +368,7 @@ describe('US2 选择与切换观看 Profile,含 PIN 保护(契约 e2e)', () => {
     const s = await bootstrap();
     const a = await createProfile(s, { name: 'A', type: 'adult' });
     const b = await createProfile(s, { name: 'B', type: 'child' });
-    expect((await selectProfile(s, a.body.id)).status).toBe(200);
+    expect((await selectProfile(s, a.body.id, undefined, INITIALIZE_BODY.password)).status).toBe(200);
     expect(activeProfileIdOf(s.sessionId)).toBe(a.body.id);
 
     const disabled = await patchProfile(s, a.body.id, { status: 'disabled' });

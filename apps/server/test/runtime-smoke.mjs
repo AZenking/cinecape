@@ -86,14 +86,32 @@ try {
     await api('/auth/login', 'POST', { username: 'runtimeqa', password });
     timings.push(performance.now() - started);
   }
-  const profile = await api('/profiles', 'POST', { name: 'Protected', type: 'child', pin: '4321' }, 201);
+  const profile = await api('/profiles', 'POST', { name: 'Protected', type: 'child', pin: '4321', ownerPassword: password }, 201);
   await api(`/profiles/${profile.id}/select`, 'POST', {}, 403);
   await api(`/profiles/${profile.id}/unlock`, 'POST', { pin: '0000' }, 403);
   await api(`/profiles/${profile.id}/unlock`, 'POST', { pin: '4321' });
   await api(`/profiles/${profile.id}/select`, 'POST', {});
+  // 阶段 2(002 契约):策略读取/保存 —— 默认值、家长验证、版本冲突、锁定(真实 HTTP,非 mock)
+  const policyRoute = `/profiles/${profile.id}/policy`;
+  const policy = await api(policyRoute, 'GET');
+  assert.equal(policy.maxContentLevel, 12, 'child default level');
+  assert.equal(policy.allowUnrated, false, 'child default unrated');
+  assert.equal(policy.version, 1);
+  const savedPolicy = await api(policyRoute, 'PUT', { ownerPassword: password, expectedVersion: 1, policy: { maxContentLevel: 10, allowUnrated: false } });
+  assert.equal(savedPolicy.version, 2, 'version bump');
+  assert.equal(savedPolicy.maxContentLevel, 10);
+  await api(policyRoute, 'PUT', { ownerPassword: password, expectedVersion: 1, policy: { maxContentLevel: 3, allowUnrated: false } }, 409);
+  await api(policyRoute, 'PUT', { expectedVersion: 2, policy: { maxContentLevel: 3, allowUnrated: false } }, 403);
+  for (let i = 0; i < 5; i++) {
+    await api(policyRoute, 'PUT', { ownerPassword: 'wrong-password', expectedVersion: 2, policy: { maxContentLevel: 3, allowUnrated: false } }, 403);
+  }
+  await api(policyRoute, 'PUT', { ownerPassword: password, expectedVersion: 2, policy: { maxContentLevel: 3, allowUnrated: false } }, 423);
   await stop();
   await start();
   assert.equal((await api('/auth/session')).activeProfile.id, profile.id);
+  const policyAfterRestart = await api(policyRoute, 'GET');
+  assert.equal(policyAfterRestart.maxContentLevel, 10, 'policy persists across restart');
+  assert.equal(policyAfterRestart.version, 2);
   const db = new SQLite(path.join(dir, 'hmp.db'));
   await db.backup(path.join(dir, 'restore.db'));
   db.close();
@@ -108,7 +126,8 @@ try {
   assert.ok(timings[18] < 3000, 'SC-002 login p95 < 3 seconds');
   console.log(JSON.stringify({ result: 'PASS', loginP95Ms: Math.round(timings[18]), scenarios: [
     'migration drill/idempotent up', 'compiled SPA/API routing', 'initialization/login',
-    'PIN rejection/unlock/select', 'process restart persistence', 'backup restore integrity', 'logout/idempotency',
+    'PIN rejection/unlock/select', 'parent-verified policy save/version conflict/lockout(423)',
+    'process restart persistence(policy+session)', 'backup restore integrity', 'logout/idempotency',
   ] }));
 } finally {
   await stop();

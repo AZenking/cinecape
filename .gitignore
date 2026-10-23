@@ -27,6 +27,7 @@ hmp.db.bak*
 
 # generated(契约单一事实源 = contracts/openapi.yaml)
 packages/shared/src/schema.d.ts
+packages/shared/src/policy-schema.d.ts
 
 # logs
 logs/

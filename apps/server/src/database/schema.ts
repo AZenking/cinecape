@@ -3,6 +3,7 @@ import {
   check,
   foreignKey,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -134,6 +135,77 @@ export type Account = typeof account.$inferSelect;
 export type Profile = typeof profile.$inferSelect;
 export type Device = typeof device.$inferSelect;
 export type DeviceSession = typeof deviceSession.$inferSelect;
+
+/**
+ * ProfilePolicy(阶段 2,002 data-model.md):一档案一策略,复合主键 + UNIQUE(profile_id),
+ * (household_id, profile_id) 复合外键 → profile(household_id, id)(依赖 0002 的唯一索引)。
+ * 三名单为 JSON 数组文本(CHECK json_valid + array),version 乐观并发。
+ */
+export const profilePolicy = sqliteTable(
+  'profile_policy',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    profileId: text('profile_id').notNull(),
+    maxContentLevel: integer('max_content_level').notNull(),
+    allowUnrated: integer('allow_unrated').notNull(),
+    allowedMediaIds: text('allowed_media_ids').notNull().default('[]'),
+    blockedMediaIds: text('blocked_media_ids').notNull().default('[]'),
+    allowedChannelIds: text('allowed_channel_ids').notNull().default('[]'),
+    version: integer('version').notNull().default(1),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ name: 'profile_policy_pk', columns: [t.householdId, t.profileId] }),
+    uniqueIndex('profile_policy_unique_profile').on(t.profileId),
+    foreignKey({
+      name: 'profile_policy_profile_composite_fk',
+      columns: [t.householdId, t.profileId],
+      foreignColumns: [profile.householdId, profile.id],
+    }),
+    check('profile_policy_level_check', sql`${t.maxContentLevel} BETWEEN 0 AND 18`),
+    check('profile_policy_unrated_check', sql`${t.allowUnrated} IN (0, 1)`),
+    check('profile_policy_version_check', sql`${t.version} >= 1`),
+    check(
+      'profile_policy_allowed_json_check',
+      sql`json_valid(${t.allowedMediaIds}) AND json_type(${t.allowedMediaIds}) = 'array'`,
+    ),
+    check(
+      'profile_policy_blocked_json_check',
+      sql`json_valid(${t.blockedMediaIds}) AND json_type(${t.blockedMediaIds}) = 'array'`,
+    ),
+    check(
+      'profile_policy_channel_json_check',
+      sql`json_valid(${t.allowedChannelIds}) AND json_type(${t.allowedChannelIds}) = 'array'`,
+    ),
+  ],
+);
+
+/** 家长验证状态:账号范围失败计数与锁定(不存密码;密码经 account.password_hash 校验) */
+export const parentVerificationState = sqliteTable(
+  'parent_verification_state',
+  {
+    householdId: text('household_id').notNull(),
+    accountId: text('account_id').notNull(),
+    failedAttempts: integer('failed_attempts').notNull().default(0),
+    lockedUntil: text('locked_until'),
+  },
+  (t) => [
+    primaryKey({ name: 'parent_verification_state_pk', columns: [t.householdId, t.accountId] }),
+    foreignKey({
+      name: 'parent_verification_account_composite_fk',
+      columns: [t.householdId, t.accountId],
+      foreignColumns: [account.householdId, account.id],
+    }),
+    check('parent_verification_attempts_check', sql`${t.failedAttempts} >= 0`),
+  ],
+);
+
+export type ProfilePolicy = typeof profilePolicy.$inferSelect;
+export type NewProfilePolicy = typeof profilePolicy.$inferInsert;
+export type ParentVerificationState = typeof parentVerificationState.$inferSelect;
+export type NewParentVerificationState = typeof parentVerificationState.$inferInsert;
 
 /** 写入新行时的必填类型 */
 export type NewHousehold = typeof household.$inferInsert;

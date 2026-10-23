@@ -34,7 +34,7 @@ export class Database {
         .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
       const applied = conn.prepare('SELECT name FROM _migrations ORDER BY name').all() as { name: string }[];
       if (expected.length === 0 || JSON.stringify(applied.map((row) => row.name)) !== JSON.stringify(expected)) return false;
-      for (const table of ['household', 'account', 'profile', 'device', 'device_session']) {
+      for (const table of ['household', 'account', 'profile', 'device', 'device_session', 'profile_policy', 'parent_verification_state']) {
         if (!conn.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)) return false;
       }
       Database.openError = null;

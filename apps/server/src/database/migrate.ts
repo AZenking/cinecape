@@ -23,8 +23,8 @@ interface MigrationFile {
   downPath: string;
 }
 
-/** drill 结束时必须全部存在的表(5 业务表 + 版本表) */
-const EXPECTED_TABLES = ['household', 'account', 'profile', 'device', 'device_session', '_migrations'] as const;
+/** drill 结束时必须全部存在的表(7 业务表 + 版本表) */
+const EXPECTED_TABLES = ['household', 'account', 'profile', 'device', 'device_session', 'profile_policy', 'parent_verification_state', '_migrations'] as const;
 
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 

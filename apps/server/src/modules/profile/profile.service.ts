@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, ne } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
 import type { Profile } from '../../database/schema';
-import { deviceSession, profile } from '../../database/schema';
+import { deviceSession, profile, profilePolicy } from '../../database/schema';
 import { DomainError } from '../../common/domain-error';
 import type { SessionContext } from '../../common/current-session.decorator';
 import { getDb, type Db } from '../auth/db';
+import { verifyParentPassword } from '../auth/parent-verification.service';
 import { consumeUnlockGrant, hasUnlockGrant, revokeUnlockGrantsForProfile } from './pin.service';
+import { defaultPolicyValues } from '../policy/policy.rules';
 
 /**
  * Profile 聚合(US2:T025 创建/编辑/停用、T026 select、T028 停用级联)。
@@ -142,8 +144,29 @@ export function createProfile(command: CreateProfileCommand): ProfileDtoBody {
       swapActiveDefaultTo(tx, command.householdId, row.id);
     }
     tx.insert(profile).values(row).run();
+    // 阶段 2/FR-003:档案与默认策略同事务原子创建(成人 18/true,儿童 12/false,空名单)
+    insertDefaultPolicy(tx, row);
     return toProfileDto(row);
   });
+}
+
+/** 同事务插入默认策略(仅创建路径;运行时缺失策略一律拒绝,不自动补建,FR-008) */
+function insertDefaultPolicy(tx: Db, row: Profile): void {
+  const defaults = defaultPolicyValues(row.type as 'adult' | 'child');
+  tx
+    .insert(profilePolicy)
+    .values({
+      householdId: row.householdId,
+      profileId: row.id,
+      maxContentLevel: defaults.maxContentLevel,
+      allowUnrated: defaults.allowUnrated ? 1 : 0,
+      allowedMediaIds: '[]',
+      blockedMediaIds: '[]',
+      allowedChannelIds: '[]',
+      version: 1,
+      updatedAt: row.createdAt,
+    })
+    .run();
 }
 
 export interface UpdateProfileCommand {
@@ -271,17 +294,34 @@ export interface SelectProfileResult {
 }
 
 /**
- * 选择当前观看者(FR-014):校验顺序 404(归属)→ 403 PROFILE_NOT_SELECTABLE(已停用)
- * → 403 PROFILE_PIN_REQUIRED(PIN 未解锁);通过后事务内更新 device_session.active_profile_id,
- * 成功后消费解锁授予(一次性)。
+ * 选择当前观看者(FR-014;阶段 2 增补 FR-012):校验顺序 404(归属)→
+ * 403 PROFILE_NOT_SELECTABLE(已停用)→ 403 PROFILE_PIN_REQUIRED(PIN 未解锁)→
+ * 403 PARENT_VERIFICATION_REQUIRED/FAILED、423 LOCKED(无 PIN 成人 + 家庭含任一儿童档案,
+ * 含停用儿童;owner 会话可能被儿童共用,不能凭会话角色直接切换到未受保护成人);
+ * 通过后事务内更新 device_session.active_profile_id,成功后消费解锁授予(一次性)。
+ * 有 PIN 目标始终走 PIN 授予,ownerPassword 不替代 PIN。
  */
-export function selectProfile(profileId: string, context: SessionContext): SelectProfileResult {
+export async function selectProfile(
+  profileId: string,
+  context: SessionContext,
+  ownerPassword?: string,
+): Promise<SelectProfileResult> {
   const row = requireOwnedProfile(profileId, context);
   if (row.status === 'disabled') {
     throw new DomainError(403, ProblemCode.PROFILE_NOT_SELECTABLE, '该 Profile 已停用,无法选择');
   }
   if (row.pinHash !== null && !hasUnlockGrant(context.session.id, row.id)) {
     throw new DomainError(403, ProblemCode.PROFILE_PIN_REQUIRED, '该 Profile 受 PIN 保护,请先解锁');
+  }
+  if (row.pinHash === null && row.type === 'adult' && householdHasChildProfile(row.householdId)) {
+    if (ownerPassword === undefined || ownerPassword === '') {
+      throw new DomainError(
+        403,
+        ProblemCode.PARENT_VERIFICATION_REQUIRED,
+        '家庭存在儿童档案,选择未设 PIN 的成人需家长验证',
+      );
+    }
+    await verifyParentPassword(context, ownerPassword);
   }
 
   getDb().transaction((tx) => {
@@ -303,6 +343,17 @@ export function selectProfile(profileId: string, context: SessionContext): Selec
     activeProfile: toProfileDto(row),
     expiresAt: context.session.expiresAt,
   };
+}
+
+/** 家庭是否存在任一儿童档案(含停用;停用儿童同样触发无 PIN 成人切换保护,FR-012) */
+export function householdHasChildProfile(householdId: string): boolean {
+  const row = getDb()
+    .select({ id: profile.id })
+    .from(profile)
+    .where(and(eq(profile.householdId, householdId), eq(profile.type, 'child')))
+    .limit(1)
+    .get();
+  return row !== undefined;
 }
 
 // ---------------------------------------------------------------------------

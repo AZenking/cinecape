@@ -37,16 +37,42 @@ export interface StartAppOptions {
   prefix?: string;
   /** 追加/覆盖的环境变量(经 zod envSchema 解析,可注入非默认形态,如小数天 TTL) */
   env?: Record<string, string>;
+  /**
+   * 仅应用指定迁移(默认:按目录序应用全部)。
+   * 升级路径用例以 ['0001_init'] 构造阶段 1 形态库,再手工应用 0002 验证回填。
+   */
+  migrations?: string[];
 }
 
-function migrationUpSql(): string {
-  const upSqlPath = path.join(process.cwd(), 'src/database/migrations/0001_init/up.sql');
-  if (!fs.existsSync(upSqlPath)) {
-    throw new Error(
-      `未找到迁移 DDL ${upSqlPath} —— 本测试须以 apps/server 为工作目录运行(pnpm --filter @hmp/server test)`,
-    );
+function migrationsDir(): string {
+  return path.join(process.cwd(), 'src/database/migrations');
+}
+
+/** 迁移目录下按字典序排列的全部迁移名(与 database.ts isReady 的期望清单同源) */
+function allMigrationNames(): string[] {
+  return fs
+    .readdirSync(migrationsDir(), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+}
+
+/** 应用给定迁移的 up.sql 并记录 _migrations(与生产 migrate.ts 同语义,测试夹具内联实现) */
+function applyMigrations(names: string[]): void {
+  const conn = Database.db;
+  for (const name of names) {
+    const upSqlPath = path.join(migrationsDir(), name, 'up.sql');
+    if (!fs.existsSync(upSqlPath)) {
+      throw new Error(
+        `未找到迁移 DDL ${upSqlPath} —— 本测试须以 apps/server 为工作目录运行(pnpm --filter @hmp/server test)`,
+      );
+    }
+    conn.exec(fs.readFileSync(upSqlPath, 'utf8'));
   }
-  return fs.readFileSync(upSqlPath, 'utf8');
+  const insert = conn.prepare('INSERT INTO _migrations (name, applied_at) VALUES (?, ?)');
+  for (const name of names) {
+    insert.run(name, new Date().toISOString());
+  }
 }
 
 function applyEnv(dataDir: string, dbFilename: string, extra?: Record<string, string>): void {
@@ -62,14 +88,14 @@ async function bootApp(): Promise<INestApplication> {
   return app;
 }
 
-/** 全新环境启动:独立临时数据目录 + 应用权威迁移 DDL */
+/** 全新环境启动:独立临时数据目录 + 应用权威迁移 DDL(默认全部) */
 export async function startFreshApp(options: StartAppOptions = {}): Promise<TestRig> {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), options.prefix ?? 'hmp-test-'));
   const dbFilename = `${randomUUID()}.hmp.db`;
   applyEnv(dataDir, dbFilename, options.env);
   Database.close();
-  Database.db.exec(migrationUpSql());
-  Database.db.exec("CREATE TABLE _migrations (name TEXT PRIMARY KEY NOT NULL, applied_at TEXT NOT NULL); INSERT INTO _migrations VALUES ('0001_init', datetime('now'));");
+  Database.db.exec('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY NOT NULL, applied_at TEXT NOT NULL)');
+  applyMigrations(options.migrations ?? allMigrationNames());
   const app = await bootApp();
   const rig: TestRig = { app, dataDir, dbFilename };
   rigs.push(rig);
