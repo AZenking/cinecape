@@ -1,14 +1,15 @@
 /**
- * 档案选择页(T029,User Story 2 / FR-014/015)。
+ * 档案选择页(T029,User Story 2 / FR-014/015;阶段 2 增补 FR-012)。
  *
  * - 挂载时 GET /profiles 拉取当前 Household 档案列表,Netflix 式横排大卡
  *   (components/ProfileCard):类型角标、默认标记、PIN 锁角标,停用档案置灰不可点。
  * - 点击行为:pinProtected → 打开 PinPad 解锁,成功后 POST /profiles/{id}/select;
- *   无 PIN → 直接 select。select 成功 → await refresh()(SessionProvider 上下文
- *   更新,AppShell 观看者同步)→ 留在本页并显示顶部轻条「当前观看:{name}」。
+ *   无 PIN → 直接 select。
+ * - 阶段 2:家庭存在儿童档案时,选择未设 PIN 的成人会被服务端要求家长验证
+ *   (403 PARENT_VERIFICATION_REQUIRED)→ 弹出家长验证(主账号密码,当次提交后清空),
+ *   通过后携带 ownerPassword 重试 select;ownerPassword 不替代 PIN 解锁。
  * - 404/403(档案不存在/跨家庭/已停用)→ Alert 轻条提示并 refresh() 修正上下文;
- *   其余错误展示服务端 detail。
- * - 视觉(research D6):暗色优先、卡片横排居中、onPress 统一交互。
+ *   其余错误展示服务端 detail。服务端为唯一信任源,前端仅呈现其决定。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Button, Spinner } from '@heroui/react';
@@ -16,6 +17,7 @@ import { ApiError, api } from '../lib/api';
 import { useSession } from '../lib/session';
 import { ProfileCard } from '../components/ProfileCard';
 import { PinPad } from '../components/PinPad';
+import { ParentVerificationModal } from '../components/ParentVerificationModal';
 import type { components } from '@hmp/shared';
 
 type ProfileDto = components['schemas']['ProfileDto'];
@@ -38,6 +40,10 @@ export function ProfilePicker() {
   /** PIN 弹层目标;ref 保证解锁成功回调拿到的是发起时的档案 */
   const [pinTarget, setPinTarget] = useState<ProfileDto | null>(null);
   const pinTargetRef = useRef<ProfileDto | null>(null);
+  /** 家长验证弹层目标(无 PIN 成人 + 家庭含儿童;FR-012) */
+  const [verifyTarget, setVerifyTarget] = useState<ProfileDto | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const verifyTargetRef = useRef<ProfileDto | null>(null);
 
   const loadProfiles = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -60,17 +66,36 @@ export function ProfilePicker() {
     void loadProfiles();
   }, [loadProfiles]);
 
-  /** POST /profiles/{id}/select → 刷新会话上下文 → 顶部轻条 */
+  /** POST /profiles/{id}/select → 刷新会话上下文 → 顶部轻条;403 REQUIRED → 家长验证 */
   const selectProfile = useCallback(
-    async (profile: ProfileDto): Promise<void> => {
+    async (profile: ProfileDto, ownerPassword?: string): Promise<void> => {
       setSelectingId(profile.id);
       setBanner(null);
       try {
-        await api.post(`/profiles/${profile.id}/select` as '/profiles/{profileId}/select');
+        await api.post(
+          `/profiles/${profile.id}/select` as '/profiles/{profileId}/select',
+          ownerPassword === undefined ? {} : { ownerPassword },
+        );
         await refresh();
         setBanner({ tone: 'success', message: `当前观看:${profile.name}` });
+        // 验证后成功:关闭验证弹窗
+        verifyTargetRef.current = null;
+        setVerifyTarget(null);
+        setVerifyError(null);
       } catch (error) {
         if (error instanceof ApiError) {
+          // 家庭含儿童档案:选择未设 PIN 成人须家长验证(FR-012)→ 弹验证后带密码重试
+          if (error.code === 'PARENT_VERIFICATION_REQUIRED') {
+            verifyTargetRef.current = profile;
+            setVerifyTarget(profile);
+            setVerifyError(null);
+            return;
+          }
+          // 验证失败/锁定(重试路径):保持弹窗展示错误,计数与锁定由服务端管理
+          if (error.code === 'PARENT_VERIFICATION_FAILED' || error.code === 'PARENT_VERIFICATION_LOCKED') {
+            setVerifyError(error.detail ?? '密码验证未通过,请稍后重试。');
+            return;
+          }
           const isUnavailable = error.status === 404 || error.status === 403;
           setBanner({
             tone: 'danger',
@@ -203,6 +228,26 @@ export function ProfilePicker() {
           onSuccess={handlePinSuccess}
         />
       )}
+
+      {/* 家长验证弹窗(阶段 2/FR-012):无 PIN 成人 + 家庭含儿童;通过后带密码重试 select */}
+      <ParentVerificationModal
+        isOpen={verifyTarget !== null}
+        title={`家长验证 · 切换到「${verifyTarget?.name ?? ''}」`}
+        description="家庭存在儿童档案,选择未设 PIN 的成人需验证主账号密码。"
+        isPending={selectingId !== null}
+        error={verifyError}
+        onCancel={() => {
+          verifyTargetRef.current = null;
+          setVerifyTarget(null);
+          setVerifyError(null);
+        }}
+        onConfirm={(password) => {
+          const target = verifyTargetRef.current ?? verifyTarget;
+          if (target) {
+            void selectProfile(target, password);
+          }
+        }}
+      />
     </section>
   );
 }

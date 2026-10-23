@@ -8,7 +8,7 @@
  * - 传输通道(research D5):httpOnly Cookie 为主(`credentials: 'include'`);
  *   若本地存有一次性 sessionToken,则附带 `Authorization: Bearer` 作为备用通道。
  */
-import type { components, paths } from '@hmp/shared';
+import type { components, paths, PolicyDto, UpdatePolicyRequest } from '@hmp/shared';
 import type { ProblemCode } from '@hmp/shared';
 
 /** 所有 API 路径的统一前缀(开发期由 Vite 代理到 :3000,生产同源部署) */
@@ -71,9 +71,9 @@ export type ApiResponse<TOperation> = TOperation extends { responses: infer TRes
     }[keyof TResponses & (200 | 201 | 202 | 204)]
   : never;
 
-/** 提取 operation 的请求体类型;无请求体的操作为 undefined */
+/** 提取 operation 的请求体类型(兼容 required 与 optional requestBody);无请求体的操作为 undefined */
 export type RequestBodyOf<P extends keyof paths, M extends HttpMethod> =
-  OperationOf<P, M> extends { requestBody: { content: { 'application/json': infer TBody } } }
+  OperationOf<P, M> extends { requestBody?: { content: { 'application/json': infer TBody } } }
     ? TBody
     : undefined;
 
@@ -186,6 +186,24 @@ export class ApiClient {
       ...init,
       method: 'PATCH',
       body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  }
+
+  /* ---------------- 阶段 2:ProfilePolicy(002 contracts/openapi.yaml) ---------------- */
+
+  /** GET /profiles/{profileId}/policy → PolicyDto(owner;目标经归属校验) */
+  async getProfilePolicy(profileId: string): Promise<PolicyDto> {
+    return request(`/profiles/${profileId}/policy`);
+  }
+
+  /**
+   * PUT /profiles/{profileId}/policy:整体保存可编辑配置(家长验证 + 版本检查)。
+   * 非空 ownerPassword 由调用方保证;失败抛 ApiError(403/409/423/503 等按契约)。
+   */
+  async updateProfilePolicy(profileId: string, body: UpdatePolicyRequest): Promise<PolicyDto> {
+    return request(`/profiles/${profileId}/policy`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
     });
   }
 }

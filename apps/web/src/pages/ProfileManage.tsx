@@ -11,6 +11,7 @@
  * - 仅 owner 可进入管理路由；POST/PATCH 同时由服务端验证 owner 权限。
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
 import {
   Alert,
   Button,
@@ -28,6 +29,7 @@ import {
 } from '@heroui/react';
 import { ApiError, api } from '../lib/api';
 import { useSession } from '../lib/session';
+import { ParentVerificationModal } from '../components/ParentVerificationModal';
 import type { components } from '@hmp/shared';
 
 type ProfileDto = components['schemas']['ProfileDto'];
@@ -51,6 +53,37 @@ function isValidPin(pin: string): boolean {
 
 export function ProfileManage() {
   const { refresh: refreshSession } = useSession();
+  const navigate = useNavigate();
+
+  // ---------------- 家长验证(阶段 2/FR-004):全部管理写操作须重验主账号密码 ----------------
+  /** 待验证动作:run(password) 执行真实请求并返回错误文案(null = 成功) */
+  const [verifyAction, setVerifyAction] = useState<{ description: string; run: (password: string) => Promise<string | null> } | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+
+  const requestVerification = (description: string, run: (password: string) => Promise<string | null>): void => {
+    setVerifyError(null);
+    setVerifyAction({ description, run });
+  };
+
+  const handleVerifiedConfirm = async (password: string): Promise<void> => {
+    const action = verifyAction;
+    if (action === null || verifying) {
+      return;
+    }
+    setVerifying(true);
+    setVerifyError(null);
+    try {
+      const error = await action.run(password);
+      if (error === null) {
+        setVerifyAction(null);
+      } else {
+        setVerifyError(error);
+      }
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   // ---------------- 列表 ----------------
   const [profiles, setProfiles] = useState<ProfileDto[]>([]);
@@ -92,33 +125,37 @@ export function ProfileManage() {
   // ---------------- 行内弹层:编辑名称 / 设置 PIN ----------------
   const [nameTarget, setNameTarget] = useState<ProfileDto | null>(null);
   const [nameDraft, setNameDraft] = useState('');
-  const [nameSaving, setNameSaving] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
 
   const [pinTarget, setPinTarget] = useState<ProfileDto | null>(null);
   const [pinDraft, setPinDraft] = useState('');
   const [pinError, setPinError] = useState<string | null>(null);
-  const [pinSaving, setPinSaving] = useState(false);
 
   /**
-   * 通用 PATCH:成功 → 刷新会话上下文 + 列表 + 成功通知;
+   * 通用 PATCH(ownerPassword 必填,阶段 2/FR-004):成功 → 刷新会话上下文 + 列表 + 成功通知;
    * 409(最后一个可用档案停用等)→ 「至少保留一个可用档案」;
-   * 403(owner 专属写入受限)与 404 → 展示服务端 detail。
+   * 403 验证类错误(REQUIRED/FAILED/LOCKED)在家长验证弹窗内呈现,不弹顶部通知。
    */
   const patchProfile = useCallback(
-    async (profile: ProfileDto, body: UpdateProfileRequest, successMessage: string): Promise<string | null> => {
+    async (profile: ProfileDto, body: UpdateProfileRequest, successMessage: string, ownerPassword: string): Promise<string | null> => {
       setBusyId(profile.id);
       setNotice(null);
       try {
         await api.patch(
           `/profiles/${profile.id}` as '/profiles/{profileId}',
-          body,
+          { ...body, ownerPassword },
         );
         await refreshSession();
         await loadProfiles();
         setNotice({ tone: 'success', message: successMessage });
         return null;
       } catch (error) {
+        if (error instanceof ApiError && error.code === 'PARENT_VERIFICATION_LOCKED') {
+          return error.detail ?? '家长验证已锁定,请稍后重试。';
+        }
+        if (error instanceof ApiError && error.code === 'PARENT_VERIFICATION_FAILED') {
+          return error.detail ?? '密码验证未通过,请重试。';
+        }
         if (
           error instanceof ApiError &&
           (error.status === 409 || error.code === 'LAST_ACTIVE_PROFILE')
@@ -155,8 +192,9 @@ export function ProfileManage() {
     setPinError(null);
   };
 
-  const createProfile = async (): Promise<void> => {
-    if (creating) return;
+  /** 表单校验通过后 → 家长验证 → 携密码创建(阶段 2/FR-004) */
+  const submitCreate = (): void => {
+    if (verifying) return;
     const name = newName.trim();
     const errors: { name?: string; pin?: string } = {};
     if (!name) {
@@ -171,72 +209,71 @@ export function ProfileManage() {
       setFormErrors(errors);
       return;
     }
-
-    setCreating(true);
-    setNotice(null);
-    try {
-      await api.post('/profiles', {
-        name,
-        type: newType,
-        isDefault: newIsDefault,
-        ...(newPin ? { pin: newPin } : {}),
-      });
-      setNewName('');
-      setNewPin('');
-      setNewIsDefault(false);
-      setNewType('adult');
-      await refreshSession();
-      await loadProfiles();
-      setNotice({ tone: 'success', message: `已创建档案「${name}」` });
-    } catch (error) {
-      if (error instanceof ApiError && error.code === 'VALIDATION_FAILED') {
-        setNotice({
-          tone: 'danger',
-          message: error.detail ?? '提交信息未通过服务端校验,请检查后重试。',
+    requestVerification(`创建档案「${name}」`, async (ownerPassword) => {
+      setCreating(true);
+      setNotice(null);
+      try {
+        await api.post('/profiles', {
+          name,
+          type: newType,
+          isDefault: newIsDefault,
+          ownerPassword,
+          ...(newPin ? { pin: newPin } : {}),
         });
-      } else if (error instanceof ApiError && error.status === 403) {
-        setNotice({
-          tone: 'danger',
-          message: error.detail ?? '仅主账号可以创建档案。',
-        });
-      } else if (error instanceof ApiError) {
-        setNotice({ tone: 'danger', message: error.detail ?? '创建失败,请稍后重试。' });
-      } else {
-        setNotice({ tone: 'danger', message: '创建失败,请稍后重试。' });
+        setNewName('');
+        setNewPin('');
+        setNewIsDefault(false);
+        setNewType('adult');
+        await refreshSession();
+        await loadProfiles();
+        setNotice({ tone: 'success', message: `已创建档案「${name}」` });
+        return null;
+      } catch (error) {
+        if (error instanceof ApiError && error.code === 'PARENT_VERIFICATION_LOCKED') {
+          return error.detail ?? '家长验证已锁定,请稍后重试。';
+        }
+        if (error instanceof ApiError && error.code === 'PARENT_VERIFICATION_FAILED') {
+          return error.detail ?? '密码验证未通过,请重试。';
+        }
+        const message =
+          error instanceof ApiError
+            ? (error.detail ?? '创建失败,请稍后重试。')
+            : '创建失败,请稍后重试。';
+        setNotice({ tone: 'danger', message });
+        return message;
+      } finally {
+        setCreating(false);
       }
-    } finally {
-      setCreating(false);
-    }
+    });
   };
 
-  const saveName = async (): Promise<void> => {
+  /** 名称弹窗保存:校验通过 → 关闭名称弹窗 → 家长验证 → PATCH */
+  const saveName = (): void => {
     const target = nameTarget;
     const name = nameDraft.trim();
-    // 按钮已在越界/无变化时禁用;此处兜底守卫
-    if (!target || !name || name === target.name || name.length > NAME_MAX || nameSaving) {
+    if (!target || !name || name === target.name || name.length > NAME_MAX || verifying) {
       return;
     }
-    setNameSaving(true);
-    const error = await patchProfile(target, { name, clearPin: false }, `已更新名称为「${name}」`);
-    setNameSaving(false);
-    setNameError(error);
-    if (error === null) setNameTarget(null);
+    setNameTarget(null);
+    requestVerification(`重命名「${target.name}」为「${name}」`, (ownerPassword) =>
+      patchProfile(target, { name, clearPin: false }, `已更新名称为「${name}」`, ownerPassword),
+    );
   };
 
-  const savePin = async (): Promise<void> => {
+  /** PIN 弹窗保存:校验通过 → 关闭 PIN 弹窗 → 家长验证 → PATCH */
+  const savePin = (): void => {
     const target = pinTarget;
-    if (!target || pinSaving) {
+    if (!target || verifying) {
       return;
     }
     if (!isValidPin(pinDraft)) {
       setPinError(`PIN 需为 ${PIN_MIN}-${PIN_MAX} 位数字`);
       return;
     }
-    setPinSaving(true);
-    const error = await patchProfile(target, { pin: pinDraft, clearPin: false }, `已为「${target.name}」设置 PIN 保护`);
-    setPinSaving(false);
-    setPinError(error);
-    if (error === null) setPinTarget(null);
+    setPinTarget(null);
+    requestVerification(`为「${target.name}」设置 PIN 保护`, (ownerPassword) =>
+      patchProfile(target, { pin: pinDraft, clearPin: false }, `已为「${target.name}」设置 PIN 保护`, ownerPassword),
+    );
   };
 
   const rowDisabled = (profile: ProfileDto): boolean =>
@@ -269,7 +306,7 @@ export function ProfileManage() {
           <Card.Description>PIN 为可选项(4-12 位数字),设置后切换需解锁。</Card.Description>
         </Card.Header>
         <Card.Content>
-          <Form className="flex flex-col gap-4" validationBehavior="aria" onSubmit={(event) => { event.preventDefault(); void createProfile(); }}>
+          <Form className="flex flex-col gap-4" validationBehavior="aria" onSubmit={(event) => { event.preventDefault(); submitCreate(); }}>
             <TextField
               value={newName}
               onChange={(value) => {
@@ -392,6 +429,14 @@ export function ProfileManage() {
                   size="sm"
                   variant="outline"
                   isDisabled={rowDisabled(profile)}
+                  onPress={() => navigate(`/profiles/${profile.id}/policy`)}
+                >
+                  内容策略
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  isDisabled={rowDisabled(profile)}
                   onPress={() => openNameModal(profile)}
                 >
                   编辑名称
@@ -402,7 +447,9 @@ export function ProfileManage() {
                     variant="outline"
                     isDisabled={rowDisabled(profile)}
                     onPress={() =>
-                      void patchProfile(profile, { isDefault: true, clearPin: false }, `已将「${profile.name}」设为默认`)
+                      requestVerification(`将「${profile.name}」设为默认`, (ownerPassword) =>
+                        patchProfile(profile, { isDefault: true, clearPin: false }, `已将「${profile.name}」设为默认`, ownerPassword),
+                      )
                     }
                   >
                     设为默认
@@ -422,7 +469,9 @@ export function ProfileManage() {
                     variant="outline"
                     isDisabled={rowDisabled(profile)}
                     onPress={() =>
-                      void patchProfile(profile, { clearPin: true }, `已清除「${profile.name}」的 PIN 保护`)
+                      requestVerification(`清除「${profile.name}」的 PIN 保护`, (ownerPassword) =>
+                        patchProfile(profile, { clearPin: true }, `已清除「${profile.name}」的 PIN 保护`, ownerPassword),
+                      )
                     }
                   >
                     清除 PIN
@@ -433,15 +482,20 @@ export function ProfileManage() {
                   variant={profile.status === 'active' ? 'danger-soft' : 'secondary'}
                   isDisabled={rowDisabled(profile)}
                   onPress={() =>
-                    void patchProfile(
-                      profile,
-                      {
-                        status: profile.status === 'active' ? 'disabled' : 'active',
-                        clearPin: false,
-                      },
-                      profile.status === 'active'
-                        ? `已停用「${profile.name}」`
-                        : `已启用「${profile.name}」`,
+                    requestVerification(
+                      profile.status === 'active' ? `停用「${profile.name}」` : `启用「${profile.name}」`,
+                      (ownerPassword) =>
+                        patchProfile(
+                          profile,
+                          {
+                            status: profile.status === 'active' ? 'disabled' : 'active',
+                            clearPin: false,
+                          },
+                          profile.status === 'active'
+                            ? `已停用「${profile.name}」`
+                            : `已启用「${profile.name}」`,
+                          ownerPassword,
+                        ),
                     )
                   }
                 >
@@ -457,18 +511,18 @@ export function ProfileManage() {
       <Modal
         isOpen={nameTarget !== null}
         onOpenChange={(open) => {
-          if (!open && !nameSaving) {
+          if (!open) {
             setNameTarget(null);
           }
         }}
       >
-        <Modal.Backdrop isDismissable={!nameSaving} isKeyboardDismissDisabled={nameSaving}>
+        <Modal.Backdrop>
           <Modal.Container placement="center">
             <Modal.Dialog aria-label="编辑档案名称">
               <Modal.Body className="pt-4">
                 <TextField
                   value={nameDraft}
-                  isDisabled={nameSaving}
+                  isDisabled={verifying}
                   onChange={(value) => { setNameDraft(value); setNameError(null); }}
                   isInvalid={nameDraft.trim().length > NAME_MAX}
                   isRequired
@@ -485,18 +539,18 @@ export function ProfileManage() {
                 {nameError && <Alert status="danger"><Alert.Content><Alert.Title>保存失败</Alert.Title><Alert.Description>{nameError}</Alert.Description></Alert.Content></Alert>}
               </Modal.Body>
               <Modal.Footer>
-                <Button variant="ghost" isDisabled={nameSaving} onPress={() => setNameTarget(null)}>
+                <Button variant="ghost" isDisabled={verifying} onPress={() => setNameTarget(null)}>
                   取消
                 </Button>
                 <Button
                   variant="primary"
-                  isPending={nameSaving}
+                  isPending={verifying}
                   isDisabled={
                     nameDraft.trim().length === 0 ||
                     nameDraft.trim().length > NAME_MAX ||
                     nameDraft.trim() === (nameTarget?.name ?? '')
                   }
-                  onPress={() => void saveName()}
+                  onPress={() => saveName()}
                 >
                   保存
                 </Button>
@@ -510,12 +564,12 @@ export function ProfileManage() {
       <Modal
         isOpen={pinTarget !== null}
         onOpenChange={(open) => {
-          if (!open && !pinSaving) {
+          if (!open) {
             setPinTarget(null);
           }
         }}
       >
-        <Modal.Backdrop isDismissable={!pinSaving} isKeyboardDismissDisabled={pinSaving}>
+        <Modal.Backdrop>
           <Modal.Container placement="center">
             <Modal.Dialog aria-label="设置档案 PIN">
               <Modal.Body className="space-y-3 pt-4">
@@ -524,7 +578,7 @@ export function ProfileManage() {
                 </p>
                 <TextField
                   value={pinDraft}
-                  isDisabled={pinSaving}
+                  isDisabled={verifying}
                   onChange={(value) => {
                     setPinDraft(value);
                     setPinError(null);
@@ -540,14 +594,14 @@ export function ProfileManage() {
                 </TextField>
               </Modal.Body>
               <Modal.Footer>
-                <Button variant="ghost" isDisabled={pinSaving} onPress={() => setPinTarget(null)}>
+                <Button variant="ghost" isDisabled={verifying} onPress={() => setPinTarget(null)}>
                   取消
                 </Button>
                 <Button
                   variant="primary"
-                  isPending={pinSaving}
+                  isPending={verifying}
                   isDisabled={!isValidPin(pinDraft)}
-                  onPress={() => void savePin()}
+                  onPress={() => savePin()}
                 >
                   保存
                 </Button>
@@ -556,6 +610,22 @@ export function ProfileManage() {
           </Modal.Container>
         </Modal.Backdrop>
       </Modal>
+
+      {/* 家长验证弹窗(阶段 2/FR-004):创建/编辑/设默认/停用/启停/设清 PIN 全部须重验主账号密码 */}
+      <ParentVerificationModal
+        isOpen={verifyAction !== null}
+        title="家长验证 · 档案管理"
+        description={verifyAction?.description}
+        isPending={verifying}
+        error={verifyError}
+        onCancel={() => {
+          if (!verifying) {
+            setVerifyAction(null);
+            setVerifyError(null);
+          }
+        }}
+        onConfirm={(password) => void handleVerifiedConfirm(password)}
+      />
     </section>
   );
 }

@@ -15,6 +15,7 @@ import { Login } from './pages/Login';
 import { SetupWizard } from './pages/SetupWizard';
 import { ProfilePicker } from './pages/ProfilePicker';
 import { ProfileManage } from './pages/ProfileManage';
+import { ProfilePolicy } from './pages/ProfilePolicy';
 import { Devices } from './pages/Devices';
 import { SessionProvider, useSession } from './lib/session';
 
@@ -69,6 +70,14 @@ export function App() {
           element={
             <ProtectedPage>
               <OwnerPage><ProfileManage /></OwnerPage>
+            </ProtectedPage>
+          }
+        />
+        <Route
+          path="/profiles/:profileId/policy"
+          element={
+            <ProtectedPage>
+              <OwnerPage><ProfilePolicy /></OwnerPage>
             </ProtectedPage>
           }
         />
