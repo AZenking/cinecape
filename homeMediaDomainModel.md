@@ -419,7 +419,7 @@ PUT  /me/watchlist/:mediaId
 接口约束：
 
 - `/me/*` 接口从 DeviceSession 的 `activeProfileId` 得到个人身份；
-- `:profileId` 只用于 Profile 选择/解锁，并且必须经过 Household 边界校验；
+- `:profileId` 只用于 Profile 选择/解锁，以及经 Household 边界校验的 owner 管理目标指定（档案管理、ProfilePolicy 管理）；管理目标不得作为内容授权的观看者来源（ADR-0006，2026-10-23 接受时补充）；
 - 播放接口不能绕过 ProfilePolicy；
 - API 响应不能返回密码哈希、PIN 哈希或不属于当前 Household 的资源；
 - 对外 DTO 使用稳定的领域字段，数据库字段变化不应直接泄露给客户端。
