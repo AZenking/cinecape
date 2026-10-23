@@ -1,0 +1,161 @@
+# ProfilePolicy 内容访问策略契约 —— 002-profile-policy
+# OpenAPI 3.1 · 错误格式:RFC 9457 application/problem+json
+# 认证:沿用 001 双通道(httpOnly Cookie 或 Bearer);会话为唯一信任源(规格 FR-006/FR-014)
+# 阶段边界(FR-015):仅策略管理与既有身份接口变更;不提供接受客户端媒体事实的公开 evaluate 接口
+openapi: 3.1.0
+info:
+  title: Home Media Platform — ProfilePolicy API
+  version: 0.2.0
+  description: >
+    阶段 2(ProfilePolicy)对外契约:策略读取/整体保存(家长验证 + 版本检查),
+    以及既有身份接口的 ownerPassword 扩展。密码不回显、不落日志;
+    判定核心 authorizeCurrentProfile 为服务端内部契约,不经 HTTP 暴露。
+servers:
+  - url: http://{host}:{port}/api
+    variables:
+      host: { default: localhost }
+      port: { default: '3000' }
+
+tags:
+  - name: policy
+  - name: profiles
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: hmp_session
+    bearerSession:
+      type: http
+      scheme: bearer
+      description: 不透明会话令牌(仅签发时返回一次)
+  schemas:
+    Problem:
+      type: object
+      description: RFC 9457 problem details
+      required: [type, title, status]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code: { type: string, description: 机器可读错误码,如 POLICY_VERSION_CONFLICT }
+    PolicyDto:
+      type: object
+      description: 单档案内容策略;名单为去重排序后的不透明媒体标识(本阶段只读,默认空)
+      required:
+        [
+          profileId,
+          maxContentLevel,
+          allowUnrated,
+          allowedMediaIds,
+          blockedMediaIds,
+          allowedChannelIds,
+          version,
+          updatedAt,
+        ]
+      properties:
+        profileId: { type: string, format: uuid }
+        maxContentLevel:
+          type: integer
+          minimum: 0
+          maximum: 18
+          description: 内部年龄阈值 0～18(成人默认 18、儿童默认 12),非法定/地区分级
+        allowUnrated: { type: boolean, description: 未评级媒体是否允许(成人默认 true、儿童默认 false) }
+        allowedMediaIds:
+          type: array
+          items: { type: string, minLength: 1, maxLength: 128 }
+          maxItems: 1000
+        blockedMediaIds:
+          type: array
+          items: { type: string, minLength: 1, maxLength: 128 }
+          maxItems: 1000
+        allowedChannelIds:
+          type: array
+          items: { type: string, minLength: 1, maxLength: 128 }
+          maxItems: 1000
+        version: { type: integer, minimum: 1, description: 乐观并发版本,每次成功保存 +1 }
+        updatedAt: { type: string, format: date-time }
+    PolicyEditable:
+      type: object
+      description: 阶段 2 可编辑配置;三名单由服务端原样保留,不接受请求覆盖(FR-009/FR-013)
+      required: [maxContentLevel, allowUnrated]
+      properties:
+        maxContentLevel: { type: integer, minimum: 0, maximum: 18 }
+        allowUnrated: { type: boolean }
+    UpdatePolicyRequest:
+      type: object
+      description: 严格对象:未知字段拒绝(400 VALIDATION_FAILED)
+      required: [expectedVersion, policy]
+      properties:
+        ownerPassword: { type: string, description: 主账号密码;缺失 → 403 PARENT_VERIFICATION_REQUIRED }
+        expectedVersion: { type: integer, minimum: 1 }
+        policy: { $ref: '#/components/schemas/PolicyEditable' }
+security:
+  - sessionCookie: []
+  - bearerSession: []
+
+paths:
+  /profiles/{profileId}/policy:
+    parameters:
+      - name: profileId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [policy]
+      summary: 读取档案策略(owner;管理目标经归属校验,无须是当前观看者)
+      responses:
+        '200':
+          description: 策略全文
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PolicyDto' }
+        '401':
+          description: 无效/过期/撤销会话
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '403':
+          description: 非 owner
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '404':
+          description: 目标不存在或不属当前家庭(同形,不泄露存在性)
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '503':
+          description: 策略缺失/损坏(POLICY_UNAVAILABLE,拒绝而不静默补默认)
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    put:
+      tags: [policy]
+      summary: 整体保存可编辑配置(家长验证 + 版本检查;名单服务端保留)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdatePolicyRequest' }
+      responses:
+        '200':
+          description: 保存后的完整策略(version +1;相同值仍 +1)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PolicyDto' }
+        '400':
+          description: 未知字段/非法等级/非法版本(VALIDATION_FAILED)
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '401':
+          description: 无效/过期/撤销会话
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '403':
+          description: 非 owner / 密码缺失(PARENT_VERIFICATION_REQUIRED) / 密码错误(PARENT_VERIFICATION_FAILED)
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '404':
+          description: 目标不存在或不属当前家庭(同形)
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '409':
+          description: expectedVersion 过期(POLICY_VERSION_CONFLICT,数据不变)
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '423':
+          description: 验证锁定窗口内,含正确密码(PARENT_VERIFICATION_LOCKED)
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '503':
+          description: 策略缺失/损坏(POLICY_UNAVAILABLE)
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
