@@ -510,3 +510,13 @@ docker stats --no-stream hmp-verify
 4. **SC 台账语义**：SC-001～009 全部 9 项保持未验收（0 项 Verified），各行状态已精确化为「后端达成/浏览器或硬件或镜像缺口」实际组合；不引入任何未经对应层级实测的 Verified。
 
 > 状态同步：spec.md Status、plan.md Status 与 ADR-0009 状态行已同步为「Accepted；实现完成，Verified 待浏览器/硬件/镜像证据（缺口见本节）」口径；checklists/requirements.md 16 项勾选维持只读未改动；tasks.md T060 勾选与任务清单不在本任务文件边界内、未改动。
+
+### T060 后记（2026-10-26，真实数据排障修复）
+
+T060 终验后，用户以**真实库数据**实测播放暴露两个实现缺口，均已修复并留证（修复不动任何验收结论，SC 台账与 FR 表结论不变）：
+
+1. **交付映射缺陷（协议判定）**：003 refresh-publish 对 `requires_proxy` 硬编码 0（refresh-publish.service.ts:293），旧映射「requires_proxy→hls_proxy，否则 direct」把真实库全部 172 个 URL 源（139 hls + 33 http，零 NAS 源）错配 direct（NAS 文件管线）→ `resolveNasMediaLocation` 必然失败 → 会话 failed `PLAYBACK_RESOURCE_UNAVAILABLE`（UI「服务资源暂时紧张」）。修复：`playbackDeliveryForProtocol(protocol)`——`file→direct`、URL→`hls_proxy`；CCTV-1 (720p) 端到端实测清单 200 + 分片 200（1577KB 真实视频）。
+2. **播放就绪门（fail-closed 延伸）**：真实 dev 库（仅 0001–0004）上 resolve 裸抛 SqliteError（≈500）。新增 `PlaybackReadinessGuard` 挂播放三控制器最前，未就绪统一 503 `NOT_READY` Problem（与 healthz 同形，不自动补表）；readiness e2e +1 用例。
+3. **上游许可名单运维**：真实频道分布在 77 主机 + 轮换重定向池（CCTV-1 实测 302 落点在 `192.187.115.106` 与 `192.187.123.50` 间轮换）→ `.env` 以 **CIDR `192.187.0.0/16`** 覆盖池子（80 条），端到端复验 CCTV-1/CCTV-2(有效条目 fc8abbe0) 清单+分片全 200。
+4. **编号口径更新**：终验后排障新增 readiness 用例 → 当前 vitest **962/962（61 文件）**（T059 节记录的 961 为当次门禁数字，作为该次运行的留证保留）；runtime 仍 445 断言。目录侧发现 23 个「仅陈旧条目」（present=0，重复导入产物，如 CCTV-2 的 016654f1）按契约统一 404 同形拒绝——属 003 目录数据质量事项，建议后续在 003 范围做去重/刷新处理。
+5. **运维提示**：`LAN_ALLOWED_TARGETS` 为启动时读取（进程环境优先于 .env），修改后需重启 dev server；免费 IPTV 上游会轮换重定向落点，新落点主机不在名单时单次 fail-closed 属预期，将新主机/CIDR 追加名单即可。

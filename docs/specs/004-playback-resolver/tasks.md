@@ -1,7 +1,7 @@
 # Tasks: 004 播放解析与受控播放
 
 **Input**: [spec.md](spec.md)、[plan.md](plan.md)、[research.md](research.md)、[data-model.md](data-model.md)、[contracts/api.md](contracts/api.md)、[quickstart.md](quickstart.md)。
-**Status**: 2026-10-25 仅生成任务；全部未执行，spec/ADR仍Proposed。不得将调用tasks视为接受或实现授权。
+**Status**: 2026-10-25 生成；2026-10-26 维护者接受 spec/ADR-0009（Accepted，见 plan.md T001）后 **T001–T061 全部执行完毕（61/61）**，逐任务证据见 [evidence.md](evidence.md) 各节。勾选=任务完成且验证留证；**FR/SC 验收状态以 evidence.md T060 终验核对为准**（实现完成，Verified 待浏览器 Network/真实硬件/双架构镜像证据），不因勾选自动成立。
 **Tests**: 规格quickstart与宪章要求单元/契约、负向、真实HTTP/Network/浏览器及迁移恢复证据；每个测试任务先观察失败再实现。
 **Format**: `- [ ] Tnnn [P?] [USn?] 描述与路径`；[US2b]保留规格原故事标识；[P]仅指同一阶段、依赖满足且文件不重叠的测试编写机会，不自动授权多代理执行。
 **Paths**: 下列路径相对仓库根。新文件路径为拟实现位置；现有页面使用Devices.tsx，部署使用docker-compose.yml，不另造重复入口。
@@ -162,4 +162,4 @@ T001接受门禁→T002基线→T003契约→T004依赖→T005生成类型；所
 
 安全MVP为Setup+Foundation+US1基础HLS/MP4交付+US2负向矩阵+US3最小播放出口，不能只演示无鉴权的US1接口。之后完成US1全部格式/转换/字幕/音轨及回收，再补US2b家长记录与US3所有浏览器体验，最后全层验收。任务编号提供默认串行路线；若采用上述MVP裁剪只允许阶段性演示，未完成转换范围不能标004完成。每个故事独立checkpoint只声明它拥有的证据，不用HTTP替代浏览器，不以软件路径通过代替真实硬件证据。
 
-本清单不执行接受、安装、迁移或实现。建议下一命令speckit-analyze进行跨文档一致性检查；实现前先完成T001。
+本清单已于 2026-10-26 执行完毕（T001–T061 全部完成，验证与证据见 [evidence.md](evidence.md)）。终验核对见文末 T060 节；剩余验收缺口（浏览器 Network US3-01～10、真实 Linux 硬件 G1–G6、双架构镜像）的**可执行清单**分别保留在 T054/T055、T058、T057 各节，供具备相应环境的维护者执行后回填。
