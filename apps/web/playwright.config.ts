@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * 独立 DATA_DIR —— server 侧 env.schema.ts 以 DATA_DIR(默认 ./data)定位 SQLite 业务库。
- * e2e 一律使用按进程隔离的临时数据目录,严禁触碰真实部署数据;
+ * e2e 一律使用按进程隔离的临时数据目录(等价 mktemp 语义),严禁触碰真实部署数据;
  * 后续任务填充 webServer 启动 server 时,子进程默认继承本进程 env 即可获得该目录;
  * 外部已显式设置时不覆盖。
  */
@@ -13,14 +13,26 @@ process.env.DATA_DIR ??= join(tmpdir(), `redroad-e2e-data-${process.pid}`);
 /**
  * baseURL 端口取自 apps/web/vite.config.ts 既有 dev server 端口(5173),
  * server API 端口沿用 env.schema.ts 的 PORT 默认值(3000)。
- * webServer(启动 web/server 与 T012 夹具注入)由后续任务填充:
- * 端口协同与启动命令未定,此处预留注释,不猜测实现。
- * 可用 E2E_BASE_URL 覆盖,便于 CI 或固定端口部署。
+ * webServer(T013):启动 @hmp/web 的 Vite dev server(等价 `pnpm --filter @hmp/web dev`,
+ * 显式 `--host 127.0.0.1` 与 baseURL 对齐 —— Vite/Node 缺省绑 localhost,在
+ * localhost→::1 的机器上 127.0.0.1 不响应,webServer 就绪探测会超时);
+ * T013 e2e 页面为公共骨架占位,不发起 API 请求,故本阶段无需启动 server 进程 ——
+ * server 与 T012 夹具注入仍由后续任务填充,命令形态不变。
+ * reuseExistingServer:本地复用已运行的 dev server,CI 一律新起;E2E_BASE_URL 覆盖
+ * baseURL(指向外部已启动服务时请同时设 CI=1 或自行停管 5173,避免双服务器歧义)。
  */
+const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:5173';
+
 export default defineConfig({
   testDir: './test/e2e',
   use: {
-    baseURL: process.env.E2E_BASE_URL ?? 'http://127.0.0.1:5173',
+    baseURL,
+  },
+  webServer: {
+    command: 'pnpm --filter @hmp/web exec vite --host 127.0.0.1',
+    url: 'http://127.0.0.1:5173',
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
   },
   projects: [
     {

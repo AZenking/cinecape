@@ -45,3 +45,7 @@ packages/shared/dist/
 
 # 本地工具索引(fleet-repo CodeGraph,机器本地)
 .codegraph/
+
+# playwright 产物
+apps/web/test-results/
+apps/web/playwright-report/

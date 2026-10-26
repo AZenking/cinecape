@@ -1,0 +1,60 @@
+# 005-pc-browsing-flow · 验收证据
+
+## T013 foundation 门禁记录
+
+- 日期:2026-10-26(Asia/Shanghai)
+- 执行入口:根 `pnpm verify:foundation`(聚合 `&&` 串联,任一步失败即整体失败;本次实跑退出码 0)
+- 执行环境:macOS(Darwin),Node >= 24 / pnpm 11.28.5;Playwright 浏览器为 `pnpm --filter @hmp/web exec playwright install chromium` 新下载的 Chromium 156.0.8078.4(headless shell,**下载成功,未启用 channel:'chrome' 回退**)
+
+### verify:foundation 各步命令与结果
+
+| # | 步骤 | 命令 | 结果 |
+| --- | --- | --- | --- |
+| 1 | 契约类型生成 | `pnpm gen:types` | ok:001~004 加 005 experience 共 5 份 openapi-typescript 输出全部生成 |
+| 2 | Lint | `pnpm lint`(eslint .) | ok:0 error 0 warning(本次修复 5 个存量错误后转绿) |
+| 3 | 全 workspace typecheck | `pnpm typecheck`(pnpm -r typecheck) | ok:@hmp/shared / @hmp/web / @hmp/server 全部 Done(含 web 新纳入的 test/**) |
+| 4 | 全 workspace build | `pnpm build`(pnpm -r build) | ok:三包全部 Done(web vite build 1785 modules;server tsc + migrations 拷贝) |
+| 5 | server foundation 冒烟 | `pnpm --filter @hmp/server exec vitest run test/unit/foundation-smoke.spec.ts` | ok:发现 4 / 执行 4 / 通过 4 / 失败 0 |
+| 6 | web foundation 冒烟(vitest) | `pnpm --filter @hmp/web exec vitest run test/foundation-smoke.spec.tsx` | ok:发现 7 / 执行 7 / 通过 7 / 失败 0 |
+| 7 | e2e foundation 冒烟(playwright 单文件) | `pnpm --filter @hmp/web exec playwright test test/e2e/foundation-smoke.spec.ts` | ok:发现 2 / 执行 2 / 通过 2 / 失败 0(chromium) |
+
+聚合输出节选(步 5~7):
+
+```text
+✓ test/unit/foundation-smoke.spec.ts (4 tests) 126ms
+  Test Files  1 passed (1)   Tests  4 passed (4)
+✓ test/foundation-smoke.spec.tsx (7 tests) 76ms
+  Test Files  1 passed (1)   Tests  7 passed (7)
+✓ 1 [chromium] › test/e2e/foundation-smoke.spec.ts › 首页渲染品牌与导航,不强制登录 (292ms)
+✓ 2 [chromium] › test/e2e/foundation-smoke.spec.ts › /vod 与 /live 可达且仍在公共壳内 (240ms)
+  2 passed (1.8s)
+```
+
+无 passWithNoTests、无 skip/only、无吞失败;三类冒烟均为真实执行的非零有效用例且全部通过。
+
+### 各类冒烟覆盖点
+
+- **server**(apps/server/test/unit/foundation-smoke.spec.ts):
+  1. 全新独立临时库(独立 DATA_DIR/DB_FILENAME):全量迁移(0001~0006)后 generation2 就绪 —— `Database.isReady()===true`、`user_version===2`、迁移前未就绪/迁移后启动预检放行;
+  2. 旧已初始化库(0001~0005 + 一行业务数据):`precheckDatabaseFile` 拒绝 `STORAGE_GENERATION_UNSUPPORTED`,`runMigrationCommand('up')` 抛 `MigrationGateError` 同码,主库文件 sha256 前后一致(不自动升级/清空);
+  3. 守卫拒绝未认证管理读取:无 Cookie 请求既有管理路由 `GET /api/sources`、`GET /api/devices`(均挂 SessionGuard)→ 401 problem+json、code=SESSION_INVALID;
+  4. 伪造会话 Cookie(无效令牌)同样 401 SESSION_INVALID。
+- **web**(apps/web/test/foundation-smoke.spec.tsx):
+  1. 游客公共壳:真实浏览器地址 `/`、`/vod`、`/live` 渲染 App —— 品牌 HOME MEDIA 与 首页/点播/直播 导航可见、占位页标题可见,地址保持不变、无登录强制跳转;
+  2. typed fetch(按 shared/fetch.ts 真实 API):`publicFetch` 发出 credentials:'omit'、`privateFetch` 发出 credentials:'same-origin'(并核 204→undefined、JSON body/Content-Type);非 2xx problem+json 映射 FetchApiError(status/title/code/detail/problem,message=detail??title);AbortController 取消以 AbortError 拒绝(`isAbortError` 真、`isFetchApiError` 假)。
+- **e2e**(apps/web/test/e2e/foundation-smoke.spec.ts,真实 Chromium):
+  1. 游客打开 `/`:品牌与公共导航渲染、无登录强制跳转(URL 仍为 `/`);
+  2. `/vod`、`/live` 可达且仍在公共壳内(占位标题 + 品牌可见,路径不变)。
+  独立 DATA_DIR 由 playwright.config.ts 按进程注入临时目录;本冒烟页面不发 API 请求,DATA_DIR 仅作环境语义,不触碰真实部署数据。
+
+### 本次修复的配置/存量问题(T013 授权范围内的最小修复)
+
+1. `eslint.config.mjs`:`projectService.allowDefaultProject` 补 `apps/web/vitest.config.ts`、`apps/web/playwright.config.ts`(此前 parsing error 使 lint 全红);另为 `@typescript-eslint/no-unused-vars` 增加默认约定的 `^_` 参数/变量忽略(settings-access.guard.ts 占位 `authorize(_context)` 为 US7 保留的扩展点,不改其业务代码)。
+2. `apps/web/tsconfig.json`:include 由 `["src"]` 扩为 `["src","test"]`,web typecheck 现覆盖测试代码(jest-dom 匹配器经 test/setup.ts 的模块扩充可解析,@playwright/test / vitest 类型直接可解析,无需追加 types 数组)。
+3. `apps/server/src/common/profile-context/current-profile.decorator.ts`:删除未使用的 `import type { SessionRequest }`(存量 lint 错误,纯类型导入清理,无行为变化)。
+4. `apps/web/playwright.config.ts`:填充 webServer —— 命令 `pnpm --filter @hmp/web exec vite --host 127.0.0.1`(等价 dev 脚本;显式 `--host 127.0.0.1` 与 baseURL 对齐,因 Vite/Node 缺省绑 localhost,在 localhost→::1 的机器上 127.0.0.1 不响应会导致 webServer 就绪探测超时,实测复现后修正),`url: http://127.0.0.1:5173`、`reuseExistingServer:!process.env.CI`、timeout 120s;port/baseURL 与原 config 一致,E2E_BASE_URL 仍可覆盖。e2e 冒烟页为公共骨架占位,不发起 API 请求,server 进程与 T012 夹具注入仍留待后续任务。
+5. 新增文件:apps/server/test/unit/foundation-smoke.spec.ts、apps/web/test/foundation-smoke.spec.tsx、apps/web/test/e2e/foundation-smoke.spec.ts;根 package.json 新增 `verify:foundation`(上述 ①~⑦ 聚合)与 `verify:release`(占位 echo)。
+
+### 范围声明
+
+本记录仅声明 **Phase 1~2 基础工具链与骨架冒烟就绪**(T004~T012 能力 + 本任务三类显式冒烟):空库进入 generation2、旧已初始化库只读拒绝、公共骨架游客可匿名渲染、typed fetch 凭据/错误/取消行为、未认证管理读取被拒。**不代表 005 任何用户故事(US1~US8)功能完成,不代表 SC 指标、全量测试或 runtime 验收通过**;后续故事的新增业务测试按"先失败再随实现转绿"推进,完整门禁统一由 T144 的 `verify:release` 执行 —— 该入口本次仅建立占位脚本(仅 echo 绑定说明),未执行、未宣称通过。
