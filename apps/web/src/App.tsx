@@ -5,6 +5,7 @@
  * - / 档案选择页(pages/ProfilePicker,Netflix 式;受保护,T029)
  * - /profiles/manage 档案管理页(pages/ProfileManage;会话 + owner 路由守卫,T031)
  * - /devices 设备管理页(pages/Devices;受保护,T037)
+ * - /sources 来源管理页(pages/Sources;会话 + owner 路由守卫,T030)
  * - RequireSession:恢复中显示 loading(防闪烁),未登录重定向 /login
  */
 import type { ReactNode } from 'react';
@@ -17,6 +18,9 @@ import { ProfilePicker } from './pages/ProfilePicker';
 import { ProfileManage } from './pages/ProfileManage';
 import { ProfilePolicy } from './pages/ProfilePolicy';
 import { Devices } from './pages/Devices';
+import { Sources } from './pages/Sources';
+import { MediaCatalog } from './pages/MediaCatalog';
+import { MediaDetail } from './pages/MediaDetail';
 import { SessionProvider, useSession } from './lib/session';
 
 /** 会话守卫:启动恢复期不跳转(防闪烁);未登录 → /login */
@@ -86,6 +90,30 @@ export function App() {
           element={
             <ProtectedPage>
               <Devices />
+            </ProtectedPage>
+          }
+        />
+        <Route
+          path="/sources"
+          element={
+            <ProtectedPage>
+              <OwnerPage><Sources /></OwnerPage>
+            </ProtectedPage>
+          }
+        />
+        <Route
+          path="/media"
+          element={
+            <ProtectedPage>
+              <MediaCatalog />
+            </ProtectedPage>
+          }
+        />
+        <Route
+          path="/media/:id"
+          element={
+            <ProtectedPage>
+              <MediaDetail />
             </ProtectedPage>
           }
         />

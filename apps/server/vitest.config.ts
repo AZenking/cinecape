@@ -8,5 +8,14 @@ export default defineConfig({
     // 契约测试串行:共享同一 SQLite 数据目录,避免跨文件竞争
     fileParallelism: false,
     testTimeout: 30000,
+    // better-sqlite3 原生 Statement finalizer 在 fork dispose 期被 GC 收尾会触发
+    // (env) != nullptr 原生断言(worker 崩溃)。启用 --expose-gc 并配合
+    // test/setup.vitest.ts 在每测后主动 gc(),使 finalizer 在 env 存活期内确定性完成。
+    poolOptions: {
+      forks: {
+        execArgv: ['--expose-gc'],
+      },
+    },
+    setupFiles: ['test/setup.vitest.ts'],
   },
 });

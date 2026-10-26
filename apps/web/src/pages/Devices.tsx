@@ -7,9 +7,12 @@
  *   GET /auth/session 返回 401 → SessionProvider 置为 anonymous →
  *   路由守卫(RequireSession)自动重定向 /login(全局处理,见 lib/session)。
  * - SessionDto 未暴露当前设备 id,无法标记「本机」行,属契约限制。
+ * - 播放记录(T046,US2b):每行「播放记录」按钮展开 DevicePlaybackRecords 面板,
+ *   家长凭当次密码查询该设备脱敏播放记录(POST /devices/{id}/playback-records/query)。
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, AlertDialog, Button, Spinner, Table } from '@heroui/react';
+import { Alert, AlertDialog, Button, Card, Spinner, Table } from '@heroui/react';
+import { DevicePlaybackRecords } from '../components/playback/DevicePlaybackRecords';
 import { ApiError, api } from '../lib/api';
 import { useSession } from '../lib/session';
 import type { components } from '@hmp/shared';
@@ -56,6 +59,8 @@ export function Devices() {
   /** 待撤销设备(确认弹层目标) */
   const [revokeTarget, setRevokeTarget] = useState<DeviceDto | null>(null);
   const [revoking, setRevoking] = useState(false);
+  /** 播放记录面板目标设备(T046;null=收起)。key=deviceId 保证切换设备时组件重挂载、内存密码释放 */
+  const [recordsDevice, setRecordsDevice] = useState<DeviceDto | null>(null);
 
   const loadDevices = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -179,14 +184,23 @@ export function Devices() {
                         )}
                       </Table.Cell>
                       <Table.Cell>
-                        <Button
-                          size="sm"
-                          variant="danger-soft"
-                          isDisabled={revoked}
-                          onPress={() => setRevokeTarget(device)}
-                        >
-                          撤销
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onPress={() => setRecordsDevice(device)}
+                          >
+                            播放记录
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger-soft"
+                            isDisabled={revoked}
+                            onPress={() => setRevokeTarget(device)}
+                          >
+                            撤销
+                          </Button>
+                        </div>
                       </Table.Cell>
                     </Table.Row>
                   );
@@ -195,6 +209,26 @@ export function Devices() {
             </Table.Content>
           </Table.ScrollContainer>
         </Table.Root>
+      )}
+
+      {/* 播放记录面板(T046):家长按设备查询脱敏播放记录;切换设备由 key 重挂载 */}
+      {recordsDevice && (
+        <Card aria-label="设备播放记录">
+          <Card.Header>
+            <Card.Title>播放记录 — {deviceLabel(recordsDevice)}</Card.Title>
+            <Card.Description>
+              按时间倒序;仅展示脱敏字段,不含来源位置、路径与播放凭据。
+            </Card.Description>
+          </Card.Header>
+          <Card.Content className="space-y-4">
+            <div className="flex justify-end">
+              <Button size="sm" variant="ghost" onPress={() => setRecordsDevice(null)}>
+                收起
+              </Button>
+            </div>
+            <DevicePlaybackRecords key={recordsDevice.id} deviceId={recordsDevice.id} />
+          </Card.Content>
+        </Card>
       )}
 
       {/* 撤销确认对话框(HeroUI AlertDialog) */}

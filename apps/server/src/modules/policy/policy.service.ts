@@ -1,10 +1,10 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
 import type { ProfilePolicy } from '../../database/schema';
-import { deviceSession, profile, profilePolicy } from '../../database/schema';
+import { deviceSession, mediaItem, profile, profilePolicy } from '../../database/schema';
 import { DomainError } from '../../common/domain-error';
 import type { SessionContext } from '../../common/current-session.decorator';
-import { getDb } from '../auth/db';
+import { getDb, type Db } from '../auth/db';
 import { verifyParentPassword } from '../auth/parent-verification.service';
 import { requireOwnedProfile } from '../profile/profile.service';
 import {
@@ -28,7 +28,9 @@ import {
  * - 每次成功保存 version+1(相同值仍 +1);
  * - 读取时重新解析校验存量名单与数值不变量:损坏一律 503 POLICY_UNAVAILABLE,默认拒绝;
  * - 运行时不自动补建缺失策略(FR-003/FR-008);
- * - writePolicyLists 为服务端名单写入路径(阶段 2 仅供测试夹具/迁移运维,阶段 3 接资源归属后开放)。
+ * - writePolicyLists 为服务端名单写入路径:阶段 2 夹具/运维语义保持不变(不带 options);
+ *   阶段 3 T051 增加严格模式(expectedVersion 同事务校验 + 每 ID 归属/频道类型校验),
+ *   供 replacePolicyLists(PUT /profiles/{id}/policy/lists)使用,两入口共享同一策略版本。
  */
 
 /** PolicyDto 响应体(契约 components/schemas/PolicyDto;不返回 householdId/凭据/验证计数) */
@@ -127,15 +129,80 @@ export async function updatePolicy(profileId: string, context: SessionContext, i
   });
 }
 
+/** 事务句柄类型(better-sqlite3 同步事务回调入参;与 sources.service 同一惯用法) */
+type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+
 /**
- * 服务端名单写入路径(阶段 2 无 HTTP 端点;测试夹具与阶段 3 资源归属校验后复用):
- * 应用层校验(非空 1～128、去重、排序、去重后 ≤1000)→ 整体持久化,version+1。
+ * writePolicyLists 严格模式选项(T051;省略 = 阶段 2 夹具语义,行为与既有调用完全一致):
+ * - expectedVersion:同事务乐观锁,不匹配 → 409 POLICY_VERSION_CONFLICT;
+ * - validateResourceOwnership:每个名单 ID 必须是本 Household 真实媒体
+ *   (不存在/跨家庭 → 400 VALIDATION_FAILED,整体拒绝且原策略不变),
+ *   allowedChannelIds 的每个 ID 还必须 type=channel。
+ */
+export interface WritePolicyListsOptions {
+  expectedVersion?: number;
+  validateResourceOwnership?: boolean;
+}
+
+/**
+ * PUT /profiles/{profileId}/policy/lists 请求体(T049 契约 UpdateLists;
+ * 三名单必填数组,整体替换;zod 形态校验在控制器,语义校验在 writePolicyLists 严格模式)。
+ */
+export interface ReplacePolicyListsInput {
+  ownerPassword?: string;
+  expectedVersion: number;
+  allowedMediaIds: string[];
+  blockedMediaIds: string[];
+  allowedChannelIds: string[];
+}
+
+/**
+ * 名单 ID 归属/类型校验(T051):全部 ID 必须存在于本 Household 的 media_item;
+ * allowedChannelIds 的每个 ID 还必须 type=channel(缺失同样失败)。
+ * 分块 IN 查询(500/批),任一非法 → 400 VALIDATION_FAILED,由事务整体回滚保证原策略不变。
+ */
+function assertListsReferenceHouseholdMedia(
+  tx: Tx,
+  householdId: string,
+  allowedMediaIds: string[],
+  blockedMediaIds: string[],
+  channelIds: string[],
+): void {
+  const typeById = new Map<string, string>();
+  const uniqueIds = [...new Set([...allowedMediaIds, ...blockedMediaIds, ...channelIds])];
+  for (let start = 0; start < uniqueIds.length; start += 500) {
+    const chunk = uniqueIds.slice(start, start + 500);
+    const rows = tx
+      .select({ id: mediaItem.id, type: mediaItem.type })
+      .from(mediaItem)
+      .where(and(eq(mediaItem.householdId, householdId), inArray(mediaItem.id, chunk)))
+      .all();
+    for (const row of rows) {
+      typeById.set(row.id, row.type);
+    }
+  }
+  const missing = uniqueIds.filter((id) => !typeById.has(id));
+  if (missing.length > 0) {
+    throw new DomainError(400, ProblemCode.VALIDATION_FAILED, `名单引用了本家庭不存在的媒体(共 ${missing.length} 个),整体拒绝`);
+  }
+  const nonChannel = channelIds.filter((id) => typeById.get(id) !== 'channel');
+  if (nonChannel.length > 0) {
+    throw new DomainError(400, ProblemCode.VALIDATION_FAILED, `allowedChannelIds 仅接受频道类型媒体(非法 ${nonChannel.length} 个),整体拒绝`);
+  }
+}
+
+/**
+ * 服务端名单写入路径(阶段 2 为夹具/迁移运维入口;阶段 3 T051 扩展严格模式):
+ * 应用层校验(非空 1～128、去重、排序、去重后 ≤1000)→ 同事务整体持久化,version+1。
  * 未提供的名单保持原值;允许∩禁止交集保留(不跨名单删除,禁止优先由判定核心负责)。
+ * 严格模式(options 携带 expectedVersion/validateResourceOwnership)供 HTTP 名单入口使用,
+ * 校验失败(404/409/400)整体回滚,原策略不变。
  */
 export function writePolicyLists(
   householdId: string,
   profileId: string,
   lists: Partial<PolicyListTriple>,
+  options: WritePolicyListsOptions = {},
 ): PolicyDtoBody {
   const normalized: Partial<Record<keyof PolicyListTriple, string>> = {
     allowedMediaIds: lists.allowedMediaIds !== undefined ? JSON.stringify(normalizeMediaIdList(lists.allowedMediaIds)) : undefined,
@@ -149,6 +216,12 @@ export function writePolicyLists(
       throw new DomainError(404, ProblemCode.NOT_FOUND);
     }
     rowToDto(row); // 损坏行拒绝写入路径
+    if (options.expectedVersion !== undefined && row.version !== options.expectedVersion) {
+      throw new DomainError(409, ProblemCode.POLICY_VERSION_CONFLICT, '策略已被其他会话修改,请重新加载');
+    }
+    if (options.validateResourceOwnership === true) {
+      assertListsReferenceHouseholdMedia(tx, householdId, lists.allowedMediaIds ?? [], lists.blockedMediaIds ?? [], lists.allowedChannelIds ?? []);
+    }
     const patch: Record<string, string | number> = { version: row.version + 1, updatedAt: new Date().toISOString() };
     for (const [key, value] of Object.entries(normalized)) {
       if (value !== undefined) {
@@ -162,6 +235,39 @@ export function writePolicyLists(
     }
     return rowToDto(fresh);
   });
+}
+
+/**
+ * PUT /profiles/{profileId}/policy/lists(T051;US3 名单事务 HTTP 入口,T063 过渡期由
+ * catalog 模块控制器调用):家长验证(缺失/空串 403 REQUIRED;错误 403 FAILED;锁定 423)
+ * → 会话/设备重验(401)→ Profile 归属 Household+Account(404 同形,与是否 active 无关)
+ * → 严格名单事务(expectedVersion 409 / 每 ID 归属与频道类型 400,整体成功或失败)。
+ * 与既有等级入口 updatePolicy 共享同一策略 version(每次成功保存 +1)。
+ */
+export async function replacePolicyLists(
+  profileId: string,
+  context: SessionContext,
+  input: ReplacePolicyListsInput,
+): Promise<PolicyDtoBody> {
+  if (input.ownerPassword === undefined || input.ownerPassword === '') {
+    throw new DomainError(403, ProblemCode.PARENT_VERIFICATION_REQUIRED, '需要主账号密码完成家长验证');
+  }
+  await verifyParentPassword(context, input.ownerPassword);
+  const sessionRow = getDb().select().from(deviceSession).where(eq(deviceSession.id, context.session.id)).get();
+  if (sessionRow === undefined || sessionRow.revokedAt !== null || !(Date.parse(sessionRow.expiresAt) > Date.now())) {
+    throw new DomainError(401, ProblemCode.SESSION_INVALID, undefined);
+  }
+  const target = requireOwnedProfile(profileId, context);
+  return writePolicyLists(
+    target.householdId,
+    target.id,
+    {
+      allowedMediaIds: input.allowedMediaIds,
+      blockedMediaIds: input.blockedMediaIds,
+      allowedChannelIds: input.allowedChannelIds,
+    },
+    { expectedVersion: input.expectedVersion, validateResourceOwnership: true },
+  );
 }
 
 // ---------------------------------------------------------------------------

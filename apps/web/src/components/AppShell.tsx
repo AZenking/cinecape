@@ -19,9 +19,14 @@ const FALLBACK_BANNER_MS = 5000;
 /** 导航项定义;`/` 用 end 避免所有路由都命中激活态 */
 const NAV_ITEMS = [
   { to: '/', label: '档案', end: true },
+  { to: '/media', label: '目录', end: false },
+  { to: '/sources', label: '来源', end: false },
   { to: '/profiles/manage', label: '管理', end: false },
   { to: '/devices', label: '设备', end: false },
 ] as const;
+
+/** 仅 owner 可见的导航路径(与路由级守卫一致;观看页 /media 不限) */
+const OWNER_ONLY_PATHS = new Set(['/profiles/manage', '/sources']);
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { session, logout, profileFallbackAt, clearProfileFallback } = useSession();
@@ -54,7 +59,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               HOME MEDIA
             </Link>
             <nav aria-label="主导航" className="flex items-center gap-4">
-              {NAV_ITEMS.filter((item) => item.to !== '/profiles/manage' || session?.account?.role === 'owner').map((item) => (
+              {NAV_ITEMS.filter((item) => !OWNER_ONLY_PATHS.has(item.to) || session?.account?.role === 'owner').map((item) => (
                 <NavLink
                   key={item.to}
                   to={item.to}

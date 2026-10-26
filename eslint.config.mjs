@@ -20,7 +20,7 @@ export default tseslint.config(
         // type-aware 规则(no-floating-promises)需要 project 定位;
         // projectService 自动发现 monorepo 各包 tsconfig(修复 pre-existing 损坏)
         projectService: {
-          allowDefaultProject: ['eslint.config.mjs', 'apps/server/vitest.config.ts', 'apps/web/vite.config.ts', 'apps/server/test/runtime-smoke.mjs'],
+          allowDefaultProject: ['eslint.config.mjs', 'apps/server/vitest.config.ts', 'apps/web/vite.config.ts', 'apps/server/test/runtime-smoke.mjs', 'apps/server/test/fixtures/playback/generate-media.mjs'],
         },
         tsconfigRootDir: import.meta.dirname,
       },

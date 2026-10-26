@@ -46,6 +46,8 @@
 
 ## 阶段 3：媒体目录与来源
 
+状态：已完成并验收（2026-10-25：[规格 003](specs/003-media-catalog/spec.md) 基线 FR-001～022/SC-001～009 **Verified**，增补 US5 手动 EPG 匹配 FR-023～026/SC-010 **Verified**（[ADR-0008](adr/0008-manual-epg-binding.md) Accepted）；456 用例 + runtime 205 断言 + 真实浏览器 + 双架构容器 + 0003/0004 迁移演练证据见 [evidence.md](specs/003-media-catalog/evidence.md)）。
+
 目标：把不同来源统一为可查询的 MediaItem。
 
 - 实现 MediaItem、MediaSource 和 PlaybackSource；
@@ -58,6 +60,8 @@
 
 ## 阶段 4：Playback Resolver
 
+状态：实现完成，验收待证据（2026-10-26：[规格 004](specs/004-playback-resolver/spec.md) 与 [ADR-0009](adr/0009-playback-delivery-conversion.md) Accepted；T059 全仓六门禁全绿——vitest 961/961、runtime 445 断言两轮一致、003 场景零回归，后端证据齐备；**Verified 未达成**——浏览器 Network 层（US3-01～10 全部待执行）、真实 Linux 硬件与资源画像（T058 G1–G6）、linux/amd64+arm64 镜像实测（T057）待验收，缺口清单见 [evidence.md](specs/004-playback-resolver/evidence.md) T060）。
+
 目标：形成统一播放入口。
 
 - 实现 `POST /playback/resolve`；
@@ -67,6 +71,10 @@
 - 记录播放会话和失败原因。
 
 完成条件：播放接口只返回当前 Household、当前 Profile 和当前设备都允许使用的 PlaybackSource。
+
+本轮交付（与目标条款的对应关系）：统一授权网关（resolve/GET/renew/heartbeat/stop/selection/seek）、direct/remux/audio/video 四路径交付（转封装与按需转码，输出 H.264 8-bit + AAC HLS，上限 1080p SDR）、字幕/音轨、家长设备记录与失败事件、同源票据网关与资源回收（并发默认 1、无队列）。协议适配本轮交付受控 HLS、NAS 文件与受控 HTTP 上游（FR-008/FR-014 范围）；DASH 与 HTTP/FLV 不在规格 004 范围，保留为后续能力。
+
+下一步：阶段 5 Personalization。阶段 4 的 Verified 须待上述三类证据补齐后方可标注（依赖关系节的发布门禁继续适用），验收脚本见规格 004 quickstart 与 evidence 各缺口清单。
 
 ## 阶段 5：Personalization
 

@@ -174,3 +174,5 @@ export function cookiePairOf(res: { headers: Record<string, unknown> }): string 
 export function expectProblemContentType(res: { headers: Record<string, unknown> }): void {
   expect(String(res.headers['content-type'])).toContain('application/problem+json');
 }
+
+export * from './fixtures/index';

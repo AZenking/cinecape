@@ -10,14 +10,15 @@ import type { Response } from 'express';
 import { ZodError } from 'zod';
 import type { ProblemCode } from '@hmp/shared';
 import { ProblemCode as ProblemCodeConst } from '@hmp/shared';
-import { DomainError } from './domain-error';
+import { DomainError, resolveDomainProblem } from './domain-error';
 
 /**
  * RFC 9457 全局异常过滤器(T010):一切错误统一输出 application/problem+json。
- * - DomainError → 其 status / code / detail;
+ * - DomainError → 其 status / code / detail;注册表码(003)缺省回退 title/detail;
  * - ZodError → 400 VALIDATION_FAILED(detail 含 issue 摘要);
  * - HttpException → response 已是对象(如 healthz 的 503 problem)则原样透传,否则包装;
- * - 未知错误 → 500,不向客户端泄露堆栈。
+ * - 未知错误 → 500,不向客户端泄露堆栈;
+ * - 注册表码的附加响应头(如 429 IMPORT_QUEUE_FULL 的 Retry-After: 5)在此按 code 统一注入。
  */
 const PROBLEM_TYPE_BASE = 'https://homemedia.local/problems';
 
@@ -74,24 +75,57 @@ function wrap(status: number, code: ProblemCode | 'INTERNAL', detail?: string): 
 
 const logger = new Logger('ProblemJsonFilter');
 
+/**
+ * 流后边界的安全日志摘要(R6):只含稳定码/状态等稳定定位信息,
+ * 绝不包含 exception message/stack —— 原文可能携带路径/URL/query ticket/FFmpeg stderr。
+ */
+function safeSummary(exception: unknown): string {
+  if (exception instanceof DomainError) return `code=${exception.code}`;
+  if (exception instanceof ZodError) return 'code=VALIDATION_FAILED';
+  if (exception instanceof HttpException) return `status=${exception.getStatus()}`;
+  return 'code=UNKNOWN';
+}
+
 @Catch()
 export class ProblemJsonFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<Response>();
+
+    // 流后边界(004 contracts/api.md「媒体端点」:已发字节则关闭流,不能在字节流内注入 JSON):
+    // headers 已发出后不再写 status/响应头/体,也不抛二次异常,
+    // 只留一条不含原始诊断(路径/URL/stderr)的安全日志。
+    if (response.headersSent) {
+      logger.warn(`响应头已发送,丢弃迟到错误(流后边界): ${safeSummary(exception)}`);
+      return;
+    }
+
     const body = ProblemJsonFilter.buildProblem(exception);
     response.status(body.status);
+    // 004 contracts/api.md 开头:所有响应 Cache-Control: no-store、Referrer-Policy: no-referrer。
+    // 错误响应(含既有错误)统一附加这两个头 —— 纯新增头,不改变既有响应体语义。
+    response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('Referrer-Policy', 'no-referrer');
     response.setHeader('Content-Type', 'application/problem+json; charset=utf-8');
+    // code → 附加响应头统一注入(注册表外无附加头,既有行为不变)
+    const extraHeaders =
+      exception instanceof DomainError ? resolveDomainProblem(exception.code)?.headers : undefined;
+    if (extraHeaders) {
+      for (const [name, value] of Object.entries(extraHeaders)) {
+        response.setHeader(name, value);
+      }
+    }
     response.json(body);
   }
 
   private static buildProblem(exception: unknown): ProblemBody {
     if (exception instanceof DomainError) {
+      const spec = resolveDomainProblem(exception.code);
       return {
         type: problemType(exception.code),
-        title: titleFromCode(exception.code),
+        title: spec?.title ?? titleFromCode(exception.code),
         status: exception.status,
         code: exception.code,
-        detail: exception.detail,
+        detail: exception.detail ?? spec?.detail,
       };
     }
 

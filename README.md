@@ -4,10 +4,10 @@
 
 ## 当前状态
 
-- 阶段：阶段 1「应用脚手架与身份基础」收尾完成（2026-10-23 重新验收）；阶段 2「ProfilePolicy」已实现并通过验收
+- 阶段：阶段 1「应用脚手架与身份基础」收尾完成（2026-10-23 重新验收）；阶段 2「ProfilePolicy」已完成并验收；阶段 3「媒体目录与来源」已完成并验收（2026-10-25）；阶段 4「Playback Resolver」实现完成（T059 全仓六门禁全绿，2026-10-26；浏览器 Network / 真实硬件 / 双架构镜像验收证据待补——实现完成 ≠ 验收完成）
 - 领域模型：V1.1 Frozen
-- 实现状态：身份闭环可用（初始化向导 / 登录 / Profile 选择与切换含 PIN / 设备管理 / 会话生命周期）；内容策略可用（等级 / 未评级 / 名单 / 频道白名单 + 家长验证）
-- 证据档案：[`docs/specs/001-scaffold-identity-foundation/evidence.md`](docs/specs/001-scaffold-identity-foundation/evidence.md)（65 测试 + 真实进程/浏览器 + 迁移恢复 + ARM64/AMD64 容器）；[`docs/specs/002-profile-policy/evidence.md`](docs/specs/002-profile-policy/evidence.md)（109 用例 + 升级/回滚/恢复演练 + 容器内策略链路）
+- 实现状态：身份闭环可用（初始化向导 / 登录 / Profile 选择与切换含 PIN / 设备管理 / 会话生命周期）；内容策略可用（等级 / 未评级 / 名单 / 频道白名单 + 家长验证）；媒体目录与来源可用（IPTV/EPG、NAS 导入、手动 EPG 匹配）；播放解析与受控播放可用（统一授权网关 `POST /playback/resolve`、direct/remux/audio/video 四路径交付、转封装与按需转码、字幕/音轨、家长设备记录）
+- 证据档案：[`docs/specs/001-scaffold-identity-foundation/evidence.md`](docs/specs/001-scaffold-identity-foundation/evidence.md)（65 测试 + 真实进程/浏览器 + 迁移恢复 + ARM64/AMD64 容器）；[`docs/specs/002-profile-policy/evidence.md`](docs/specs/002-profile-policy/evidence.md)（109 用例 + 升级/回滚/恢复演练 + 容器内策略链路）；[`docs/specs/003-media-catalog/evidence.md`](docs/specs/003-media-catalog/evidence.md)（456 用例 + runtime 205 断言 + 真实浏览器 + 双架构容器 + 迁移演练）；[`docs/specs/004-playback-resolver/evidence.md`](docs/specs/004-playback-resolver/evidence.md)（961 用例 + runtime 445 断言 + 迁移/恢复演练 + FR/SC 终验核对；浏览器/硬件/镜像缺口如实保留）
 - 最高治理依据： [项目宪章](.specify/memory/constitution.md)（1.0.1）
 - 当前领域规范：[`homeMediaDomainModel.md`](homeMediaDomainModel.md)
 
@@ -39,6 +39,9 @@ V1 采用一个 Household、一个主要 Account、多个 Profile 的模型。�
 | [`docs/adr/0005-stage1-delivery-details.md`](docs/adr/0005-stage1-delivery-details.md) | 阶段 1 迁移、就绪检查和同源交付实施补充 | Accepted |
 | [`docs/specs/001-scaffold-identity-foundation/spec.md`](docs/specs/001-scaffold-identity-foundation/spec.md) | 阶段 1 功能规格：应用脚手架与身份基础 | Verified |
 | [`docs/specs/002-profile-policy/spec.md`](docs/specs/002-profile-policy/spec.md) | 阶段 2 功能规格：ProfilePolicy 内容策略 | Verified |
+| [`docs/specs/003-media-catalog/spec.md`](docs/specs/003-media-catalog/spec.md) | 阶段 3 功能规格：媒体目录与来源（含 US5 手动 EPG 匹配） | Verified |
+| [`docs/specs/004-playback-resolver/spec.md`](docs/specs/004-playback-resolver/spec.md) | 阶段 4 功能规格：播放解析与受控播放 | Accepted；实现完成，Verified 待浏览器/硬件/镜像证据 |
+| [`docs/adr/0009-playback-delivery-conversion.md`](docs/adr/0009-playback-delivery-conversion.md) | 播放交付与转换决策（同源网关、票据、转换资源边界） | Accepted |
 | [`docs/adr/0006-profile-policy-authorization.md`](docs/adr/0006-profile-policy-authorization.md) | 内容策略顺序与家长管理边界 | Accepted |
 | [`docs/adr/0002-one-deployment-one-household.md`](docs/adr/0002-one-deployment-one-household.md) | 固化 V1 部署实例与 Household 的关系 | Accepted |
 | [`docs/roadmap.md`](docs/roadmap.md) | 阶段顺序、依赖和完成条件 | Living |
@@ -103,3 +106,26 @@ pnpm typecheck   # 全 workspace tsc --noEmit
 pnpm build      # 编译生产前后端，复制 SQL 迁移
 pnpm test:runtime # 独立临时数据库：真实 HTTP、重启、备份读取恢复与迁移回滚
 ```
+
+## 部署依赖与许可
+
+| 组件 | 版本 / 来源 | 许可 | 用途 |
+| --- | --- | --- | --- |
+| hls.js | 1.7.3（`apps/web` 锁定完整构建，禁用 light 版——音轨/字幕依赖完整版） | Apache-2.0 | 浏览器 HLS 播放（MSE），Safari 另走原生 HLS |
+| FFmpeg / ffprobe | 部署镜像 Debian bookworm `5.1.x`（当前 5.1.9，随 security 更新浮动；单一 `ffmpeg` 包同供两个可执行）；本机开发任意 ≥5 版本 | GPL 组件启用构建（`--enable-gpl`，含 libx264/libx265；各链接库按各自许可，libx264 为 GPL-2.0+） | 服务端媒体探测、转封装与按需转码（仅子进程调用） |
+
+许可汇总：hls.js 为 Apache-2.0；FFmpeg 为发行版 GPL 组件启用构建。应用仅在服务器端以子进程调用 FFmpeg、不分发其本体，无整体传染义务；**再分发镜像时需按各组件许可逐项审查**。完整许可与版本记录见 [`docs/specs/004-playback-resolver/research.md`](docs/specs/004-playback-resolver/research.md)「依赖版本锁定（T004）」节。注意：本机开发 FFmpeg（参考环境 8.1.1）的性能结论不得外推到镜像 5.1.9。
+
+## 迁移与恢复
+
+- 迁移 `0005_playback` 新增受控播放四表：`playback_session` / `playback_ticket` / `playback_conversion` / `playback_failure_event`。
+- up 按目录名字典序应用：0001 → 0005；down 单次逆序回滚最近一条已应用迁移（连续执行即 0005 → 0001；当前一轮 `down` 删除播放四表及 `device_household_id_id_key` 复合索引，0001–0004 数据零修改；播放记录随表删除、不自行恢复）。
+- **down 与 drill 仅允许对独立临时 DATA_DIR 执行；用户库禁止 down/drill**（容器路径同形：stop → `compose run` 迁移 → start，见 004 quickstart SC-006 节）。
+- 每次 up/down 均自动以 `VACUUM INTO` 生成停服一致性快照（`hmp.db.bak-<timestamp>`，WAL 下为已检查点完整快照）；用该备份恢复后旧票据不可复活（重启时活动会话标 `interrupted`，票签发谓词不再满足）。细节见 [004 quickstart SC-006](docs/specs/004-playback-resolver/quickstart.md) 与 [evidence T056](docs/specs/004-playback-resolver/evidence.md)。
+
+## 已知限制（阶段 4 播放）
+
+- 兼容范围：NAS 必验上限为 **1080p SDR**（MP4/MKV/AVI/MOV/TS × H.264 / HEVC 8/10bit / MPEG-4 × AAC/AC-3/E-AC-3/DTS，FR-014）；**4K/HDR 仅尽力直放**，不做转换、不自动降分辨率。
+- 转码输出固定 H.264 8-bit yuv420p + AAC 的 HLS，**无自适应清晰度**；字幕仅 SRT/WebVTT 文本显示，**不烧录字幕**，无 ASS/图片字幕。
+- 转换并发默认 **1**（可配 1–8），remux/transcode 共用额度，超额立即返回忙、**无排队**；直接播放不占额度。
+- 验收状态：实现完成（T059 六门禁全绿），但浏览器 Network（US3-01～10）、真实 Linux 硬件加速与资源画像（T058 G1–G6）、linux/amd64+arm64 镜像实测（T057）证据待验收，相关 SC 条目未验收——缺口清单见 [evidence T060](docs/specs/004-playback-resolver/evidence.md)。

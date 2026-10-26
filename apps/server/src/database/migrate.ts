@@ -23,8 +23,57 @@ interface MigrationFile {
   downPath: string;
 }
 
-/** drill 结束时必须全部存在的表(7 业务表 + 版本表) */
-const EXPECTED_TABLES = ['household', 'account', 'profile', 'device', 'device_session', 'profile_policy', 'parent_verification_state', '_migrations'] as const;
+/**
+ * drill 结束时必须全部存在的表(阶段 1/2/3 业务表 + 0004/0005 增补表 + 版本表;
+ * 阶段 3 对照 003 data-model.md,0005 对照 004 data-model.md 四节)
+ */
+const EXPECTED_TABLES = [
+  'household',
+  'account',
+  'profile',
+  'device',
+  'device_session',
+  'profile_policy',
+  'parent_verification_state',
+  'catalog_state',
+  'media_source',
+  'media_item',
+  'source_entry',
+  'playback_source',
+  'epg_channel',
+  'epg_programme',
+  'source_refresh',
+  'refresh_stage_entry',
+  'manual_epg_binding',
+  // 0005_playback(T009):受控播放四表
+  'playback_session',
+  'playback_ticket',
+  'playback_conversion',
+  'playback_failure_event',
+  '_migrations',
+] as const;
+
+/**
+ * drill 结束时必须存在的关键列(0004 起就绪语义含「必需列」;T009 增补 0005 四表):
+ * 键为表名,值为必须存在的列。对照 database.ts 的 REQUIRED_COLUMNS 与 0004/0005 up.sql。
+ */
+const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  media_source: ['epg_generation'],
+  manual_epg_binding: [
+    'household_id',
+    'media_id',
+    'mode',
+    'epg_source_id',
+    'xmltv_channel_id',
+    'version',
+    'updated_at',
+  ],
+  // 0005_playback(T009):四表关键列,对照 docs/specs/004-playback-resolver/data-model.md 四节
+  playback_session: ['desired_paused', 'generation', 'version', 'position_seconds', 'state', 'delivery'],
+  playback_ticket: ['token_hash', 'expires_at'],
+  playback_conversion: ['mode', 'state', 'cleanup_state', 'bytes_on_disk'],
+  playback_failure_event: ['stable_code', 'occurred_at'],
+};
 
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 
@@ -159,6 +208,13 @@ function cmdDrill(db: DbHandle, dbFile: string): void {
   const missingTables = EXPECTED_TABLES.filter((table) => !tables.has(table));
   if (missingTables.length > 0) {
     throw new Error(`drill 失败:表缺失: ${missingTables.join(', ')}`);
+  }
+  for (const [table, columns] of Object.entries(EXPECTED_COLUMNS)) {
+    const present = db.pragma(`table_info(${table})`) as { name: string }[];
+    const missingColumns = columns.filter((column) => !present.some((row) => row.name === column));
+    if (missingColumns.length > 0) {
+      throw new Error(`drill 失败:${table} 缺列: ${missingColumns.join(', ')}`);
+    }
   }
   log(`drill 通过:已应用 [${all.map((migration) => migration.name).join(', ')}],表 [${EXPECTED_TABLES.join(', ')}] 全部存在`);
 }

@@ -64,6 +64,15 @@ WORKDIR /app
 # 数据目录预先归属运行用户(compose 具名卷首次挂载会继承该属主)
 RUN mkdir -p /data && chown node:node /data
 
+# FFmpeg/ffprobe 运行时依赖(T004):Debian bookworm 发行版仓库,当前 7:5.1.9-0+deb12u1
+# (随 security 更新浮动,主版本 5.1)。单一 ffmpeg 包同时提供 ffmpeg 与 ffprobe 两个
+# 可执行文件;发行版构建启用 GPL 组件(libx264/libx265),提供 H.264/HEVC 软件编码与
+# H.264/HEVC/AC3/EAC3/DTS 软件解码,无需自编译。linux/amd64 与 linux/arm64 均有官方
+# 构建。不启用特权配置;硬件加速(VAAPI/QSV)仅 amd64 且需部署侧显式传递 /dev/dri。
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
 # 整体 node_modules(pnpm 软链布局)+ 各包清单与产物,保证 node dist/main.js 可起
 COPY --from=builder /app/package.json /app/pnpm-workspace.yaml ./
 COPY --from=builder /app/node_modules ./node_modules

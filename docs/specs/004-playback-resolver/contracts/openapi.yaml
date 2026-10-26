@@ -1,0 +1,1353 @@
+# Playback Resolver 契约 —— 004-playback-resolver
+# OpenAPI 3.1 · 错误格式: RFC 9457 application/problem+json
+# 认证: 沿用 001 双通道(httpOnly Cookie 或 Bearer), 设备会话为唯一信任源;
+#       播放 ticket 仅作为 /playback/stream 入口的 query 参数(按 api.md, 无 header 形态)且不能单独授权。
+# 权威: 本文件由 contracts/api.md(接口权威)完整转换;
+#       字段可空性/枚举/状态机以 ../data-model.md 为唯一权威; FR-001～FR-019 定义见 ../spec.md。
+openapi: 3.1.0
+info:
+  title: Home Media Platform — Playback Resolver API
+  version: 0.4.0
+  description: >-
+    阶段 4(播放解析与受控播放)设计契约,尚未实施。统一 /api 前缀,JSON camelCase;
+    错误一律 RFC 9457 application/problem+json;所有响应(含错误响应与媒体字节)均携带
+    Cache-Control: no-store 与 Referrer-Policy: no-referrer,媒体字节亦不得公开缓存。
+    JSON 控制写操作须同源/CSRF 校验(契约未规定具体头,由服务端统一中间件实现);
+    Cookie 面向浏览器同源使用,Bearer 客户端逐请求携带原认证;播放 ticket(query)不能单独授权,
+    媒体资产端点必须同时校验有效设备会话与 ticket。
+    任何响应不返回源地址、文件路径、上游凭据、所选源ID、ffmpeg 命令或 stderr;
+    日志与审计必须过滤 query ticket;renew 取得的 URL 不得写入 localStorage 或审计日志。
+    HLS 上游不得收到应用 Cookie/Bearer,禁止透传其 Set-Cookie。
+    异步语义:resolve 的 201 仅表示接受(preparing);probe/转换失败与 30s 首帧 / 15s seek 恢复超时
+    记录在已建立会话(state=failed + failureCode),由 GET /playback/sessions/{sessionId} 轮询获得;
+    503/504 稳定码用于可同步判定的拒绝路径(如 selection/seek 重建输出时的资源性拒绝),
+    完整稳定码注册表见根级 x-stable-error-codes。
+servers:
+  - url: http://{host}:{port}/api
+    variables:
+      host: { default: localhost }
+      port: { default: '3000' }
+
+tags:
+  - name: playback-control
+    description: 播放会话控制端点(resolve/查询/续票/心跳/停止/换轨/seek)
+  - name: playback-media
+    description: 服务端播放网关媒体资产端点(清单/分片/初始化片/key/字幕/direct 字节流)
+  - name: playback-records
+    description: 家长维度的设备播放记录与失败事件查询(审计/记录)
+
+security:
+  - sessionCookie: []
+  - bearerSession: []
+
+paths:
+  /playback/resolve:
+    post:
+      tags: [playback-control]
+      operationId: resolvePlayback
+      summary: 统一播放解析入口
+      description: >-
+        唯一统一播放解析入口,IPTV 直播频道与 NAS 本地影片共用(FR-001/FR-008)。
+        依次校验:有效设备会话 → 会话归属当前家庭 → 已选当前档案(PIN 保护档案须已解锁) →
+        最新 ProfilePolicy(等级/黑名单优先/未评级/儿童频道白名单) → 媒体归属当前家庭 →
+        家庭内存在可用播放资源(按设备能力评估直放/转封装/转码路径,FR-002/FR-004)。
+        同步授权或家庭可用资源校验失败返回稳定错误码且不产生播放会话;
+        不可见/被策略禁止/跨家庭/无可用资源统一 404 MEDIA_NOT_FOUND 同形,不泄漏存在性与原因差异
+        (FR-003;详情页门控与"内容不存在"友好语义由同一 404 语义支撑,FR-009/FR-010)。
+        校验通过后建立 preparing 会话并返回 201+Location:201 仅表示接受,不等待完整 probe,
+        delivery 与 playbackUrl/ticketExpiresAt 为 null,tracks 为空(FR-005)。
+        格式不支持、转换忙、超时等在探测/准备阶段异步失败,记录在已建立会话
+        (state=failed + failureCode),经 GET 会话轮询获得(FR-013/FR-014),resolve 本身同步不返回 422/503/504。
+        主动重复请求各建新会话与新播放地址,旧地址有效期内仍可用。仅返回同源相对路径,无源地址。
+      x-fr-mapping: [FR-001, FR-002, FR-003, FR-004, FR-005, FR-008, FR-009, FR-012, FR-014]
+      x-request-budget:
+        bodyLimitBytes: 16384
+        rateLimit:
+          limit: 30
+          windowSeconds: 60
+          scope: 每设备
+          bucket: resolve/seek/selection 共享
+          exceeded: '429 PLAYBACK_RATE_LIMITED + Retry-After'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaybackResolveRequest'
+      responses:
+        '201':
+          description: >-
+            已接受(preparing):同步授权与家庭可用资源通过,建立 preparing 会话;
+            delivery/playbackUrl/ticketExpiresAt 为 null,tracks 为空;不等待完整 probe。
+            无法同步授权则不建会话(返回对应 4xx)。
+          headers:
+            Location:
+              description: 新建播放会话地址(同源相对路径,如 /api/playback/sessions/{sessionId})
+              schema: { type: string }
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Referrer-Policy: { $ref: '#/components/headers/ReferrerPolicyNoReferrer' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackDto'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/SessionInvalid'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden'
+        '404':
+          $ref: '#/components/responses/MediaNotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /playback/sessions/{sessionId}:
+    get:
+      tags: [playback-control]
+      operationId: getPlaybackSession
+      summary: 查询播放会话状态(轮询准备状态/失败原因)
+      description: >-
+        仅原有效设备会话+原当前档案可查询;跨设备/跨家庭统一 404 PLAYBACK_NOT_FOUND 同形。
+        用于轮询 preparing→ready 的准备状态(FR-005)与失败友好原因(state=failed 时 failureCode
+        给出公开稳定码,如 PLAYBACK_FORMAT_UNSUPPORTED/PLAYBACK_PERFORMANCE_INSUFFICIENT/
+        PLAYBACK_RESOURCE_UNAVAILABLE/PLAYBACK_PREPARE_TIMEOUT,不含源诊断,FR-010/FR-013/FR-015)。
+        GET 不重签也不复现旧票:playbackUrl 与 ticketExpiresAt 恒为 null,
+        ready 后须以该 generation 调用 renew 取票。stop 后仍允许原有效设备查询终态,
+        但不能以终态签票。
+      x-fr-mapping: [FR-005, FR-007, FR-010, FR-013, FR-015]
+      x-request-budget:
+        bodyLimitBytes: 0
+        rateLimit: '契约未定义限频(客户端轮询准备状态/失败原因)'
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+      responses:
+        '200':
+          description: >-
+            当前会话状态;playbackUrl/ticketExpiresAt 恒为 null(GET 不重签不复现旧票);
+            state=failed 时 failureCode 为公开稳定码。
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Referrer-Policy: { $ref: '#/components/headers/ReferrerPolicyNoReferrer' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackDto'
+        '401':
+          $ref: '#/components/responses/SessionInvalid'
+        '404':
+          $ref: '#/components/responses/PlaybackSessionNotFound'
+
+  /playback/sessions/{sessionId}/renew:
+    post:
+      tags: [playback-control]
+      operationId: renewPlaybackTicket
+      summary: 换取/续期会话化播放凭据(ticket)
+      description: >-
+        仅 ready/playing/paused 可签发;preparing 返回 409 PLAYBACK_NOT_READY;
+        终态(ended/failed/interrupted)拒绝并 409 PLAYBACK_ENDED(FR-005)。
+        每次续期重新执行完整授权链(最新设备会话/当前档案与绑定一致性/最新策略,FR-011),
+        授权不再放行时按稳定码拒绝(策略变化使媒体不可见时统一 404 同形)。
+        复用既有任务/会话,仅换票;不改变 selection/version,不递增版本。
+        expectedGeneration(≥1 整数)在签发票的短事务内与当前 generation 比较,
+        不一致返回 409 PLAYBACK_GENERATION_STALE 且不写票。
+        票默认 5 分钟 TTL(可配置):首次 ready 后立即申请,以后到期前 60 秒续期;
+        续期签发新票行,旧票原过期时间不变。客户端须以本地 operationEpoch 匹配且
+        session/generation 一致才可安装响应,不能只按响应 generation 判断;
+        每次取得的 URL 为携带 opaque ticket 的同源相对路径,不得写入 localStorage 或审计日志,
+        页面不向第三方发送 referrer。
+      x-fr-mapping: [FR-005, FR-011]
+      x-request-budget:
+        bodyLimitBytes: 16384
+        rateLimit:
+          limit: 10
+          windowSeconds: 60
+          scope: 每设备
+          bucket: renew 专用
+          exceeded: '429 PLAYBACK_RATE_LIMITED + Retry-After'
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenewTicketRequest'
+      responses:
+        '200':
+          description: >-
+            换票成功:返回携带 opaque ticket 的同源相对路径 playbackUrl、ticketExpiresAt 与
+            当前 generation;访问日志必须去掉 ticket。
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Referrer-Policy: { $ref: '#/components/headers/ReferrerPolicyNoReferrer' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketReply'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/SessionInvalid'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden'
+        '404':
+          description: >-
+            PLAYBACK_NOT_FOUND(非本设备/跨家庭会话)或 MEDIA_NOT_FOUND
+            (重授权后媒体因策略/资源变化不可见,统一同形 404,不返回策略明细)。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: >-
+            PLAYBACK_NOT_READY(preparing 不签票) /
+            PLAYBACK_GENERATION_STALE(expectedGeneration 与当前 generation 不一致,不写票) /
+            PLAYBACK_ENDED(终态 ended/failed/interrupted 不可签票)。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /playback/sessions/{sessionId}/heartbeat:
+    post:
+      tags: [playback-control]
+      operationId: playbackHeartbeat
+      summary: 播放心跳(位置遥测+暂停意图)
+      description: >-
+        每 15 秒一次。positionSeconds 为非授权遥测(影片逻辑时间,秒),仅用于本次播放,
+        不作为阶段 5 观看进度持久化。paused 更新服务器保留的暂停意图 desiredPaused
+        (seek/换轨从服务器读取并保留该意图,FR-018 之外的暂停连续性由 data-model desired_paused 承载)。
+        暂停期间必须继续心跳;心跳同时作为客户端失联有界超时回收的活性信号(FR-019),
+        以及会话结束时间记录的可达信号之一(心跳/停止任一可达即算,FR-007)。
+        不能复活终态:终态会话心跳返回 409 PLAYBACK_ENDED。
+      x-fr-mapping: [FR-007, FR-019]
+      x-request-budget:
+        bodyLimitBytes: 16384
+        rateLimit: '契约未定义限频(客户端按 15 秒节奏驱动)'
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HeartbeatRequest'
+      responses:
+        '204':
+          description: 心跳已接受。
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Referrer-Policy: { $ref: '#/components/headers/ReferrerPolicyNoReferrer' }
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/SessionInvalid'
+        '404':
+          $ref: '#/components/responses/PlaybackSessionNotFound'
+        '409':
+          description: PLAYBACK_ENDED —— 终态(ended/failed/interrupted)不可复活。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /playback/sessions/{sessionId}/stop:
+    post:
+      tags: [playback-control]
+      operationId: stopPlayback
+      summary: 停止播放/取消准备(幂等)
+      description: >-
+        幂等:原设备可重复停止,重复 stop 仍返回 204。取消准备中的转换也使用此接口
+        (等待时允许取消,FR-018);停止/取消/失败/权限失效后终止不再需要的转换并释放额度,
+        客户端失联由心跳缺失的有界超时回收(FR-016/FR-019)。
+        stop 后会话进入 ended 终态,GET 仍允许原有效设备查询终态,但不能以终态签票。
+        换代请求(如并发 stop/与其他状态变更)按 generation CAS。
+      x-fr-mapping: [FR-007, FR-016, FR-018, FR-019]
+      x-request-budget:
+        bodyLimitBytes: 16384
+        rateLimit: '契约未定义限频;幂等可重复调用'
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StopRequest'
+      responses:
+        '204':
+          description: 已停止(含重复停止的幂等成功)。
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Referrer-Policy: { $ref: '#/components/headers/ReferrerPolicyNoReferrer' }
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/SessionInvalid'
+        '404':
+          $ref: '#/components/responses/PlaybackSessionNotFound'
+
+  /playback/sessions/{sessionId}/selection:
+    put:
+      tags: [playback-control]
+      operationId: updatePlaybackSelection
+      summary: 原子切换音轨/字幕
+      description: >-
+        授权后原子换轨/字幕(FR-017):初始使用默认音轨且不自动开启字幕;
+        字幕/音轨选择不改变观看权限。trackId 只能引用已探测轨道(tracks.*[].id),
+        否则 400 PLAYBACK_SELECTION_INVALID;subtitleTrackId 传 null 表示关闭字幕。
+        纯字幕切换仅 version+1 并返回现状态,不重启视频、不进入 preparing;
+        重建音轨(需新输出的音轨切换)则 generation/version 各+1、进入 preparing 无票,
+        ready 后以新 generation 调用 renew(FR-005);不新增 session。
+        expectedVersion CAS:冲突返回 409 PLAYBACK_VERSION_CONFLICT;
+        preparing 中拒绝第二次 selection(409 PLAYBACK_NOT_READY);终态 409 PLAYBACK_ENDED。
+        最终提交前重验授权以防异步探测窗口变更;需重建输出时可能同步拒绝:
+        503 PLAYBACK_CONVERSION_BUSY(并发上限,不排队,可稍后手动重试,直接播放不占额度,FR-016)/
+        PLAYBACK_STORAGE_LIMIT / PLAYBACK_RESOURCE_UNAVAILABLE。
+        响应为当前 PlaybackDto:含新 timelineOffsetSeconds 与目标 positionSeconds,
+        从服务器读取并保留暂停意图 desiredPaused;playbackUrl 为 null(GET/控制响应不携票)。
+        前端以 session/generation(及本地 operationEpoch)丢弃旧响应。
+      x-fr-mapping: [FR-005, FR-013, FR-016, FR-017]
+      x-request-budget:
+        bodyLimitBytes: 16384
+        rateLimit:
+          limit: 30
+          windowSeconds: 60
+          scope: 每设备
+          bucket: resolve/seek/selection 共享
+          exceeded: '429 PLAYBACK_RATE_LIMITED + Retry-After'
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SelectionRequest'
+      responses:
+        '200':
+          description: >-
+            切换已受理:纯字幕切换返回现状态(仅 version+1);重建音轨返回 preparing 无票状态
+            (generation/version 已+1),ready 后 renew 取新票。
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Referrer-Policy: { $ref: '#/components/headers/ReferrerPolicyNoReferrer' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackDto'
+        '400':
+          description: >-
+            VALIDATION_FAILED(体超 16KiB/未知字段/非有限数值等)或
+            PLAYBACK_SELECTION_INVALID(引用未探测/不存在的轨道)。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          $ref: '#/components/responses/SessionInvalid'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden'
+        '404':
+          $ref: '#/components/responses/PlaybackSessionNotFound'
+        '409':
+          description: >-
+            PLAYBACK_NOT_READY(preparing 中拒绝第二次 selection) /
+            PLAYBACK_VERSION_CONFLICT(expectedVersion 不匹配) /
+            PLAYBACK_ENDED(终态)。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: >-
+            PLAYBACK_CONVERSION_BUSY / PLAYBACK_STORAGE_LIMIT / PLAYBACK_RESOURCE_UNAVAILABLE
+            —— 需重建输出的换轨在提交时被资源性拒绝;不排队,可稍后手动重试。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /playback/sessions/{sessionId}/seek:
+    post:
+      tags: [playback-control]
+      operationId: seekPlayback
+      summary: NAS 影片定位(seek)
+      description: >-
+        NAS 播放定位(FR-018:跳转后目标位置恢复上限 15 秒,超时停止转换并提示重试):
+        成功受理产生新 generation+version;旧票立即失效(旧 generation 无论 TTL 都不可用,FR-011),
+        响应返回 preparing 且无票,ready 后以新 generation 调用 renew 申请新票(FR-005)。
+        expectedVersion CAS 冲突 409 PLAYBACK_VERSION_CONFLICT;
+        preparing 中拒绝第二次 seek(409 PLAYBACK_NOT_READY);终态 409 PLAYBACK_ENDED;
+        直播(时长 null)不提供影片 seek,返回 400 PLAYBACK_SEEK_UNSUPPORTED;
+        position 越过已探测 duration 或非有限数值返回 400 VALIDATION_FAILED。
+        最终提交前重验授权以防异步探测窗口变更;需重新转换时可能同步拒绝:
+        503 PLAYBACK_CONVERSION_BUSY / PLAYBACK_STORAGE_LIMIT / PLAYBACK_RESOURCE_UNAVAILABLE(FR-016)。
+        响应为当前 PlaybackDto:含新 timelineOffsetSeconds 与目标 positionSeconds,
+        保留暂停意图 desiredPaused;playbackUrl 为 null。
+        前端发送 seek 前先递增本地 operationEpoch,旧响应按 session/generation 丢弃。
+      x-fr-mapping: [FR-005, FR-011, FR-013, FR-016, FR-018]
+      x-request-budget:
+        bodyLimitBytes: 16384
+        rateLimit:
+          limit: 30
+          windowSeconds: 60
+          scope: 每设备
+          bucket: resolve/seek/selection 共享
+          exceeded: '429 PLAYBACK_RATE_LIMITED + Retry-After'
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SeekRequest'
+      responses:
+        '200':
+          description: >-
+            seek 已受理:返回 preparing 无票状态(新 generation/version),
+            含新 timelineOffsetSeconds 与目标 positionSeconds;ready 后 renew 取新票。
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Referrer-Policy: { $ref: '#/components/headers/ReferrerPolicyNoReferrer' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackDto'
+        '400':
+          description: >-
+            VALIDATION_FAILED(体超 16KiB/未知字段/position 非有限或越 duration)或
+            PLAYBACK_SEEK_UNSUPPORTED(直播不支持影片 seek)。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          $ref: '#/components/responses/SessionInvalid'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden'
+        '404':
+          $ref: '#/components/responses/PlaybackSessionNotFound'
+        '409':
+          description: >-
+            PLAYBACK_NOT_READY(preparing 中拒绝第二次 seek) /
+            PLAYBACK_VERSION_CONFLICT(expectedVersion 不匹配) /
+            PLAYBACK_ENDED(终态)。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: >-
+            PLAYBACK_CONVERSION_BUSY / PLAYBACK_STORAGE_LIMIT / PLAYBACK_RESOURCE_UNAVAILABLE
+            —— seek 触发的重建在提交时被资源性拒绝;不排队,可稍后手动重试。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /devices/{deviceId}/playback-records/query:
+    post:
+      tags: [playback-records]
+      operationId: queryDevicePlaybackRecords
+      summary: 家长查询设备播放记录与会话/失败事件
+      description: >-
+        owner+当次密码,重验家庭目标(FR-007);密码缺失/错误按现有家长验证规则拒绝(403)。
+        返回当前家庭该设备的播放 session 记录与解析失败 failure 事件(脱敏):
+        不含源位置/文件路径/ticket;不可见媒体不记录其标识(failure.mediaId=null),
+        无效会话不写设备记录(仅脱敏安全日志)。
+        limit 默认 20、最大 100;按时间/id 倒序,游标分页(nextCursor=null 表示没有更多)。
+        越权/跨家庭目标统一 404 同形。
+      x-fr-mapping: [FR-007]
+      x-request-budget:
+        bodyLimitBytes: 16384
+        rateLimit: '契约未定义限频'
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaybackRecordQueryRequest'
+      responses:
+        '200':
+          description: >-
+            记录页:session 与 failure 混合项,按时间/id 倒序;所有项不含源位置与 ticket。
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Referrer-Policy: { $ref: '#/components/headers/ReferrerPolicyNoReferrer' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackRecordPage'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/SessionInvalid'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden'
+        '404':
+          description: NOT_FOUND —— 设备不存在/目标跨家庭,统一同形 404,不泄漏归属。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /playback/stream/{sessionId}/{generation}/{assetId}:
+    parameters:
+      - $ref: '#/components/parameters/SessionIdPath'
+      - $ref: '#/components/parameters/GenerationPath'
+      - $ref: '#/components/parameters/AssetIdPath'
+      - $ref: '#/components/parameters/TicketQuery'
+    get:
+      tags: [playback-media]
+      operationId: getStreamAsset
+      summary: 播放网关媒体资产(HLS 清单/分片/初始化片/key/字幕/direct 字节流)
+      description: >-
+        服务端统一播放入口的媒体资产交付(FR-001/FR-006):入口清单、分片、初始化片、key、字幕
+        均以资产 ID(assetId)寻址,不接受 URL 或路径参数,不向客户端暴露源地址。
+        逐请求授权链:SessionGuard(最新有效设备会话) → ticket hash 及 TTL →
+        绑定 session/device/profile → 最新策略与源事实 → generation/asset 归属 → 交付;
+        任一环节失效即拒绝且不再交付新响应(FR-011);ticket 不能用于其他 session/generation
+        (旧 generation 无论 TTL 都不可用),asset 枚举不存在统一 404 同形。
+        安全方案:设备会话(Cookie 或 Bearer)+ query ticket 双重授权,ticket 不能单独授权。
+        HLS:清单 MIME application/vnd.apple.mpegurl,内部相对 URI 重写后只指向本入口,
+        原清单禁止原样返回;key 为 application/octet-stream;字幕为 text/vtt 且只含文字,
+        播放器不得以 HTML 执行(FR-017);拒绝 DRM 及未知 URI 标签;上游重定向不返回给浏览器;
+        上游不收到应用 Cookie/Bearer,禁止透传其 Set-Cookie(research R3)。
+        NAS direct:支持 GET/HEAD/单 Range —— 200/206、Accept-Ranges: bytes、
+        Content-Length/Content-Range 一致;越界 416,多个 Range 400;HEAD 与 GET 同鉴权。
+        源故障:未发送 headers 时返回 problem(503 PLAYBACK_RESOURCE_UNAVAILABLE);
+        已发送字节则关闭流并将失败码写入会话,客户端轮询 GET /playback/sessions/{sessionId}
+        获取友好原因,不得在字节流内注入 JSON(FR-010/FR-013)。
+        客户端断开必须取消上游读取(FR-019);不承诺撤回已缓存内容或已开始发送的响应(FR-011)。
+        所有响应 Cache-Control: no-store、Referrer-Policy: no-referrer,媒体字节不公开缓存。
+      x-fr-mapping: [FR-001, FR-006, FR-008, FR-010, FR-011, FR-017, FR-019]
+      x-request-budget:
+        rateLimit: >-
+          不适用控制端限频(resolve/seek/selection 30 次分/设备、renew 10 次分/设备不覆盖媒体分片,
+          播放器频繁 Range 请求不重复计会话);受部署级并发/backpressure 预算约束。
+      security:
+        - sessionCookie: []
+          playbackTicket: []
+        - bearerSession: []
+          playbackTicket: []
+      responses:
+        '200':
+          description: >-
+            资产内容:HLS 入口清单(application/vnd.apple.mpegurl,重写后仅指向本入口)、
+            媒体分片/初始化片/key/原始字节(application/octet-stream)、
+            WebVTT 字幕(text/vtt)、direct 渐进字节流(如 video/mp4)。
+            direct 字节流附 Accept-Ranges: bytes 与一致的 Content-Length;HEAD 同元数据但不发送字节。
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Referrer-Policy: { $ref: '#/components/headers/ReferrerPolicyNoReferrer' }
+            Accept-Ranges: { $ref: '#/components/headers/AcceptRangesBytes' }
+            Content-Length: { $ref: '#/components/headers/ContentLengthHeader' }
+          content:
+            application/vnd.apple.mpegurl:
+              schema:
+                type: string
+              examples:
+                manifest:
+                  summary: 重写后的 HLS 入口清单(相对 URI 仅指向本入口)
+                  value: |
+                    #EXTM3U
+                    #EXT-X-TARGETDURATION:6
+                    #EXTINF:6.000,
+                    seg-0001
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            text/vtt:
+              schema:
+                type: string
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+        '206':
+          description: >-
+            单区间 Range 部分内容(NAS direct);Content-Range 与请求一致;不允许多区间。
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Referrer-Policy: { $ref: '#/components/headers/ReferrerPolicyNoReferrer' }
+            Content-Range: { $ref: '#/components/headers/ContentRangeHeader' }
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: >-
+            多个 Range 区间或畸形 Range 头(VALIDATION_FAILED)。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: >-
+            SESSION_INVALID(无会话/失效/撤销)或
+            PLAYBACK_TICKET_INVALID / PLAYBACK_TICKET_EXPIRED
+            (ticket 缺失/不属于该 session+generation/已过期;复制到其他设备/会话因绑定失效)。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: >-
+            ACTIVE_PROFILE_REQUIRED 或既有 PIN/家长验证错误;档案切换/策略收紧后下一次播放请求拒绝,
+            不返回策略明细。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: >-
+            同形 404:PLAYBACK_NOT_FOUND(会话/代次/资产枚举不匹配或不存在)与
+            MEDIA_NOT_FOUND(媒体不可见/跨家庭),不泄漏存在性与原因差异。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '416':
+          description: Range 越界(超出字节长度)。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: >-
+            PLAYBACK_RESOURCE_UNAVAILABLE —— 媒体请求开始后源故障且尚未发送 headers 时返回 problem;
+            已发送字节则直接关闭流(失败码写入会话,由 GET 会话轮询获得),不在字节流内注入 JSON。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    head:
+      tags: [playback-media]
+      operationId: headStreamAsset
+      summary: 播放网关媒体资产元数据(与 GET 同鉴权,不发送字节)
+      description: >-
+        与 GET 完全相同的逐请求授权链(SessionGuard → ticket hash/TTL → 绑定 → 最新策略与源事实 →
+        generation/asset 归属,FR-006/FR-011)与相同响应头(含 direct 的 Accept-Ranges/Content-Length、
+        206 的 Content-Range),但不发送任何字节。HEAD 与 GET 同鉴权;
+        其余错误语义与 GET 相同(401/403/404/416/503 同形)。
+      x-fr-mapping: [FR-001, FR-006, FR-008, FR-011, FR-017, FR-019]
+      x-request-budget:
+        rateLimit: >-
+          不适用控制端限频;受部署级并发/backpressure 预算约束(与 GET 相同)。
+      security:
+        - sessionCookie: []
+          playbackTicket: []
+        - bearerSession: []
+          playbackTicket: []
+      responses:
+        '200':
+          description: >-
+            资产元数据:与 GET 相同的头(含 Cache-Control: no-store、Referrer-Policy: no-referrer、
+            direct 字节流的 Accept-Ranges: bytes 与 Content-Length);无响应体。
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Referrer-Policy: { $ref: '#/components/headers/ReferrerPolicyNoReferrer' }
+            Accept-Ranges: { $ref: '#/components/headers/AcceptRangesBytes' }
+            Content-Length: { $ref: '#/components/headers/ContentLengthHeader' }
+        '206':
+          description: 单区间 Range 的元数据响应(Content-Range 与请求一致);不发送字节。
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Referrer-Policy: { $ref: '#/components/headers/ReferrerPolicyNoReferrer' }
+            Content-Range: { $ref: '#/components/headers/ContentRangeHeader' }
+        '400':
+          description: 多个 Range 区间或畸形 Range 头(VALIDATION_FAILED)。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: >-
+            SESSION_INVALID 或 PLAYBACK_TICKET_INVALID / PLAYBACK_TICKET_EXPIRED(与 GET 相同)。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: ACTIVE_PROFILE_REQUIRED 或既有 PIN/家长验证错误(与 GET 相同)。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: >-
+            同形 404:PLAYBACK_NOT_FOUND / MEDIA_NOT_FOUND(会话/代次/资产/可见性),不泄漏差异。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '416':
+          description: Range 越界(超出字节长度)。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: PLAYBACK_RESOURCE_UNAVAILABLE —— 源故障且未发送 headers 时返回 problem。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: hmp_session
+      description: >-
+        浏览器同源 httpOnly 设备会话 Cookie(沿用 001);Native HLS 使用同源 Cookie;
+        每次播放请求校验最新有效会话,JSON 控制写操作须同源/CSRF 校验。
+    bearerSession:
+      type: http
+      scheme: bearer
+      description: >-
+        不透明设备会话令牌(仅签发时返回一次);Bearer 客户端逐请求携带原认证。
+    playbackTicket:
+      type: apiKey
+      in: query
+      name: ticket
+      description: >-
+        播放 ticket:随机 256bit 不透明令牌,仅在签发(renew)响应出现一次,服务端仅存 hash;
+        绑定播放会话+设备会话+generation,不能用于其他 session/generation,
+        不能单独授权(媒体端点必须同时校验设备会话)。日志必须过滤 query ticket;
+        按 api.md 仅提供 query 形态(无 header 形态),hls.js 加载器对子资源附加最新 ticket。
+
+  parameters:
+    SessionIdPath:
+      name: sessionId
+      in: path
+      required: true
+      description: 播放会话 ID;跨设备/跨家庭访问统一 404 同形。
+      schema:
+        type: string
+        format: uuid
+    GenerationPath:
+      name: generation
+      in: path
+      required: true
+      description: 会话编辑代次(≥1);旧 generation 的 ticket 无论 TTL 都不可用。
+      schema:
+        type: integer
+        minimum: 1
+    AssetIdPath:
+      name: assetId
+      in: path
+      required: true
+      description: >-
+        服务端资产 ID(清单/分片/初始化片/key/字幕统称);不透明、服务端生成,
+        不接受 URL 或路径参数;asset 枚举不存在统一 404 同形。
+      schema:
+        type: string
+        minLength: 1
+    TicketQuery:
+      name: ticket
+      in: query
+      required: true
+      description: >-
+        播放 ticket(query 形态,按 api.md);与设备会话双重授权,不能单独授权;
+        不能用于其他 session/generation。
+      schema:
+        type: string
+        minLength: 1
+    DeviceIdPath:
+      name: deviceId
+      in: path
+      required: true
+      description: 目标设备 ID(当前家庭内);跨家庭统一 404 同形。
+      schema:
+        type: string
+        format: uuid
+
+  headers:
+    CacheControlNoStore:
+      description: 所有响应(含错误与媒体字节)禁止缓存/公开缓存。
+      schema:
+        type: string
+        const: no-store
+    ReferrerPolicyNoReferrer:
+      description: 不向第三方发送 referrer;页面不向第三方发送 referrer。
+      schema:
+        type: string
+        const: no-referrer
+    RetryAfterSeconds:
+      description: 限流(429 PLAYBACK_RATE_LIMITED)后建议等待的秒数。
+      schema:
+        type: integer
+        minimum: 1
+    AcceptRangesBytes:
+      description: NAS direct 字节流支持单区间 Range。
+      schema:
+        type: string
+        const: bytes
+    ContentLengthHeader:
+      description: 字节长度;HEAD 与 GET 一致(HEAD 不发送字节)。
+      schema:
+        type: integer
+        minimum: 0
+    ContentRangeHeader:
+      description: 206 单区间内容范围;与请求 Range 一致。
+      schema:
+        type: string
+    LocationPlaybackSession:
+      description: 新建播放会话地址(同源相对路径,如 /api/playback/sessions/{sessionId})。
+      schema:
+        type: string
+
+  responses:
+    ValidationFailed:
+      description: >-
+        400 VALIDATION_FAILED —— JSON 语法错误/未知字段/非有限数值(NaN/Infinity)/
+        超出范围或请求体超过 16KiB 限制。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    SessionInvalid:
+      description: >-
+        401 SESSION_INVALID —— 无会话/会话失效/设备撤销(含伪造或跨设备复用)。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ProfileForbidden:
+      description: >-
+        403 ACTIVE_PROFILE_REQUIRED 或既有 PIN/家长验证错误(沿用 001/002 规则,
+        如记录查询密码缺失);不返回策略明细。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    MediaNotFound:
+      description: >-
+        404 MEDIA_NOT_FOUND —— 不存在/跨家庭/不可见(策略禁止)/无可用播放资源统一同形,
+        不泄漏存在性与原因差异(FR-003)。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PlaybackSessionNotFound:
+      description: >-
+        404 PLAYBACK_NOT_FOUND —— 非本设备会话/跨设备/跨家庭统一同形 404。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    RateLimited:
+      description: >-
+        429 PLAYBACK_RATE_LIMITED —— 超出该设备当前操作限频
+        (resolve/seek/selection 每设备每分钟 30 次共享桶;renew 每分钟 10 次;
+        详见各操作 x-request-budget)。媒体分片不套此频率。
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfterSeconds'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+  schemas:
+    Problem:
+      type: object
+      description: >-
+        RFC 9457 problem details;code 为公开稳定错误码(见根级 x-stable-error-codes)。
+        失败事件与日志只记录公开稳定码,不含源位置、上游地址或内部诊断。
+      additionalProperties: false
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+          description: 机器可读稳定错误码,如 PLAYBACK_NOT_READY / MEDIA_NOT_FOUND。
+        detail:
+          type: string
+
+    PlaybackResolveRequest:
+      type: object
+      description: 解析请求;不携带任何授权事实(家庭/档案/策略均由服务端会话推导)。
+      additionalProperties: false
+      required: [mediaId]
+      properties:
+        mediaId:
+          type: string
+          format: uuid
+          description: 目标媒体标识;不可见媒体(被禁/跨家庭/无源)与不存在同形 404。
+
+    RenewTicketRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedGeneration]
+      properties:
+        expectedGeneration:
+          type: integer
+          minimum: 1
+          description: >-
+            客户端持有的当前 generation(≥1);在签发票的短事务内与服务端当前 generation 比较,
+            不一致 409 PLAYBACK_GENERATION_STALE 且不写票。
+
+    HeartbeatRequest:
+      type: object
+      additionalProperties: false
+      required: [positionSeconds, paused]
+      properties:
+        positionSeconds:
+          type: number
+          minimum: 0
+          description: >-
+            当前播放位置(影片逻辑时间,秒);有限非 NaN,已知 duration 时不得越界;
+            非授权遥测,仅用于本次播放,不作为观看进度持久化。
+        paused:
+          type: boolean
+          description: 更新服务器保留的暂停意图 desiredPaused。
+
+    StopRequest:
+      type: object
+      description: 请求体必须为空对象。
+      additionalProperties: false
+      maxProperties: 0
+
+    SelectionRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, positionSeconds, audioTrackId, subtitleTrackId]
+      properties:
+        expectedVersion:
+          type: integer
+          minimum: 1
+          description: 客户端持有的会话编辑 version;CAS 冲突 409 PLAYBACK_VERSION_CONFLICT。
+        positionSeconds:
+          type: number
+          minimum: 0
+          description: 切换目标影片逻辑时间(秒);有限非 NaN;换轨后从服务器读取并保留暂停意图。
+        audioTrackId:
+          type: string
+          minLength: 1
+          description: >-
+            目标音轨 ID;只能引用已探测音轨(PlaybackDto.tracks.audio[].id),
+            否则 400 PLAYBACK_SELECTION_INVALID;重建音轨时 generation/version 各+1。
+        subtitleTrackId:
+          type: [string, 'null']
+          minLength: 1
+          description: >-
+            目标字幕 ID 或 null=关闭字幕;只能引用已探测字幕(PlaybackDto.tracks.subtitles[].id);
+            纯字幕切换仅 version+1,不重启视频、不进入 preparing。
+
+    SeekRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, positionSeconds]
+      properties:
+        expectedVersion:
+          type: integer
+          minimum: 1
+          description: 客户端持有的会话编辑 version;CAS 冲突 409 PLAYBACK_VERSION_CONFLICT。
+        positionSeconds:
+          type: number
+          minimum: 0
+          description: >-
+            目标影片逻辑时间(秒);有限非 NaN,不得越过已探测 duration;
+            直播(时长 null)不提供影片 seek(400 PLAYBACK_SEEK_UNSUPPORTED)。
+
+    PlaybackRecordQueryRequest:
+      type: object
+      additionalProperties: false
+      required: [ownerPassword]
+      properties:
+        ownerPassword:
+          type: string
+          minLength: 1
+          writeOnly: true
+          description: owner 当次密码;缺失/错误按现有家长验证规则拒绝;不回显、不落日志。
+        cursor:
+          type: string
+          minLength: 1
+          description: 不透明游标,取自上一响应 nextCursor 原样回传。
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+          description: 单页最大条数;默认 20,最大 100。
+
+    PlaybackSessionState:
+      type: string
+      description: >-
+        播放会话状态(data-model.md 唯一权威状态机):
+        preparing→ready/failed/ended/interrupted;ready→playing/paused;playing↔paused;
+        ready/playing/paused→preparing(seek 或需重建输出的换轨);
+        任一活动态→ended/failed/interrupted,终态不可复活。
+        preparing 拒绝 renew/第二次 seek/selection(409 PLAYBACK_NOT_READY);
+        准备完成进 ready,首次媒体交付进 playing 并设置 started_at(之后不重置);
+        暂停期间必须继续 heartbeat。
+      enum: [preparing, ready, playing, paused, ended, failed, interrupted]
+
+    PlaybackDelivery:
+      type: [string, 'null']
+      description: >-
+        交付模式(仅展示播放器需要的模式);探测/格式计划完成前为 null;
+        终态保留已确定值,准备失败仍可为空,禁止补造。不返回所选源ID/位置、ffmpeg 命令或 stderr。
+      enum: [direct, hls_proxy, remux, audio_transcode, video_transcode, null]
+
+    PlaybackTrackAudio:
+      type: object
+      description: 已探测内嵌音轨(仅元数据;trackId 供 selection 引用)。
+      additionalProperties: false
+      required: [id, label, language, default]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          description: 服务器轨道 ID;selection.audioTrackId 只能引用已探测轨道。
+        label:
+          type: string
+          description: 展示标签。
+        language:
+          type: string
+          description: 语言标签(BCP-47 形态;未知为 und 由服务端探测给出)。
+        default:
+          type: boolean
+          description: 是否为初始默认音轨(FR-017:初始使用默认音轨)。
+
+    PlaybackTrackSubtitle:
+      type: object
+      description: 已探测文字字幕(内嵌或同目录同名 SRT/WebVTT;仅元数据,不含物理路径)。
+      additionalProperties: false
+      required: [id, label, language]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          description: 服务器轨道 ID;selection.subtitleTrackId 只能引用已探测字幕,null=关闭。
+        label:
+          type: string
+          description: 展示标签。
+        language:
+          type: string
+          description: 语言标签(BCP-47 形态)。
+
+    PlaybackTracks:
+      type: object
+      description: >-
+        已探测轨道列表;探测未完成时 audio/subtitles 均为空数组(api.md "tracks探测未完成为空");
+        selection 只能引用其中已出现的轨道 ID。
+      additionalProperties: false
+      required: [audio, subtitles]
+      properties:
+        audio:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaybackTrackAudio'
+        subtitles:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaybackTrackSubtitle'
+
+    PlaybackDto:
+      type: object
+      description: >-
+        播放会话公共视图(api.md PlaybackDto;字段可空性以 data-model.md 为权威)。
+        playbackUrl/ticketExpiresAt 始终可空,且除 renew(TicketReply)响应外恒为 null
+        (GET 不重签也不复现旧票);delivery 在探测完成前为 null;tracks 探测未完成为空数组。
+        任何字段不含源地址、文件路径、上游凭据、所选源ID、ffmpeg 命令或 stderr;
+        playbackUrl 为携带 opaque ticket 的同源相对路径(无源地址),不得写入 localStorage 或审计日志。
+      additionalProperties: false
+      required:
+        [
+          id,
+          state,
+          version,
+          generation,
+          desiredPaused,
+          delivery,
+          positionSeconds,
+          durationSeconds,
+          timelineOffsetSeconds,
+          presentationStartSeconds,
+          ticketExpiresAt,
+          playbackUrl,
+          tracks,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 播放会话 ID。
+        state:
+          $ref: '#/components/schemas/PlaybackSessionState'
+        version:
+          type: integer
+          minimum: 1
+          description: >-
+            会话编辑 version(CAS 依据);首次接受=1;纯字幕切换+1;seek/重建音轨+1;
+            heartbeat/ready/playing 转换和 renew 不递增。
+        generation:
+          type: integer
+          minimum: 1
+          description: >-
+            会话编辑代次;首次接受=1;seek/重建音轨(需新输出的换轨)+1;旧代次票立即失效。
+        desiredPaused:
+          type: boolean
+          description: >-
+            服务器保留的暂停意图(NOT NULL,默认 false);heartbeat.paused 更新;
+            seek/换轨从服务器读取并保留(seek 保留暂停意图,换轨后同样恢复)。
+        delivery:
+          $ref: '#/components/schemas/PlaybackDelivery'
+        positionSeconds:
+          type: number
+          minimum: 0
+          description: >-
+            当前/目标播放位置(影片逻辑时间,秒);有限非 NaN,≥0 且不越 duration;
+            seek/换轨响应中为目标位置。
+        durationSeconds:
+          type: [number, 'null']
+          minimum: 0
+          description: 影片逻辑时长(秒,原影片逻辑时间);直播为 null 且不提供影片 seek。
+        timelineOffsetSeconds:
+          type: number
+          description: >-
+            转换 manifest 本地时间加该偏移对应影片逻辑时间;seek/换轨响应返回新 offset;
+            direct/未转换时由服务端给出(通常为 0)。
+        presentationStartSeconds:
+          type: number
+          minimum: 0
+          description: >-
+            指定需要跳过的目标前区间(秒);播放器不展示目标之前的画面。
+        ticketExpiresAt:
+          type: [string, 'null']
+          format: date-time
+          description: 当前票过期时间;除 renew 响应外为 null。
+        playbackUrl:
+          type: [string, 'null']
+          description: >-
+            会话化播放地址(同源相对路径,含 opaque ticket query,无源地址);
+            除 renew 响应外为 null;不得写入 localStorage 或审计日志,页面不向第三方发送 referrer。
+        tracks:
+          $ref: '#/components/schemas/PlaybackTracks'
+        failureCode:
+          type: string
+          description: >-
+            公开稳定失败码;仅 state=failed 时出现且非空(data-model:失败码仅 failed 非空),
+            如 PLAYBACK_FORMAT_UNSUPPORTED / PLAYBACK_RESOURCE_UNAVAILABLE /
+            PLAYBACK_PERFORMANCE_INSUFFICIENT / PLAYBACK_STORAGE_LIMIT /
+            PLAYBACK_PREPARE_TIMEOUT / PLAYBACK_SEEK_TIMEOUT;不含源诊断。
+
+    TicketReply:
+      type: object
+      description: >-
+        播放凭据回复(仅 renew 成功返回):URL 携带 opaque ticket,访问日志必须去掉 ticket,
+        页面不向第三方发送 referrer;URL 不得写入 localStorage 或审计日志。
+        默认 5 分钟 TTL(可配置),首次 ready 后立即申请,以后到期前 60 秒续期。
+      additionalProperties: false
+      required: [playbackUrl, ticketExpiresAt, generation]
+      properties:
+        playbackUrl:
+          type: string
+          minLength: 1
+          description: >-
+            会话化播放地址:同源相对路径 /api/playback/stream/{sessionId}/{generation}/…?ticket=…,
+            不含源地址/上游凭据;绑定设备会话与播放会话。
+        ticketExpiresAt:
+          type: string
+          format: date-time
+          description: 票过期时间(默认签发后 5 分钟,可配置;旧票仍按原有效期失效)。
+        generation:
+          type: integer
+          minimum: 1
+          description: 签发时的会话代次;客户端须与本地 operationEpoch 匹配后才可安装响应。
+
+    PlaybackRecordPage:
+      type: object
+      description: >-
+        设备维度播放记录页(FR-007):session 与 failure 事件混合,按时间/id 倒序;
+        所有项不含源位置、文件路径或 ticket。
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaybackRecordItem'
+        nextCursor:
+          type: [string, 'null']
+          description: 不透明游标;null 表示没有更多记录。
+
+    PlaybackRecordItem:
+      description: 播放记录项:播放会话记录或解析失败事件(kind 判别)。
+      oneOf:
+        - $ref: '#/components/schemas/PlaybackSessionRecord'
+        - $ref: '#/components/schemas/PlaybackFailureRecord'
+      discriminator:
+        propertyName: kind
+        mapping:
+          session: '#/components/schemas/PlaybackSessionRecord'
+          failure: '#/components/schemas/PlaybackFailureRecord'
+
+    PlaybackSessionRecord:
+      type: object
+      description: >-
+        播放会话记录(FR-007):设备/档案/媒体/所选资源/开始/结束或失败时间/稳定失败码;
+        仅含脱敏字段,无源位置与 ticket。
+      additionalProperties: false
+      required:
+        [kind, id, deviceId, mediaId, profileId, state, delivery, positionSeconds, createdAt, startedAt, endedAt, failureCode, playbackSourceId]
+      properties:
+        kind:
+          type: string
+          enum: [session]
+        id:
+          type: string
+          format: uuid
+          description: 播放会话 ID。
+        deviceId:
+          type: string
+          format: uuid
+          description: 设备 ID(查询路径的设备)。
+        mediaId:
+          type: string
+          format: uuid
+          description: 媒体 ID(当前家庭内)。
+        profileId:
+          type: string
+          format: uuid
+          description: 发起播放时的当前档案 ID。
+        state:
+          $ref: '#/components/schemas/PlaybackSessionState'
+        delivery:
+          $ref: '#/components/schemas/PlaybackDelivery'
+        positionSeconds:
+          type: number
+          minimum: 0
+          description: 记录时点的播放位置(影片逻辑时间,秒)。
+        createdAt:
+          type: string
+          format: date-time
+          description: 请求被接受时间(UTC ISO8601)。
+        startedAt:
+          type: [string, 'null']
+          format: date-time
+          description: 首次媒体交付时间;可能永不发生(为 null)。
+        endedAt:
+          type: [string, 'null']
+          format: date-time
+          description: 结束时间;ended/failed/interrupted 终态必填,活动态为 null。
+        failureCode:
+          type: [string, 'null']
+          description: 公开稳定失败码;仅 failed 非空,其余为 null;无源诊断。
+        playbackSourceId:
+          type: [string, 'null']
+          format: uuid
+          description: >-
+            所选播放资源的不透明标识(data-model playback_source_id;nullable,
+            准备阶段候选未固定/准备失败时为 null);仅为标识,不含源位置/路径/上游凭据。
+
+    PlaybackFailureRecord:
+      type: object
+      description: >-
+        解析失败事件(FR-007):有效设备会话的被拒解析另记失败事件,不建立播放会话;
+        不与异步准备失败(probe/转换,记录在已建立会话)混淆;不可见媒体不记录其标识。
+      additionalProperties: false
+      required: [kind, id, occurredAt, stableCode, profileId, mediaId]
+      properties:
+        kind:
+          type: string
+          enum: [failure]
+        id:
+          type: string
+          format: uuid
+          description: 失败事件 ID。
+        occurredAt:
+          type: string
+          format: date-time
+          description: 发生时间(UTC ISO8601)。
+        stableCode:
+          type: string
+          description: 公开稳定失败码;无源诊断。
+        profileId:
+          type: [string, 'null']
+          format: uuid
+          description: 可确定的档案 ID;未选择档案时为 null。
+        mediaId:
+          type: [string, 'null']
+          format: uuid
+          description: >-
+            关联媒体 ID;仅可见媒体可关联,不可见媒体为 null(不存客户端原始目标 ID)。
+
+# FR-001～FR-019 与契约端点映射总表(与各 operation 的 x-fr-mapping 一致)
+# 说明:FR-009(详情页门控)/FR-014(兼容矩阵)/FR-015(硬件回退与性能不足)无独立端点,
+#      分别由 resolve 同形 404 语义、failureCode=PLAYBACK_FORMAT_UNSUPPORTED、
+#      failureCode=PLAYBACK_PERFORMANCE_INSUFFICIENT 及稳定码注册表承载。
+x-fr-coverage:
+  FR-001: [resolvePlayback, getStreamAsset, headStreamAsset]
+  FR-002: [resolvePlayback]
+  FR-003: [resolvePlayback, getStreamAsset, headStreamAsset]
+  FR-004: [resolvePlayback]
+  FR-005: [resolvePlayback, getPlaybackSession, renewPlaybackTicket, seekPlayback, updatePlaybackSelection]
+  FR-006: [getStreamAsset, headStreamAsset]
+  FR-007: [queryDevicePlaybackRecords, playbackHeartbeat, stopPlayback]
+  FR-008: [resolvePlayback, getStreamAsset, headStreamAsset]
+  FR-009: [resolvePlayback]
+  FR-010: [getPlaybackSession, getStreamAsset]
+  FR-011: [renewPlaybackTicket, seekPlayback, getStreamAsset, headStreamAsset]
+  FR-012: [resolvePlayback]
+  FR-013: [getPlaybackSession, seekPlayback, updatePlaybackSelection]
+  FR-014: [resolvePlayback, getPlaybackSession]
+  FR-015: [getPlaybackSession]
+  FR-016: [seekPlayback, updatePlaybackSelection, stopPlayback]
+  FR-017: [updatePlaybackSelection, getStreamAsset, headStreamAsset]
+  FR-018: [seekPlayback, stopPlayback, getPlaybackSession]
+  FR-019: [stopPlayback, playbackHeartbeat, getStreamAsset]
+
+# 稳定错误码注册表(api.md "稳定错误"全文转录;Problem.code 取值)
+# 异步语义:PLAYBACK_FORMAT_UNSUPPORTED(422)、PLAYBACK_PREPARE_TIMEOUT/PLAYBACK_SEEK_TIMEOUT(504)、
+# PLAYBACK_PERFORMANCE_INSUFFICIENT 等准备期失败主要经 state=failed + failureCode 由
+# GET /playback/sessions/{sessionId} 轮询获得(resolve 同步不等待);503 状态用于可同步判定的
+# 拒绝路径(selection/seek 重建输出、媒体源故障未发 headers)。终态拒绝统一 409 PLAYBACK_ENDED。
+x-stable-error-codes:
+  SESSION_INVALID: { status: 401, meaning: 无会话/会话失效/设备撤销 }
+  PLAYBACK_TICKET_INVALID: { status: 401, meaning: ticket 缺失/不属于该 session+generation/复制复用 }
+  PLAYBACK_TICKET_EXPIRED: { status: 401, meaning: ticket 已过期(旧 generation 无论 TTL 都不可用) }
+  ACTIVE_PROFILE_REQUIRED: { status: 403, meaning: 未选择当前档案(另有 PIN/家长验证既有 403,沿用 001/002) }
+  MEDIA_NOT_FOUND: { status: 404, meaning: 不存在/跨家庭/不可见/无可用资源,统一同形 }
+  PLAYBACK_NOT_FOUND: { status: 404, meaning: 非本设备会话/会话或资产枚举不存在,统一同形 }
+  PLAYBACK_NOT_READY: { status: 409, meaning: preparing 中拒绝 renew/seek/selection }
+  PLAYBACK_VERSION_CONFLICT: { status: 409, meaning: expectedVersion CAS 冲突 }
+  PLAYBACK_GENERATION_STALE: { status: 409, meaning: expectedGeneration 与当前代次不一致,不写票 }
+  PLAYBACK_ENDED: { status: 409, meaning: 终态(ended/failed/interrupted)拒绝,不可复活/签票 }
+  PLAYBACK_SELECTION_INVALID: { status: 400, meaning: 轨道选择引用未探测/不存在轨道 }
+  PLAYBACK_SEEK_UNSUPPORTED: { status: 400, meaning: 直播不支持影片 seek }
+  PLAYBACK_FORMAT_UNSUPPORTED: { status: 422, meaning: 格式不支持(兼容矩阵外);异步准备失败经会话 failureCode 呈现 }
+  PLAYBACK_CONVERSION_BUSY: { status: 503, meaning: 转换并发达部署上限,立即拒绝不排队,可稍后重试 }
+  PLAYBACK_STORAGE_LIMIT: { status: 503, meaning: 临时产物存储预算不足 }
+  PLAYBACK_PERFORMANCE_INSUFFICIENT: { status: 503, meaning: 无法持续实时转换,停止并提示;异步经会话 failureCode 呈现 }
+  PLAYBACK_RESOURCE_UNAVAILABLE: { status: 503, meaning: 源/资源暂不可用(已授权播放交付中源故障) }
+  PLAYBACK_PREPARE_TIMEOUT: { status: 504, meaning: 首次起播超 30 秒上限,停止转换并提示重试;异步经会话 failureCode 呈现 }
+  PLAYBACK_SEEK_TIMEOUT: { status: 504, meaning: 跳转恢复超 15 秒上限,停止转换并提示重试;异步经会话 failureCode 呈现 }
+  PLAYBACK_RATE_LIMITED: { status: 429, meaning: 超出解析控制限频(30/min resolve+seek+selection;10/min renew),带 Retry-After }
+  VALIDATION_FAILED: { status: 400, meaning: 既有通用校验错误(001–003);含体超 16KiB/未知字段/非有限数值 }

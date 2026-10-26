@@ -2,8 +2,10 @@ import { sql } from 'drizzle-orm';
 import {
   check,
   foreignKey,
+  index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -213,3 +215,675 @@ export type NewAccount = typeof account.$inferInsert;
 export type NewProfile = typeof profile.$inferInsert;
 export type NewDevice = typeof device.$inferInsert;
 export type NewDeviceSession = typeof deviceSession.$inferInsert;
+
+/**
+ * 阶段 3(003-media-catalog):媒体目录与来源,逐列对照
+ * migrations/0003_media_catalog/up.sql 与 docs/specs/003-media-catalog/data-model.md。
+ * 硬约束:全部新表显式 household_id;复合外键以 (household_id, id) 或既有唯一键为目标,
+ * 禁止跨家庭 source/entry/media/job/EPG 关联;文件大小/mtimeNs 为十进制文本。
+ */
+
+/** 家庭目录修订:主键即 household_id(一家庭一行),发布/来源配置/人工元数据修改加一 */
+export const catalogState = sqliteTable(
+  'catalog_state',
+  {
+    householdId: text('household_id')
+      .primaryKey()
+      .references(() => household.id),
+    revision: integer('revision').notNull().default(1),
+  },
+  (t) => [check('catalog_state_revision_check', sql`${t.revision} >= 1`)],
+);
+
+/** 媒体来源(iptv/epg/nas):无硬删除,禁用保留引用;remote_url 为私有字段 */
+export const mediaSource = sqliteTable(
+  'media_source',
+  {
+    id: text('id').primaryKey(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    kind: text('kind').notNull(),
+    name: text('name').notNull(),
+    remoteUrl: text('remote_url'),
+    rootKey: text('root_key'),
+    relativeDirectory: text('relative_directory'),
+    privateAccessApproved: integer('private_access_approved').notNull().default(0),
+    // DDL 复合自引用外键 → media_source(household_id, id):Drizzle 不支持同表复合外键
+    // 声明,约束以 up.sql 为权威(kind=epg/非自引用另由应用事务校验)
+    epgSourceId: text('epg_source_id'),
+    enabled: integer('enabled').notNull().default(1),
+    version: integer('version').notNull().default(1),
+    lastSuccessAt: text('last_success_at'),
+    // DDL 复合外键 → source_refresh(household_id, id)(前向引用,查询层不镜像)
+    lastJobId: text('last_job_id'),
+    // 0004 增补(ADR-0008):每次成功发布 EPG 窗口 +1(与节目替换同事务),失败/中断不加;
+    // ALTER TABLE ADD COLUMN 追加,既有已成功来源迁移后为 0(DDL 约束以 up.sql 为权威)
+    epgGeneration: integer('epg_generation').notNull().default(0),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('media_source_household_id_id_key').on(t.householdId, t.id),
+    check('media_source_kind_check', sql`${t.kind} IN ('iptv', 'epg', 'nas')`),
+    check('media_source_name_check', sql`length(${t.name}) BETWEEN 1 AND 100`),
+    // remote_url:iptv/epg 必填,nas 必为 null
+    check(
+      'media_source_remote_url_check',
+      sql`(${t.kind} IN ('iptv', 'epg') AND ${t.remoteUrl} IS NOT NULL) OR (${t.kind} = 'nas' AND ${t.remoteUrl} IS NULL)`,
+    ),
+    // root_key/relative_directory:仅 nas 必填,其他类型必为 null
+    check(
+      'media_source_nas_root_check',
+      sql`(${t.kind} = 'nas' AND ${t.rootKey} IS NOT NULL AND ${t.relativeDirectory} IS NOT NULL) OR (${t.kind} IN ('iptv', 'epg') AND ${t.rootKey} IS NULL AND ${t.relativeDirectory} IS NULL)`,
+    ),
+    check('media_source_private_access_check', sql`${t.privateAccessApproved} IN (0, 1)`),
+    check('media_source_epg_source_kind_check', sql`${t.epgSourceId} IS NULL OR ${t.kind} = 'iptv'`),
+    check('media_source_enabled_check', sql`${t.enabled} IN (0, 1)`),
+    check('media_source_version_check', sql`${t.version} >= 1`),
+    check('media_source_epg_generation_check', sql`${t.epgGeneration} >= 0`),
+  ],
+);
+
+/** 媒体条目:人工标题/类型不被普通刷新覆盖;channel 与非 channel 禁止互转(应用层保证) */
+export const mediaItem = sqliteTable(
+  'media_item',
+  {
+    id: text('id').primaryKey(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    type: text('type').notNull(),
+    title: text('title').notNull(),
+    description: text('description'),
+    posterRef: text('poster_ref'),
+    contentLevel: integer('content_level'),
+    titleOverridden: integer('title_overridden').notNull().default(0),
+    typeOverridden: integer('type_overridden').notNull().default(0),
+    version: integer('version').notNull(),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('media_item_household_id_id_key').on(t.householdId, t.id),
+    check('media_item_type_check', sql`${t.type} IN ('channel', 'movie', 'series', 'episode', 'video')`),
+    check('media_item_title_check', sql`length(${t.title}) BETWEEN 1 AND 255`),
+    check('media_item_description_check', sql`${t.description} IS NULL OR length(${t.description}) <= 4096`),
+    check('media_item_content_level_check', sql`${t.contentLevel} IS NULL OR ${t.contentLevel} BETWEEN 0 AND 18`),
+    check('media_item_title_overridden_check', sql`${t.titleOverridden} IN (0, 1)`),
+    check('media_item_type_overridden_check', sql`${t.typeOverridden} IN (0, 1)`),
+    check('media_item_version_check', sql`${t.version} >= 1`),
+  ],
+);
+
+/** 持久刷新任务:只存 initiator 账号/会话 ID,不存密码/token;终态 immutable(应用层保证) */
+export const sourceRefresh = sqliteTable(
+  'source_refresh',
+  {
+    id: text('id').primaryKey(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    sourceId: text('source_id').notNull(),
+    initiatorAccountId: text('initiator_account_id').notNull(),
+    initiatorSessionId: text('initiator_session_id').notNull(),
+    operationKey: text('operation_key').notNull(),
+    status: text('status').notNull(),
+    version: integer('version').notNull(),
+    sourceVersion: integer('source_version').notNull(),
+    baselineRevision: integer('baseline_revision').notNull(),
+    snapshotDigest: text('snapshot_digest'),
+    itemCount: integer('item_count'),
+    summaryJson: text('summary_json'),
+    errorCode: text('error_code'),
+    createdAt: text('created_at').notNull(),
+    startedAt: text('started_at'),
+    finishedAt: text('finished_at'),
+    expiresAt: text('expires_at'),
+  },
+  (t) => [
+    uniqueIndex('source_refresh_household_id_id_key').on(t.householdId, t.id),
+    uniqueIndex('source_refresh_operation_key').on(t.householdId, t.operationKey),
+    // 运行锁:同来源 queued/running/awaiting_confirmation 至多一个(部分唯一索引)
+    uniqueIndex('one_active_refresh_per_source')
+      .on(t.householdId, t.sourceId)
+      .where(sql`${t.status} IN ('queued', 'running', 'awaiting_confirmation')`),
+    check(
+      'source_refresh_status_check',
+      sql`${t.status} IN ('queued', 'running', 'succeeded', 'failed', 'awaiting_confirmation', 'interrupted', 'discarded', 'expired', 'stale')`,
+    ),
+    check('source_refresh_version_check', sql`${t.version} >= 1`),
+    check('source_refresh_source_version_check', sql`${t.sourceVersion} >= 1`),
+    check('source_refresh_baseline_revision_check', sql`${t.baselineRevision} >= 1`),
+    check('source_refresh_item_count_check', sql`${t.itemCount} IS NULL OR ${t.itemCount} >= 0`),
+    check('source_refresh_summary_json_check', sql`${t.summaryJson} IS NULL OR json_valid(${t.summaryJson})`),
+    foreignKey({
+      name: 'source_refresh_source_composite_fk',
+      columns: [t.householdId, t.sourceId],
+      foreignColumns: [mediaSource.householdId, mediaSource.id],
+    }),
+    foreignKey({
+      name: 'source_refresh_initiator_account_composite_fk',
+      columns: [t.householdId, t.initiatorAccountId],
+      foreignColumns: [account.householdId, account.id],
+    }),
+    foreignKey({
+      name: 'source_refresh_initiator_session_composite_fk',
+      columns: [t.householdId, t.initiatorSessionId],
+      foreignColumns: [deviceSession.householdId, deviceSession.id],
+    }),
+  ],
+);
+
+/** 来源条目(身份稳定键):条目消失仅改 present,重现复用 media_id;摘要为 SHA-256 十六进制 */
+export const sourceEntry = sqliteTable(
+  'source_entry',
+  {
+    id: text('id').primaryKey(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    sourceId: text('source_id').notNull(),
+    identityKind: text('identity_kind').notNull(),
+    identityDigest: text('identity_digest').notNull(),
+    mediaId: text('media_id'),
+    upstreamChannelId: text('upstream_channel_id'),
+    present: integer('present').notNull().default(1),
+    lastSeenJobId: text('last_seen_job_id'),
+    firstSeenAt: text('first_seen_at').notNull(),
+    lastSeenAt: text('last_seen_at').notNull(),
+    missingSince: text('missing_since'),
+    fileSizeText: text('file_size_text'),
+    fileMtimeNs: text('file_mtime_ns'),
+  },
+  (t) => [
+    uniqueIndex('source_entry_household_id_id_key').on(t.householdId, t.id),
+    uniqueIndex('source_entry_identity_key').on(t.householdId, t.sourceId, t.identityKind, t.identityDigest),
+    check('source_entry_identity_kind_check', sql`${t.identityKind} IN ('tvg_id', 'url', 'path')`),
+    check(
+      'source_entry_identity_digest_check',
+      sql`length(${t.identityDigest}) = 64 AND ${t.identityDigest} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check('source_entry_present_check', sql`${t.present} IN (0, 1)`),
+    // 十进制文本(仅 NAS 来源写入;空串非法),避免 JS 整数精度截断
+    check(
+      'source_entry_file_size_check',
+      sql`${t.fileSizeText} IS NULL OR (length(${t.fileSizeText}) >= 1 AND ${t.fileSizeText} NOT GLOB '*[^0-9]*')`,
+    ),
+    check(
+      'source_entry_file_mtime_check',
+      sql`${t.fileMtimeNs} IS NULL OR (length(${t.fileMtimeNs}) >= 1 AND ${t.fileMtimeNs} NOT GLOB '*[^0-9]*')`,
+    ),
+    foreignKey({
+      name: 'source_entry_source_composite_fk',
+      columns: [t.householdId, t.sourceId],
+      foreignColumns: [mediaSource.householdId, mediaSource.id],
+    }),
+    foreignKey({
+      name: 'source_entry_media_composite_fk',
+      columns: [t.householdId, t.mediaId],
+      foreignColumns: [mediaItem.householdId, mediaItem.id],
+    }),
+    foreignKey({
+      name: 'source_entry_last_job_composite_fk',
+      columns: [t.householdId, t.lastSeenJobId],
+      foreignColumns: [sourceRefresh.householdId, sourceRefresh.id],
+    }),
+  ],
+);
+
+/** 播放资源记录:私有 location,不下发播放 URL;首期每条目至多一个资源 */
+export const playbackSource = sqliteTable(
+  'playback_source',
+  {
+    id: text('id').primaryKey(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    sourceId: text('source_id').notNull(),
+    sourceEntryId: text('source_entry_id').notNull(),
+    mediaItemId: text('media_item_id').notNull(),
+    protocol: text('protocol').notNull(),
+    location: text('location').notNull(),
+    mimeType: text('mime_type'),
+    priority: integer('priority').notNull().default(100),
+    requiresProxy: integer('requires_proxy').notNull().default(0),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('playback_source_household_id_id_key').on(t.householdId, t.id),
+    uniqueIndex('playback_source_entry_key').on(t.householdId, t.sourceEntryId),
+    check('playback_source_protocol_check', sql`${t.protocol} IN ('hls', 'dash', 'file', 'flv', 'http')`),
+    check('playback_source_priority_check', sql`${t.priority} >= 0`),
+    check('playback_source_proxy_check', sql`${t.requiresProxy} IN (0, 1)`),
+    foreignKey({
+      name: 'playback_source_source_composite_fk',
+      columns: [t.householdId, t.sourceId],
+      foreignColumns: [mediaSource.householdId, mediaSource.id],
+    }),
+    foreignKey({
+      name: 'playback_source_entry_composite_fk',
+      columns: [t.householdId, t.sourceEntryId],
+      foreignColumns: [sourceEntry.householdId, sourceEntry.id],
+    }),
+    foreignKey({
+      name: 'playback_source_media_composite_fk',
+      columns: [t.householdId, t.mediaItemId],
+      foreignColumns: [mediaItem.householdId, mediaItem.id],
+    }),
+  ],
+);
+
+/**
+ * XMLTV 频道:唯一键即 (household_id, source_id, xmltv_channel_id)(复合主键),
+ * 同时作为 epg_programme 复合外键目标;XMLTV 频道 ID 不与平台 media_id 混用。
+ */
+export const epgChannel = sqliteTable(
+  'epg_channel',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    sourceId: text('source_id').notNull(),
+    xmltvChannelId: text('xmltv_channel_id').notNull(),
+    displayName: text('display_name').notNull(),
+    conflicted: integer('conflicted').notNull().default(0),
+  },
+  (t) => [
+    primaryKey({ name: 'epg_channel_pk', columns: [t.householdId, t.sourceId, t.xmltvChannelId] }),
+    check('epg_channel_conflicted_check', sql`${t.conflicted} IN (0, 1)`),
+    foreignKey({
+      name: 'epg_channel_source_composite_fk',
+      columns: [t.householdId, t.sourceId],
+      foreignColumns: [mediaSource.householdId, mediaSource.id],
+    }),
+  ],
+);
+
+/** XMLTV 节目:UTC ISO-8601 文本存储,结束严格大于开始;完全相同节目按唯一键去重 */
+export const epgProgramme = sqliteTable(
+  'epg_programme',
+  {
+    id: text('id').primaryKey(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    sourceId: text('source_id').notNull(),
+    xmltvChannelId: text('xmltv_channel_id').notNull(),
+    title: text('title').notNull(),
+    description: text('description'),
+    startsAt: text('starts_at').notNull(),
+    endsAt: text('ends_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('epg_programme_household_id_id_key').on(t.householdId, t.id),
+    uniqueIndex('epg_programme_slot_key').on(t.householdId, t.sourceId, t.xmltvChannelId, t.startsAt, t.endsAt),
+    check('epg_programme_title_check', sql`length(${t.title}) BETWEEN 1 AND 255`),
+    check('epg_programme_description_check', sql`${t.description} IS NULL OR length(${t.description}) <= 4096`),
+    check('epg_programme_window_check', sql`${t.endsAt} > ${t.startsAt}`),
+    foreignKey({
+      name: 'epg_programme_channel_composite_fk',
+      columns: [t.householdId, t.sourceId, t.xmltvChannelId],
+      foreignColumns: [epgChannel.householdId, epgChannel.sourceId, epgChannel.xmltvChannelId],
+    }),
+  ],
+);
+
+/** 解析结果私有暂存:分批写入,不进入浏览查询;kind 由各导入适配器定义(规格未固定枚举) */
+export const refreshStageEntry = sqliteTable(
+  'refresh_stage_entry',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    refreshId: text('refresh_id').notNull(),
+    entryKey: text('entry_key').notNull(),
+    kind: text('kind').notNull(),
+    payloadJson: text('payload_json').notNull(),
+  },
+  (t) => [
+    primaryKey({ name: 'refresh_stage_entry_pk', columns: [t.householdId, t.refreshId, t.entryKey] }),
+    check('refresh_stage_entry_payload_json_check', sql`json_valid(${t.payloadJson})`),
+    foreignKey({
+      name: 'refresh_stage_entry_refresh_composite_fk',
+      columns: [t.householdId, t.refreshId],
+      foreignColumns: [sourceRefresh.householdId, sourceRefresh.id],
+    }),
+  ],
+);
+
+/**
+ * 0004 增补(US5/ADR-0008):单频道手动 EPG 绑定,逐列对照
+ * migrations/0004_manual_epg_binding/up.sql 与 data-model.md「## 0004 增补」。
+ * manual 保存即锁定(来源/频道成对);auto 为解除后的版本墓碑(不删行,防 ABA);
+ * version 无行读取为 0、首写 1、其后每次保存/解除 +1;不 FK 到 epg_channel(窗口替换会删行)。
+ */
+export const manualEpgBinding = sqliteTable(
+  'manual_epg_binding',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    mediaId: text('media_id').notNull(),
+    mode: text('mode').notNull(),
+    // manual 时两者非空、auto 时两者均 NULL(成对规则);DDL 复合外键 → media_source(household_id, id)
+    epgSourceId: text('epg_source_id'),
+    // XMLTV 频道 ID 长度 1~255,大小写敏感(不加 COLLATE NOCASE)
+    xmltvChannelId: text('xmltv_channel_id'),
+    version: integer('version').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ name: 'manual_epg_binding_pk', columns: [t.householdId, t.mediaId] }),
+    // EPG 发布失效与绑定管理按来源定位受影响绑定;按家庭读取走主键前缀
+    index('manual_epg_binding_household_source_key').on(t.householdId, t.epgSourceId),
+    check('manual_epg_binding_mode_check', sql`${t.mode} IN ('manual', 'auto')`),
+    check(
+      'manual_epg_binding_target_pair_check',
+      sql`(${t.mode} = 'manual' AND ${t.epgSourceId} IS NOT NULL AND ${t.xmltvChannelId} IS NOT NULL) OR (${t.mode} = 'auto' AND ${t.epgSourceId} IS NULL AND ${t.xmltvChannelId} IS NULL)`,
+    ),
+    check(
+      'manual_epg_binding_xmltv_channel_check',
+      sql`${t.xmltvChannelId} IS NULL OR length(${t.xmltvChannelId}) BETWEEN 1 AND 255`,
+    ),
+    check('manual_epg_binding_version_check', sql`${t.version} >= 1`),
+    foreignKey({
+      name: 'manual_epg_binding_media_composite_fk',
+      columns: [t.householdId, t.mediaId],
+      foreignColumns: [mediaItem.householdId, mediaItem.id],
+    }),
+    foreignKey({
+      name: 'manual_epg_binding_source_composite_fk',
+      columns: [t.householdId, t.epgSourceId],
+      foreignColumns: [mediaSource.householdId, mediaSource.id],
+    }),
+  ],
+);
+
+/** 阶段 3 查询层类型(读取) */
+export type CatalogState = typeof catalogState.$inferSelect;
+export type MediaSource = typeof mediaSource.$inferSelect;
+export type MediaItem = typeof mediaItem.$inferSelect;
+export type SourceRefresh = typeof sourceRefresh.$inferSelect;
+export type SourceEntry = typeof sourceEntry.$inferSelect;
+export type PlaybackSource = typeof playbackSource.$inferSelect;
+export type EpgChannel = typeof epgChannel.$inferSelect;
+export type EpgProgramme = typeof epgProgramme.$inferSelect;
+export type RefreshStageEntry = typeof refreshStageEntry.$inferSelect;
+/** 0004 增补查询层类型(读取) */
+export type ManualEpgBinding = typeof manualEpgBinding.$inferSelect;
+
+/** 阶段 3 写入新行时的必填类型 */
+export type NewCatalogState = typeof catalogState.$inferInsert;
+export type NewMediaSource = typeof mediaSource.$inferInsert;
+export type NewMediaItem = typeof mediaItem.$inferInsert;
+export type NewSourceRefresh = typeof sourceRefresh.$inferInsert;
+export type NewSourceEntry = typeof sourceEntry.$inferInsert;
+export type NewPlaybackSource = typeof playbackSource.$inferInsert;
+export type NewEpgChannel = typeof epgChannel.$inferInsert;
+export type NewEpgProgramme = typeof epgProgramme.$inferInsert;
+export type NewRefreshStageEntry = typeof refreshStageEntry.$inferInsert;
+/** 0004 增补写入新行时的必填类型 */
+export type NewManualEpgBinding = typeof manualEpgBinding.$inferInsert;
+
+/**
+ * 阶段 4(004-playback-resolver):播放会话与派生记录,逐列对照
+ * migrations/0005_playback/up.sql 与 docs/specs/004-playback-resolver/data-model.md
+ * 「## playback_session」「## playback_ticket」「## playback_conversion」
+ * 「## playback_failure_event」四节。
+ * 硬约束:全部新表显式 household_id;复合外键以 (household_id, id) 唯一键为目标,
+ * 禁止跨家庭关联;时间为 UTC ISO-8601 TEXT。状态机(preparing→ready/…、终态不可复活、
+ * seek/重建输出升 generation、纯字幕切换仅升 version)由应用层执行;
+ * 数据库层只落实 data-model 明示的 CHECK,不设状态转换触发器。
+ */
+
+/**
+ * 播放会话:绑定 device_session/device/profile/media 后不可改变;created_at 为请求被接受,
+ * started_at 为首次媒体交付(可能永不发生,之后不重置);desired_paused 保留 seek/换轨时
+ * 的暂停意图。source/delivery 在 preparing 允许为空(准备失败禁止补造),活动三态必须非空。
+ */
+export const playbackSession = sqliteTable(
+  'playback_session',
+  {
+    id: text('id').primaryKey(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    deviceSessionId: text('device_session_id').notNull(),
+    deviceId: text('device_id').notNull(),
+    profileId: text('profile_id').notNull(),
+    mediaId: text('media_id').notNull(),
+    // preparing 允许为 NULL;ready/playing/paused 必非空(CHECK);终态保留已确定值
+    playbackSourceId: text('playback_source_id'),
+    state: text('state').notNull(),
+    delivery: text('delivery'),
+    generation: integer('generation').notNull(),
+    version: integer('version').notNull(),
+    // 影片逻辑时间秒(REAL:API 契约 positionSeconds 为 number,可含小数;CHECK 非负)
+    positionSeconds: real('position_seconds').notNull(),
+    audioTrackId: text('audio_track_id'),
+    subtitleTrackId: text('subtitle_track_id'),
+    // seek/重建输出的换轨保留暂停意图(NOT NULL,默认 false);heartbeat.paused 更新
+    desiredPaused: integer('desired_paused').notNull().default(0),
+    createdAt: text('created_at').notNull(),
+    startedAt: text('started_at'),
+    endedAt: text('ended_at'),
+    lastHeartbeatAt: text('last_heartbeat_at').notNull(),
+    failureCode: text('failure_code'),
+  },
+  (t) => [
+    // 复合外键目标:playback_ticket / playback_conversion(household_id, session_id) → 本表
+    uniqueIndex('playback_session_household_id_id_key').on(t.householdId, t.id),
+    // 设备维度查询(data-model:索引 (household_id,device_id,created_at,id))
+    index('playback_session_household_device_key').on(t.householdId, t.deviceId, t.createdAt, t.id),
+    // 档案隔离查询:按 profile 过滤播放记录(前导 (household_id, profile_id))
+    index('playback_session_household_profile_key').on(t.householdId, t.profileId, t.createdAt, t.id),
+    check(
+      'playback_session_state_check',
+      sql`${t.state} IN ('preparing', 'ready', 'playing', 'paused', 'ended', 'failed', 'interrupted')`,
+    ),
+    // delivery 五值;preparing/终态可为 NULL(准备失败禁止补造)
+    check(
+      'playback_session_delivery_check',
+      sql`${t.delivery} IS NULL OR ${t.delivery} IN ('direct', 'hls_proxy', 'remux', 'audio_transcode', 'video_transcode')`,
+    ),
+    // 准备完成方可交付:活动三态必须同时确定源与交付模式
+    check(
+      'playback_session_source_delivery_check',
+      sql`${t.state} NOT IN ('ready', 'playing', 'paused') OR (${t.playbackSourceId} IS NOT NULL AND ${t.delivery} IS NOT NULL)`,
+    ),
+    check('playback_session_generation_check', sql`${t.generation} >= 1`),
+    check('playback_session_version_check', sql`${t.version} >= 1`),
+    check('playback_session_position_check', sql`${t.positionSeconds} >= 0`),
+    // 布尔:0 = 继续播放(默认),1 = 保持暂停
+    check('playback_session_desired_paused_check', sql`${t.desiredPaused} IN (0, 1)`),
+    // ended_at 在终态(ended/failed/interrupted)必填,活动态必空
+    check(
+      'playback_session_ended_at_check',
+      sql`(${t.state} IN ('ended', 'failed', 'interrupted') AND ${t.endedAt} IS NOT NULL) OR (${t.state} NOT IN ('ended', 'failed', 'interrupted') AND ${t.endedAt} IS NULL)`,
+    ),
+    // 失败码仅 failed 非空(双向)
+    check(
+      'playback_session_failure_code_check',
+      sql`(${t.state} = 'failed' AND ${t.failureCode} IS NOT NULL) OR (${t.state} <> 'failed' AND ${t.failureCode} IS NULL)`,
+    ),
+    foreignKey({
+      name: 'playback_session_device_session_composite_fk',
+      columns: [t.householdId, t.deviceSessionId],
+      foreignColumns: [deviceSession.householdId, deviceSession.id],
+    }),
+    foreignKey({
+      name: 'playback_session_device_composite_fk',
+      columns: [t.householdId, t.deviceId],
+      foreignColumns: [device.householdId, device.id],
+    }),
+    foreignKey({
+      name: 'playback_session_profile_composite_fk',
+      columns: [t.householdId, t.profileId],
+      foreignColumns: [profile.householdId, profile.id],
+    }),
+    foreignKey({
+      name: 'playback_session_media_composite_fk',
+      columns: [t.householdId, t.mediaId],
+      foreignColumns: [mediaItem.householdId, mediaItem.id],
+    }),
+    // playbackSourceId 为 NULL 时复合外键按 MATCH SIMPLE 语义不校验
+    foreignKey({
+      name: 'playback_session_source_composite_fk',
+      columns: [t.householdId, t.playbackSourceId],
+      foreignColumns: [playbackSource.householdId, playbackSource.id],
+    }),
+  ],
+);
+
+/**
+ * 播放票据:随机 256bit ticket 只在创建/续期响应出现一次,会话侧仅存 hash;
+ * 续期写新行,旧票原过期时间不变;seek/重建输出的换轨升 generation 后旧票不可用(应用层过滤)。
+ */
+export const playbackTicket = sqliteTable(
+  'playback_ticket',
+  {
+    id: text('id').primaryKey(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    sessionId: text('session_id').notNull(),
+    // 明文 URL 不入库,仅 SHA-256 hash;全局唯一
+    tokenHash: text('token_hash').notNull(),
+    issuedAt: text('issued_at').notNull(),
+    expiresAt: text('expires_at').notNull(),
+    generation: integer('generation').notNull(),
+    revokedAt: text('revoked_at'),
+  },
+  (t) => [
+    // token_hash 全局唯一:hash 反查票据入口(device_session_token_hash_key 同规则)
+    uniqueIndex('playback_ticket_token_hash_key').on(t.tokenHash),
+    check('playback_ticket_generation_check', sql`${t.generation} >= 1`),
+    // 票据有效期必须为正区间(相等亦拒绝)
+    check('playback_ticket_expiry_check', sql`${t.expiresAt} > ${t.issuedAt}`),
+    foreignKey({
+      name: 'playback_ticket_session_composite_fk',
+      columns: [t.householdId, t.sessionId],
+      foreignColumns: [playbackSession.householdId, playbackSession.id],
+    }),
+  ],
+);
+
+/**
+ * 播放转换:每会话每代至多一条(UNIQUE(household_id,session_id,generation))。无队列:
+ * BEGIN IMMEDIATE 内计算全局额度再 reserve,spawn 失败补偿释放;唯一单实例执行器负责回收,
+ * 重启先标 interrupted。output_*_codec 为非空服务器输出编码标识('none' 合法,不设枚举);
+ * cleanup_state 仅 pending/complete,目录删除成功才 complete,无第三枚举。
+ */
+export const playbackConversion = sqliteTable(
+  'playback_conversion',
+  {
+    id: text('id').primaryKey(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    sessionId: text('session_id').notNull(),
+    generation: integer('generation').notNull(),
+    mode: text('mode').notNull(),
+    state: text('state').notNull(),
+    // 硬件加速后端标识(探测后确定,预留前可为 NULL)
+    hardwareBackend: text('hardware_backend'),
+    outputVideoCodec: text('output_video_codec').notNull(),
+    outputAudioCodec: text('output_audio_codec').notNull(),
+    // started_at 为进程成功启动;ended_at 在终态必填(CHECK);last_progress_at 首次进度前为空
+    startedAt: text('started_at'),
+    endedAt: text('ended_at'),
+    failureCode: text('failure_code'),
+    // 目录删除成功才 complete;删除失败仍为 pending,不存在 cleanup_pending 第三枚举
+    cleanupState: text('cleanup_state').notNull().default('pending'),
+    bytesOnDisk: integer('bytes_on_disk').notNull().default(0),
+    lastProgressAt: text('last_progress_at'),
+  },
+  (t) => [
+    // 每会话每代至多一条转换记录(单实例执行器以本键幂等回收)
+    uniqueIndex('playback_conversion_session_generation_key').on(t.householdId, t.sessionId, t.generation),
+    check('playback_conversion_mode_check', sql`${t.mode} IN ('remux', 'audio_transcode', 'video_transcode')`),
+    check(
+      'playback_conversion_state_check',
+      sql`${t.state} IN ('reserved', 'probing', 'starting', 'running', 'stopping', 'ended', 'failed', 'interrupted')`,
+    ),
+    check('playback_conversion_generation_check', sql`${t.generation} >= 1`),
+    // ended_at 在终态(ended/failed/interrupted)必填(data-model 未要求非终态为空,不加强约束)
+    check(
+      'playback_conversion_ended_at_check',
+      sql`${t.state} NOT IN ('ended', 'failed', 'interrupted') OR ${t.endedAt} IS NOT NULL`,
+    ),
+    // 失败码仅 failed 必填、其余为空(双向)
+    check(
+      'playback_conversion_failure_code_check',
+      sql`(${t.state} = 'failed' AND ${t.failureCode} IS NOT NULL) OR (${t.state} <> 'failed' AND ${t.failureCode} IS NULL)`,
+    ),
+    check('playback_conversion_cleanup_state_check', sql`${t.cleanupState} IN ('pending', 'complete')`),
+    check('playback_conversion_bytes_check', sql`${t.bytesOnDisk} >= 0`),
+    foreignKey({
+      name: 'playback_conversion_session_composite_fk',
+      columns: [t.householdId, t.sessionId],
+      foreignColumns: [playbackSession.householdId, playbackSession.id],
+    }),
+  ],
+);
+
+/**
+ * 播放失败事件(审计):仅有效设备会话可写;媒体不属于该家庭或不可见则 media_id 为 NULL
+ * (不存客户端原始目标 ID);不关联所选资源,不产生播放 session。
+ */
+export const playbackFailureEvent = sqliteTable(
+  'playback_failure_event',
+  {
+    id: text('id').primaryKey(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    deviceSessionId: text('device_session_id').notNull(),
+    deviceId: text('device_id').notNull(),
+    profileId: text('profile_id'),
+    mediaId: text('media_id'),
+    occurredAt: text('occurred_at').notNull(),
+    // 稳定失败码:审计聚合键,具体码表由应用层定义(CHECK 仅保证非空字符串)
+    stableCode: text('stable_code').notNull(),
+  },
+  (t) => [
+    // 审计检索:按设备时间序定位(household_id, device_id, occurred_at, id)
+    index('playback_failure_event_household_device_time_key').on(t.householdId, t.deviceId, t.occurredAt, t.id),
+    check('playback_failure_event_stable_code_check', sql`length(${t.stableCode}) >= 1`),
+    foreignKey({
+      name: 'playback_failure_event_device_session_composite_fk',
+      columns: [t.householdId, t.deviceSessionId],
+      foreignColumns: [deviceSession.householdId, deviceSession.id],
+    }),
+    foreignKey({
+      name: 'playback_failure_event_device_composite_fk',
+      columns: [t.householdId, t.deviceId],
+      foreignColumns: [device.householdId, device.id],
+    }),
+    // profileId/mediaId 为 NULL 时复合外键按 MATCH SIMPLE 语义不校验
+    foreignKey({
+      name: 'playback_failure_event_profile_composite_fk',
+      columns: [t.householdId, t.profileId],
+      foreignColumns: [profile.householdId, profile.id],
+    }),
+    foreignKey({
+      name: 'playback_failure_event_media_composite_fk',
+      columns: [t.householdId, t.mediaId],
+      foreignColumns: [mediaItem.householdId, mediaItem.id],
+    }),
+  ],
+);
+
+/** 阶段 4 查询层类型(读取) */
+export type PlaybackSession = typeof playbackSession.$inferSelect;
+export type PlaybackTicket = typeof playbackTicket.$inferSelect;
+export type PlaybackConversion = typeof playbackConversion.$inferSelect;
+export type PlaybackFailureEvent = typeof playbackFailureEvent.$inferSelect;
+
+/** 阶段 4 写入新行时的必填类型 */
+export type NewPlaybackSession = typeof playbackSession.$inferInsert;
+export type NewPlaybackTicket = typeof playbackTicket.$inferInsert;
+export type NewPlaybackConversion = typeof playbackConversion.$inferInsert;
+export type NewPlaybackFailureEvent = typeof playbackFailureEvent.$inferInsert;

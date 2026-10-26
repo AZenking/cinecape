@@ -1,5 +1,23 @@
+# =====================================================================
 # Home Media Platform —— 单服务交付(T015;ADR-0002:一个部署 = 一个家庭)
-# 数据持久化:具名卷 hmp-data → 容器 /data(SQLite 与迁移备份)
+# T057 播放运行时部署约束:
+#   非 root          —— 镜像内 USER node(uid/gid 1000,Dockerfile runtime 阶段),
+#                       compose 不另设 user 字段以免覆盖镜像属主;部署侧如需固定
+#                       可显式 user: "1000:1000"(与镜像 node 用户一致)。
+#   只读根文件系统   —— read_only: true;可写面仅限具名卷与 tmpfs(见下)。
+#   私有写缓存       —— 具名卷 hmp-data → /data(SQLite、迁移备份与播放转换
+#                       私有 HLS 缓存;转换缓存按 household/session/generation
+#                       滚动,全局 2GiB / 单任务 512MiB / 余量 1GiB 阈值由应用
+#                       预算强制,卷容量应 ≥ 2GiB+1GiB+库体积)。
+#   只读 NAS         —— 宿主 NAS 目录以 :ro 只读绑定挂载(占位路径,见 volumes 注释),
+#                       经 MEDIA_ROOTS 映射为只读根;容器内永不写 NAS。
+#   硬件显式映射     —— 默认不启用;VAAPI/QSV/NVENC 设备映射为注释示例(见 devices),
+#                       非特权传递,arm64 不假定硬件加速(软件路径必验)。
+#   cgroup 限制      —— deploy.resources.limits:4CPU/4GiB 基线(quickstart「环境」节);
+#                       docker compose v2 本地即生效, swarm 亦兼容。
+#   无特权、无 docker.sock —— 本文件不含 privileged、pid: host 或宿主 sock 挂载。
+# 数据持久化:具名卷 hmp-data → 容器 /data
+# =====================================================================
 services:
   app:
     build: .
@@ -9,9 +27,55 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      # SQLite、迁移备份与播放转换私有缓存的唯一可写目录(具名卷)
       DATA_DIR: /data
+      DB_FILENAME: hmp.db
+      # NAS 只读根映射:rootKey=/容器内只读挂载点(与下方 :ro 挂载一一对应)。
+      # 示例占位;rootKey 1~64 字符 [A-Za-z0-9_-],路径绝对且不含「..」段。
+      MEDIA_ROOTS: videos=/media/videos
+      # 远程导入(受控局域网 HLS 上游等)部署级精确许可:host:port 或 CIDR,
+      # 拒绝通配符与 /0 全放行;示例占位,按实际拓扑修改,缺省留空 = 全部拒绝。
+      LAN_ALLOWED_TARGETS: 'nas.local:5000,192.168.1.0/24'
+      # 播放预算示例(可调范围见 apps/server/.env.example;非法值启动拒绝):
+      # 转换并发 1~8 默认 1 / 软件转码线程 1~8 默认 2 / 票据 TTL 60~900 秒默认 300。
+      PLAYBACK_CONVERSION_CONCURRENCY: '1'
+      PLAYBACK_SOFTWARE_THREADS: '2'
+      PLAYBACK_TICKET_TTL_SECONDS: '300'
     volumes:
+      # 私有可写数据卷(唯一持久可写面):SQLite + 迁移备份 + 转换私有缓存
       - hmp-data:/data
+      # 只读 NAS 挂载示例(占位):左侧改为宿主 NAS 挂载点(如 /volume1/videos)。
+      # :ro 强制容器内只读;多个根按 MEDIA_ROOTS 逐条对应追加。
+      - ./nas-media/videos:/media/videos:ro
+    # 根文件系统只读:除上方卷与 tmpfs 外全部不可写(写测试见 quickstart SC-006)
+    read_only: true
+    # 只读根下的进程私有临时区(tmpfs,非持久,容器/主机均不落盘);
+    # Node 与子进程临时文件仅落 /tmp 与 /data,两者均已覆盖
+    tmpfs:
+      - /tmp
+    # 非 root 之上的防提权加固:禁止运行中获取新特权(不改变业务能力)
+    security_opt:
+      - no-new-privileges:true
+    # 显式硬件映射示例——默认注释(默认不启用;软件路径为基线,见 research R7):
+    # VAAPI/QSV(Intel/AMD,仅 linux/amd64 典型):放开下行并向容器内用户授予
+    # render 设备访问(宿主 render 组 gid 通常 104/992,以 getent group render 为准,
+    # 可追加 group_add: ["<render-gid>"]);失败由应用自动回退软件一次。
+    # devices:
+    #   - /dev/dri:/dev/dri
+    # NVENC(NVIDIA):需宿主驱动 + nvidia-container-toolkit,形如
+    #   deploy.resources.reservations.devices([{driver:nvidia,count:1,
+    #   capabilities:[gpu]}]) 或 compose device_count/gpu 注入;同样非特权,
+    #   不使用 --privileged。
+    # arm64:不假定通用硬件加速,保持注释(软件路径必验)。
+    deploy:
+      resources:
+        limits:
+          # 4CPU/4GiB 基线(quickstart「环境」节);转换并发/线程预算另由
+          # PLAYBACK_CONVERSION_CONCURRENCY/PLAYBACK_SOFTWARE_THREADS 在进程内限额,
+          # 容器限额是外层硬顶;缓存磁盘限额由应用预算(2GiB 全局/1GiB 余量阈值)约束,
+          # 不依赖容器层。
+          cpus: '4.0'
+          memory: 4g
     restart: unless-stopped
     healthcheck:
       test:

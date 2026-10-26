@@ -13,7 +13,7 @@ import { cleanupRigs, startFreshApp } from '../helpers';
  *   避免就绪门禁依赖),再应用 0002 up.sql,断言回填/默认值/身份不变/上下文清空。
  * - 回滚路径:down → up,阶段 1 业务数据保留,策略恢复默认(自定义策略丢失,须备份恢复)。
  * - 约束矩阵:复合主键/UNIQUE(profile_id)/CHECK(等级/未评级/版本/JSON 数组)。
- * - 就绪:应用全部迁移后 Database.isReady() 为 true(表清单含新表)。
+ * - 就绪(T009 就绪语义变更):缺任一迁移即未就绪;目录含 0005 后,仅应用 0001~0004 的部分形态库始终安全拒绝。
  */
 
 interface PolicyRow {
@@ -125,6 +125,22 @@ function apply0002(): void {
   Database.db.exec(migrationSql('0002_profile_policy', 'up.sql'));
   Database.db
     .prepare("INSERT INTO _migrations (name, applied_at) VALUES ('0002_profile_policy', ?)")
+    .run(new Date().toISOString());
+}
+
+/** 阶段 3(003-media-catalog)就绪路径同步:isReady 要求迁移记录与目录完全一致 */
+function apply0003(): void {
+  Database.db.exec(migrationSql('0003_media_catalog', 'up.sql'));
+  Database.db
+    .prepare("INSERT INTO _migrations (name, applied_at) VALUES ('0003_media_catalog', ?)")
+    .run(new Date().toISOString());
+}
+
+/** 阶段 3 增补(US5 手动 EPG 绑定)就绪路径同步:0004 后才完全就绪 */
+function apply0004(): void {
+  Database.db.exec(migrationSql('0004_manual_epg_binding', 'up.sql'));
+  Database.db
+    .prepare("INSERT INTO _migrations (name, applied_at) VALUES ('0004_manual_epg_binding', ?)")
     .run(new Date().toISOString());
 }
 
@@ -289,11 +305,18 @@ describe('0002_profile_policy 迁移升级/回滚(阶段 2 契约 e2e)', () => {
     expect(policyRow(edgeB)?.max_content_level).toBe(18);
   });
 
-  it('就绪:应用全部迁移后 isReady() 为 true(表清单包含两张新表)', async () => {
+  it('就绪:缺任一迁移即未就绪;目录含 0005 后,仅应用 0001~0004 的库安全拒绝(T009 就绪语义)', async () => {
     await startFreshApp({ prefix: 'hmp-mig-', migrations: ['0001_init'] });
-    expect(Database.isReady()).toBe(false); // 缺 0002 记录/新表 → 未就绪
+    expect(Database.isReady()).toBe(false); // 缺 0002/0003 记录与新表 → 未就绪
 
     apply0002();
-    expect(Database.isReady()).toBe(true);
+    expect(Database.isReady()).toBe(false); // 目录存在 0003,迁移记录仍不齐 → 未就绪
+
+    apply0003();
+    expect(Database.isReady()).toBe(false); // 目录存在 0004,迁移记录仍不齐 → 未就绪
+
+    apply0004();
+    // T009 就绪语义变更:目录已含 0005_playback,本库缺 0005 记录/表/列 → 安全拒绝(未就绪)
+    expect(Database.isReady()).toBe(false);
   });
 });
