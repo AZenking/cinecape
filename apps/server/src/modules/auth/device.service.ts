@@ -5,6 +5,7 @@ import type { Device, NewDevice } from '../../database/schema';
 import { device, deviceSession } from '../../database/schema';
 import { DomainError } from '../../common/domain-error';
 import { getDb } from './db';
+import { clearDeviceSessionsProfile } from '../profile/identity-transition';
 
 /**
  * 设备注册(T019/FR-009):设备身份由服务端记录,不依赖客户端上报的浏览器特征。
@@ -79,6 +80,9 @@ export function listHouseholdDevices(householdId: string): DeviceDtoBody[] {
  * - 设备必须属于当前 Household,否则 404(与他家庭「不存在」同形,不泄露存在性);
  * - 事务内:device.revoked_at = now(已撤销则跳过)+ 该设备全部未注销会话
  *   revoked_at = now(立即全量失效);
+ * - 身份清理(T052,005 data-model §2,同一事务):按旧档案分组终态化持有身份会话的
+ *   活动播放并撤票、撤销设置授予、清空 active_profile_id 并递增
+ *   profile_context_version —— 不依赖前端 stop,也不只靠撤销后的后台权限复核兜底;
  * - 幂等:重复调用 204 且无任何写副作用。
  */
 export function revokeHouseholdDevice(householdId: string, deviceId: string): void {
@@ -95,6 +99,11 @@ export function revokeHouseholdDevice(householdId: string, deviceId: string): vo
     if (row.revokedAt !== null) {
       return; // 幂等:已撤销 no-op
     }
+    const identified = tx
+      .select({ id: deviceSession.id, activeProfileId: deviceSession.activeProfileId })
+      .from(deviceSession)
+      .where(and(eq(deviceSession.deviceId, deviceId), isNull(deviceSession.revokedAt)))
+      .all();
     const now = new Date().toISOString();
     tx.update(device)
       .set({ revokedAt: now })
@@ -104,5 +113,17 @@ export function revokeHouseholdDevice(householdId: string, deviceId: string): vo
       .set({ revokedAt: now })
       .where(and(eq(deviceSession.deviceId, deviceId), isNull(deviceSession.revokedAt)))
       .run();
+    const byProfile = new Map<string, string[]>();
+    for (const session of identified) {
+      if (session.activeProfileId === null) {
+        continue;
+      }
+      const ids = byProfile.get(session.activeProfileId) ?? [];
+      ids.push(session.id);
+      byProfile.set(session.activeProfileId, ids);
+    }
+    for (const [profileId, sessionIds] of byProfile) {
+      clearDeviceSessionsProfile(tx, { householdId, deviceSessionIds: sessionIds, profileId });
+    }
   });
 }

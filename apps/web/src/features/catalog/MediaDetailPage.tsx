@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
-import { Button } from '@heroui/react';
 import type { PublicMediaDto } from '@hmp/shared';
 import { isAbortError, publicFetch } from '../../shared/fetch';
 import { LoadingSpinner, RetryableAlert } from '../../shared/ui';
+import { PlayButton } from '../playback/use-play-action';
 
 /**
  * 公共媒体详情页(T029,US1;contracts/ui.md §1、data-model §9):
@@ -12,8 +12,9 @@ import { LoadingSpinner, RetryableAlert } from '../../shared/ui';
  *   同源海报端点(公共投影恒为 null)→ 渲染占位,绝不直接渲染任意外部 URL;
  * - 元数据对游客完全可见、不按儿童/成人策略隐藏(US1 场景2);无个人状态
  *   (历史/进度/收藏)与播放凭据(个人数据属 US4 从 /me 读取,不进本页);
- * - 播放入口为占位:US3 统一受控播放流程(usePlayAction)接入后启用,
- *   本页不自行发起播放、不伪造可播放承诺;
+ * - 播放入口接入 US3 统一受控播放流程(PlayButton → usePlayAction):本页不自行
+ *   发起播放、不伪造可播放承诺;不可用内容禁用并给理由;游客点击进入登录选档意图;
+ *   startMode 占位(继续观看/从头按钮语义与进度数据由 US4 补全);
  * - 不存在/不可用(服务端统一 404)→ 可回目录的失败态,不泄露存在性。
  */
 
@@ -137,12 +138,15 @@ export function MediaDetailPage(): ReactNode {
             <p className="max-w-prose text-sm leading-6 text-foreground">{media.description}</p>
           ) : null}
 
-          {/* 播放入口占位:US3 统一受控播放流程接入后启用;本页不发起播放 */}
+          {/* 播放入口(US3 统一受控播放):只经 usePlayAction 发起;不可用内容禁用给理由 */}
           <div className="flex items-center gap-3">
-            <Button variant="primary" isDisabled>
-              播放
-            </Button>
-            <span className="text-xs text-muted">播放将在登录选档后经统一受控流程提供。</span>
+            <PlayButton
+              mediaId={media.id}
+              title={media.title}
+              disabled={media.availability !== 'available'}
+              disabledReason={media.availability !== 'available' ? '该内容当前不可用' : undefined}
+              ariaLabel={`播放 ${media.title}`}
+            />
           </div>
         </div>
       </div>

@@ -58,8 +58,16 @@ import { PlaybackAuditService } from './playback-audit.service';
 /* 请求体契约(strict:未知字段拒绝,api.md「未知字段拒绝」)                 */
 /* ------------------------------------------------------------------ */
 
+/**
+ * resolve 请求契约(005 api.md §5:strict 拒绝未知字段 —— profileId/householdId/
+ * startPosition 等一律 400;startMode 缺省 beginning,resume 仅点播,频道请求 resume
+ * 由 resolver 依媒体类型返回 400 PLAYBACK_SEEK_UNSUPPORTED)。
+ */
 const resolveRequestSchema = z
-  .object({ mediaId: z.string().min(1) })
+  .object({
+    mediaId: z.string().min(1),
+    startMode: z.enum(['beginning', 'resume']).optional(),
+  })
   .strict();
 
 const renewRequestSchema = z
@@ -182,10 +190,12 @@ export class PlaybackController {
   ): Promise<PlaybackDto> {
     const input = parseBody(resolveRequestSchema, body);
     this.requireSlot(context, res, 'control');
-    const outcome = await this.resolver.resolve(context, input.mediaId).catch((error: unknown) => {
-      this.audit.recordResolveRejection(context, input.mediaId, error);
-      throw error;
-    });
+    const outcome = await this.resolver
+      .resolve(context, input.mediaId, { startMode: input.startMode })
+      .catch((error: unknown) => {
+        this.audit.recordResolveRejection(context, input.mediaId, error);
+        throw error;
+      });
     res.setHeader('Location', `/api/playback/sessions/${outcome.session.id}`);
     applyControlResponseHeaders(res);
     return outcome.dto;
@@ -250,7 +260,12 @@ export class PlaybackController {
     }
   }
 
-  /** POST /playback/sessions/:id/stop:幂等终止(204;终态零副作用,取消 preparing 同此) */
+  /**
+   * POST /playback/sessions/:id/stop:幂等终止(204;终态零副作用,取消 preparing 同此)。
+   * stop 走 contextVersion:'any'(api.md §5「身份撤销后的 stop 沿用既有最小幂等清理
+   * 规则」):旧上下文会话已被身份变化事务终态化,重复 stop 保持幂等清理语义,不因
+   * 版本失衡升级为读写拒绝。
+   */
   @Post('sessions/:id/stop')
   @HttpCode(204)
   async stop(
@@ -258,7 +273,7 @@ export class PlaybackController {
     @Body() body: unknown,
     @CurrentSession() context: SessionContext,
   ): Promise<void> {
-    await this.authorization.authorizeControl(context, id);
+    await this.authorization.authorizeControl(context, id, { contextVersion: 'any' });
     parseBody(stopRequestSchema, body);
     const result = await this.lifecycle.stopSession(id);
     if (!result.ok) {

@@ -885,11 +885,12 @@ describe('控制授权(authorizeControl)与返回结构脱敏', () => {
     const world = await seedPlaybackWorld(rig, { nasEnabled: true });
     activateFixtureProfile(world, world.profileId);
     const grant = await buildService().authorizeResolve(trustedContextOf(world), world.nas.mediaId);
-    // 结构断言:候选仅 id + 排序/处理方式字段
+    // 结构断言:候选仅 id + 排序/处理方式字段;grant 面为 snapshot + candidates + mediaType
+    // (005 T050:startMode 透传校验需要媒体类型;mediaType 仅服务端内部使用,不下发)
     for (const candidate of grant.candidates) {
       expect(Object.keys(candidate).sort()).toEqual(['delivery', 'playbackSourceId', 'sourceId']);
     }
-    expect(Object.keys(grant).sort()).toEqual(['candidates', 'snapshot']);
+    expect(Object.keys(grant).sort()).toEqual(['candidates', 'mediaType', 'snapshot']);
     expect(Object.keys(grant.snapshot).sort()).toEqual([
       'accountId',
       'authorizedAt',
@@ -897,6 +898,7 @@ describe('控制授权(authorizeControl)与返回结构脱敏', () => {
       'deviceSessionId',
       'householdId',
       'mediaId',
+      'profileContextVersion',
       'profileId',
     ]);
     // 序列化不含任何位置/URL/内部名(夹具私有 location/rootKey/主机名均不出现)

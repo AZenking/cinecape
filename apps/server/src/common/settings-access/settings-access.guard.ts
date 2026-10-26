@@ -1,25 +1,30 @@
 import { Injectable, type CanActivate, type ExecutionContext } from '@nestjs/common';
-import { DomainError, PC_005_PROBLEM_CODES } from '../domain-error';
+import type { Request } from 'express';
+import { ProblemCode } from '@hmp/shared';
+import { DomainError } from '../domain-error';
+import type { SessionContext, SessionRequest } from '../current-session.decorator';
+import { requireValidSettingsGrant } from '../../modules/settings/settings-access-grant.service';
 
 /**
- * SettingsAccessGuard 占位(T009,005 contracts/api.md §1 Settings 边界;US7 填充)——
+ * SettingsAccessGuard(T009 占位 → T083 填充,005 contracts/api.md §1 Settings 边界、
+ * §7「一般设置主体次序」、data-model §3、ADR-0011 决议 5)——
  *
- * 目标授权次序(api.md §7「一般设置主体次序」,US7 实现):
- *   存储就绪 → Session → 角色(owner/admin)+ 当前主 Profile → 有效 settings grant
- *   → 严格入参 → 当次密码(敏感操作)→ 重读身份/grant/目标归属/版本 → 事务。
- *
- * T009 只交付可挂载的 fail-closed 占位:任何请求一律 403 SETTINGS_ACCESS_REQUIRED
- * (§7 新码),「未实现授权判定」是明确拒绝而非放行 —— 未实现的设置能力保持拒绝
- * (Phase 2 Checkpoint 语义)。
- *
- * US7 扩展点约定(勿破坏):
- * - 类名 SettingsAccessGuard / 文件名 settings-access.guard.ts 保持不变,
- *   各设置控制器继续 `@UseGuards(SessionGuard, SettingsAccessGuard)` 挂载;
- * - 判定逻辑全部写在 protected authorize()(可注入 grant/pin 服务后改写,
- *   或改为类构造注入 —— 挂载方无需变更);
- * - SETTINGS_PIN_REQUIRED(需 PIN 验证)/SETTINGS_ACCESS_EXPIRED(grant 过期)
- *   等稳定码已在 common/domain-error.ts 登记,US7 直接使用;
- * - 占位期禁止在本 Guard 内放行或缓存任何授权事实。
+ * 授权次序:存储就绪 → Session → 角色(owner/admin)+ 当前主 Profile → 有效
+ * settings grant → 严格入参 → 当次密码(敏感操作)→ 重读身份/grant/目标归属/版本
+ * → 事务。本 Guard 只承担「Session 之后的角色/当前主 Profile → grant 有效性」一段:
+ * - Session 校验由上游 SessionGuard 完成(挂载方 `@UseGuards(SessionGuard,
+ *   SettingsAccessGuard)`);本 Guard 读取其会话上下文,缺失(未先挂 SessionGuard
+ *   的装配错误)按未认证同形 401 fail-closed;
+ * - 角色不足 / 当前档案非主 Profile / grant 缺失、撤销、换档、版本失配、目标停用
+ *   → 403 SETTINGS_ACCESS_REQUIRED;grant 过期 → 403 SETTINGS_ACCESS_EXPIRED
+ *   (判定单一实现在 modules/settings/settings-access-grant.service 的
+ *   requireValidSettingsGrant:连接 account/device/device_session/profile/household
+ *   逐请求重检,错误码语义与 /settings/access 独立入口完全一致);
+ * - /settings/access 的 GET/POST/DELETE 是独立入口(api.md §7),不挂本 Guard ——
+ *   由 modules/settings/settings-access.controller.ts 单独注册;
+ * - 判定逻辑全部写在 protected authorize()(T009 约定的扩展点,保持可覆写);
+ *   逐请求重检、无缓存:每次请求都以库内现值为准,本 Guard 不放行也不缓存任何
+ *   授权事实。
  */
 @Injectable()
 export class SettingsAccessGuard implements CanActivate {
@@ -27,12 +32,15 @@ export class SettingsAccessGuard implements CanActivate {
     return this.authorize(context);
   }
 
-  /** 授权判定唯一入口(US7 在此填充;占位实现一律拒绝) */
-  protected authorize(_context: ExecutionContext): boolean {
-    throw new DomainError(
-      403,
-      PC_005_PROBLEM_CODES.SETTINGS_ACCESS_REQUIRED,
-      '设置访问授权判定尚未实现',
-    );
+  /** 授权判定唯一入口(T009 扩展点;T083 填充实现) */
+  protected authorize(executionContext: ExecutionContext): boolean {
+    const request = executionContext.switchToHttp().getRequest<Request>();
+    const session = (request as SessionRequest).hmpSessionContext;
+    if (session === undefined) {
+      // SessionGuard 未先行:边界装配错误按未认证同形拒绝(fail-closed)
+      throw new DomainError(401, ProblemCode.SESSION_INVALID, undefined);
+    }
+    requireValidSettingsGrant(session as SessionContext);
+    return true;
   }
 }

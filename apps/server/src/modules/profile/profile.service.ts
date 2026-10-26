@@ -7,6 +7,7 @@ import { DomainError } from '../../common/domain-error';
 import type { SessionContext } from '../../common/current-session.decorator';
 import { getDb, type Db } from '../auth/db';
 import { revokeUnlockGrantsForProfile } from './pin.service';
+import { clearDeviceSessionsProfile } from './identity-transition';
 import { defaultPolicyValues } from '../policy/policy.rules';
 
 /**
@@ -211,6 +212,7 @@ export function updateProfile(command: UpdateProfileCommand): ProfileDtoBody {
       pinHash?: string | null;
       failedPinCount?: number;
       pinLockedUntil?: string | null;
+      pinVersion?: number;
     } = {};
     if (command.name !== undefined) {
       patch.name = command.name;
@@ -219,15 +221,23 @@ export function updateProfile(command: UpdateProfileCommand): ProfileDtoBody {
       patch.avatar = command.avatar;
     }
 
-    // clearPin / PIN 变更:重置 PIN 状态机,并作废该档案全部未消费解锁授予(旧授予不得绕过新 PIN)
+    // clearPin / PIN 变更:重置 PIN 状态机,并作废该档案全部未消费解锁授予(旧授予不得绕过新 PIN)。
+    // 005 data-model §2:PIN 更新同事务递增 pin_version,并强制重新选档 ——
+    // 清空所有当前选用该档案的设备会话 active_profile_id、递增各自 profile_context_version、
+    // 终态化相关活动播放并撤票(clearDeviceSessionsProfile,不能只撤授予保留旧活动身份)。
+    let pinChanged = false;
     if (command.clearPin === true) {
       patch.pinHash = null;
       patch.failedPinCount = 0;
       patch.pinLockedUntil = null;
+      patch.pinVersion = row.pinVersion + 1;
+      pinChanged = true;
     } else if (command.pinHash !== undefined) {
       patch.pinHash = command.pinHash;
       patch.failedPinCount = 0;
       patch.pinLockedUntil = null;
+      patch.pinVersion = row.pinVersion + 1;
+      pinChanged = true;
     }
 
     const disabling = command.status === 'disabled' && row.status === 'active';
@@ -263,13 +273,29 @@ export function updateProfile(command: UpdateProfileCommand): ProfileDtoBody {
       tx.update(profile).set(patch).where(eq(profile.id, row.id)).run();
     }
 
-    // T028/FR-016 停用级联:同一事务内清空引用该 Profile 的会话当前观看者
-    if (disabling) {
-      tx
-        .update(deviceSession)
-        .set({ activeProfileId: null })
-        .where(eq(deviceSession.activeProfileId, row.id))
-        .run();
+    /**
+     * 身份失效级联(T052,005 data-model §2;同一事务):
+     * - 停用(T028/FR-016 扩展):不只清 active_profile_id —— 同事务递增受影响设备会话的
+     *   profile_context_version、终态化该档案上下文的活动播放并撤票、撤销设置授予;
+     * - PIN 变更:同上(强制重新选档)。
+     * 两条路径共用「使用该档案的全部设备会话」定位;无使用会话时为无害 no-op。
+     */
+    if (disabling || pinChanged) {
+      const usingSessions = tx
+        .select({ id: deviceSession.id })
+        .from(deviceSession)
+        .where(
+          and(
+            eq(deviceSession.householdId, row.householdId),
+            eq(deviceSession.activeProfileId, row.id),
+          ),
+        )
+        .all();
+      clearDeviceSessionsProfile(tx, {
+        householdId: row.householdId,
+        deviceSessionIds: usingSessions.map((session) => session.id),
+        profileId: row.id,
+      });
     }
 
     // PIN 变更/清除成功落库后才作废授予(事务已保证一致性,此处仅内存副作用)

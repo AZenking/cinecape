@@ -1,6 +1,9 @@
+import { eq } from 'drizzle-orm';
 import { createDomainError, type DomainError } from '../../common/domain-error';
 import type { PlaybackBudgets } from '../../config/playback-budgets';
 import type { SessionContext } from '../../common/current-session.decorator';
+import { getDb } from '../auth/db';
+import { deviceSession, playbackSession } from '../../database/schema';
 import type { PlaybackAuthorizationService, PlaybackResourceCandidate } from './playback-authorization.service';
 import type { PlaybackRepository } from './playback.repository';
 import type {
@@ -240,6 +243,12 @@ export interface ResolveOptions {
   readonly at?: string;
   /** probe 总期限覆盖(缺省 budgets.watchdog.prepareTimeoutSeconds×1000 = 30s) */
   readonly deadlineMs?: number;
+  /**
+   * 起播模式透传(005 api.md §5;默认 beginning):resume 仅点播,频道请求 resume
+   * → 400 PLAYBACK_SEEK_UNSUPPORTED。resume 的位置冻结与进度协议属 US4 —— 本阶段只做
+   * 参数校验与透传,不改变 preparing 建档路径。
+   */
+  readonly startMode?: 'beginning' | 'resume';
 }
 
 export interface ResolveOutcome {
@@ -276,17 +285,26 @@ export class PlaybackResolverService {
    * 解析(POST /playback/resolve 语义):授权 → 建 preparing session → fire-and-forget
    * 异步准备。返回即表示请求被接受(201),不等 probe;授权拒绝抛稳定 DomainError
    * 且不建 session(MEDIA_NOT_FOUND 对不存在/跨家庭/不可见/无源同形)。
+   * 005(T050):startMode 透传校验(频道 resume → 400 PLAYBACK_SEEK_UNSUPPORTED);
+   * 建档捕获授权时刻 DeviceSession 的 profile_context_version(005 data-model §2,
+   * 服务端事实,不接受客户端身份/位置声明);resume 位置冻结属 US4,不在本路径实现。
    */
   async resolve(context: SessionContext, mediaId: string, options: ResolveOptions = {}): Promise<ResolveOutcome> {
     // 1. 授权(同步,不等待 probe);拒绝在此抛出 —— 之后才允许建 session
     const grant = await this.authorization.authorizeResolve(context, mediaId);
-    // 2. 建 preparing session(身份绑定取授权快照的服务端事实,非请求声明)
+    // 1.5 startMode 透传校验(005 api.md §5:resume 仅点播;频道请求 resume 稳定 400)
+    if (options.startMode === 'resume' && grant.mediaType === 'channel') {
+      throw createDomainError('PLAYBACK_SEEK_UNSUPPORTED', '直播频道不支持续播定位');
+    }
+    // 2. 建 preparing session(身份绑定取授权快照的服务端事实,非请求声明;
+    //    profile_context_version 一次性捕获 —— 此后不可变,由控制链路每次重验)
     const created = this.repository.createSession({
       householdId: grant.snapshot.householdId,
       deviceSessionId: grant.snapshot.deviceSessionId,
       deviceId: grant.snapshot.deviceId,
       profileId: grant.snapshot.profileId,
       mediaId: grant.snapshot.mediaId,
+      profileContextVersion: grant.snapshot.profileContextVersion,
       at: options.at,
     });
     if (!created.ok) {
@@ -303,6 +321,9 @@ export class PlaybackResolverService {
   /**
    * 异步准备(probe → ready/failed)。fire-and-forget:任何路径不得向调用方抛出
    * (resolve 已返回);会话被接管(CAS 失败/终态)时静默丢弃结果。
+   * T051:markReady 提交前复查 playback_session.profile_context_version 仍等于当前
+   * DeviceSession 版本 —— probe 窗口内的换档/清空/撤销不得让旧上下文播放被推至 ready
+   * (005 data-model §2「异步准备提交也复查该版本,避免 A→B→A 复活旧播放」)。
    */
   private async prepare(
     householdId: string,
@@ -335,6 +356,12 @@ export class PlaybackResolverService {
           });
           return;
         }
+        if (!this.identityContextCurrent(sessionId)) {
+          // 版本复查失败 → 稳定失败落会话(不虚报就绪;终态行 CAS 失败为无害 no-op)
+          this.repository.failSession(sessionId, { cas, failureCode: 'PLAYBACK_RESOURCE_UNAVAILABLE', at });
+          this.factsBySession.delete(sessionId);
+          return;
+        }
         const marked = this.repository.markReady(sessionId, {
           cas,
           playbackSourceId: outcome.playbackSourceId,
@@ -360,6 +387,34 @@ export class PlaybackResolverService {
       // 防御:端口异常/仓储意外错误不得成为未处理拒绝;会话停留 preparing,
       // 由生命周期(T028)的失联/超时兜底回收
     }
+  }
+
+  /**
+   * 上下文版本复查(T051):playback_session 捕获的 profile_context_version 必须仍等于
+   * 其 DeviceSession 当前版本。不等(或行已缺失)→ false。直查 getDb()(与
+   * authorization/lifecycle 同一先例,不扩仓储 API 面)。
+   */
+  private identityContextCurrent(sessionId: string): boolean {
+    const row = getDb()
+      .select({
+        sessionContextVersion: playbackSession.profileContextVersion,
+        deviceSessionId: playbackSession.deviceSessionId,
+      })
+      .from(playbackSession)
+      .where(eq(playbackSession.id, sessionId))
+      .get();
+    if (row === undefined) {
+      return false;
+    }
+    const device = getDb()
+      .select({ profileContextVersion: deviceSession.profileContextVersion })
+      .from(deviceSession)
+      .where(eq(deviceSession.id, row.deviceSessionId))
+      .get();
+    if (device === undefined) {
+      return false;
+    }
+    return row.sessionContextVersion === device.profileContextVersion;
   }
 
   /**
@@ -404,6 +459,11 @@ export class PlaybackResolverService {
       this.repository.failSession(input.sessionId, { cas, failureCode: launched.code, at: input.at });
       return;
     }
+    if (!this.identityContextCurrent(input.sessionId)) {
+      // 转换首产物后的 ready 提交同样复查上下文版本(T051;A→B→A 不得复活旧播放)
+      this.repository.failSession(input.sessionId, { cas, failureCode: 'PLAYBACK_RESOURCE_UNAVAILABLE', at: input.at });
+      return;
+    }
     const marked = this.repository.markReady(input.sessionId, {
       cas,
       playbackSourceId: input.playbackSourceId,
@@ -442,6 +502,11 @@ export class PlaybackResolverService {
         // 位置无关:交付与产物不变,同源直接重回 ready(旧票已因换代失效,renew 取新票)
         const source = await this.locateSessionSource(sessionId);
         if (source === null) {
+          this.repository.failSession(sessionId, { cas, failureCode: 'PLAYBACK_RESOURCE_UNAVAILABLE' });
+          return;
+        }
+        if (!this.identityContextCurrent(sessionId)) {
+          // 换代重建 ready 提交同样复查上下文版本(T051;身份已变的会话不得重回 ready)
           this.repository.failSession(sessionId, { cas, failureCode: 'PLAYBACK_RESOURCE_UNAVAILABLE' });
           return;
         }

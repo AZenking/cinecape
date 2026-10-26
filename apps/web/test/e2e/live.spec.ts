@@ -191,9 +191,14 @@ test.describe('直播首页(T062 · 游客)', () => {
     // 无 EPG 频道:暂无节目占位 + 播放入口保留(FR-023)
     await expect(card.getByText('暂无节目')).toBeVisible();
     await card.getByRole('button', { name: '播放 夹具频道 197 当前直播' }).click();
-    // 登录入口出现(页面级游客提示区;US3 统一登录选档接管前的占位)。
-    // 登录前媒体流/播放请求为零(登录流程本体属 US2/US3)
-    await expect(page.getByRole('status').getByRole('button', { name: '登录' })).toBeVisible();
+    // US3 统一受控播放:游客点击 → 统一登录选档弹层(同一业务流程,FR-011)。
+    // 登录选档前媒体流/播放请求为零(登录流程本体属 US2/US3)
+    const authDialog = page.locator('[role="dialog"][data-slot="modal-dialog"]');
+    await expect(authDialog.getByRole('heading', { name: '登录' })).toBeVisible();
+    expect(mediaRequests).toEqual([]);
+    // 取消登录:回原页面,零播放/媒体请求保持
+    await authDialog.getByRole('button', { name: '取消' }).click();
+    await expect(authDialog).toBeHidden();
     expect(mediaRequests).toEqual([]);
   });
 

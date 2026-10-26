@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router';
 import type { ExperienceProgrammeDto } from '@hmp/shared';
 import { Alert, Button, Input, Label, TextField } from '@heroui/react';
 import { fetchLiveChannels, fetchLiveGroups, type LiveSection } from './live-api';
+import { usePlayAction } from '../playback/use-play-action';
 import { useLiveRefresh } from './hooks/use-live-refresh';
 import { useLiveSection } from './hooks/use-live-sections';
 import { NowSection } from './components/NowSection';
@@ -20,7 +21,8 @@ import { GuestActionNotice } from './components/GuestActionNotice';
  *   (section 必配)互转;详情返回或登录取消后经 URL 恢复原浏览状态(FR-045);
  * - 公共请求一律 publicFetch(credentials:'omit');每区独立资源,失败仅重试本区;
  * - 30 秒周期刷新 + 回前台立即刷新(useLiveRefresh);刷新失败保留旧数据并提示可重试;
- * - 播放/收藏为 US3 统一入口占位:游客先登录选档提示,不发起任何播放或媒体请求。
+ * - 播放统一经 US3 受控入口(PlayButton/usePlayAction;无节目频道仍可发起);
+ *   收藏为 US4 占位:游客先登录选档提示,不发起任何播放或媒体请求。
  */
 
 const PREVIEW_PAGE_SIZE = 20;
@@ -43,6 +45,7 @@ export function LivePage(): ReactNode {
   const { refreshKey } = useLiveRefresh();
   const [slotDialog, setSlotDialog] = useState<SlotDialogState | null>(null);
   const [guestNotice, setGuestNotice] = useState<string | null>(null);
+  const { play } = usePlayAction();
 
   const rawSection = searchParams.get('section');
   const section: LiveSection | null =
@@ -146,10 +149,10 @@ export function LivePage(): ReactNode {
 
   const playChannel = useCallback(
     (mediaId: string, channelTitle: string): void => {
-      void mediaId;
-      requireAuth(`播放 ${channelTitle} 当前直播`);
+      // 节目详情弹层的播放:指向该频道当前直播,经 US3 统一受控入口
+      play({ mediaId, title: channelTitle });
     },
-    [requireAuth],
+    [play],
   );
 
   const timezone = groupsResource.data?.timezone ?? focusedResource.data?.timezone ?? 'UTC';

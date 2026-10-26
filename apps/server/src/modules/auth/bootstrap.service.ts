@@ -8,6 +8,7 @@ import { getDb, type Db } from './db';
 import { hashPassword } from './password.service';
 import { verifyParentPassword } from './parent-verification.service';
 import { clearDeviceSessionsProfile } from '../profile/identity-transition';
+import { revokeUnlockGrantsForProfile } from '../profile/pin.service';
 import { toProfileSummary, type ProfileSummaryBody } from './account-session.dto';
 
 /**
@@ -230,6 +231,9 @@ export async function recoverMainProfilePin(
         deviceSessionIds: sessions.map((row) => row.id),
         profileId: fresh.id,
       });
+      // 撤销该档案的全部内存选档一次性授予(US7 发现的残留缺口:
+      // 恢复后 5min TTL 窗口内旧授予不得再通过选档)
+      revokeUnlockGrantsForProfile(fresh.id);
     },
     { behavior: 'immediate' },
   );

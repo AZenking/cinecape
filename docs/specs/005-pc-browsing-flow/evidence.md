@@ -80,3 +80,21 @@
 Lead 集成项:app.module 注册 PublicCatalogModule+LiveModule;routes.tsx 挂载 LivePage;PublicLayout 登录插槽接 IdentityMenu(T042/T043);playwright webServer 路径修正(apps/web 相对解析);scripts/e2e-servers.sh 种子模式对齐 DB_FILENAME=scale-fixture.hmp.db 且跳过重复迁移;8 个 T020/T013 用例适配 IdentityMenu 会话恢复异步(AppProviders 包装+401 打桩);lint 清理 12 处未使用导入/注解;退役 2 个并行期 e2e 组合根。
 
 已知边界:bootstrap 非管理角色 403 仅服务级验证(DB CHECK 仅 owner/admin);选档一次性授予为进程内存(单实例语义,ADR-0002);公共海报 posterRef 恒 null(003 导入管线无同源海报资源,扩展点单一函数);US5 q 搜索=频道标题大小写不敏感子串(契约未规定字段)。
+
+---
+
+## Wave B 验证记录(US3/US7,T044~T056/T073~T087)
+
+日期:2026-10-27。范围:两个 P1 故事(受控播放统一入口/设置解锁)实现完成后的集成验证。
+
+| 验证项 | 命令 | 结果 |
+| --- | --- | --- |
+| server 全量 | `pnpm --filter @hmp/server test` | 93 文件 / 1195 tests 全绿 |
+| web 全量 | `pnpm --filter @hmp/web test` | 11 文件 / 72 tests 全绿 |
+| lint / typecheck | `pnpm lint` / 双端 tsc | 0 错误 |
+| e2e US7 设置解锁 | `E2E_SEED_SCALE=1 playwright test test/e2e/settings-access.spec.ts` | 6/6(SC-007 负向矩阵;15min 自然到期留 T141/T144) |
+| e2e US3 播放意图 | `E2E_SEED_SCALE=1 playwright test test/e2e/playback-intent.spec.ts` | 5/5(SC-003 游客点击/竞态/换档撤票) |
+
+新增用例计数:US3 server 29 + web 8 + e2e 5;US7 server 27 + web 14 + e2e 6。
+
+Lead 集成项:app.module 注册 SettingsModule;providers 挂 SettingsAccessProvider;coordinator 增 settingsPin 步骤+startSettings(AuthStep/stepTitles/renderStep/事件桥);identity-menu 设置入口接 startSettings 弹层流;bootstrap pin-recovery 事务补 revokeUnlockGrantsForProfile(US7 发现的选档授予残留缺口);US3/US1 相关 web 测试补 SettingsAccessProvider 包装;settings e2e 两场景适配统一弹层流。

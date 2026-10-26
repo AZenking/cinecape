@@ -1,6 +1,9 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
+import { SessionProvider } from '../../../src/app/session-provider';
+import { SettingsAccessProvider } from '../../../src/features/settings/settings-access-provider';
+import { ActionCoordinator } from '../../../src/app/action-coordinator';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChannelPageDto, ExperienceProgrammeDto, GroupPageDto } from '@hmp/shared';
 import { LivePage } from '../../../src/features/live/LivePage';
@@ -40,6 +43,18 @@ function installFetchRouter(): void {
     vi.fn((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const url = new URL(String(input), 'http://localhost:3000');
       fetchCalls.push({ url: url.pathname + url.search, init });
+      // 协调器会话底座(US3 统一意图弹层的挂载面):游客恢复 401、部署已初始化
+      if (url.pathname === '/api/auth/session') {
+        return Promise.resolve(
+          new Response(JSON.stringify({ status: 401, code: 'SESSION_INVALID', title: 'SESSION_INVALID' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/problem+json' },
+          }),
+        );
+      }
+      if (url.pathname === '/api/setup/status') {
+        return Promise.resolve(jsonResponse({ initialized: true }));
+      }
       const body = fetchRouter(url);
       return Promise.resolve(jsonResponse(body));
     }),
@@ -137,7 +152,13 @@ const ALL_PAGE: ChannelPageDto = {
 function renderLivePage(): void {
   render(
     <MemoryRouter initialEntries={['/live']}>
-      <LivePage />
+      <SessionProvider>
+        <SettingsAccessProvider>
+          <ActionCoordinator>
+            <LivePage />
+          </ActionCoordinator>
+        </SettingsAccessProvider>
+      </SessionProvider>
     </MemoryRouter>,
   );
 }
@@ -221,14 +242,17 @@ describe('直播页分区与内容(T061)', () => {
   it('公共数据请求 credentials:"omit";频道行不携带来源地址/个人数据字段', async () => {
     renderLivePage();
     await waitFor(() => {
-      expect(fetchCalls.length).toBeGreaterThanOrEqual(4);
+      expect(fetchCalls.filter((call) => call.url.startsWith('/api/public/')).length).toBeGreaterThanOrEqual(4);
     });
+    // 页面公共浏览请求:一律 /api/public/* 且 credentials omit(T068 公共数据凭据档位)
     for (const call of fetchCalls) {
-      expect(call.init?.credentials).toBe('omit');
-      expect(call.url.startsWith('/api/public/')).toBe(true);
+      if (call.url.startsWith('/api/public/')) {
+        expect(call.init?.credentials).toBe('omit');
+      }
     }
-    // 不发起个人区请求(/api/me、/api/auth)
-    expect(fetchCalls.some((call) => call.url.startsWith('/api/me') || call.url.startsWith('/api/auth'))).toBe(false);
+    // 页面不发起个人区请求(/api/me);/api/auth/session 仅属协调器会话恢复底座(T040),
+    // 不属于直播页数据面
+    expect(fetchCalls.some((call) => call.url.startsWith('/api/me'))).toBe(false);
   });
 
   it('点击即将播放节目:仅展示节目时段(频道与起止时间),文案不出现预约/回看/立即播放未来节目', async () => {
@@ -250,20 +274,29 @@ describe('直播页分区与内容(T061)', () => {
     expect(text).toContain('播放 新闻频道 当前直播');
   });
 
-  it('游客点播放/收藏:出现登录入口,不触发任何播放或媒体请求', async () => {
+  it('游客点播放:进入 US3 统一登录选档意图,登录前零 /playback/ 请求;收藏为 US4 提示不发起播放', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderLivePage();
     await waitFor(() => {
       expect(screen.getAllByRole('button', { name: '播放 新闻频道 当前直播' }).length).toBeGreaterThan(0);
     });
-    const callsBefore = fetchCalls.length;
+    const playbackCallsBefore = fetchCalls.filter((call) => call.url.includes('/playback/')).length;
     await user.click(screen.getAllByRole('button', { name: '播放 新闻频道 当前直播' })[0] as HTMLElement);
-    expect(await screen.findByRole('button', { name: '登录' })).toBeTruthy();
-    // 无新增请求(更无播放/媒体流请求)
-    expect(fetchCalls.length).toBe(callsBefore);
+    // US3:游客播放 → 统一受控弹层进入登录步骤(弹层内出现登录入口)
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '登录' })).toBeTruthy();
+    // 登录选档完成前:零 /playback/ 请求(更无媒体流/分段请求,FR-011)
+    expect(fetchCalls.filter((call) => call.url.includes('/playback/')).length).toBe(playbackCallsBefore);
+    // 取消:弹层关闭,不自动播放、不重开
+    await user.click(screen.getByRole('button', { name: '取消' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    expect(fetchCalls.filter((call) => call.url.includes('/playback/')).length).toBe(playbackCallsBefore);
+    // 收藏(US4 占位):出现游客提示(登录入口 + 收藏动作文案),不发起任何播放
     await user.click(screen.getAllByRole('button', { name: '收藏 新闻频道' })[0] as HTMLElement);
-    expect(await screen.findAllByRole('button', { name: '登录' }).then((buttons) => buttons.length)).toBeGreaterThan(0);
-    expect(fetchCalls.length).toBe(callsBefore);
+    expect(await screen.findByText('收藏 新闻频道需要先登录并选择档案')).toBeTruthy();
+    expect(fetchCalls.filter((call) => call.url.includes('/playback/')).length).toBe(playbackCallsBefore);
   });
 
   it('URL 查询参数承载浏览状态:查看更多进入聚焦分区并可返回;搜索写入 q', async () => {

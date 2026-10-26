@@ -12,11 +12,14 @@
 import type { ReactNode } from 'react';
 import { SessionProvider } from './session-provider';
 import { ActionCoordinator } from './action-coordinator';
+import { SettingsAccessProvider } from '../features/settings/settings-access-provider';
 
 export function AppProviders({ children }: { children: ReactNode }): ReactNode {
   return (
     <SessionProvider>
-      <ActionCoordinator>{children}</ActionCoordinator>
+      <SettingsAccessProvider>
+        <ActionCoordinator>{children}</ActionCoordinator>
+      </SettingsAccessProvider>
     </SessionProvider>
   );
 }

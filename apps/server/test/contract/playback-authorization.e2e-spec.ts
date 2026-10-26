@@ -802,18 +802,25 @@ describe('T035 异步提交授权变化(201 已接受不等于继续放行)', ()
     expect(ticketCountOf(sessionId)).toBe(0);
   });
 
-  it('probe 进行中(preparing)档案切换 → 原会话 GET/renew → 403(绑定档案与当前激活档案不一致)', async () => {
+  it('probe 进行中(preparing)档案切换 → 原会话 GET/renew 稳定拒绝(005 更新:换档同事务终态化旧上下文播放并撤票 → 404 同形)', async () => {
     const rig = await startFreshApp({ prefix: 'hmp-authz-f3-' });
     const world = await seedWorld(rig);
     const cookie = cookieOf(world);
     const resolved = await postResolve(rig.app, cookie, world.iptv.mediaId);
     expect(resolved.status).toBe(201);
     const sessionId = (resolved.body as Record<string, unknown>)['id'] as string;
-    // 切换到有 PIN 档案(unlock → select 既有路径);原会话仍绑定无 PIN 默认档案
+    // 切换到有 PIN 档案(unlock → select 既有路径);原会话仍绑定无 PIN 默认档案。
+    // 005 contracts/api.md §5:「实际换档事务终态化旧上下文播放并撤票,A→B→A 不能复活」;
+    // 据此旧会话在换档事务内被标 interrupted,GET/renew 与「不存在」404 同形
+    // (取代 004 时代的 403 ACTIVE_PROFILE_REQUIRED 读面;拒绝语义不变,同形更强)。
     expect((await postUnlockPin(rig.app, cookie, world.profileWithPinId, world.pin)).status).toBe(200);
     expect((await postSelectProfile(rig.app, cookie, world.profileWithPinId)).status).toBe(200);
-    expectStableProblem(await getSession(rig.app, cookie, sessionId), 403, ProblemCode.ACTIVE_PROFILE_REQUIRED);
-    expectStableProblem(await postRenew(rig.app, cookie, sessionId, 1), 403, ProblemCode.ACTIVE_PROFILE_REQUIRED);
+    expectStableProblem(await getSession(rig.app, cookie, sessionId), 404, ProblemCode.PLAYBACK_NOT_FOUND);
+    expectStableProblem(await postRenew(rig.app, cookie, sessionId, 1), 404, ProblemCode.PLAYBACK_NOT_FOUND);
+    // 终态化与撤票发生在换档事务内(不依赖前端 stop)
+    const row = sessionRowOf(sessionId);
+    expect(row.state).toBe('interrupted');
+    expect(row.endedAt).not.toBeNull();
   });
 });
 

@@ -119,7 +119,10 @@ describe('PublicLayout 导航壳(T020)', () => {
     await screen.findByRole('button', { name: '登录' });
     const calls = fetchSpy.mock.calls.map((call) => String(call[0]));
     const nonSessionCalls = calls.filter(
-      (p) => !p.includes('/auth/session') && !p.includes('/setup/status'),
+      (p) =>
+        !p.includes('/auth/session') &&
+        !p.includes('/setup/status') &&
+        !p.includes('/settings/access'),
     );
     expect(nonSessionCalls).toEqual([]);
   });

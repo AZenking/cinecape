@@ -68,6 +68,11 @@ export interface PlaybackAuthorizationSnapshot {
   readonly accountId: string;
   readonly profileId: string;
   readonly mediaId: string;
+  /**
+   * 授权时刻 DeviceSession 身份上下文版本(005 data-model §2):resolve 落库捕获,
+   * 控制/交付链路每次与当前版本重验(不等即稳定拒绝,防止 A→B→A 复活旧上下文播放)。
+   */
+  readonly profileContextVersion: number;
   /** 授权时刻(UTC ISO-8601);仅作签发痕迹,重验语义以库内实时事实为准 */
   readonly authorizedAt: string;
 }
@@ -76,6 +81,18 @@ export interface PlaybackAuthorizationSnapshot {
 export interface PlaybackAuthorizationGrant {
   readonly snapshot: PlaybackAuthorizationSnapshot;
   readonly candidates: readonly PlaybackResourceCandidate[];
+  /** 目标媒体类型(startMode 透传校验用:频道 resume → 400 PLAYBACK_SEEK_UNSUPPORTED) */
+  readonly mediaType: MediaPolicyFacts['type'];
+}
+
+/** 控制授权选项(T051 上下文版本重验) */
+export interface PlaybackControlOptions {
+  /**
+   * `'current'`(缺省):playback_session.profile_context_version 必须等于当前
+   * DeviceSession 版本,不等即 404 PLAYBACK_NOT_FOUND 同形(旧上下文不可读/不可控);
+   * `'any'`:跳过版本比对(仅限 stop 的「身份撤销后最小幂等清理」语义,api.md §5)。
+   */
+  readonly contextVersion?: 'current' | 'any';
 }
 
 /**
@@ -163,6 +180,8 @@ interface TrustedSessionRow {
   deviceRevokedAt: string | null;
   profileHouseholdId: string | null;
   profileAccountId: string | null;
+  /** 当前身份上下文版本(005 data-model §2;授权快照捕获与控制链路重验的唯一事实源) */
+  profileContextVersion: number;
 }
 
 function loadTrustedSessionRow(sessionId: string): TrustedSessionRow | undefined {
@@ -181,6 +200,7 @@ function loadTrustedSessionRow(sessionId: string): TrustedSessionRow | undefined
       deviceRevokedAt: device.revokedAt,
       profileHouseholdId: profile.householdId,
       profileAccountId: profile.accountId,
+      profileContextVersion: deviceSession.profileContextVersion,
     })
     .from(deviceSession)
     .innerJoin(account, eq(account.id, deviceSession.accountId))
@@ -214,6 +234,8 @@ function buildGrant(
   profileId: string,
   mediaId: string,
   candidates: PlaybackResourceCandidate[],
+  mediaType: MediaPolicyFacts['type'],
+  profileContextVersion: number,
 ): PlaybackAuthorizationGrant {
   return {
     snapshot: {
@@ -223,9 +245,11 @@ function buildGrant(
       accountId: trusted.session.accountId,
       profileId,
       mediaId,
+      profileContextVersion,
       authorizedAt: new Date().toISOString(),
     },
     candidates,
+    mediaType,
   };
 }
 
@@ -237,37 +261,64 @@ export class PlaybackAuthorizationService {
 
   /**
    * resolve 授权(认证→档案/PIN→策略→家庭可用资源;同步完成,不等待 probe)。
-   * 通过返回授权与排序候选;任一环节失败抛稳定 DomainError,调用方不得创建播放会话。
+   * 通过返回授权与排序候选(快照携带授权时刻 profileContextVersion,resolve 落库捕获);
+   * 任一环节失败抛稳定 DomainError,调用方不得创建播放会话。
    */
   async authorizeResolve(context: SessionContext, mediaId: string): Promise<PlaybackAuthorizationGrant> {
     const trusted = this.verifyTrustedSession(context.session.id, context);
     const activeProfile = this.requireActiveProfileRow(trusted);
-    const candidates = await this.authorizeMediaAndCollectCandidates(trusted, mediaId);
-    return buildGrant(trusted, activeProfile.id, mediaId, candidates);
+    const { candidates, mediaType } = await this.authorizeMediaAndCollectCandidates(trusted, mediaId);
+    return buildGrant(
+      trusted,
+      activeProfile.id,
+      mediaId,
+      candidates,
+      mediaType,
+      this.currentContextVersion(trusted.session.id),
+    );
   }
 
   /**
-   * 控制授权(renew/seek/selection/GET 状态的共用底层):在 resolve 链之前先核对
-   * 播放会话归属 —— 非本设备会话(含跨家庭/不存在)统一 404 PLAYBACK_NOT_FOUND;
-   * 绑定档案必须仍是当前激活档案(否则 403,绑定 PIN 档案复用 PROFILE_PIN_REQUIRED)。
+   * 控制授权(renew/seek/selection/GET 状态/heartbeat/媒体交付的共用底层):在 resolve 链
+   * 之前先核对播放会话归属 —— 非本设备会话(含跨家庭/不存在)统一 404 PLAYBACK_NOT_FOUND;
+   * 绑定档案必须仍是当前激活档案(否则 403,绑定 PIN 档案复用 PROFILE_PIN_REQUIRED);
+   * 上下文版本重验(T051,005 api.md §5):playback_session.profile_context_version 必须
+   * 等于当前 DeviceSession 版本 —— 不等即 404 同形(旧上下文在换档/登出/撤销后不可读、
+   * 不可控、不可交付;stop 经 options 传入 'any' 保留最小幂等清理语义)。
    */
-  async authorizeControl(context: SessionContext, playbackSessionId: string): Promise<PlaybackAuthorizationGrant> {
+  async authorizeControl(
+    context: SessionContext,
+    playbackSessionId: string,
+    options: PlaybackControlOptions = {},
+  ): Promise<PlaybackAuthorizationGrant> {
     const trusted = this.verifyTrustedSession(context.session.id, context);
     const loaded = this.repository.getSession(trusted.session.householdId, playbackSessionId);
     if (!loaded.ok || loaded.value.deviceSessionId !== trusted.session.id) {
       // 跨设备/跨家庭/不存在同形 404,不泄露存在性(contracts/api.md)
       throw createDomainError('PLAYBACK_NOT_FOUND');
     }
+    if ((options.contextVersion ?? 'current') === 'current') {
+      this.assertContextVersionCurrent(loaded.value, trusted);
+    }
     const activeProfile = this.requireActiveProfileRow(trusted);
     this.assertBoundProfileCurrent(loaded.value.profileId, trusted, activeProfile);
-    const candidates = await this.authorizeMediaAndCollectCandidates(trusted, loaded.value.mediaId);
-    return buildGrant(trusted, activeProfile.id, loaded.value.mediaId, candidates);
+    const { candidates, mediaType } = await this.authorizeMediaAndCollectCandidates(trusted, loaded.value.mediaId);
+    return buildGrant(
+      trusted,
+      activeProfile.id,
+      loaded.value.mediaId,
+      candidates,
+      mediaType,
+      this.currentContextVersion(trusted.session.id),
+    );
   }
 
   /**
    * 提交前重验(api.md:renew/seek/selection 最终提交前重验授权,防异步探测窗口变更)。
    * (deviceSessionId, profileId, mediaId) 为授权快照事实:会话/档案/PIN/策略/资源全部
    * 按当前库内状态重跑,任一变化即以对应稳定码拒绝;通过返回全新候选(不缓存授权正结果)。
+   * 预期上下文版本(005 §5)由调用方在 authorizeControl/异步准备复查承担 —— 本方法只重验
+   * 「当前会话与档案/策略/资源授权链」,不重复做 playback 行归属判定。
    */
   async revalidate(deviceSessionId: string, profileId: string, mediaId: string): Promise<PlaybackAuthorizationGrant> {
     const trusted = this.verifyTrustedSession(deviceSessionId);
@@ -276,13 +327,44 @@ export class PlaybackAuthorizationService {
     }
     const activeProfile = this.requireActiveProfileRow(trusted);
     this.assertBoundProfileCurrent(profileId, trusted, activeProfile);
-    const candidates = await this.authorizeMediaAndCollectCandidates(trusted, mediaId);
-    return buildGrant(trusted, activeProfile.id, mediaId, candidates);
+    const { candidates, mediaType } = await this.authorizeMediaAndCollectCandidates(trusted, mediaId);
+    return buildGrant(
+      trusted,
+      activeProfile.id,
+      mediaId,
+      candidates,
+      mediaType,
+      this.currentContextVersion(trusted.session.id),
+    );
   }
 
   // -------------------------------------------------------------------------
   // 内部管线(顺序固定,勿调换:会话 → 档案 → 策略 → 资源)
   // -------------------------------------------------------------------------
+
+  /** 设备会话当前身份上下文版本(库内实时事实;行缺失按未认证同形拒绝) */
+  private currentContextVersion(sessionId: string): number {
+    const row = getDb()
+      .select({ profileContextVersion: deviceSession.profileContextVersion })
+      .from(deviceSession)
+      .where(eq(deviceSession.id, sessionId))
+      .get();
+    if (row === undefined) {
+      throw sessionInvalid();
+    }
+    return row.profileContextVersion;
+  }
+
+  /**
+   * 上下文版本一致性(T051,005 api.md §5「每次控制、renew、交付…必须等于当前
+   * DeviceSession 版本」):不等即 404 PLAYBACK_NOT_FOUND 同形 —— 与「不存在」对客户端
+   * 不可区分,不泄露旧上下文存在性(A→B→A 后绑定档案可能再次匹配,版本是唯一拒绝依据)。
+   */
+  private assertContextVersionCurrent(session: { readonly profileContextVersion: number }, trusted: SessionContext): void {
+    if (session.profileContextVersion !== this.currentContextVersion(trusted.session.id)) {
+      throw createDomainError('PLAYBACK_NOT_FOUND');
+    }
+  }
 
   /**
    * 可信会话实时重验(SessionGuard 管线的 id 键控等价形):
@@ -364,7 +446,7 @@ export class PlaybackAuthorizationService {
   private async authorizeMediaAndCollectCandidates(
     trusted: SessionContext,
     mediaId: string,
-  ): Promise<PlaybackResourceCandidate[]> {
+  ): Promise<{ candidates: PlaybackResourceCandidate[]; mediaType: MediaPolicyFacts['type'] }> {
     // 缺失策略行的惰性默认回填(FR-002:默认值用于创建与回填;经真实创建路径的档案
     // 必有默认策略行,直落库/恢复场景的首欢授权补齐同一默认)——回填后走同一判定链;
     // 已存在(含损坏)行不触碰:损坏行仍由判定核心按 POLICY_UNAVAILABLE fail-closed。
@@ -375,7 +457,22 @@ export class PlaybackAuthorizationService {
     if (!decision.allowed) {
       throw policyDenialToError(decision.reason);
     }
-    return this.collectCandidates(trusted.session.householdId, mediaId);
+    const mediaType = this.readTrustedMediaType(trusted.session.householdId, mediaId);
+    return { candidates: this.collectCandidates(trusted.session.householdId, mediaId), mediaType };
+  }
+
+  /** 目标媒体类型(授权已放行后的读取;仅用于 startMode 透传校验,不下发客户端) */
+  private readTrustedMediaType(householdId: string, mediaId: string): MediaPolicyFacts['type'] {
+    const row = getDb()
+      .select({ type: mediaItem.type })
+      .from(mediaItem)
+      .where(and(eq(mediaItem.householdId, householdId), eq(mediaItem.id, mediaId)))
+      .get();
+    if (row === undefined) {
+      // 授权已放行后理论上不可达;防御性归一 MEDIA_NOT_FOUND 同形
+      throw createDomainError('MEDIA_NOT_FOUND');
+    }
+    return row.type as MediaPolicyFacts['type'];
   }
 
   /**

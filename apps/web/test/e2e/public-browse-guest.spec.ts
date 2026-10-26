@@ -72,10 +72,22 @@ test.describe('游客直接浏览家庭内容(T021)', () => {
     // 详情元数据可见(标题即公共投影 title;成人级内容不隐藏)
     await expect(page.getByRole('heading', { name: availableMediaTitle, level: 1 })).toBeVisible();
     await expect(page.getByText('类型')).toBeVisible();
-    // 无个人状态区(进度/收藏不出现;播放入口为占位说明,不发起播放)
+    // 无个人状态区(进度/收藏不出现);播放入口为 US3 统一入口(游客点击先登录选档,
+    // 不发起任何播放请求,FR-011)
     await expect(page.getByText(/观看历史|继续观看/)).toHaveCount(0);
-    await expect(page.getByRole('button', { name: '播放' })).toBeVisible();
-    await expect(page.getByText(/统一受控流程/)).toBeVisible();
+    const playRequests: string[] = [];
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname.startsWith('/api/playback/')) {
+        playRequests.push(request.url());
+      }
+    });
+    await page.getByRole('button', { name: `播放 ${availableMediaTitle}` }).click();
+    await expect(page.locator('[role="dialog"][data-slot="modal-dialog"]').getByRole('heading', { name: '登录' })).toBeVisible();
+    expect(playRequests).toEqual([]);
+    // 取消:回原页面,弹层关闭(不自动播放)
+    await page.locator('[role="dialog"][data-slot="modal-dialog"]').getByRole('button', { name: '取消' }).click();
+    await expect(page.locator('[role="dialog"][data-slot="modal-dialog"]')).toBeHidden();
+    expect(playRequests).toEqual([]);
 
     await page.reload();
     await expect(page.getByRole('heading', { name: availableMediaTitle, level: 1 })).toBeVisible();

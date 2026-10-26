@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 import type { PublicContextDto } from '@hmp/shared';
 import { isAbortError, publicFetch } from '../../shared/fetch';
 import { LoadingSpinner, MediaGridSkeleton, RetryableAlert } from '../../shared/ui';
+import { PlayButton } from '../playback/use-play-action';
 
 /**
  * 首页公共区(T027,US1;contracts/ui.md §4、FR-046):
@@ -12,6 +13,8 @@ import { LoadingSpinner, MediaGridSkeleton, RetryableAlert } from '../../shared/
  * - 直播摘要数据端点(GET /public/live/*)属 US5,尚未实现:入口渲染为静态占位卡
  *   并明确注明「直播摘要由直播服务提供」,不造假数据;
  * - 游客仅公共区与轻量登录提示,不用空白个人区占首屏(个人区属 US4);
+ * - 收藏/历史播放入口为占位(T054):入口组件家族与全站同一(PlayButton/usePlayAction),
+ *   数据与播放语义由 US4 填充,占位不造假数据、不伪装可播放承诺;
  * - 空/加载/失败按 FR-004 三态展示(公共上下文读取失败可重试,不伪装空内容)。
  */
 
@@ -79,6 +82,40 @@ export function HomePage(): ReactNode {
           <p className="rounded-lg border border-border bg-surface px-4 py-3 text-sm text-muted">
             登录并选择观看档案后,可使用收藏、观看历史与受控播放等个人功能。
           </p>
+
+          {/* 收藏/历史播放入口占位(T054):入口与全站同一 PlayButton 家族,数据由 US4 填充 */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <section
+              aria-label="收藏频道入口占位"
+              className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4"
+            >
+              <span className="text-base font-medium text-foreground">收藏频道</span>
+              <span className="text-sm text-muted">登录并选择档案后,在此直接播放收藏的频道。</span>
+              <PlayButton
+                mediaId=""
+                title="收藏频道"
+                label="播放收藏"
+                disabled
+                disabledReason="收藏数据将由个人区(US4)提供"
+                ariaLabel="播放收藏频道(占位,由 US4 提供)"
+              />
+            </section>
+            <section
+              aria-label="观看历史入口占位"
+              className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4"
+            >
+              <span className="text-base font-medium text-foreground">观看历史</span>
+              <span className="text-sm text-muted">登录并选择档案后,在此继续观看上次未看完的影片。</span>
+              <PlayButton
+                mediaId=""
+                title="观看历史"
+                label="继续观看"
+                disabled
+                disabledReason="观看历史将由个人区(US4)提供"
+                ariaLabel="继续观看历史影片(占位,由 US4 提供)"
+              />
+            </section>
+          </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
             {/* 直播摘要入口:摘要数据端点属 US5,先渲染静态占位入口(不造假数据) */}

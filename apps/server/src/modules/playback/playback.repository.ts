@@ -115,6 +115,7 @@ function rowToSessionView(row: PlaybackSession): PlaybackSessionView {
     audioTrackId: row.audioTrackId,
     subtitleTrackId: row.subtitleTrackId,
     desiredPaused: row.desiredPaused === 1,
+    profileContextVersion: row.profileContextVersion,
     createdAt: row.createdAt,
     startedAt: row.startedAt,
     endedAt: row.endedAt,
@@ -263,6 +264,8 @@ export class PlaybackRepository {
   /**
    * 创建 preparing 会话:generation=version=1、position=0、desired_paused=0、
    * created_at=last_heartbeat_at=now。家庭内至少一启用资源的预校验由调用方负责 —— 仓储只存。
+   * profile_context_version(005 §2)按调用方捕获的授权时刻 DeviceSession 版本一次性落库,
+   * 此后不可变(身份绑定面);与 DeviceSession 失衡由服务层控制链路重验(T051)。
    */
   createSession(input: CreateSessionInput): PlaybackResult<PlaybackSessionView> {
     return this.handle.transaction(
@@ -286,6 +289,7 @@ export class PlaybackRepository {
             audioTrackId: null,
             subtitleTrackId: null,
             desiredPaused: 0,
+            profileContextVersion: input.profileContextVersion ?? 1,
             createdAt: at,
             startedAt: null,
             endedAt: null,

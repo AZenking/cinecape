@@ -70,17 +70,18 @@ export function IdentityMenu(): ReactNode {
           onAction={(key) => {
             if (key === 'switch') {
               auth.startProfileSelection();
+            } else if (key === 'settings') {
+              auth.startSettings('/settings/account');
             } else if (key === 'logout') {
               void logout();
             }
-            // 'settings' 为链接项(href 跳转 /settings/account)
           }}
         >
           <Dropdown.Item id="account" isDisabled>
             {session.account.username}
           </Dropdown.Item>
           {profile.isMain ? (
-            <Dropdown.Item id="settings" href="/settings/account">
+            <Dropdown.Item id="settings">
               设置
             </Dropdown.Item>
           ) : null}

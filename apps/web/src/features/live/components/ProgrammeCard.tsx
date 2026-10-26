@@ -2,14 +2,16 @@ import type { ReactNode } from 'react';
 import { Button } from '@heroui/react';
 import type { ChannelRowDto, ExperienceProgrammeDto } from '@hmp/shared';
 import { formatRangeInZone, formatTimeInZone } from '../live-format';
+import { PlayButton } from '../../playback/use-play-action';
 
 /**
  * 直播频道节目卡(T069/T070/T071;FR-021/023/024、ui.md §5/§8):
  * - 显示频道名称、分组、当前/下一节目及起止时间(家庭时区、等宽数字);
  * - 无节目频道显示「暂无节目」明确占位,播放入口保留(可用性不由 EPG 决定,FR-023);
  * - 点击节目标题/时间打开节目时段详情(频道与起止时间;不伪装可播放未来节目,FR-024);
- * - 播放按钮与收藏按钮分离;播放指向该频道当前直播;游客两者都先登录选档且不触发播放
- *   (经 onRequireAuth 由页面级统一提示,US5 阶段为占位,不发起任何播放/媒体请求);
+ * - 播放按钮与收藏按钮分离:播放经共享 PlayButton 走 US3 统一受控播放
+ *   (usePlayAction;游客点击进入登录选档意图,选档完成前零 /playback/ 请求);
+ *   收藏按钮保持 onRequireAuth(US4 接管);
  * - 长节目名 .hmp-truncate + title 提供完整可读名称;时间 .hmp-tabular-nums。
  */
 
@@ -25,7 +27,7 @@ export interface ProgrammeCardProps {
     readonly programme: ExperienceProgrammeDto;
     readonly kind: 'current' | 'upcoming';
   }) => void;
-  /** 游客播放/收藏:进入登录选档提示(US3 统一入口接管前的占位;不发起播放) */
+  /** 游客收藏:进入登录选档提示(收藏属 US4;播放不经此,走共享 PlayButton) */
   readonly onRequireAuth: (actionLabel: string) => void;
 }
 
@@ -58,16 +60,13 @@ export function ProgrammeCard({ row, timezone, onOpenProgramme, onRequireAuth }:
           >
             ☆
           </Button>
-          <Button
+          <PlayButton
+            mediaId={row.media.id}
+            title={channelTitle}
             size="sm"
-            variant="primary"
-            aria-label={`播放 ${channelTitle} 当前直播`}
-            onPress={() => {
-              onRequireAuth(`播放 ${channelTitle}`);
-            }}
-          >
-            播放
-          </Button>
+            label="播放"
+            ariaLabel={`播放 ${channelTitle} 当前直播`}
+          />
         </div>
       </div>
 

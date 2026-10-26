@@ -1,6 +1,9 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
+import { SessionProvider } from '../../../src/app/session-provider';
+import { SettingsAccessProvider } from '../../../src/features/settings/settings-access-provider';
+import { ActionCoordinator } from '../../../src/app/action-coordinator';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChannelPageDto } from '@hmp/shared';
 import { LivePage } from '../../../src/features/live/LivePage';
@@ -96,7 +99,7 @@ afterEach(() => {
 
 describe('直播刷新(T068)', () => {
   it('每 30 秒周期刷新一次:推进时钟触发全部分区重新拉取,过期节目被替换', async () => {
-    render(<MemoryRouter><LivePage /></MemoryRouter>);
+    render(<MemoryRouter><SessionProvider><SettingsAccessProvider><ActionCoordinator><LivePage /></ActionCoordinator></SettingsAccessProvider></SessionProvider></MemoryRouter>);
     await waitFor(() => {
       expect(screen.getAllByText('旧节目').length).toBeGreaterThan(0);
     });
@@ -113,7 +116,7 @@ describe('直播刷新(T068)', () => {
   });
 
   it('visibilitychange 回前台立即刷新(不等 30 秒)', async () => {
-    render(<MemoryRouter><LivePage /></MemoryRouter>);
+    render(<MemoryRouter><SessionProvider><SettingsAccessProvider><ActionCoordinator><LivePage /></ActionCoordinator></SettingsAccessProvider></SessionProvider></MemoryRouter>);
     await waitFor(() => {
       expect(fetchCalls.length).toBeGreaterThanOrEqual(4);
     });
@@ -130,7 +133,7 @@ describe('直播刷新(T068)', () => {
 
   it('刷新失败保留旧数据并显示可重试提示;重试仅恢复本区,其他区不重发', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    render(<MemoryRouter><LivePage /></MemoryRouter>);
+    render(<MemoryRouter><SessionProvider><SettingsAccessProvider><ActionCoordinator><LivePage /></ActionCoordinator></SettingsAccessProvider></SessionProvider></MemoryRouter>);
     await waitFor(() => {
       expect(screen.getAllByText('旧节目').length).toBeGreaterThan(0);
     });

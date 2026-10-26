@@ -187,6 +187,7 @@ export interface PlaybackCas {
 /**
  * 会话对外视图:刻意排除 playback_source_id —— 内部源标识不外泄
  * (contracts/api.md:GET 状态不泄漏源 ID/位置;仓储绝不返回内部位置信息)。
+ * profileContextVersion 仅供服务层重验(T051 上下文绑定),不进入对外 DTO。
  */
 export interface PlaybackSessionView {
   readonly id: string;
@@ -203,6 +204,8 @@ export interface PlaybackSessionView {
   readonly audioTrackId: string | null;
   readonly subtitleTrackId: string | null;
   readonly desiredPaused: boolean;
+  /** resolve 时捕获的 DeviceSession 身份上下文版本(005 §5;DTO 不下发) */
+  readonly profileContextVersion: number;
   readonly createdAt: string;
   readonly startedAt: string | null;
   readonly endedAt: string | null;
@@ -248,13 +251,19 @@ export interface PlaybackFailureEventView {
   readonly stableCode: PlaybackErrorCode;
 }
 
-/** createSession 输入:身份绑定四元组一经写入不可变;家庭内启用资源预校验由调用方负责 */
+/**
+ * createSession 输入:身份绑定四元组一经写入不可变;家庭内启用资源预校验由调用方负责。
+ * profileContextVersion(005 data-model §2):resolve 时从可信 DeviceSession 捕获,
+ * 服务端事实(005 契约:不接受客户端身份/位置声明);此后不可变。
+ */
 export interface CreateSessionInput {
   readonly householdId: string;
   readonly deviceSessionId: string;
   readonly deviceId: string;
   readonly profileId: string;
   readonly mediaId: string;
+  /** 授权时刻 DeviceSession 的 profile_context_version(≥1;捕获即冻结;缺省 1 = 初始上下文) */
+  readonly profileContextVersion?: number;
   /** 缺省由仓储生成 crypto.randomUUID()(服务端生成 ID) */
   readonly id?: string;
   /** 缺省 now(UTC ISO-8601);测试/服务层可注入确定时钟 */

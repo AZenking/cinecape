@@ -29,7 +29,40 @@ export type AuthStep =
   | 'bootstrap'
   | 'picker'
   | 'selectionPin'
-  | 'pinRecovery';
+  | 'pinRecovery'
+  | 'settingsPin';
+
+/**
+ * 播放意图目标(T053;US3 统一受控播放):所有入口只携带同一最小目标面。
+ * startMode 占位(beginning|resume);进度数据与继续/从头按钮语义由 US4 补全。
+ */
+export interface PlayTarget {
+  readonly mediaId: string;
+  readonly title: string;
+  readonly startMode: 'beginning' | 'resume';
+}
+
+/** 播放意图阶段(ui.md §3:play → authorize → prepare → playing;拒绝落 unavailable) */
+export type PlaybackPhase = 'authorizing' | 'preparing' | 'playing' | 'ended' | 'unavailable';
+
+/** 播放意图状态(单一意图槽;新意图覆盖旧意图,旧回调凭 intentId+generation 失效) */
+export interface PlaybackIntentState {
+  /** 播放意图号:每次 play 发起递增;仅最新 intentId 可 authorize→prepare→playing(FR-013) */
+  readonly intentId: number;
+  readonly target: PlayTarget;
+  readonly phase: PlaybackPhase;
+  /** resolve 接受后的播放会话 ID(authorize 前 null) */
+  readonly sessionId: string | null;
+  /** 服务端会话代(renew/安装面绑定;准备完成前 null) */
+  readonly playbackGeneration: number | null;
+  /** 受控网关入口 URL(renew 成功后安装;仅服务端同源相对路径,不落 localStorage) */
+  readonly playbackUrl: string | null;
+  readonly ticketExpiresAt: string | null;
+  /** 探测确定的交付模式(native direct 或 hls.js 消费) */
+  readonly delivery: string | null;
+  /** 面向观看者的稳定提示(授权拒绝/资源不可用;不含内部策略与源位置) */
+  readonly message: string | null;
+}
 
 export interface CoordinatorState {
   step: AuthStep;
@@ -49,6 +82,12 @@ export interface CoordinatorState {
   formEpoch: number;
   /** picker/selectionPin 正在操作的目标档案 */
   targetProfileId: string | null;
+  /** 播放意图序号源:playStart/playDefer 各递增一次,保证 intentId 单调 */
+  playbackIntentSeq: number;
+  /** 当前播放意图(null = 无播放面);playing 态由协调器全屏挂载播放器 */
+  playback: PlaybackIntentState | null;
+  /** 游客/未选档播放意图暂存:登录选档完成后由协调器续跑;取消/关闭弹层即清(不自动播放) */
+  pendingPlay: { readonly intentId: number; readonly target: PlayTarget } | null;
 }
 
 export type CoordinatorAction =
@@ -58,7 +97,15 @@ export type CoordinatorAction =
   | { type: 'cancel' }
   | { type: 'complete' }
   | { type: 'autoOpen'; wantsInitialize: boolean }
-  | { type: 'targetProfile'; profileId: string | null };
+  | { type: 'targetProfile'; profileId: string | null }
+  /** 发起播放意图(authorize 起点;intentId 必须严格大于当前序号,保证仅最新意图有效) */
+  | { type: 'playStart'; intentId: number; target: PlayTarget }
+  /** 播放意图阶段推进/结果写入;intentId 不匹配即整体忽略(旧回调不得改写新意图) */
+  | { type: 'playPatch'; intentId: number; patch: Partial<Omit<PlaybackIntentState, 'intentId' | 'target'>> }
+  /** 关闭/废弃播放意图(用户退出或身份失效;intentId 不匹配则忽略) */
+  | { type: 'playEnd'; intentId: number }
+  /** 游客/未选档播放意图暂存(选档完成后续跑;取消不自动播放) */
+  | { type: 'playDefer'; intentId: number; target: PlayTarget };
 
 export function createInitialCoordinatorState(): CoordinatorState {
   return {
@@ -71,6 +118,9 @@ export function createInitialCoordinatorState(): CoordinatorState {
     autoOpenChecked: false,
     formEpoch: 0,
     targetProfileId: null,
+    playbackIntentSeq: 0,
+    playback: null,
+    pendingPlay: null,
   };
 }
 
@@ -90,7 +140,8 @@ export function coordinatorReducer(state: CoordinatorState, action: CoordinatorA
     case 'goto':
       return { ...state, step: action.step };
     case 'cancel':
-      // 清意图与凭据、回 idle(原页面即当前页面,无导航);自动弹窗机会视为已消费
+      // 清意图与凭据、回 idle(原页面即当前页面,无导航);自动弹窗机会视为已消费。
+      // 暂存播放意图一并废弃:取消登录/选档绝不自动播放(FR-010/FR-013)
       return {
         ...state,
         step: 'idle',
@@ -98,8 +149,11 @@ export function coordinatorReducer(state: CoordinatorState, action: CoordinatorA
         formEpoch: state.formEpoch + 1,
         autoOpenChecked: true,
         targetProfileId: null,
+        pendingPlay: null,
       };
     case 'complete':
+      // 完成登录/选档;暂存播放意图保留 —— 协调器在同一选档成功事务后续跑原目标播放
+      // (US3 场景 1:继续原目标;取消路径才清空)
       return {
         ...state,
         step: 'idle',
@@ -128,6 +182,52 @@ export function coordinatorReducer(state: CoordinatorState, action: CoordinatorA
     }
     case 'targetProfile':
       return { ...state, targetProfileId: action.profileId };
+    case 'playStart': {
+      // 仅接受「更新的意图」或「暂存续跑的同一意图」:旧/重复回调不得覆盖最新意图(FR-013)
+      const deferredSelf = state.pendingPlay !== null && state.pendingPlay.intentId === action.intentId;
+      if (action.intentId <= state.playbackIntentSeq && !deferredSelf) {
+        return state;
+      }
+      return {
+        ...state,
+        playbackIntentSeq: action.intentId,
+        playback: {
+          intentId: action.intentId,
+          target: action.target,
+          phase: 'authorizing',
+          sessionId: null,
+          playbackGeneration: null,
+          playbackUrl: null,
+          ticketExpiresAt: null,
+          delivery: null,
+          message: null,
+        },
+        pendingPlay: null,
+      };
+    }
+    case 'playPatch': {
+      // 意图守卫在 reducer 内收口:非当前意图的迟到结果结构上无法改写新意图
+      if (state.playback === null || state.playback.intentId !== action.intentId) {
+        return state;
+      }
+      return { ...state, playback: { ...state.playback, ...action.patch } };
+    }
+    case 'playEnd': {
+      if (state.playback === null || state.playback.intentId !== action.intentId) {
+        return state;
+      }
+      return { ...state, playback: null };
+    }
+    case 'playDefer': {
+      if (action.intentId <= state.playbackIntentSeq) {
+        return state;
+      }
+      return {
+        ...state,
+        playbackIntentSeq: action.intentId,
+        pendingPlay: { intentId: action.intentId, target: action.target },
+      };
+    }
     default:
       return state;
   }
