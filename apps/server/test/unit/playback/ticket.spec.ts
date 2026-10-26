@@ -89,6 +89,7 @@ async function bootstrapTicketRig(prefix: string): Promise<TicketRig> {
     '0003_media_catalog',
     '0004_manual_epg_binding',
     '0005_playback',
+    '0006_pc_experience',
   ]) {
     Database.db.transaction(() => {
       Database.db.exec(migrationSql(name));

@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { desc, sql } from 'drizzle-orm';
 import {
   check,
   foreignKey,
@@ -27,7 +27,15 @@ export const household = sqliteTable(
     defaultLanguage: text('default_language').notNull().default('zh-CN'),
     timezone: text('timezone').notNull().default('Asia/Shanghai'),
     createdAt: text('created_at').notNull(),
+    // 0006 增补(005 data-model §2):通用设置变更用 version CAS;
+    // main_profile_version 仅主档案转移递增,不因普通页面读取递增(应用层语义)
+    version: integer('version').notNull().default(1),
+    mainProfileVersion: integer('main_profile_version').notNull().default(1),
   },
+  (t) => [
+    check('household_version_check', sql`${t.version} >= 1`),
+    check('household_main_profile_version_check', sql`${t.mainProfileVersion} >= 1`),
+  ],
 );
 
 export const account = sqliteTable(
@@ -42,6 +50,8 @@ export const account = sqliteTable(
     passwordHash: text('password_hash').notNull(),
     role: text('role').notNull(),
     createdAt: text('created_at').notNull(),
+    // 0006 增补(005 data-model §2):密码改动递增,同事务撤销该账号全部 device_session 与设置授予
+    credentialVersion: integer('credential_version').notNull().default(1),
   },
   (t) => [
     uniqueIndex('account_username_normalized_key').on(t.usernameNormalized),
@@ -49,6 +59,7 @@ export const account = sqliteTable(
     // 复合外键目标:profile(household_id, account_id) → account(household_id, id)
     uniqueIndex('account_household_id_id_key').on(t.householdId, t.id),
     check('account_role_check', sql`${t.role} IN ('owner', 'admin')`),
+    check('account_credential_version_check', sql`${t.credentialVersion} >= 1`),
   ],
 );
 
@@ -70,6 +81,11 @@ export const profile = sqliteTable(
     status: text('status').notNull(),
     failedPinCount: integer('failed_pin_count').notNull().default(0),
     pinLockedUntil: text('pin_locked_until'),
+    // 0006 增补(005 data-model §2):主档案标记与乐观并发版本;is_default 保留为默认观看
+    // 偏好,与 is_main 无权限等价关系
+    isMain: integer('is_main').notNull().default(0),
+    pinVersion: integer('pin_version').notNull().default(1),
+    version: integer('version').notNull().default(1),
     createdAt: text('created_at').notNull(),
   },
   (t) => [
@@ -85,9 +101,21 @@ export const profile = sqliteTable(
     uniqueIndex('one_default_profile')
       .on(t.householdId)
       .where(sql`${t.isDefault} = 1 AND ${t.status} = 'active'`),
+    // 0006 增补:每 household 至多一个主档案 —— 唯一索引 (household_id) WHERE is_main=1
+    uniqueIndex('one_main_profile')
+      .on(t.householdId)
+      .where(sql`${t.isMain} = 1`),
     check('profile_type_check', sql`${t.type} IN ('adult', 'child')`),
     check('profile_status_check', sql`${t.status} IN ('active', 'disabled')`),
     check('profile_is_default_check', sql`${t.isDefault} IN (0, 1)`),
+    check('profile_is_main_check', sql`${t.isMain} IN (0, 1)`),
+    // 主档案必须 type=adult,status=active,pin_hash IS NOT NULL
+    check(
+      'profile_main_profile_check',
+      sql`${t.isMain} = 0 OR (${t.type} = 'adult' AND ${t.status} = 'active' AND ${t.pinHash} IS NOT NULL)`,
+    ),
+    check('profile_pin_version_check', sql`${t.pinVersion} >= 1`),
+    check('profile_version_check', sql`${t.version} >= 1`),
   ],
 );
 
@@ -127,8 +155,17 @@ export const deviceSession = sqliteTable(
     revokedAt: text('revoked_at'),
     lastActiveAt: text('last_active_at').notNull(),
     createdAt: text('created_at').notNull(),
+    // 0006 增补(005 data-model §2):实际 activeProfile 改变/清空/失效回落时递增;
+    // A→B→A 至少递增两次(应用层语义);同一事务改变身份/撤销设置授予/终态化活动播放
+    profileContextVersion: integer('profile_context_version').notNull().default(1),
   },
-  (t) => [uniqueIndex('device_session_token_hash_key').on(t.tokenHash)],
+  (t) => [
+    uniqueIndex('device_session_token_hash_key').on(t.tokenHash),
+    check(
+      'device_session_profile_context_version_check',
+      sql`${t.profileContextVersion} >= 1`,
+    ),
+  ],
 );
 
 /** 查询层类型(读取) */
@@ -301,6 +338,9 @@ export const mediaItem = sqliteTable(
     titleOverridden: integer('title_overridden').notNull().default(0),
     typeOverridden: integer('type_overridden').notNull().default(0),
     version: integer('version').notNull(),
+    // 0006 增补(005 data-model §2):同一 NAS 身份文件可信 size/mtime 变化时导入发布事务递增;
+    // 普通标题/分级修改只改既有 version;老内容修订的进度不能用于新输入续播
+    contentRevision: integer('content_revision').notNull().default(1),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
@@ -313,6 +353,7 @@ export const mediaItem = sqliteTable(
     check('media_item_title_overridden_check', sql`${t.titleOverridden} IN (0, 1)`),
     check('media_item_type_overridden_check', sql`${t.typeOverridden} IN (0, 1)`),
     check('media_item_version_check', sql`${t.version} >= 1`),
+    check('media_item_content_revision_check', sql`${t.contentRevision} >= 1`),
   ],
 );
 
@@ -395,6 +436,9 @@ export const sourceEntry = sqliteTable(
     missingSince: text('missing_since'),
     fileSizeText: text('file_size_text'),
     fileMtimeNs: text('file_mtime_ns'),
+    // 0006 增补(005 data-model §2):M3U 发布分组,TEXT NULL,存储值域为已归一化
+    // (trim 后 1~100 字符,空白为 NULL;归一化由导入发布写入路径执行)
+    groupTitle: text('group_title'),
   },
   (t) => [
     uniqueIndex('source_entry_household_id_id_key').on(t.householdId, t.id),
@@ -413,6 +457,11 @@ export const sourceEntry = sqliteTable(
     check(
       'source_entry_file_mtime_check',
       sql`${t.fileMtimeNs} IS NULL OR (length(${t.fileMtimeNs}) >= 1 AND ${t.fileMtimeNs} NOT GLOB '*[^0-9]*')`,
+    ),
+    // 存储值域:已 trim(与自身 trim 相等)且 1~100 字符,或 NULL
+    check(
+      'source_entry_group_title_check',
+      sql`${t.groupTitle} IS NULL OR (${t.groupTitle} = trim(${t.groupTitle}) AND length(${t.groupTitle}) BETWEEN 1 AND 100)`,
     ),
     foreignKey({
       name: 'source_entry_source_composite_fk',
@@ -666,6 +715,9 @@ export const playbackSession = sqliteTable(
     subtitleTrackId: text('subtitle_track_id'),
     // seek/重建输出的换轨保留暂停意图(NOT NULL,默认 false);heartbeat.paused 更新
     desiredPaused: integer('desired_paused').notNull().default(0),
+    // 0006 增补(005 data-model §2):resolve 时从可信 DeviceSession 捕获;每次控制/renew/
+    // 交付和个人进度写入必须等于当前 DeviceSession 版本(应用层重验)
+    profileContextVersion: integer('profile_context_version').notNull().default(1),
     createdAt: text('created_at').notNull(),
     startedAt: text('started_at'),
     endedAt: text('ended_at'),
@@ -696,6 +748,10 @@ export const playbackSession = sqliteTable(
     check('playback_session_generation_check', sql`${t.generation} >= 1`),
     check('playback_session_version_check', sql`${t.version} >= 1`),
     check('playback_session_position_check', sql`${t.positionSeconds} >= 0`),
+    check(
+      'playback_session_profile_context_version_check',
+      sql`${t.profileContextVersion} >= 1`,
+    ),
     // 布尔:0 = 继续播放(默认),1 = 保持暂停
     check('playback_session_desired_paused_check', sql`${t.desiredPaused} IN (0, 1)`),
     // ended_at 在终态(ended/failed/interrupted)必填,活动态必空
@@ -887,3 +943,257 @@ export type NewPlaybackSession = typeof playbackSession.$inferInsert;
 export type NewPlaybackTicket = typeof playbackTicket.$inferInsert;
 export type NewPlaybackConversion = typeof playbackConversion.$inferInsert;
 export type NewPlaybackFailureEvent = typeof playbackFailureEvent.$inferInsert;
+
+/**
+ * 数据代际 2(005-pc-browsing-flow,0006_pc_experience):PC 公开浏览与个人观看体验,
+ * 逐列对照 migrations/0006_pc_experience/up.sql 与 docs/specs/005-pc-browsing-flow/
+ * data-model.md §1~§7。硬约束同前:全部新表显式 household_id,复合外键以既有父表
+ * (household_id, id) 唯一键为目标(0002 profile / 0003 device_session、media_item /
+ * 0005 playback_session,已在 0006 up.sql 注释逐一确认);时间为 UTC ISO-8601 TEXT;
+ * 写入状态转换(grant 15 分钟固定有效期、epoch 分配、样本 seq/generation 重试语义等)
+ * 由应用层执行,数据库层只落实 data-model 明示的列域 CHECK,禁止触发器。
+ */
+
+/** 设置访问授予(§3):联合主键 (household_id, device_session_id),每设备会话一行 */
+export const settingsAccessGrant = sqliteTable(
+  'settings_access_grant',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    deviceSessionId: text('device_session_id').notNull(),
+    // 必须等于当前主 Profile(应用层守卫)
+    profileId: text('profile_id').notNull(),
+    // 创建时的设备会话身份版本
+    profileContextVersion: integer('profile_context_version').notNull(),
+    // 创建时当前主档案 PIN 版本
+    pinVersion: integer('pin_version').notNull(),
+    // 创建时家庭主档案版本
+    mainProfileVersion: integer('main_profile_version').notNull(),
+    issuedAt: text('issued_at').notNull(),
+    // expires_at = issued_at + 15 分钟,固定不滑动(应用层保证)
+    expiresAt: text('expires_at').notNull(),
+    // nullable;失效后不再恢复
+    revokedAt: text('revoked_at'),
+  },
+  (t) => [
+    primaryKey({ name: 'settings_access_grant_pk', columns: [t.householdId, t.deviceSessionId] }),
+    check('settings_access_grant_context_version_check', sql`${t.profileContextVersion} >= 1`),
+    check('settings_access_grant_pin_version_check', sql`${t.pinVersion} >= 1`),
+    check('settings_access_grant_main_profile_version_check', sql`${t.mainProfileVersion} >= 1`),
+    // 正区间守护(与 playback_ticket_expiry_check 同规则)
+    check('settings_access_grant_expiry_check', sql`${t.expiresAt} > ${t.issuedAt}`),
+    foreignKey({
+      name: 'settings_access_grant_session_composite_fk',
+      columns: [t.householdId, t.deviceSessionId],
+      foreignColumns: [deviceSession.householdId, deviceSession.id],
+    }),
+    foreignKey({
+      name: 'settings_access_grant_profile_composite_fk',
+      columns: [t.householdId, t.profileId],
+      foreignColumns: [profile.householdId, profile.id],
+    }),
+  ],
+);
+
+/** 频道收藏(§4):三元联合主键;媒体必须为 channel、添加时可用(应用事务语义) */
+export const profileChannelFavorite = sqliteTable(
+  'profile_channel_favorite',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    profileId: text('profile_id').notNull(),
+    mediaId: text('media_id').notNull(),
+    // 首次收藏固定,重复 PUT 不更新;取消后重新收藏为新时间(应用层语义)
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    primaryKey({
+      name: 'profile_channel_favorite_pk',
+      columns: [t.householdId, t.profileId, t.mediaId],
+    }),
+    // 键集分页:(created_at DESC, media_id DESC),前导 (household_id, profile_id) 圈定个人范围
+    index('profile_channel_favorite_profile_listed_key').on(
+      t.householdId,
+      t.profileId,
+      desc(t.createdAt),
+      desc(t.mediaId),
+    ),
+    foreignKey({
+      name: 'profile_channel_favorite_profile_composite_fk',
+      columns: [t.householdId, t.profileId],
+      foreignColumns: [profile.householdId, profile.id],
+    }),
+    foreignKey({
+      name: 'profile_channel_favorite_media_composite_fk',
+      columns: [t.householdId, t.mediaId],
+      foreignColumns: [mediaItem.householdId, mediaItem.id],
+    }),
+  ],
+);
+
+/** 点播写入权时钟(§5):每次点播 resolve 接受时短事务分配 epoch 并递增;直播不分配 */
+export const profileProgressClock = sqliteTable(
+  'profile_progress_clock',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    profileId: text('profile_id').notNull(),
+    // 可跳号,不可重置,不接受客户端指定(应用层语义)
+    nextEpoch: integer('next_epoch').notNull(),
+  },
+  (t) => [
+    primaryKey({ name: 'profile_progress_clock_pk', columns: [t.householdId, t.profileId] }),
+    check('profile_progress_clock_next_epoch_check', sql`${t.nextEpoch} >= 1`),
+    foreignKey({
+      name: 'profile_progress_clock_profile_composite_fk',
+      columns: [t.householdId, t.profileId],
+      foreignColumns: [profile.householdId, profile.id],
+    }),
+  ],
+);
+
+/** 活动播放进度状态(§6):联合主键随临时 session 清理;样本状态转换由应用事务执行 */
+export const playbackProgressState = sqliteTable(
+  'playback_progress_state',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    playbackSessionId: text('playback_session_id').notNull(),
+    // 来自可信 playback 绑定,不接受 body 身份声明(应用层)
+    profileId: text('profile_id').notNull(),
+    mediaId: text('media_id').notNull(),
+    // clock 分配值(>0)
+    candidateEpoch: integer('candidate_epoch').notNull(),
+    // resolve/可信输入快照的内容修订
+    contentRevision: integer('content_revision').notNull(),
+    // resolve 时身份上下文版本,与 playback_session 和当前 DeviceSession 一致
+    profileContextVersion: integer('profile_context_version').notNull(),
+    // 首次有效客户端 playing 上报后 true
+    started: integer('started').notNull().default(0),
+    // 会话生命周期内单调序号,换轨/seek/重渲染不重置;初始 0
+    lastSampleSeq: integer('last_sample_seq').notNull().default(0),
+    // 最后一个已接受样本的规范化摘要
+    lastSampleDigest: text('last_sample_digest'),
+    // 最后接受的 playback generation
+    lastGeneration: integer('last_generation').notNull(),
+    // 最后样本 applied/reason/revision,供相同序号重试稳定返回(应用层编码)
+    lastResult: text('last_result'),
+  },
+  (t) => [
+    primaryKey({
+      name: 'playback_progress_state_pk',
+      columns: [t.householdId, t.playbackSessionId],
+    }),
+    check('playback_progress_state_candidate_epoch_check', sql`${t.candidateEpoch} >= 1`),
+    check('playback_progress_state_content_revision_check', sql`${t.contentRevision} >= 1`),
+    check('playback_progress_state_context_version_check', sql`${t.profileContextVersion} >= 1`),
+    check('playback_progress_state_started_check', sql`${t.started} IN (0, 1)`),
+    check('playback_progress_state_last_sample_seq_check', sql`${t.lastSampleSeq} >= 0`),
+    check('playback_progress_state_last_generation_check', sql`${t.lastGeneration} >= 1`),
+    foreignKey({
+      name: 'playback_progress_state_session_composite_fk',
+      columns: [t.householdId, t.playbackSessionId],
+      foreignColumns: [playbackSession.householdId, playbackSession.id],
+    }),
+    foreignKey({
+      name: 'playback_progress_state_profile_composite_fk',
+      columns: [t.householdId, t.profileId],
+      foreignColumns: [profile.householdId, profile.id],
+    }),
+    foreignKey({
+      name: 'playback_progress_state_media_composite_fk',
+      columns: [t.householdId, t.mediaId],
+      foreignColumns: [mediaItem.householdId, mediaItem.id],
+    }),
+  ],
+);
+
+/** 点播观看历史(§7):仅点播;writer_playback_session_id 为不透明 ID,不设 FK */
+export const profileViewingHistory = sqliteTable(
+  'profile_viewing_history',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    profileId: text('profile_id').notNull(),
+    mediaId: text('media_id').notNull(),
+    // 当前媒体历史写入权代次
+    writerEpoch: integer('writer_epoch').notNull(),
+    // 不透明 ID TEXT,无强引用临时 session 的 FK,避免审计清理影响历史
+    writerPlaybackSessionId: text('writer_playback_session_id').notNull(),
+    // 当前 owner 已接受序号
+    lastSampleSeq: integer('last_sample_seq').notNull(),
+    // 该位置对应的内容修订
+    contentRevision: integer('content_revision').notNull(),
+    // 影片逻辑时间秒(REAL;有限非负)
+    positionSeconds: real('position_seconds').notNull(),
+    // nullable;已可信探测后为有限非负
+    durationSeconds: real('duration_seconds'),
+    // 服务端接受有效观看活动时间;客户端不能指定排序时间(应用层语义)
+    lastViewedAt: text('last_viewed_at').notNull(),
+    // 实际更新递增
+    revision: integer('revision').notNull(),
+  },
+  (t) => [
+    primaryKey({
+      name: 'profile_viewing_history_pk',
+      columns: [t.householdId, t.profileId, t.mediaId],
+    }),
+    // 历史列表索引:(household_id, profile_id, last_viewed_at DESC, media_id DESC)
+    index('profile_viewing_history_profile_recent_key').on(
+      t.householdId,
+      t.profileId,
+      desc(t.lastViewedAt),
+      desc(t.mediaId),
+    ),
+    check('profile_viewing_history_writer_epoch_check', sql`${t.writerEpoch} >= 1`),
+    check('profile_viewing_history_last_sample_seq_check', sql`${t.lastSampleSeq} >= 0`),
+    check('profile_viewing_history_content_revision_check', sql`${t.contentRevision} >= 1`),
+    check('profile_viewing_history_position_check', sql`${t.positionSeconds} >= 0`),
+    check(
+      'profile_viewing_history_duration_check',
+      sql`${t.durationSeconds} IS NULL OR ${t.durationSeconds} >= 0`,
+    ),
+    // 位置不超过可信时长
+    check(
+      'profile_viewing_history_position_duration_check',
+      sql`${t.durationSeconds} IS NULL OR ${t.positionSeconds} <= ${t.durationSeconds}`,
+    ),
+    check('profile_viewing_history_revision_check', sql`${t.revision} >= 1`),
+    foreignKey({
+      name: 'profile_viewing_history_profile_composite_fk',
+      columns: [t.householdId, t.profileId],
+      foreignColumns: [profile.householdId, profile.id],
+    }),
+    foreignKey({
+      name: 'profile_viewing_history_media_composite_fk',
+      columns: [t.householdId, t.mediaId],
+      foreignColumns: [mediaItem.householdId, mediaItem.id],
+    }),
+  ],
+);
+
+/**
+ * programme 补索引确认(data-model §8:(household_id, source_id, xmltv_channel_id,
+ * starts_at, ends_at)):0003 的唯一索引 epg_programme_slot_key 恰以同五列声明,
+ * EPG 窗口查询已完整覆盖(唯一约束必然携带等价索引),不重复创建同列索引;
+ * 核验结论同步记录在 0006 up.sql 注释。
+ */
+
+/** 数据代际 2 查询层类型(读取) */
+export type SettingsAccessGrant = typeof settingsAccessGrant.$inferSelect;
+export type ProfileChannelFavorite = typeof profileChannelFavorite.$inferSelect;
+export type ProfileProgressClock = typeof profileProgressClock.$inferSelect;
+export type PlaybackProgressState = typeof playbackProgressState.$inferSelect;
+export type ProfileViewingHistory = typeof profileViewingHistory.$inferSelect;
+
+/** 数据代际 2 写入新行时的必填类型 */
+export type NewSettingsAccessGrant = typeof settingsAccessGrant.$inferInsert;
+export type NewProfileChannelFavorite = typeof profileChannelFavorite.$inferInsert;
+export type NewProfileProgressClock = typeof profileProgressClock.$inferInsert;
+export type NewPlaybackProgressState = typeof playbackProgressState.$inferInsert;
+export type NewProfileViewingHistory = typeof profileViewingHistory.$inferInsert;

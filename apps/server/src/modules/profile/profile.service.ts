@@ -136,6 +136,11 @@ export function createProfile(command: CreateProfileCommand): ProfileDtoBody {
     status: 'active',
     failedPinCount: 0,
     pinLockedUntil: null,
+    // 0006(数据代际 2):新建档案为非主档案,版本列取值与 DDL DEFAULT 一致
+    // (主档案 bootstrap/is_main 语义由 005-US2 后续任务接入)
+    isMain: 0,
+    pinVersion: 1,
+    version: 1,
     createdAt: new Date().toISOString(),
   };
   return getDb().transaction((tx) => {

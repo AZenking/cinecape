@@ -1,0 +1,82 @@
+/**
+ * 全局可访问性基线(005 T011)。
+ *
+ * 约束依据:
+ * - docs/specs/005-pc-browsing-flow/contracts/ui.md §8:统一焦点可见样式、错误不可仅用颜色、
+ *   长名称截断同时提供完整可读名称、时间数字用等宽数字、尊重 prefers-reduced-motion;
+ * - docs/specs/005-pc-browsing-flow/delivery-constraints.md §2~§3。
+ *
+ * 分层说明:全部规则置于 @layer base / utilities,遵守 @heroui/styles 声明的
+ * layer 顺序(theme, base, components, utilities;HEROUI-NOTES §2.2)——
+ * 组件自身焦点样式(components 层)优先于本基线,基线只兜底无组件样式的原生元素;
+ * 工具类(utilities 层)可在组件之上按需使用。
+ */
+
+@layer base {
+  /*
+   * 焦点可见基线:键盘聚焦(:focus-visible)一律给出 outline,
+   * 颜色取语义 token --focus(暗色下 = 品牌 accent,见 ./tokens.css)。
+   * 鼠标点击聚焦不触发(:focus-visible 语义),组件自带焦点环不受影响。
+   * 组件层禁止每页自建焦点环(约束 §2);确需覆盖时用 utilities 层而非另起规则。
+   */
+  :focus-visible {
+    outline: var(--hmp-focus-ring-width) solid var(--focus, var(--accent));
+    outline-offset: var(--hmp-focus-ring-offset);
+  }
+
+  /*
+   * prefers-reduced-motion 基线:偏好减少动效时收敛全局动画/过渡/平滑滚动。
+   * 个别必须保留的指示性动效(如加载 Spinner)由组件自行豁免并说明。
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  /*
+   * .hmp-sr-only —— 仅屏幕阅读器可见的文本。
+   *
+   * 非颜色唯一提示与错误关联约定(ui.md §8「错误不可仅用颜色」,组件层用法留给故事任务):
+   *   1. 状态/错误除颜色外必须携带可感知信息:图标节点配 `.hmp-sr-only` 文本说明,
+   *      或直接渲染可见文字(如 HeroUI Alert.Title/Description、FieldError);
+   *   2. 错误关联:表单错误用 HeroUI Form/TextField 上下文自动关联(RAC 自动生成
+   *      aria-describedby/aria-invalid,见 HEROUI-NOTES §3.2),自建区域用
+   *      role="alert"/aria-live="polite" 通告,不用 toast 承载唯一错误信息;
+   *   3. 禁用理由:disabled 控件配 aria-describedby 指向可见或 .hmp-sr-only 的理由文本。
+   */
+  .hmp-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  /*
+   * .hmp-truncate —— 单行截断(ui.md §8「长名称截断同时提供完整可读名称」)。
+   * 约定:截断容器须同时提供完整名称 —— title 属性,或相邻 `.hmp-sr-only` 全文,
+   * 保证截断不丢信息;多行截断场景在组件层自行扩展,不在此处预设行数。
+   */
+  .hmp-truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* .hmp-tabular-nums —— 时间/进度等数字列用等宽数字(ui.md §8),避免跳动 */
+  .hmp-tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}

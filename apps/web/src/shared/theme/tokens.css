@@ -1,0 +1,48 @@
+/**
+ * 主题 token 层(005 T011)—— 暗色媒体界面基调的语义变量。
+ *
+ * 约束依据:
+ * - docs/specs/005-pc-browsing-flow/contracts/ui.md §8(延续暗色语义 token 与统一焦点色;
+ *   不照抄讨论稿原始 hex 值为第二套主题);
+ * - docs/specs/005-pc-browsing-flow/delivery-constraints.md §2~§3(统一语义 token、CSS 变量
+ *   与 oklch;避免每页自行维护颜色与焦点规则);
+ * - ./HEROUI-NOTES.md §5/§2.4(@heroui/styles 语义 token 清单;-foreground 后缀 = 该背景上的
+ *   文字色;只允许语义 token,禁止硬编码颜色)。
+ *
+ * 复用策略(优先直接复用,不重复定义):
+ *   基础语义 token 全部来自 `@heroui/styles` 暗色主题(经 globals.css 的
+ *   `@import '@heroui/styles'` 载入,变量定义见
+ *   node_modules/@heroui/styles/dist/themes/default/variables.css,.dark 块):
+ *     表面/文字:--background/--foreground、--surface(+secondary/tertiary)及各自 -foreground、
+ *               --overlay/--overlay-foreground、--muted、--default/--default-foreground
+ *     品牌/状态:--accent、--success、--warning、--danger 及各自 -foreground 与 *-soft/-hover
+ *     边框/分隔:--border、--separator、--field-border
+ *     焦点/链接:--focus、--link、--ring-offset-width
+ *     布局:--spacing、--radius、--field-radius、--disabled-opacity、--backdrop 等
+ *   本文件只做两件事:
+ *   1) 以暗色媒体界面基调覆盖品牌强调色(红色 accent,Netflix 式审美,research D6;
+ *      覆盖须在 @heroui/styles 之后导入——见 globals.css 导入顺序);
+ *   2) 补充本仓库自定义别名(--hmp-* 前缀),供可访问性基线(./a11y.css)与后续组件使用。
+ *
+ * 主题切换不在本轮范围:根元素(index.html <html class="dark">)固定暗色,
+ * 不提供亮色覆盖(HEROUI-NOTES §2.7)。
+ */
+
+:root {
+  color-scheme: dark;
+}
+
+.dark {
+  /* 品牌强调色:暗色媒体界面的红色 accent(覆盖 heroui 默认蓝);
+     -hover/-soft/-foreground 等派生 token 在 @heroui/styles 中以 var(--accent) 引用,
+     var() 惰性求值,此处覆盖后全部自动跟随,无需逐个重定义。 */
+  --accent: oklch(0.6 0.22 25);
+  --accent-foreground: oklch(0.99 0 0);
+
+  /* 统一焦点色跟随品牌 accent(ui.md §8「统一焦点色」;heroui 默认亦为 var(--accent)) */
+  --focus: var(--accent);
+
+  /* 本仓库自定义别名:焦点环几何(消费方:./a11y.css 的 :focus-visible 基线) */
+  --hmp-focus-ring-width: 2px;
+  --hmp-focus-ring-offset: 2px;
+}

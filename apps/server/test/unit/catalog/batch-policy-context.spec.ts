@@ -51,7 +51,7 @@ afterEach(() => {
 function createRig(): UnitRig {
   const conn = new DatabaseConstructor(':memory:');
   conn.pragma('foreign_keys = ON');
-  for (const name of ['0001_init', '0002_profile_policy', '0003_media_catalog']) {
+  for (const name of ['0001_init', '0002_profile_policy', '0003_media_catalog', '0004_manual_epg_binding', '0005_playback', '0006_pc_experience']) {
     const upSqlPath = path.join(process.cwd(), 'src/database/migrations', name, 'up.sql');
     conn.exec(fs.readFileSync(upSqlPath, 'utf8'));
   }

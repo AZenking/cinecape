@@ -8,9 +8,8 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ZodError } from 'zod';
-import type { ProblemCode } from '@hmp/shared';
 import { ProblemCode as ProblemCodeConst } from '@hmp/shared';
-import { DomainError, resolveDomainProblem } from './domain-error';
+import { DomainError, resolveDomainProblem, type PcProblemCode } from './domain-error';
 
 /**
  * RFC 9457 全局异常过滤器(T010):一切错误统一输出 application/problem+json。
@@ -27,10 +26,10 @@ export interface ProblemBody {
   title: string;
   status: number;
   /**
-   * ⚠️ shared ProblemCode 目前缺 `INTERNAL` 键(契约缺口,补充后收紧为 ProblemCode);
-   * 本文件不另建常量,仅在 500 分支使用该字面量并已上报。
+   * 稳定错误码全集(T009 放宽):shared ProblemCode ∪ 005 §7 新增码(domain-error 登记处)
+   * ∪ 'INTERNAL'(shared ProblemCode 目前缺 `INTERNAL` 键的契约缺口,补充后收紧)。
    */
-  code: ProblemCode | 'INTERNAL';
+  code: PcProblemCode | 'INTERNAL';
   detail?: string;
 }
 
@@ -46,7 +45,7 @@ function titleFromCode(code: string): string {
     .join(' ');
 }
 
-function codeFromHttpStatus(status: number): ProblemCode | 'INTERNAL' {
+function codeFromHttpStatus(status: number): PcProblemCode | 'INTERNAL' {
   switch (status) {
     case HttpStatus.BAD_REQUEST:
       return ProblemCodeConst.VALIDATION_FAILED;
@@ -63,7 +62,7 @@ function codeFromHttpStatus(status: number): ProblemCode | 'INTERNAL' {
   }
 }
 
-function wrap(status: number, code: ProblemCode | 'INTERNAL', detail?: string): ProblemBody {
+function wrap(status: number, code: PcProblemCode | 'INTERNAL', detail?: string): ProblemBody {
   return {
     type: problemType(code),
     title: titleFromCode(code),

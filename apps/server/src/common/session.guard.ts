@@ -13,6 +13,14 @@ import { hashToken } from '../modules/auth/token.service';
  *
  * 管线:token 哈希查找 → session.revoked_at IS NULL → expires_at > now
  *       → device.revoked_at IS NULL → account/device/activeProfile 归属一致(自联查询)。
+ *
+ * T009(005 contracts/api.md §1)边界说明:
+ * - 本 Guard 保持「账号/设备信任」语义不变,仍是 Session 边界的唯一权威校验;
+ * - 公共浏览(/public/** 等 Public 边界路由)**不挂本 Guard**——公共路由不读取身份,
+ *   即便携带失效 Cookie 也按匿名公开浏览,绝不以会话决定内容范围;
+ * - 需要身份的边界在 SessionGuard 之后叠加 CurrentProfileGuard(Profile 边界);
+ * - 令牌解析 extractSessionToken 与校验管线 validateSessionToken 导出复用,
+ *   后续任务不得另写第二套 token 校验。
  */
 
 interface SessionRow {
@@ -61,7 +69,7 @@ function sessionInvalid(): DomainError {
 }
 
 /** 令牌来源:Authorization: Bearer 或手工解析 Cookie(不引入 cookie-parser) */
-function extractToken(request: Request): string | null {
+export function extractSessionToken(request: Request): string | null {
   const authorization = request.headers.authorization;
   if (typeof authorization === 'string' && authorization.startsWith('Bearer ')) {
     const token = authorization.slice('Bearer '.length).trim();
@@ -88,65 +96,65 @@ function extractToken(request: Request): string | null {
 export class SessionGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
-    const token = extractToken(request);
+    const token = extractSessionToken(request);
     if (token === null) {
       throw sessionInvalid();
     }
-    attachSessionContext(request, this.validate(token));
+    attachSessionContext(request, validateSessionToken(token));
     return true;
   }
-
-  /** 校验管线;通过返回上下文,失败一律 401 SESSION_INVALID */
-  private validate(token: string): SessionContext {
-    const now = Date.now();
-    const row = Database.db.prepare(SESSION_BY_TOKEN_HASH_SQL).get(hashToken(token)) as
-      | SessionRow
-      | undefined;
-
-    // 1. token 哈希查找
-    if (row === undefined) {
-      throw sessionInvalid();
-    }
-    // 2. 会话未撤销
-    if (row.session_revoked_at !== null) {
-      throw sessionInvalid();
-    }
-    // 3. 未过期(严格大于;恰好过期 = 已过期)
-    if (!(Date.parse(row.session_expires_at) > now)) {
-      throw sessionInvalid();
-    }
-    // 4. 设备未撤销
-    if (row.device_revoked_at !== null) {
-      throw sessionInvalid();
-    }
-    // 5. 归属一致:account / device / activeProfile 必须与 session 同属一行 household
-    const profileConsistent =
-      row.active_profile_id === null ||
-      (row.profile_household_id === row.session_household_id &&
-        row.profile_account_id === row.session_account_id);
-    if (
-      !profileConsistent ||
-      row.account_household_id !== row.session_household_id ||
-      row.device_household_id !== row.session_household_id
-    ) {
-      throw sessionInvalid();
-    }
-
-    return {
-      session: {
-        id: row.session_id,
-        householdId: row.session_household_id,
-        accountId: row.session_account_id,
-        deviceId: row.session_device_id,
-        activeProfileId: row.active_profile_id,
-        expiresAt: row.session_expires_at,
-      },
-      account: {
-        id: row.session_account_id,
-        householdId: row.account_household_id,
-        username: row.account_username,
-        role: row.account_role as SessionContext['account']['role'],
-      },
-    };
-  }
 }
+
+/** 校验管线(T009 导出复用);通过返回上下文,失败一律 401 SESSION_INVALID */
+export function validateSessionToken(token: string): SessionContext {
+  const now = Date.now();
+  const row = Database.db.prepare(SESSION_BY_TOKEN_HASH_SQL).get(hashToken(token)) as
+    | SessionRow
+    | undefined;
+
+  // 1. token 哈希查找
+  if (row === undefined) {
+    throw sessionInvalid();
+  }
+  // 2. 会话未撤销
+  if (row.session_revoked_at !== null) {
+    throw sessionInvalid();
+  }
+  // 3. 未过期(严格大于;恰好过期 = 已过期)
+  if (!(Date.parse(row.session_expires_at) > now)) {
+    throw sessionInvalid();
+  }
+  // 4. 设备未撤销
+  if (row.device_revoked_at !== null) {
+    throw sessionInvalid();
+  }
+  // 5. 归属一致:account / device / activeProfile 必须与 session 同属一行 household
+  const profileConsistent =
+    row.active_profile_id === null ||
+    (row.profile_household_id === row.session_household_id &&
+      row.profile_account_id === row.session_account_id);
+  if (
+    !profileConsistent ||
+    row.account_household_id !== row.session_household_id ||
+    row.device_household_id !== row.session_household_id
+  ) {
+    throw sessionInvalid();
+  }
+
+  return {
+    session: {
+      id: row.session_id,
+      householdId: row.session_household_id,
+      accountId: row.session_account_id,
+      deviceId: row.session_device_id,
+      activeProfileId: row.active_profile_id,
+      expiresAt: row.session_expires_at,
+    },
+    account: {
+      id: row.session_account_id,
+      householdId: row.account_household_id,
+      username: row.account_username,
+      role: row.account_role as SessionContext['account']['role'],
+    },
+  };
+  }

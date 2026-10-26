@@ -289,6 +289,50 @@ export const envSchema = z.object({
    * 续期固定提前 60 秒且只换票。范围 60~900,默认 300。
    */
   PLAYBACK_TICKET_TTL_SECONDS: z.coerce.number().int().min(60).max(900).default(300),
+  /**
+   * 同源精确匹配 origin(005 api.md §1,T009):写操作与带密码查询携带 Origin 头时,
+   * 必须与本值逐字相等(比较形态为 URL.origin 归一化结果,如 http://home.local:3000)。
+   * 空串 = 未配置;fail-closed:凡携带 Origin 的请求一律 403 拒绝(无许可来源即无匹配)。
+   * 校验:非空时必须为 origin 形态 URL —— 协议限 http/https,host 必填,
+   * 不得携带路径/query/fragment/userinfo。
+   */
+  PUBLIC_ORIGIN: z
+    .string()
+    .trim()
+    .default('')
+    .superRefine((raw, ctx) => {
+      if (raw === '') {
+        return;
+      }
+      let url: URL;
+      try {
+        url = new URL(raw);
+      } catch {
+        ctx.addIssue({ code: 'custom', message: '必须为合法 URL(如 http://home.local:3000)' });
+        return;
+      }
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        ctx.addIssue({ code: 'custom', message: '协议只允许 http 或 https' });
+        return;
+      }
+      if (url.hostname === '') {
+        ctx.addIssue({ code: 'custom', message: '缺少主机名' });
+        return;
+      }
+      if (url.pathname !== '/' || url.search !== '' || url.hash !== '' || url.username !== '' || url.password !== '') {
+        ctx.addIssue({ code: 'custom', message: '只允许 origin 形态,不得携带路径、查询、fragment 或用户信息' });
+      }
+    })
+    .transform((raw) => (raw === '' ? '' : new URL(raw).origin)),
+  /**
+   * 限频代理信任(005 api.md §1「代理信任显式配置」,T009):true 时限频客户端 IP 取
+   * X-Forwarded-For 首项(部署侧必须保证仅可信代理可设置该头);false(默认)只取
+   * TCP 连接地址并忽略转发头,转发头不可伪造。
+   */
+  TRUST_PROXY: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 });
 
 export type Env = z.infer<typeof envSchema>;

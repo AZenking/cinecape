@@ -567,7 +567,7 @@ describe('0004_manual_epg_binding 迁移升级/回滚(US5 契约 e2e)', () => {
     expect(stdout).toContain('drill 通过');
     expect(stdout).toContain('manual_epg_binding');
 
-    // 演练终态独立核验:0004/0005 已应用(T009:drill 终态 _migrations 为 5 条)、0004 新列在、绑定表空、完整性通过
+    // 演练终态独立核验:0004/0005 已应用(T009:drill 终态 _migrations 为 5 条;0006 起为 6 条)、0004 新列在、绑定表空、完整性通过
     const conn = new DatabaseConstructor(dbFile);
     try {
       const applied = (conn.prepare('SELECT name FROM _migrations ORDER BY name').all() as { name: string }[]).map(
@@ -579,6 +579,7 @@ describe('0004_manual_epg_binding 迁移升级/回滚(US5 契约 e2e)', () => {
         '0003_media_catalog',
         '0004_manual_epg_binding',
         '0005_playback',
+        '0006_pc_experience',
       ]);
       expect(
         (conn.pragma('table_info(media_source)') as { name: string }[]).some((row) => row.name === 'epg_generation'),

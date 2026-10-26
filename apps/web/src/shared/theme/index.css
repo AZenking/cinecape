@@ -1,0 +1,11 @@
+/**
+ * 主题入口(005 T011):globals.css 经此文件引入主题层,保证相对顺序集中可审。
+ *
+ * 导入顺序约定(delivery-constraints.md §2;HEROUI-NOTES §2.2):
+ *   1. tokens.css —— 语义 token 覆盖与 --hmp-* 别名(依赖 @heroui/styles 已先定义同名变量,
+ *      故必须排在其后,globals.css 已保证);
+ *   2. a11y.css —— 全局焦点/reduced-motion 基线与非颜色提示工具类。
+ */
+
+@import './tokens.css';
+@import './a11y.css';

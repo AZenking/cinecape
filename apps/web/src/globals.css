@@ -1,17 +1,12 @@
-/* Tailwind CSS v4 必须在最前;HeroUI 样式紧随其后(HeroUI v3 安装要求) */
+/* 导入顺序约定(005 T011;HEROUI-NOTES §2.2):Tailwind CSS v4 必须在最前,
+   @heroui/styles 紧随其后,主题 token 层最后(覆盖须赢过 heroui 默认值)。 */
 @import 'tailwindcss';
 @import '@heroui/styles';
+@import './shared/theme/index.css';
 
-/* 暗色优先(Netflix 式媒体审美基调,research D6) */
-:root {
-  color-scheme: dark;
-}
-
-.dark {
-  --accent: oklch(0.60 0.22 25);
-  --accent-foreground: oklch(0.99 0 0);
-  --focus: var(--accent);
-}
+/* 暗色媒体界面基调:语义 token(含品牌 accent 覆盖与 --hmp-* 别名)统一维护于
+   src/shared/theme/tokens.css;全局焦点/非颜色提示基线见 src/shared/theme/a11y.css。
+   根元素暗色由 index.html <html class="dark"> 固定。 */
 
 html,
 body,
@@ -24,8 +19,9 @@ body {
   color: var(--foreground);
 }
 
-/* ---------- PIN 键盘错误抖动(T030,research D6「错误整排抖动清空」) ---------- */
-/* 用法:components/PinPad.tsx 给圆点行追加 .hmp-pin-shake,并以 key 重挂载重启动画 */
+/* ---------- PIN 键盘错误抖动(004 T030,research D6「错误整排抖动清空」) ---------- */
+/* 用法:PIN 输入组件(005 US2 认证表单)给圆点行追加 .hmp-pin-shake,
+   并以 key 重挂载重启动画;错误同时需文本提示,不只靠动效/颜色(a11y.css 约定) */
 @keyframes hmp-pin-shake {
   0%,
   100% {

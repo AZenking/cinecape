@@ -5,3 +5,4 @@
 export * from './clock';
 export * from './controlled-media-server';
 export * from './nas-root-fixture';
+export * from './scale-fixture';
