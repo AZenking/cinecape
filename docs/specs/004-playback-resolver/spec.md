@@ -1,5 +1,6 @@
 # Feature Specification: 播放解析与受控播放（Playback Resolver）
 
+**005 替代标注（2026-10-26）**: 规格005 与 ADR-0010/0012 已接受——本规格 US3 中"不可播放内容的详情不可见/无播放入口"的展示约束由005公开浏览替代（元数据对游客可见，播放仍完整授权）；resolve/stop 新增 startMode/resume/finalProgress 与 profile_context_version 绑定，新增 progress 协议与个人历史（ADR-0012）。受控播放网关、票据、资源交付、转换/字幕及15秒 heartbeat 保留，heartbeat 不写个人历史；004 既有验收证据不因本标注自动完成。
 **Feature Branch**: master（沿用仓库主分支；004-playback-resolver 为功能标识）
 **Created**: 2026-10-25
 **Status**: Accepted（2026-10-25 维护者接受，见 plan.md T001 接受记录；实现完成——T059 六门禁全绿；Verified 待浏览器/硬件/镜像证据，缺口见 evidence.md T060 FR/SC 终验核对）

@@ -4,6 +4,7 @@
 - 版本：V1.1（按宪章 1.0.1 对齐）
 - 决策依据：[ADR-0003](docs/adr/0003-constitution-alignment.md)
 - 固化日期：2026-10-22
+- **005 增补标注（2026-10-26）**：规格005 与 ADR-0010~0012 已接受——新增主 Profile 标识（is_main，区别于 Account 管理角色与 isDefault）、Profile 个人收藏/观看历史/进度时钟（Household+Profile 隔离）、播放进度状态（candidate epoch + sampleSeq 写入权）、15 分钟设置访问授予（绑定 DeviceSession+主 Profile+身份/PIN/主档案版本快照）及 source_entry.group_title/media_item.content_revision 等结构；详见 docs/specs/005-pc-browsing-flow/data-model.md。原 V1.1 身份分工（Household→Account→Profile）不变。
 - 适用范围：运行在个人或家庭 NAS 上的自托管媒体平台
 
 本文是 Home Media Platform 的领域模型基线。后续接口、数据库、权限和前端流程都应以本文为准；本文只描述领域边界和业务约束，不代表所有功能已经实现。

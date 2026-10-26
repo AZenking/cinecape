@@ -1,5 +1,6 @@
 # Feature Specification: 应用脚手架与身份基础(Identity Foundation)
 
+**005 替代标注（2026-10-26）**: 规格005 与 ADR-0010/0011 已接受——本规格的"初始化后自动注册设备并签发会话（自动登录）"流程及旧管理路径（`/sources`、`/catalog`、`/devices` 管理入口）由005替代：初始化仅创建 Household+Account 不发会话，管理能力迁入 `/api/settings/*`。认证、会话、设备会话语义及逐次密码验证继续有效（ADR-0006 不废弃）。
 **Feature Branch**: `001-scaffold-identity-foundation`
 
 **Created**: 2026-10-22
