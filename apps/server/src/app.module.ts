@@ -14,9 +14,11 @@ import { RefreshModule } from './modules/imports/refresh.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { EpgModule } from './modules/epg/epg.module';
 import { PlaybackModule } from './modules/playback/playback.module';
+import { PublicCatalogModule } from './modules/public-catalog/public-catalog.module';
+import { LiveModule } from './modules/live/live.module';
 
 @Module({
-  imports: [CommonModule, HealthModule, AuthModule, HouseholdModule, ProfileModule, PolicyModule, SourcesModule, RefreshModule, CatalogModule, EpgModule, PlaybackModule],
+  imports: [CommonModule, HealthModule, AuthModule, HouseholdModule, ProfileModule, PolicyModule, SourcesModule, RefreshModule, CatalogModule, EpgModule, PlaybackModule, PublicCatalogModule, LiveModule],
   providers: [
     { provide: APP_FILTER, useClass: ProblemJsonFilter },
     // T009:所有 API 响应统一 Cache-Control: no-store + Referrer-Policy: no-referrer

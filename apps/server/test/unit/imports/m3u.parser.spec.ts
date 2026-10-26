@@ -91,7 +91,8 @@ describe('M3U 流式解析器(T013/T022;research R2/R6)', () => {
       ]);
       const result = await parseM3U(streamOf(content));
       expect(result.entries).toEqual([
-        { tvgId: 'cctv1', title: 'CCTV-1 综合', url: 'http://stream.example/cctv1' },
+        // T146:group-title 进入条目(存储值域归一化);无属性条目不带该字段
+        { tvgId: 'cctv1', title: 'CCTV-1 综合', url: 'http://stream.example/cctv1', groupTitle: '央视' },
         { tvgId: null, title: 'News, Headlines', url: 'http://stream.example/news' },
       ]);
     });

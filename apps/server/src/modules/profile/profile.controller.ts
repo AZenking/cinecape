@@ -1,36 +1,34 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
+import { ProblemCode } from '@hmp/shared';
+import { DomainError } from '../../common/domain-error';
 import { CurrentSession, type SessionContext } from '../../common/current-session.decorator';
 import { SessionGuard } from '../../common/session.guard';
+import { SameOriginGuard } from '../../common/same-origin/same-origin.guard';
+import { StrictBodyPipe } from '../../common/strict-input/strict-pipes';
+import { strictObject } from '../../common/strict-input/strict-schema';
 import { hashPassword } from '../auth/password.service';
 import { verifyParentPassword } from '../auth/parent-verification.service';
 import { parseBody } from '../auth/validation';
 import {
   createProfile,
-  listProfiles,
-  requireOwnedProfile,
-  selectProfile,
   updateProfile,
   type ProfileDtoBody,
-  type SelectProfileResult,
 } from './profile.service';
-import { unlockProfilePin } from './pin.service';
-import { DomainError } from '../../common/domain-error';
-import { ProblemCode } from '@hmp/shared';
+import { listSelectableProfiles, selectActiveProfile, unlockSelectionPin } from './profile-selection.service';
+import type { AccountSessionBody, ProfileSummaryBody } from '../auth/account-session.dto';
 
 /**
- * Profile 契约路由(US1 list + US2 创建/编辑/选择/PIN,FR-013~019;阶段 2 增补 FR-004/FR-012):
- * - 一切身份边界取自服务端会话(@CurrentSession),请求体中的
- *   householdId/profileId 等伪造字段被 zod 对象剥离忽略(FR-018);
- * - :profileId 归属校验单一实现点 requireOwnedProfile:不存在或
- *   不属于当前家庭+账号 → 404 NOT_FOUND(不泄露跨家庭存在性,FR-019);
- * - 创建/编辑为管理写操作:角色(owner)→ 格式 → 家长验证(403 REQUIRED/FAILED、
- *   423 LOCKED)→ 目标 → 写入;owner 会话可能被儿童共用,角色不能替代家长身份;
- * - select 沿用「归属/可用性优先」:有 PIN 走原一次性解锁授予;无 PIN 成人在
- *   含儿童家庭(含停用儿童)须家长验证(FR-012)。
+ * Profile 契约路由(T038 最小选档 + 既有管理路由,005 contracts/api.md §3):
+ * - 选档三端点(list/unlock/select)走 ProfileSummary/AccountSession 白名单投影,
+ *   请求体 strictObject —— householdId/profileId/isAdmin 等未知字段一律 400(§1);
+ *   身份只从服务端会话推导;:profileId 归属校验单一实现点 requireOwnedProfile:
+ *   不存在或不属于当前家庭+账号 → 404 NOT_FOUND(不泄露跨家庭存在性);
+ * - 创建/编辑(PATCH/POST)为管理写操作,维持既有契约(US8 迁移 /settings/profiles,
+ *   本任务不动);角色(owner)→ 格式 → 家长验证 → 目标 → 写入。
  */
 
-/** 契约 CreateProfileRequest(components/schemas/CreateProfileRequest;身份接口继续剥离未知字段) */
+/** 契约 CreateProfileRequest(components/schemas/CreateProfileRequest;管理接口维持既有剥离语义) */
 const createProfileRequestSchema = z.object({
   name: z.string().min(1).max(50),
   type: z.enum(['adult', 'child']),
@@ -52,13 +50,13 @@ const updateProfileRequestSchema = z.object({
   ownerPassword: z.string().optional(),
 });
 
-/** 契约 UnlockRequest(components/schemas/UnlockRequest) */
-const unlockRequestSchema = z.object({
+/** 契约 UnlockRequest;strictObject:未知字段(身份声明等)一律 400(005 §1) */
+const unlockRequestSchema = strictObject({
   pin: z.string(),
 });
 
-/** select 可选请求体:仅接受 ownerPassword,其余未知字段剥离(FR-014) */
-const selectProfileRequestSchema = z.object({
+/** select 可选请求体;strictObject:householdId/profileId/isAdmin 等未知字段一律 400(005 §1) */
+const selectProfileRequestSchema = strictObject({
   ownerPassword: z.string().optional(),
 });
 
@@ -77,10 +75,14 @@ async function requireParentVerification(context: SessionContext, ownerPassword:
 @Controller('profiles')
 @UseGuards(SessionGuard)
 export class ProfileController {
-  /** GET /profiles:列出当前 Household 的 Profile(FR-014 前置) */
+  /**
+   * GET /profiles(T038 最小选档接口):登录会话的选档摘要 —— ProfileSummary 白名单
+   * (id,name,avatar,type,isDefault,isMain,pinProtected,status,createdAt,version);
+   * 禁用档案可见但 select 拒绝;不返回策略/锁定计数/失败日志等设置主体。
+   */
   @Get()
-  list(@CurrentSession() context: SessionContext): ProfileDtoBody[] {
-    return listProfiles(context.session.householdId);
+  list(@CurrentSession() context: SessionContext): ProfileSummaryBody[] {
+    return listSelectableProfiles(context.session.householdId);
   }
 
   /** POST /profiles:创建 Profile,归属当前会话家庭与账号(FR-013/场景1;阶段 2 须家长验证) */
@@ -133,35 +135,38 @@ export class ProfileController {
   }
 
   /**
-   * POST /profiles/:profileId/select:选择当前观看者(FR-014,200 → SessionDto 形;FR-012)。
-   * 404 归属 → 403 PROFILE_NOT_SELECTABLE(已停用)→ 403 PROFILE_PIN_REQUIRED(未解锁)
-   * → 403 PARENT_VERIFICATION_REQUIRED(无 PIN 成人 + 家庭含儿童,密码缺失/错误/锁定)。
+   * POST /profiles/:profileId/select(T038):选择当前观看者,200 → AccountSession
+   * (SessionDto 形,无 sessionToken)。受 PIN 保护须先 unlock;实际换档同事务递增
+   * device_session.profile_context_version、撤销设置授予、终态化旧上下文活动播放;
+   * 同一有效档案重选 200 但不递增。身份声明字段由 strictObject 400 拒绝。
    */
   @Post(':profileId/select')
   @HttpCode(200)
+  @UseGuards(SessionGuard, SameOriginGuard)
   async select(
     @Param('profileId') profileId: string,
-    @Body() body: unknown,
+    @Body(new StrictBodyPipe(selectProfileRequestSchema))
+    input: z.infer<typeof selectProfileRequestSchema>,
     @CurrentSession() context: SessionContext,
-  ): Promise<SelectProfileResult> {
-    const input = parseBody(selectProfileRequestSchema, body ?? {});
-    return selectProfile(profileId, context, input.ownerPassword);
+  ): Promise<AccountSessionBody> {
+    return selectActiveProfile(context, profileId, input.ownerPassword);
   }
 
   /**
-   * POST /profiles/:profileId/unlock:PIN 解锁(FR-015)。
-   * 未设 PIN 403 → 锁定窗口内 423 PROFILE_PIN_LOCKED(即使 PIN 正确)→
-   * 错误 403 FORBIDDEN(detail 仅含剩余次数)→ 成功 200 {unlocked:true} 并签发解锁授予。
+   * POST /profiles/:profileId/unlock(T038):PIN 解锁,签一次性选档授予。
+   * 与设置验证共享原 profile 持久失败计数:未设 PIN 403 → 锁定窗口内 423
+   * PROFILE_PIN_LOCKED(即使 PIN 正确,跨刷新/新会话保留)→ 错误 403 FORBIDDEN
+   * (detail 仅含剩余次数)→ 成功 200 {unlocked:true}。
    */
   @Post(':profileId/unlock')
   @HttpCode(200)
+  @UseGuards(SessionGuard, SameOriginGuard)
   async unlock(
     @Param('profileId') profileId: string,
-    @Body() body: unknown,
+    @Body(new StrictBodyPipe(unlockRequestSchema))
+    input: z.infer<typeof unlockRequestSchema>,
     @CurrentSession() context: SessionContext,
   ): Promise<{ unlocked: true }> {
-    const input = parseBody(unlockRequestSchema, body);
-    const row = requireOwnedProfile(profileId, context);
-    return unlockProfilePin(row, input.pin, context.session.id);
+    return unlockSelectionPin(context, profileId, input.pin);
   }
 }

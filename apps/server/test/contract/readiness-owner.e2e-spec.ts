@@ -2,7 +2,9 @@ import 'reflect-metadata';
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Database } from '../../src/database/database';
-import { cleanupRigs, cookiePairOf, initialize, startFreshApp, INITIALIZE_BODY } from '../helpers';
+import {
+  login,
+  cleanupRigs, cookiePairOf, initialize, startFreshApp, INITIALIZE_BODY} from '../helpers';
 
 describe('阶段 1 收尾：就绪与主账号权限', () => {
   afterEach(cleanupRigs);
@@ -31,7 +33,11 @@ describe('阶段 1 收尾：就绪与主账号权限', () => {
   it('FR-013/019: 非 owner 不能创建或编辑 Profile，伪造 role 无效', async () => {
     const { app } = await startFreshApp();
     const init = await initialize(app);
-    const cookie = cookiePairOf(init);
+    expect(init.status).toBe(201);
+    // 005 T036:初始化不再自动登录(无 Set-Cookie),显式登录取得会话 Cookie
+    const loggedIn = await login(app, INITIALIZE_BODY.username, INITIALIZE_BODY.password);
+    expect(loggedIn.status).toBe(200);
+    const cookie = cookiePairOf(loggedIn);
     const created = await request(app.getHttpServer()).post('/api/profiles').set('Cookie', cookie)
       .send({ name: 'owner-created', type: 'adult', ownerPassword: INITIALIZE_BODY.password });
     expect(created.status).toBe(201);

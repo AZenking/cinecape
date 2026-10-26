@@ -30,7 +30,7 @@ export default defineConfig({
     baseURL,
   },
   webServer: {
-    command: 'bash scripts/e2e-servers.sh',
+    command: 'bash ../../scripts/e2e-servers.sh',
     url: 'http://127.0.0.1:5173',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

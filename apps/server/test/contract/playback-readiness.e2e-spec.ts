@@ -2,13 +2,14 @@ import 'reflect-metadata';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Database } from '../../src/database/database';
 import {
+  INITIALIZE_BODY,
+  login,
   cleanupRigs,
   cookiePairOf,
   expectProblemContentType,
   initialize,
   request,
-  startFreshApp,
-} from '../helpers';
+  startFreshApp,} from '../helpers';
 
 /**
  * T009(004-playback-resolver · Phase 2 Foundational):0005 必需表/列就绪门禁契约。
@@ -142,7 +143,10 @@ describe('T009 就绪门禁:0005 必需表/列缺失 → isReady false 与 healt
     // 先建立 owner 会话,保证缺表后的请求全部为只读
     const init = await initialize(app);
     expect(init.status).toBe(201);
-    const cookie = cookiePairOf(init);
+    // 005 T036:初始化不再自动登录(无 Set-Cookie),显式登录取得会话 Cookie
+    const loggedIn = await login(app, INITIALIZE_BODY.username, INITIALIZE_BODY.password);
+    expect(loggedIn.status).toBe(200);
+    const cookie = cookiePairOf(loggedIn);
 
     Database.db.exec('DROP TABLE playback_ticket');
     expect(Database.isReady()).toBe(false);
@@ -167,7 +171,10 @@ describe('T009 就绪门禁:0005 必需表/列缺失 → isReady false 与 healt
     const { app } = await startFreshApp({ prefix: 'hmp-ready-' });
     const init = await initialize(app);
     expect(init.status).toBe(201);
-    const cookie = cookiePairOf(init);
+    // 005 T036:初始化不再自动登录(无 Set-Cookie),显式登录取得会话 Cookie
+    const loggedIn = await login(app, INITIALIZE_BODY.username, INITIALIZE_BODY.password);
+    expect(loggedIn.status).toBe(200);
+    const cookie = cookiePairOf(loggedIn);
 
     Database.db.exec('DROP TABLE playback_ticket');
     Database.db.exec('DROP TABLE playback_session');

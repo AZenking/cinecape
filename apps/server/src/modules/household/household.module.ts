@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common';
 import { HouseholdController } from './household.controller';
-import { SetupController } from './setup.controller';
 
 /**
- * Household 模块(T018/T020):初始化向导契约 + 家庭信息查询。
- * 服务为纯函数模块(复用 auth 模块的会话/设备/口令能力),模块仅承载路由注册。
+ * Household 模块(T018/T020):家庭信息查询。
+ * T036(005-US2)起初始化契约(/setup/*)迁入 modules/auth(setup.controller.ts,
+ * 仅建 Household+Account、不自动登录);本模块不再承载 setup 路由。
  */
 @Module({
-  controllers: [SetupController, HouseholdController],
+  controllers: [HouseholdController],
 })
 export class HouseholdModule {}

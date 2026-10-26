@@ -25,11 +25,13 @@ export NODE_ENV="${NODE_ENV:-development}"
 
 echo "[e2e-servers] DATA_DIR=$E2E_DATA_DIR seed=${E2E_SEED_SCALE:-0} public_origin=$PUBLIC_ORIGIN"
 
-if [ "${E2E_SKIP_MIGRATE:-0}" != "1" ]; then
-  pnpm --filter @hmp/server exec tsx src/database/migrate.ts up
-fi
+# 夹具 CLI 产出固定文件名 scale-fixture.hmp.db;种子模式下服务端必须读同一文件。
+# CLI 自建完整 generation2 库(含迁移语义),种子模式下跳过独立 migrate 步骤避免表冲突。
 if [ "${E2E_SEED_SCALE:-0}" = "1" ]; then
-  pnpm --filter @hmp/server exec tsx test/fixtures/scale-fixture.cli.ts --dir "$E2E_DATA_DIR"
+  export DB_FILENAME="scale-fixture.hmp.db"
+  pnpm --filter @hmp/server exec tsx test/fixtures/scale-fixture.cli.ts --dir "$E2E_DATA_DIR" --db-filename "$DB_FILENAME"
+elif [ "${E2E_SKIP_MIGRATE:-0}" != "1" ]; then
+  pnpm --filter @hmp/server exec tsx src/database/migrate.ts up
 fi
 
 SERVER_PID=""

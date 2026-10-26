@@ -58,3 +58,25 @@
 ### 范围声明
 
 本记录仅声明 **Phase 1~2 基础工具链与骨架冒烟就绪**(T004~T012 能力 + 本任务三类显式冒烟):空库进入 generation2、旧已初始化库只读拒绝、公共骨架游客可匿名渲染、typed fetch 凭据/错误/取消行为、未认证管理读取被拒。**不代表 005 任何用户故事(US1~US8)功能完成,不代表 SC 指标、全量测试或 runtime 验收通过**;后续故事的新增业务测试按"先失败再随实现转绿"推进,完整门禁统一由 T144 的 `verify:release` 执行 —— 该入口本次仅建立占位脚本(仅 echo 绑定说明),未执行、未宣称通过。
+
+---
+
+## Wave A 验证记录(US1/US2/US5,T014~T043/T057~T072/T145/T146)
+
+日期:2026-10-27。范围:三个 P1 用户故事实现完成后的集成验证;非最终 T144 全量门禁。
+
+| 验证项 | 命令 | 结果 |
+| --- | --- | --- |
+| server 全量 | `pnpm --filter @hmp/server test` | 85 文件 / 1139 tests 全绿 |
+| web 全量 | `pnpm --filter @hmp/web test` | 7 文件 / 50 tests 全绿 |
+| lint / typecheck / build | `pnpm lint` / `pnpm typecheck`(双端)/ `pnpm build` | 0 错误 / 全 Done |
+| e2e foundation | `playwright test test/e2e/foundation-smoke.spec.ts` | 2/2(E2E_SEED_SCALE=1) |
+| e2e US1 游客浏览 | `E2E_SEED_SCALE=1 playwright test test/e2e/public-browse-guest.spec.ts` | 4/4 |
+| e2e US2 登录选档 | `playwright test test/e2e/auth-profile-flow.e2e.spec.ts` | 3/3 |
+| e2e US5 直播 | `E2E_SEED_SCALE=1 playwright test test/e2e/live.spec.ts` | 6/6(SC-005 与 API 100% 一致) |
+
+新增用例计数:US1 server 39 + web 15 + e2e 4;US2 server 27 + web 17 + e2e 3;US5 server 47 + web 11 + e2e 6。
+
+Lead 集成项:app.module 注册 PublicCatalogModule+LiveModule;routes.tsx 挂载 LivePage;PublicLayout 登录插槽接 IdentityMenu(T042/T043);playwright webServer 路径修正(apps/web 相对解析);scripts/e2e-servers.sh 种子模式对齐 DB_FILENAME=scale-fixture.hmp.db 且跳过重复迁移;8 个 T020/T013 用例适配 IdentityMenu 会话恢复异步(AppProviders 包装+401 打桩);lint 清理 12 处未使用导入/注解;退役 2 个并行期 e2e 组合根。
+
+已知边界:bootstrap 非管理角色 403 仅服务级验证(DB CHECK 仅 owner/admin);选档一次性授予为进程内存(单实例语义,ADR-0002);公共海报 posterRef 恒 null(003 导入管线无同源海报资源,扩展点单一函数);US5 q 搜索=频道标题大小写不敏感子串(契约未规定字段)。

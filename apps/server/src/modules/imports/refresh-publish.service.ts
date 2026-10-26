@@ -110,6 +110,8 @@ interface StagedEntry {
   title: string | null;
   url: string | null;
   tvgId: string | null;
+  /** T146:M3U group_title(解析层已归一化:trim 1~100 或缺失);NAS 恒 null */
+  groupTitle: string | null;
   relativePath: string | null;
   sizeText: string | null;
   mtimeNsText: string | null;
@@ -174,6 +176,7 @@ function stagedEntryOf(row: LoadedStagedEntry): StagedEntry {
     title: text('title'),
     url: text('url'),
     tvgId: text('tvgId'),
+    groupTitle: text('groupTitle'),
     relativePath: text('relativePath'),
     sizeText: text('sizeText'),
     mtimeNsText: text('mtimeNsText'),
@@ -283,11 +286,21 @@ export class RefreshPublishService {
       const updateMediaPresentation = db.prepare(
         'UPDATE media_item SET title = ?, type = ?, version = version + 1, updated_at = ? WHERE id = ? AND household_id = ?',
       );
+      // T146:group_title 写入按缺列容忍降级(照本文件 epg_generation 缺列惯例)——
+      // 仅应用 0001~0003 的部分迁移库没有 source_entry.group_title 列,发布静默跳过分组写入
+      // 不使任务崩溃;已就绪库(含 0006)恒有该列,分组恒随发布事务持久化。
+      const hasGroupTitleColumn = (
+        db.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('source_entry') WHERE name = 'group_title'").get() as { n: number }
+      ).n === 1;
       const insertEntry = db.prepare(
-        "INSERT INTO source_entry (id, household_id, source_id, identity_kind, identity_digest, media_id, upstream_channel_id, present, last_seen_job_id, first_seen_at, last_seen_at, missing_since, file_size_text, file_mtime_ns) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NULL, ?, ?)",
+        hasGroupTitleColumn
+          ? "INSERT INTO source_entry (id, household_id, source_id, identity_kind, identity_digest, media_id, upstream_channel_id, present, last_seen_job_id, first_seen_at, last_seen_at, missing_since, file_size_text, file_mtime_ns, group_title) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NULL, ?, ?, ?)"
+          : "INSERT INTO source_entry (id, household_id, source_id, identity_kind, identity_digest, media_id, upstream_channel_id, present, last_seen_job_id, first_seen_at, last_seen_at, missing_since, file_size_text, file_mtime_ns) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NULL, ?, ?)",
       );
       const updateEntry = db.prepare(
-        'UPDATE source_entry SET media_id = ?, upstream_channel_id = ?, present = 1, last_seen_job_id = ?, last_seen_at = ?, missing_since = NULL, file_size_text = ?, file_mtime_ns = ? WHERE id = ? AND household_id = ?',
+        hasGroupTitleColumn
+          ? 'UPDATE source_entry SET media_id = ?, upstream_channel_id = ?, present = 1, last_seen_job_id = ?, last_seen_at = ?, missing_since = NULL, file_size_text = ?, file_mtime_ns = ?, group_title = ? WHERE id = ? AND household_id = ?'
+          : 'UPDATE source_entry SET media_id = ?, upstream_channel_id = ?, present = 1, last_seen_job_id = ?, last_seen_at = ?, missing_since = NULL, file_size_text = ?, file_mtime_ns = ? WHERE id = ? AND household_id = ?',
       );
       const insertPlayback = db.prepare(
         "INSERT INTO playback_source (id, household_id, source_id, source_entry_id, media_item_id, protocol, location, mime_type, priority, requires_proxy, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 100, 0, ?, ?)",
@@ -321,21 +334,43 @@ export class RefreshPublishService {
         const upstreamChannelId = params.kind === 'iptv' ? entry.tvgId : null;
         const sizeText = params.kind === 'nas' ? entry.sizeText : null;
         const mtimeNsText = params.kind === 'nas' ? entry.mtimeNsText : null;
+        // T146(005 data-model §2):「来源发布/条目更新同事务保存 M3U 分组」——
+        // 成功发布事务内写入归一化后的 group_title(NAS 恒 NULL);
+        // 失败/stale/未确认快照不会执行到本写入,旧目录分组保持不变。
+        const groupTitle = params.kind === 'iptv' ? entry.groupTitle : null;
         if (existing === undefined) {
-          insertEntry.run(
-            entryId,
-            params.householdId,
-            params.sourceId,
-            entry.identityKind,
-            entry.identityDigest,
-            mediaId,
-            upstreamChannelId,
-            params.refreshId,
-            nowIso,
-            nowIso,
-            sizeText,
-            mtimeNsText,
-          );
+          if (hasGroupTitleColumn) {
+            insertEntry.run(
+              entryId,
+              params.householdId,
+              params.sourceId,
+              entry.identityKind,
+              entry.identityDigest,
+              mediaId,
+              upstreamChannelId,
+              params.refreshId,
+              nowIso,
+              nowIso,
+              sizeText,
+              mtimeNsText,
+              groupTitle,
+            );
+          } else {
+            insertEntry.run(
+              entryId,
+              params.householdId,
+              params.sourceId,
+              entry.identityKind,
+              entry.identityDigest,
+              mediaId,
+              upstreamChannelId,
+              params.refreshId,
+              nowIso,
+              nowIso,
+              sizeText,
+              mtimeNsText,
+            );
+          }
         } else {
           // T027:先以更新前事实判定替换,再写入新事实
           if (
@@ -344,16 +379,30 @@ export class RefreshPublishService {
           ) {
             replacedMediaIds.add(mediaId);
           }
-          updateEntry.run(
-            mediaId,
-            upstreamChannelId,
-            params.refreshId,
-            nowIso,
-            sizeText,
-            mtimeNsText,
-            entryId,
-            params.householdId,
-          );
+          if (hasGroupTitleColumn) {
+            updateEntry.run(
+              mediaId,
+              upstreamChannelId,
+              params.refreshId,
+              nowIso,
+              sizeText,
+              mtimeNsText,
+              groupTitle,
+              entryId,
+              params.householdId,
+            );
+          } else {
+            updateEntry.run(
+              mediaId,
+              upstreamChannelId,
+              params.refreshId,
+              nowIso,
+              sizeText,
+              mtimeNsText,
+              entryId,
+              params.householdId,
+            );
+          }
         }
 
         const playback = readPlayback.get(params.householdId, entryId) as { id: string } | undefined;

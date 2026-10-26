@@ -56,11 +56,14 @@ afterEach(() => {
 });
 
 describe('T013 foundation 冒烟 · 游客公共壳(T010 骨架)', () => {
+  // T042 接线后:布局右侧为 IdentityMenu,restoring 期间显示轻量恢复态,
+  // 会话恢复(此处打桩 401=无会话)解析后游客呈现「登录」入口(ui.md §2)。
   it.each([
     { path: '/', heading: '首页' },
     { path: '/vod', heading: '点播' },
     { path: '/live', heading: '直播' },
-  ])('游客打开 $path:公共壳渲染且不跳转登录', ({ path, heading }) => {
+  ])('游客打开 $path:公共壳渲染且不跳转登录', async ({ path, heading }) => {
+    stubFetch(async () => problemResponse({ type: 'about:blank', title: 'SESSION_INVALID' }, 401));
     renderAppAt(path);
 
     // 品牌 + 导航(首页/点播/直播)可见
@@ -71,9 +74,9 @@ describe('T013 foundation 冒烟 · 游客公共壳(T010 骨架)', () => {
       expect(screen.getByRole('link', { name: label })).toBeVisible();
     }
 
-    // 目标占位页渲染;登录入口是布局内静态插槽按钮(不构成强制跳转)
-    expect(screen.getByRole('heading', { name: heading })).toBeVisible();
-    expect(screen.getByRole('button', { name: '登录' })).toBeVisible();
+    // 目标页面渲染;登录入口由 IdentityMenu 在会话恢复(401→anonymous)后呈现
+    expect(await screen.findByRole('heading', { name: heading })).toBeVisible();
+    expect(await screen.findByRole('button', { name: '登录' })).toBeVisible();
 
     // 未跳转登录:地址保持原样,且全程不存在任何登录路由重定向
     expect(window.location.pathname).toBe(path);

@@ -323,20 +323,17 @@ describe('US3 会话生命周期:恢复、注销与设备撤销(契约 e2e)', ()
       expect(restoreAgain.status).toBe(401);
     });
 
-    it('FR-019:无凭证/未知令牌 logout → 401 SESSION_INVALID(problem+json)', async () => {
+    it('005 T039 契约替代:无凭证/未知令牌 logout 幂等 204(「Session/已失效幂等」),不泄露会话存在性', async () => {
       const { app } = await startFreshApp({ prefix: 'hmp-us3-' });
       await setupAndLogin(app);
 
       const anonymous = await request(app.getHttpServer()).post('/api/auth/logout');
-      expect(anonymous.status).toBe(401);
-      expectProblemContentType(anonymous);
-      expect(anonymous.body.code).toBe(ProblemCode.SESSION_INVALID);
+      expect(anonymous.status).toBe(204);
 
       const unknown = await request(app.getHttpServer())
         .post('/api/auth/logout')
         .set('Cookie', `${SESSION_COOKIE}=definitely-not-a-known-token`);
-      expect(unknown.status).toBe(401);
-      expect(unknown.body.code).toBe(ProblemCode.SESSION_INVALID);
+      expect(unknown.status).toBe(204);
     });
 
     it('Bearer 通道注销同样生效(与 Guard 同令牌解析规则),Cookie 与 Bearer 同会话一并失效', async () => {
@@ -384,8 +381,8 @@ describe('US3 会话生命周期:恢复、注销与设备撤销(契约 e2e)', ()
       expect(res.status).toBe(200);
       const items = res.body as Record<string, unknown>[];
       expect(Array.isArray(items)).toBe(true);
-      // 两次 setupAndLogin = initialize 设备 + 两次登录设备(既有策略:每次登录/初始化新建 Device 行)
-      expect(items).toHaveLength(3);
+      // 005 T036 起:初始化不再注册设备 —— 两次 setupAndLogin = 两次登录各建一台设备
+      expect(items).toHaveLength(2);
       for (const item of items) {
         expect(item.id).toEqual(expect.any(String));
         expect(item.type).toEqual(expect.any(String));

@@ -99,3 +99,15 @@ export class RateLimitService {
     }
   }
 }
+
+/**
+ * 模块级共享单例(T036 接线):本仓库运行时(esbuild/tsx)不产出
+ * design:paramtypes 元数据,经 @UseGuards 免装配挂载的守卫无法走构造注入 ——
+ * 提供唯一共享实例,保证限频计数跨路由累计(「限频才跨路由累计」口径)。
+ */
+let sharedRateLimitInstance: RateLimitService | null = null;
+
+export function sharedRateLimitService(): RateLimitService {
+  sharedRateLimitInstance ??= new RateLimitService();
+  return sharedRateLimitInstance;
+}

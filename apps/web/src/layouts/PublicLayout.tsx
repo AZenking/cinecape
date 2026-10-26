@@ -12,7 +12,7 @@
  */
 import type { ReactNode } from 'react';
 import { Link, NavLink, Outlet } from 'react-router';
-import { Button } from '@heroui/react';
+import { IdentityMenu } from '../features/profiles/identity-menu';
 
 /** 公共导航项;`/` 用 end 避免所有路由都命中首页激活态 */
 const NAV_ITEMS = [
@@ -50,17 +50,10 @@ export function PublicLayout(): ReactNode {
               ))}
             </nav>
           </div>
-          {/* 登录入口插槽:US2 接管(游客=登录;restoring=轻量恢复;已选档=账号+头像/名称菜单,ui.md §2)。
-              本阶段为占位按钮,不做导航(/login 旧路由已移除,登录走 T043 统一受控弹层)。 */}
-          <Button
-            size="sm"
-            variant="ghost"
-            onPress={() => {
-              // US2/T043 接管:经 ActionCoordinator 打开统一登录意图弹层;本阶段不产生任何行为
-            }}
-          >
-            登录
-          </Button>
+          {/* 登录入口插槽(ui.md §2):IdentityMenu 自足覆盖 游客=登录(restoring=轻量恢复;
+              登录未选档=账号+选择 Profile;已选档=账号+头像/名称菜单,切档/设置入口/退出),
+              内部经 useAuthAction 走 T043 统一受控弹层(T042/T043 交付,lead 接线)。 */}
+          <IdentityMenu />
         </div>
       </header>
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">

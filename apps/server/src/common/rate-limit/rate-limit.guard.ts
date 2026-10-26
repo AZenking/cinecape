@@ -6,7 +6,7 @@ import { DomainError } from '../domain-error';
 import type { SessionRequest } from '../current-session.decorator';
 import { RATE_LIMIT_POLICY_METADATA_KEY } from './rate-limit.decorator';
 import type { RateLimitPolicyName } from './rate-limit.policies';
-import { RateLimitService } from './rate-limit.service';
+import { RateLimitService, sharedRateLimitService } from './rate-limit.service';
 import { clientIpOf } from './client-ip.util';
 
 /**
@@ -27,10 +27,20 @@ import { clientIpOf } from './client-ip.util';
  */
 @Injectable()
 export class RateLimitGuard implements CanActivate {
-  constructor(
-    private readonly rateLimit: RateLimitService,
-    private readonly reflector: Reflector,
-  ) {}
+  private readonly rateLimit: RateLimitService;
+  private readonly reflector: Reflector;
+
+  /**
+   * 构造参数带缺省值:本仓库运行时(esbuild/tsx 编译)不产出 design:paramtypes
+   * 元数据,Nest DI 解析不到构造参数时以 undefined 调用 —— 缺省回落到共享限频
+   * 单例与独立 Reflector,保证 @UseGuards(RateLimitGuard) 免模块装配即可挂载,
+   * 且限频表全应用共享一份(「限频才跨路由累计」语义不变)。
+   * 经完整 DI 装配的环境传入实例时行为不变。
+   */
+  constructor(rateLimit?: RateLimitService, reflector?: Reflector) {
+    this.rateLimit = rateLimit ?? sharedRateLimitService();
+    this.reflector = reflector ?? new Reflector();
+  }
 
   canActivate(context: ExecutionContext): boolean {
     const policy = this.reflector.getAllAndOverride<RateLimitPolicyName>(RATE_LIMIT_POLICY_METADATA_KEY, [

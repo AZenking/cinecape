@@ -6,8 +6,7 @@ import { deviceSession, profile, profilePolicy } from '../../database/schema';
 import { DomainError } from '../../common/domain-error';
 import type { SessionContext } from '../../common/current-session.decorator';
 import { getDb, type Db } from '../auth/db';
-import { verifyParentPassword } from '../auth/parent-verification.service';
-import { consumeUnlockGrant, hasUnlockGrant, revokeUnlockGrantsForProfile } from './pin.service';
+import { revokeUnlockGrantsForProfile } from './pin.service';
 import { defaultPolicyValues } from '../policy/policy.rules';
 
 /**
@@ -287,79 +286,11 @@ export function updateProfile(command: UpdateProfileCommand): ProfileDtoBody {
 }
 
 // ---------------------------------------------------------------------------
-// select(T026)
+// select(T026 → T038 已迁移)
 // ---------------------------------------------------------------------------
-
-/** select 响应体(契约 200 → SessionDto;sessionToken 仅登录响应出现,此处不携带) */
-export interface SelectProfileResult {
-  sessionId: string;
-  account: { id: string; username: string; role: 'owner' | 'admin' };
-  activeProfile: ProfileDtoBody;
-  expiresAt: string;
-}
-
-/**
- * 选择当前观看者(FR-014;阶段 2 增补 FR-012):校验顺序 404(归属)→
- * 403 PROFILE_NOT_SELECTABLE(已停用)→ 403 PROFILE_PIN_REQUIRED(PIN 未解锁)→
- * 403 PARENT_VERIFICATION_REQUIRED/FAILED、423 LOCKED(无 PIN 成人 + 家庭含任一儿童档案,
- * 含停用儿童;owner 会话可能被儿童共用,不能凭会话角色直接切换到未受保护成人);
- * 通过后事务内更新 device_session.active_profile_id,成功后消费解锁授予(一次性)。
- * 有 PIN 目标始终走 PIN 授予,ownerPassword 不替代 PIN。
- */
-export async function selectProfile(
-  profileId: string,
-  context: SessionContext,
-  ownerPassword?: string,
-): Promise<SelectProfileResult> {
-  const row = requireOwnedProfile(profileId, context);
-  if (row.status === 'disabled') {
-    throw new DomainError(403, ProblemCode.PROFILE_NOT_SELECTABLE, '该 Profile 已停用,无法选择');
-  }
-  if (row.pinHash !== null && !hasUnlockGrant(context.session.id, row.id)) {
-    throw new DomainError(403, ProblemCode.PROFILE_PIN_REQUIRED, '该 Profile 受 PIN 保护,请先解锁');
-  }
-  if (row.pinHash === null && row.type === 'adult' && householdHasChildProfile(row.householdId)) {
-    if (ownerPassword === undefined || ownerPassword === '') {
-      throw new DomainError(
-        403,
-        ProblemCode.PARENT_VERIFICATION_REQUIRED,
-        '家庭存在儿童档案,选择未设 PIN 的成人需家长验证',
-      );
-    }
-    await verifyParentPassword(context, ownerPassword);
-  }
-
-  getDb().transaction((tx) => {
-    tx
-      .update(deviceSession)
-      .set({ activeProfileId: row.id })
-      .where(eq(deviceSession.id, context.session.id))
-      .run();
-  });
-  consumeUnlockGrant(context.session.id, row.id);
-
-  return {
-    sessionId: context.session.id,
-    account: {
-      id: context.account.id,
-      username: context.account.username,
-      role: context.account.role,
-    },
-    activeProfile: toProfileDto(row),
-    expiresAt: context.session.expiresAt,
-  };
-}
-
-/** 家庭是否存在任一儿童档案(含停用;停用儿童同样触发无 PIN 成人切换保护,FR-012) */
-export function householdHasChildProfile(householdId: string): boolean {
-  const row = getDb()
-    .select({ id: profile.id })
-    .from(profile)
-    .where(and(eq(profile.householdId, householdId), eq(profile.type, 'child')))
-    .limit(1)
-    .get();
-  return row !== undefined;
-}
+// 选档逻辑(select/unlock)自 T038(005-US2)起由 profile-selection.service.ts
+// 承载:身份版本递增、设置授予撤销与播放终态化在 identity-transition.ts 挂钩。
+// 本文件保留管理性 CRUD(US8 迁移 /settings/profiles 前的既有契约)。
 
 // ---------------------------------------------------------------------------
 // 事务内助手

@@ -1,0 +1,321 @@
+import { useCallback, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
+import { Link, useSearchParams } from 'react-router';
+import type { ExperienceProgrammeDto } from '@hmp/shared';
+import { Alert, Button, Input, Label, TextField } from '@heroui/react';
+import { fetchLiveChannels, fetchLiveGroups, type LiveSection } from './live-api';
+import { useLiveRefresh } from './hooks/use-live-refresh';
+import { useLiveSection } from './hooks/use-live-sections';
+import { NowSection } from './components/NowSection';
+import { NextSection } from './components/NextSection';
+import { GroupSections } from './components/GroupSections';
+import { FocusedSection, sectionTitleOf } from './components/FocusedSection';
+import { ProgrammeSlotDialog } from './components/ProgrammeSlotDialog';
+import { GuestActionNotice } from './components/GuestActionNotice';
+
+/**
+ * 直播首页(T067/T068/T069/T070/T071;FR-021/022/023/024/045、ui.md §5/§8):
+ * - 固定分区顺序:所有节目单入口 → 正在直播 → 即将播放 → 各分组正在直播;
+ * - section/group/q/page 写入 URL 查询参数作为公共浏览状态:概览(无参数)与聚焦视图
+ *   (section 必配)互转;详情返回或登录取消后经 URL 恢复原浏览状态(FR-045);
+ * - 公共请求一律 publicFetch(credentials:'omit');每区独立资源,失败仅重试本区;
+ * - 30 秒周期刷新 + 回前台立即刷新(useLiveRefresh);刷新失败保留旧数据并提示可重试;
+ * - 播放/收藏为 US3 统一入口占位:游客先登录选档提示,不发起任何播放或媒体请求。
+ */
+
+const PREVIEW_PAGE_SIZE = 20;
+const FOCUSED_PAGE_SIZE = 20;
+/** 概览分组集合请求条数(分区展示为前端切片,完整列表经查看更多) */
+const OVERVIEW_GROUP_FETCH_SIZE = 50;
+
+const VALID_SECTIONS: readonly string[] = ['now', 'next', 'group', 'all'];
+
+interface SlotDialogState {
+  readonly mediaId: string;
+  readonly channelTitle: string;
+  readonly groupLabel: string;
+  readonly programme: ExperienceProgrammeDto;
+  readonly kind: 'current' | 'upcoming';
+}
+
+export function LivePage(): ReactNode {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { refreshKey } = useLiveRefresh();
+  const [slotDialog, setSlotDialog] = useState<SlotDialogState | null>(null);
+  const [guestNotice, setGuestNotice] = useState<string | null>(null);
+
+  const rawSection = searchParams.get('section');
+  const section: LiveSection | null =
+    rawSection !== null && VALID_SECTIONS.includes(rawSection) ? (rawSection as LiveSection) : null;
+  const groupKeyParam = searchParams.get('group') ?? undefined;
+  const qParam = searchParams.get('q') ?? '';
+  const pageParam = Math.max(1, Number.parseInt(searchParams.get('page') ?? '1', 10) || 1);
+
+  const updateParams = useCallback(
+    (mutate: (params: URLSearchParams) => void): void => {
+      const next = new URLSearchParams(searchParams);
+      mutate(next);
+      setSearchParams(next, { replace: false });
+    },
+    [searchParams, setSearchParams],
+  );
+
+  const setQuery = useCallback(
+    (q: string): void => {
+      updateParams((params) => {
+        if (q === '') {
+          params.delete('q');
+        } else {
+          params.set('q', q);
+        }
+        params.delete('page'); // 新搜索回到第一页
+      });
+    },
+    [updateParams],
+  );
+
+  /* ---------------- 资源:概览(全部区独立)+ 聚焦视图 ---------------- */
+
+  const focused = section !== null;
+  const groupsResource = useLiveSection(useCallback((signal) => fetchLiveGroups(signal), []), refreshKey);
+  const nowResource = useLiveSection(
+    useCallback(
+      (signal) =>
+        fetchLiveChannels(
+          { section: 'now', page: 1, pageSize: PREVIEW_PAGE_SIZE, q: qParam || undefined },
+          signal,
+        ),
+      [qParam],
+    ),
+    refreshKey,
+    !focused,
+    `now:overview:${qParam}`,
+  );
+  const nextResource = useLiveSection(
+    useCallback(
+      (signal) =>
+        fetchLiveChannels(
+          { section: 'next', page: 1, pageSize: PREVIEW_PAGE_SIZE, q: qParam || undefined },
+          signal,
+        ),
+      [qParam],
+    ),
+    refreshKey,
+    !focused,
+    `next:overview:${qParam}`,
+  );
+  const groupsChannelsResource = useLiveSection(
+    useCallback(
+      (signal) =>
+        fetchLiveChannels(
+          { section: 'all', page: 1, pageSize: OVERVIEW_GROUP_FETCH_SIZE, q: qParam || undefined },
+          signal,
+        ),
+      [qParam],
+    ),
+    refreshKey,
+    !focused,
+    `all:overview:${qParam}`,
+  );
+  const focusedResource = useLiveSection(
+    useCallback(
+      (signal) =>
+        fetchLiveChannels(
+          {
+            section: section ?? 'all',
+            groupKey: section === 'group' ? groupKeyParam : undefined,
+            page: pageParam,
+            pageSize: FOCUSED_PAGE_SIZE,
+            q: qParam || undefined,
+          },
+          signal,
+        ),
+      [section, groupKeyParam, pageParam, qParam],
+    ),
+    refreshKey,
+    focused,
+    `focused:${section ?? ''}:${groupKeyParam ?? ''}:${pageParam}:${qParam}`,
+  );
+
+  /* ---------------- 游客播放入口占位(US3 统一入口接管前的占位) ---------------- */
+
+  const requireAuth = useCallback((actionLabel: string): void => {
+    // 游客:进入登录选档意图(US2/US3);US5 阶段仅显示提示与登录入口,不触发播放
+    setGuestNotice(actionLabel);
+  }, []);
+
+  const playChannel = useCallback(
+    (mediaId: string, channelTitle: string): void => {
+      void mediaId;
+      requireAuth(`播放 ${channelTitle} 当前直播`);
+    },
+    [requireAuth],
+  );
+
+  const timezone = groupsResource.data?.timezone ?? focusedResource.data?.timezone ?? 'UTC';
+  const serverNowIso = groupsResource.data?.now ?? focusedResource.data?.now ?? null;
+
+  const groupLabelOf = useMemo((): string | undefined => {
+    if (section !== 'group' || groupKeyParam === undefined) {
+      return undefined;
+    }
+    return groupsResource.data?.items.find((group) => group.key === groupKeyParam)?.label;
+  }, [section, groupKeyParam, groupsResource.data]);
+
+  const retryAll = useCallback((): void => {
+    groupsResource.retry();
+    focusedResource.retry();
+    groupsChannelsResource.retry();
+  }, [groupsResource, focusedResource, groupsChannelsResource]);
+
+  return (
+    <div className="flex min-w-0 flex-col gap-8">
+      <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h1 className="text-xl font-semibold text-foreground">直播</h1>
+        <p className="text-xs text-muted">
+          {serverNowIso !== null
+            ? `时间按家庭时区显示 · 每 30 秒自动更新`
+            : '正在加载家庭时区…'}
+        </p>
+      </header>
+
+      {/* 所有节目单入口(FR-021 第一区):本阶段指向 /live/guide 占位路由,US6 交付 EPG 墙 */}
+      <section aria-label="所有节目单入口" className="rounded-lg border border-border bg-surface p-4">
+        <h2 className="text-lg font-semibold text-foreground">所有节目单</h2>
+        <p className="mt-1 text-sm text-muted">按频道和时间浏览全部频道排期(节目墙由 US6 交付)。</p>
+        <div className="mt-3">
+          <Link
+            to="/live/guide"
+            className="inline-flex items-center rounded border border-border px-3 py-1.5 text-sm text-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          >
+            进入节目单
+          </Link>
+        </div>
+      </section>
+
+      {/* 搜索(q 写 URL;详情返回或登录取消后恢复) */}
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
+        <TextField
+          className="min-w-0"
+          value={qParam}
+          onChange={(value) => {
+            setQuery(value);
+          }}
+          aria-label="搜索频道"
+        >
+          <Label>搜索频道</Label>
+          <Input placeholder="按频道名称搜索" />
+        </TextField>
+        {qParam !== '' ? (
+          <Button size="sm" variant="ghost" onPress={() => setQuery('')}>
+            清除搜索
+          </Button>
+        ) : null}
+      </div>
+
+      {guestNotice !== null ? (
+        <div role="status">
+          <GuestActionNotice actionLabel={guestNotice} onClose={() => setGuestNotice(null)} />
+        </div>
+      ) : null}
+
+      {groupsResource.status === 'error' && groupsResource.data === null ? (
+        <Alert status="danger" role="alert">
+          <Alert.Title>直播分组加载失败</Alert.Title>
+          <Alert.Description>服务暂时不可用,可以重试;不影响其他分区。</Alert.Description>
+          <Alert.Content>
+            <Button size="sm" variant="outline" onPress={groupsResource.retry}>
+              重试
+            </Button>
+          </Alert.Content>
+        </Alert>
+      ) : null}
+
+      {section === null ? (
+        <>
+          <NowSection
+            resource={nowResource}
+            onRetry={nowResource.retry}
+            onViewMore={() => {
+              updateParams((params) => {
+                params.set('section', 'now');
+                params.delete('page');
+              });
+            }}
+            onOpenProgramme={setSlotDialog}
+            onRequireAuth={requireAuth}
+          />
+          <NextSection
+            resource={nextResource}
+            onRetry={nextResource.retry}
+            onViewMore={() => {
+              updateParams((params) => {
+                params.set('section', 'next');
+                params.delete('page');
+              });
+            }}
+            onOpenProgramme={setSlotDialog}
+            onRequireAuth={requireAuth}
+          />
+          <GroupSections
+            groupsResource={groupsResource}
+            channelsResource={groupsChannelsResource}
+            focusedGroupKey={null}
+            onRetry={retryAll}
+            onViewMore={(key) => {
+              updateParams((params) => {
+                params.set('section', 'group');
+                params.set('group', key);
+                params.delete('page');
+              });
+            }}
+            onOpenProgramme={setSlotDialog}
+            onRequireAuth={requireAuth}
+          />
+        </>
+      ) : (
+        <FocusedSection
+          sectionTitle={sectionTitleOf(section, groupLabelOf)}
+          resource={focusedResource}
+          page={pageParam}
+          onPageChange={(nextPage) => {
+            updateParams((params) => {
+              params.set('page', String(nextPage));
+            });
+          }}
+          onExit={() => {
+            updateParams((params) => {
+              params.delete('section');
+              params.delete('group');
+              params.delete('page');
+            });
+          }}
+          onRetry={focusedResource.retry}
+          onOpenProgramme={setSlotDialog}
+          onRequireAuth={requireAuth}
+        />
+      )}
+
+      <ProgrammeSlotDialog
+        open={slotDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSlotDialog(null);
+          }
+        }}
+        mediaId={slotDialog?.mediaId ?? ''}
+        channelTitle={slotDialog?.channelTitle ?? ''}
+        groupLabel={slotDialog?.groupLabel}
+        programme={slotDialog?.programme ?? null}
+        kind={slotDialog?.kind ?? 'current'}
+        timezone={timezone}
+        serverNowIso={serverNowIso}
+        onPlayChannel={(mediaId) => {
+          if (slotDialog !== null) {
+            playChannel(mediaId, slotDialog.channelTitle);
+          }
+        }}
+      />
+    </div>
+  );
+}

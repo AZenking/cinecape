@@ -24,13 +24,16 @@ export const M3U_ENTRY_MISSING_URL = 'M3U_ENTRY_MISSING_URL' as const;
 export const M3U_BUDGET_EXCEEDED = 'M3U_BUDGET_EXCEEDED' as const;
 export const M3U_NOT_CHANNEL_LIST = 'M3U_NOT_CHANNEL_LIST' as const;
 export const M3U_DECODE_FAILED = 'M3U_DECODE_FAILED' as const;
+/** T146:group-title trim 后超长(>100,存储值域上限)→ 按既定验证失败整次拒绝,不截断伪造 */
+export const M3U_GROUP_TITLE_INVALID = 'M3U_GROUP_TITLE_INVALID' as const;
 
 export type M3UErrorCode =
   | typeof M3U_FORMAT_INVALID
   | typeof M3U_ENTRY_MISSING_URL
   | typeof M3U_BUDGET_EXCEEDED
   | typeof M3U_NOT_CHANNEL_LIST
-  | typeof M3U_DECODE_FAILED;
+  | typeof M3U_DECODE_FAILED
+  | typeof M3U_GROUP_TITLE_INVALID;
 
 /** M3U 解析失败:code 稳定可区分;message 不含 URL/凭据/行原文 */
 export class M3UParseFailure extends Error {
@@ -51,7 +54,16 @@ export interface M3UEntry {
   title: string;
   /** 完整播放地址原文:保留大小写/query/凭据,脱敏是展示层责任 */
   url: string;
+  /**
+   * T146(005 data-model §2):EXTINF group-title,存储值域已归一化 ——
+   * trim 后 1~100 字符;属性缺失/空白归 NULL(字段省略,规范化 JSON 不写入);
+   * trim 后超长(>100)→ M3U_GROUP_TITLE_INVALID 整次失败,不截断伪造分组。
+   */
+  groupTitle?: string | null;
 }
+
+/** group-title 存储值域上界(与 source_entry_group_title_check 一致;T146) */
+export const M3U_GROUP_TITLE_MAX_LENGTH = 100;
 
 export interface M3UParseResult {
   entries: M3UEntry[];
@@ -61,6 +73,8 @@ export interface M3UParseResult {
 interface PendingEntryInfo {
   tvgId: string | null;
   tvgName: string | null;
+  /** group-title 属性原文;缺失/空值(null)等同无分组 */
+  groupTitle: string | null;
   /** EXTINF 逗号后的原始标题文本;空串表示缺失 */
   title: string;
   /** 记录 EXTINF 所在行号,供标题缺失报错定位 */
@@ -230,6 +244,7 @@ class M3UStreamParser {
     this.pending = {
       tvgId: attrValue(attrSection, 'tvg-id'),
       tvgName: attrValue(attrSection, 'tvg-name'),
+      groupTitle: attrValue(attrSection, 'group-title'),
       title: rawTitle,
       lineNumber: this.lineNumber,
     };
@@ -253,8 +268,23 @@ class M3UStreamParser {
         `第 ${pending.lineNumber} 行的 #EXTINF 缺少标题(标题与 tvg-name 均未提供)`,
       );
     }
+    // T146:group-title 归一化(trim;空白/缺失省略字段 = NULL;超长整次失败不截断)
+    let groupTitle: string | null | undefined;
+    if (pending.groupTitle !== null) {
+      const trimmed = pending.groupTitle.trim();
+      if (trimmed === '') {
+        groupTitle = undefined; // 空白归 NULL:payload 不写字段
+      } else if (trimmed.length > M3U_GROUP_TITLE_MAX_LENGTH) {
+        throw new M3UParseFailure(
+          M3U_GROUP_TITLE_INVALID,
+          `第 ${pending.lineNumber} 行的 group-title 超过 ${M3U_GROUP_TITLE_MAX_LENGTH} 字符上限,拒绝截断伪造分组`,
+        );
+      } else {
+        groupTitle = trimmed;
+      }
+    }
     this.pending = null;
-    this.entries.push({ tvgId: pending.tvgId, title, url });
+    this.entries.push({ tvgId: pending.tvgId, title, url, groupTitle });
     if (this.entries.length > IMPORT_BUDGETS.M3U_MAX_ENTRIES) {
       throw new M3UParseFailure(M3U_BUDGET_EXCEEDED, `条目数超过 ${IMPORT_BUDGETS.M3U_MAX_ENTRIES} 预算`);
     }

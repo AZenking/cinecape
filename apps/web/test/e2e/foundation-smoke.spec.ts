@@ -36,7 +36,8 @@ test.describe('T013 foundation 冒烟 · 公共骨架(游客)', () => {
     await expect(page.getByRole('link', { name: 'HOME MEDIA' })).toBeVisible();
 
     await page.goto('/live');
-    await expect(page.getByRole('heading', { name: '直播' })).toBeVisible();
+    // T067 接入真实 LivePage 后页内含「正在直播」等分区标题,断言用 exact 避免歧义
+    await expect(page.getByRole('heading', { name: '直播', exact: true })).toBeVisible();
     expect(new URL(page.url()).pathname).toBe('/live');
     await expect(page.getByRole('link', { name: 'HOME MEDIA' })).toBeVisible();
   });

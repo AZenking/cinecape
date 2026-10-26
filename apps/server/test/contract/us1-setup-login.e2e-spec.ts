@@ -51,16 +51,24 @@ describe('US1 首次启动:初始化家庭并登录(契约 e2e)', () => {
     expect(res.body).toEqual({ initialized: false });
   });
 
-  it('场景1/FR-002:POST /setup/initialize 201,创建唯一家庭+owner 主账号并建立会话,响应为 SessionDto 形且无密码哈希', async () => {
+  it('场景1(005 T036 替代):POST /setup/initialize 201 {initialized:true} —— 仅建家庭+owner 主账号,无 Set-Cookie 不自动登录', async () => {
     const { app } = await startFreshApp({ prefix: 'hmp-us1-' });
 
     const res = await initialize(app);
 
+    // 005 contracts/api.md §3:201 仅 {initialized:true},无会话/设备/Cookie(research R2)
     expect(res.status).toBe(201);
-    expectSessionDtoShape(res.body);
+    expect(res.body).toEqual({ initialized: true });
+    expect(res.headers['set-cookie']).toBeUndefined();
+    expect(JSON.stringify(res.body)).not.toContain('sessionToken');
+
+    // 显式登录(FR-007:配置成功后进入显式登录步骤)→ 200 SessionDto 形 + HttpOnly Cookie
+    const loginRes = await login(app, INITIALIZE_BODY.username, INITIALIZE_BODY.password);
+    expect(loginRes.status).toBe(200);
+    expectSessionDtoShape(loginRes.body);
 
     // 场景5/FR-007:Cookie 下发 hmp_session 且 HttpOnly
-    const cookie = sessionSetCookieOf(res);
+    const cookie = sessionSetCookieOf(loginRes);
     expect(cookie.startsWith(`${SESSION_COOKIE}=`)).toBe(true);
     expect(cookie).toContain('HttpOnly');
     expect(cookie).toContain('SameSite=Lax');
@@ -139,7 +147,10 @@ describe('US1 首次启动:初始化家庭并登录(契约 e2e)', () => {
 
   it('场景3/T020:GET /household 带会话返回家庭信息;伪造 householdId 查询参数被忽略(FR-018)', async () => {
     const { app } = await startFreshApp({ prefix: 'hmp-us1-' });
-    const init = await initialize(app);
+    await initialize(app);
+    // 005 T036:初始化无 Set-Cookie,显式登录取得会话 Cookie
+    const init = await login(app, INITIALIZE_BODY.username, INITIALIZE_BODY.password);
+    expect(init.status).toBe(200);
 
     const res = await request(app.getHttpServer())
       .get(`/api/household?householdId=${randomUUID()}`)
@@ -168,7 +179,10 @@ describe('US1 首次启动:初始化家庭并登录(契约 e2e)', () => {
 
   it('场景3/US1 前置:GET /profiles 带会话返回空数组(US1 阶段尚无 Profile)', async () => {
     const { app } = await startFreshApp({ prefix: 'hmp-us1-' });
-    const init = await initialize(app);
+    await initialize(app);
+    // 005 T036:初始化无 Set-Cookie,显式登录取得会话 Cookie
+    const init = await login(app, INITIALIZE_BODY.username, INITIALIZE_BODY.password);
+    expect(init.status).toBe(200);
 
     const res = await request(app.getHttpServer())
       .get('/api/profiles')
