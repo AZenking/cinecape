@@ -16,8 +16,9 @@ process.env.DATA_DIR ??= join(tmpdir(), `redroad-e2e-data-${process.pid}`);
  * webServer(T013):启动 @hmp/web 的 Vite dev server(等价 `pnpm --filter @hmp/web dev`,
  * 显式 `--host 127.0.0.1` 与 baseURL 对齐 —— Vite/Node 缺省绑 localhost,在
  * localhost→::1 的机器上 127.0.0.1 不响应,webServer 就绪探测会超时);
- * T013 e2e 页面为公共骨架占位,不发起 API 请求,故本阶段无需启动 server 进程 ——
- * server 与 T012 夹具注入仍由后续任务填充,命令形态不变。
+ * 自 005 Wave A 起 webServer 改用 scripts/e2e-servers.sh:独立 DATA_DIR + 迁移
+ * (+ E2E_SEED_SCALE=1 时种子 T012 规模夹具)+ 后台 Nest(:3000)+ 前台 vite(:5173),
+ * 级联清理;005 各 e2e 套件由此共享同一套双服务基建。
  * reuseExistingServer:本地复用已运行的 dev server,CI 一律新起;E2E_BASE_URL 覆盖
  * baseURL(指向外部已启动服务时请同时设 CI=1 或自行停管 5173,避免双服务器歧义)。
  */
@@ -29,7 +30,7 @@ export default defineConfig({
     baseURL,
   },
   webServer: {
-    command: 'pnpm --filter @hmp/web exec vite --host 127.0.0.1',
+    command: 'bash scripts/e2e-servers.sh',
     url: 'http://127.0.0.1:5173',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
