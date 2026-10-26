@@ -97,3 +97,75 @@ export type SelectionPlaybackRequest = playbackComponents['schemas']['SelectionR
 export type SeekPlaybackRequest = playbackComponents['schemas']['SeekRequest'];
 /** 004 contracts/openapi.yaml components/schemas/PlaybackRecordQueryRequest */
 export type RecordQueryRequest = playbackComponents['schemas']['PlaybackRecordQueryRequest'];
+// 阶段 5 契约类型(独立生成产物 experience-schema.d.ts;001~004 schema 保持不变)
+// paths/operations 聚合导出仍以 001 schema.d.ts 为准(既有模式);此处仅按需暴露 components 别名
+import type { components as experienceComponents } from './experience-schema';
+
+/** 005 contracts/openapi.yaml components/schemas/Problem(统一错误 envelope,api.md §7) */
+export type ProblemDto = experienceComponents['schemas']['Problem'];
+/** 005 contracts/openapi.yaml components/schemas/Initialized */
+export type InitializedDto = experienceComponents['schemas']['Initialized'];
+/** 005 contracts/openapi.yaml components/schemas/PublicContext(公共上下文白名单投影) */
+export type PublicContextDto = experienceComponents['schemas']['PublicContext'];
+/** 005 contracts/openapi.yaml components/schemas/PublicMedia(公共媒体白名单投影) */
+export type PublicMediaDto = experienceComponents['schemas']['PublicMedia'];
+/** 005 contracts/openapi.yaml components/schemas/PublicMediaPage */
+export type PublicMediaPageDto = experienceComponents['schemas']['PublicMediaPage'];
+/** 005 contracts/openapi.yaml components/schemas/Programme(005 直播节目,区别于 003 ProgrammeDto) */
+export type ExperienceProgrammeDto = experienceComponents['schemas']['Programme'];
+/** 005 contracts/openapi.yaml components/schemas/Programmes(005 频道节目快照,区别于 003 ProgrammesDto) */
+export type ExperienceProgrammesDto = experienceComponents['schemas']['Programmes'];
+/** 005 contracts/openapi.yaml components/schemas/Group(来源主分组,不透明 groupKey) */
+export type GroupDto = experienceComponents['schemas']['Group'];
+/** 005 contracts/openapi.yaml components/schemas/GroupPage */
+export type GroupPageDto = experienceComponents['schemas']['GroupPage'];
+/** 005 contracts/openapi.yaml components/schemas/ChannelRow */
+export type ChannelRowDto = experienceComponents['schemas']['ChannelRow'];
+/** 005 contracts/openapi.yaml components/schemas/ChannelPage */
+export type ChannelPageDto = experienceComponents['schemas']['ChannelPage'];
+/** 005 contracts/openapi.yaml components/schemas/GuideChannel(EPG 墙频道行) */
+export type GuideChannelDto = experienceComponents['schemas']['GuideChannel'];
+/** 005 contracts/openapi.yaml components/schemas/GuideWindow(EPG 墙节目窗口) */
+export type GuideWindowDto = experienceComponents['schemas']['GuideWindow'];
+/** 005 contracts/openapi.yaml components/schemas/BootstrapProfileRequest(零档案首建) */
+export type BootstrapProfileRequest = experienceComponents['schemas']['BootstrapProfileRequest'];
+/** 005 contracts/openapi.yaml components/schemas/PinRecoveryRequest(主档案 PIN 窄用途恢复) */
+export type PinRecoveryRequest = experienceComponents['schemas']['PinRecoveryRequest'];
+/** 005 contracts/openapi.yaml components/schemas/SettingsUnlockRequest */
+export type SettingsUnlockRequest = experienceComponents['schemas']['SettingsUnlockRequest'];
+/** 005 contracts/openapi.yaml components/schemas/SettingsAccess */
+export type SettingsAccessDto = experienceComponents['schemas']['SettingsAccess'];
+/** 005 contracts/openapi.yaml components/schemas/AccountSummary(账号最小摘要,无 PIN hash/设置主体) */
+export type AccountSummaryDto = experienceComponents['schemas']['AccountSummary'];
+/** 005 contracts/openapi.yaml components/schemas/PasswordChangeRequest */
+export type PasswordChangeRequest = experienceComponents['schemas']['PasswordChangeRequest'];
+/** 005 contracts/openapi.yaml components/schemas/HouseholdSettings */
+export type HouseholdSettingsDto = experienceComponents['schemas']['HouseholdSettings'];
+/** 005 contracts/openapi.yaml components/schemas/PatchHouseholdRequest */
+export type PatchHouseholdRequest = experienceComponents['schemas']['PatchHouseholdRequest'];
+/** 005 contracts/openapi.yaml components/schemas/MainProfileRequest */
+export type MainProfileRequest = experienceComponents['schemas']['MainProfileRequest'];
+/** 005 contracts/openapi.yaml components/schemas/MainProfileReply */
+export type MainProfileReplyDto = experienceComponents['schemas']['MainProfileReply'];
+/** 005 contracts/openapi.yaml components/schemas/OwnerPasswordRequest */
+export type OwnerPasswordRequest = experienceComponents['schemas']['OwnerPasswordRequest'];
+/** 005 contracts/openapi.yaml components/schemas/FavoriteItem */
+export type FavoriteItemDto = experienceComponents['schemas']['FavoriteItem'];
+/** 005 contracts/openapi.yaml components/schemas/HistoryItem */
+export type HistoryItemDto = experienceComponents['schemas']['HistoryItem'];
+/** 005 contracts/openapi.yaml components/schemas/FavoritePage */
+export type FavoritePageDto = experienceComponents['schemas']['FavoritePage'];
+/** 005 contracts/openapi.yaml components/schemas/HistoryPage */
+export type HistoryPageDto = experienceComponents['schemas']['HistoryPage'];
+/** 005 contracts/openapi.yaml components/schemas/ProgressSample(个人进度采样上报) */
+export type ProgressSampleRequest = experienceComponents['schemas']['ProgressSample'];
+/** 005 contracts/openapi.yaml components/schemas/FinalProgress(终态进度上报) */
+export type FinalProgressRequest = experienceComponents['schemas']['FinalProgress'];
+/** 005 contracts/openapi.yaml components/schemas/ProgressResult(进度写入结果) */
+export type ProgressResultDto = experienceComponents['schemas']['ProgressResult'];
+/** 005 contracts/openapi.yaml components/schemas/ResolveRequest(统一受控播放解析,区别于 004 ResolvePlaybackRequest) */
+export type ResolveRequest = experienceComponents['schemas']['ResolveRequest'];
+/** 005 contracts/openapi.yaml components/schemas/StopRequest(含 finalProgress 的停止请求) */
+export type StopRequest = experienceComponents['schemas']['StopRequest'];
+/** 005 contracts/openapi.yaml components/schemas/Empty */
+export type EmptyDto = experienceComponents['schemas']['Empty'];

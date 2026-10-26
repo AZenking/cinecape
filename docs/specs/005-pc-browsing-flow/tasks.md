@@ -36,10 +36,10 @@ Generated 2026-10-26 by `$speckit-tasks`（基于 Proposed 设计产物；未执
 **Purpose**: 实施门禁、测试与契约工具链、依赖声明
 
 - [x] T001 实施门禁与文档替代落地：经用户显式接受后将 docs/specs/005-pc-browsing-flow/spec.md、plan.md 与 docs/adr/0010~0012 状态 Proposed→Accepted（含日期与决策记录）；按 contracts/api.md §8 同步根目录 homeMediaDomainModel.md 及001/003/004受影响规格的局部替代标注；旧ADR仅按实际被替代条款记录关系，ADR-0006的逐次密码验证不废弃；核对宪章1.2.0仅005/代际2的兼容例外，不自行扩大豁免。T001通过前不得执行编码任务。
-- [ ] T002 [P] 前端测试工具链声明与配置：仅拥有 apps/web/package.json 的测试devDependencies/scripts以及 apps/web/vitest.config.ts、playwright.config.ts、test/setup文件，声明Vitest、Testing Library、jsdom、Playwright并配置独立DATA_DIR；不安装、不修改pnpm-lock.yaml。与T003不同文件可并行，必须在T004前完成；安装和typecheck由T004统一验证。（depends on T001）
-- [ ] T003 [P] 005共享契约类型入口：仅拥有 packages/shared/package.json 的gen:types/build脚本与 packages/shared/src/index.ts 导出，契约为 docs/specs/005-pc-browsing-flow/contracts/openapi.yaml（54路径/62操作）；不改锁文件、不与T004同时修改清单。本任务止于清单与导出声明；src/experience-schema.d.ts生成及build验证统一归T004收口，采用已有工具不新增依赖。（depends on T001）
-- [ ] T004 依赖与锁文件统一收口（唯一pnpm-lock.yaml所有者）：在T002/T003清单变更完成后，apps/server/package.json 与 apps/web/package.json 直接声明 @internationalized/date@3.12.4，web锁定HeroUI React/Styles 3.2.6；不引入Planby或其他生产UI/状态库。先 `pnpm install --lockfile-only` 受控更新并审阅锁文件，再 `pnpm install --frozen-lockfile`；随后执行shared gen:types/build、web typecheck，验证T002/T003产物。禁止与T002并行修改web清单。（depends on T002、T003的清单变更）
-- [ ] T005 [P] HeroUI v3 组件写法核验记录：按 delivery-constraints.md §2 与 heroui-react 技能阅读当时官方 v3 文档，将核验结论（v3 复合组件结构、按钮用 `onPress`、无 HeroUIProvider、Tailwind CSS v4 样式先于 @heroui/styles 导入、oklch 语义 token）记录到 apps/web/src/shared/theme/HEROUI-NOTES.md，作为后续所有前端组件任务的实现依据
+- [x] T002 [P] 前端测试工具链声明与配置：仅拥有 apps/web/package.json 的测试devDependencies/scripts以及 apps/web/vitest.config.ts、playwright.config.ts、test/setup文件，声明Vitest、Testing Library、jsdom、Playwright并配置独立DATA_DIR；不安装、不修改pnpm-lock.yaml。与T003不同文件可并行，必须在T004前完成；安装和typecheck由T004统一验证。（depends on T001）
+- [x] T003 [P] 005共享契约类型入口：仅拥有 packages/shared/package.json 的gen:types/build脚本与 packages/shared/src/index.ts 导出，契约为 docs/specs/005-pc-browsing-flow/contracts/openapi.yaml（54路径/62操作）；不改锁文件、不与T004同时修改清单。本任务止于清单与导出声明；src/experience-schema.d.ts生成及build验证统一归T004收口，采用已有工具不新增依赖。（depends on T001）
+- [x] T004 依赖与锁文件统一收口（唯一pnpm-lock.yaml所有者）：在T002/T003清单变更完成后，apps/server/package.json 与 apps/web/package.json 直接声明 @internationalized/date@3.12.4，web锁定HeroUI React/Styles 3.2.6；不引入Planby或其他生产UI/状态库。先 `pnpm install --lockfile-only` 受控更新并审阅锁文件，再 `pnpm install --frozen-lockfile`；随后执行shared gen:types/build、web typecheck，验证T002/T003产物。禁止与T002并行修改web清单。（depends on T002、T003的清单变更）
+- [x] T005 [P] HeroUI v3 组件写法核验记录：按 delivery-constraints.md §2 与 heroui-react 技能阅读当时官方 v3 文档，将核验结论（v3 复合组件结构、按钮用 `onPress`、无 HeroUIProvider、Tailwind CSS v4 样式先于 @heroui/styles 导入、oklch 语义 token）记录到 apps/web/src/shared/theme/HEROUI-NOTES.md，作为后续所有前端组件任务的实现依据
 
 ---
 
