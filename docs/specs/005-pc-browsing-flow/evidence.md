@@ -139,6 +139,8 @@ US8 路由迁移:旧 /api/{profiles(管理),sources,catalog,devices,policy} 管�
 | runtime-smoke 改写 | 全场景迁移 005 契约(S1~S9) | 465 断言 PASS |
 | 设备记录入口收口 | 旧 /api/devices/{id}/playback-records/query 删除,迁入 settings-devices(唯一权威) | playback-records 14/14 |
 | 顺带修复真实产品缺陷 | ①三处 Modal 缺 Backdrop 导致特定视口弹窗不可见(FR-042/043);②访问日志票据明文泄漏(接 redactQueryTicket) | 回归全绿 |
-| **verify:release(T144 脚本)实跑** | scripts/verify-release.sh 18 步聚合 | **全部通过,604s**:gen:types/lint/typecheck/build/server **1376**+web **100** vitest/E2E 12 套件 **67 用例**(foundation 5、auth 3、fresh-loop 8、responsive 12、home-personal 5、guide-kb 7、guide-perf 1、live 6、playback-intent 5、public-browse 4、settings-access 6、settings 7)/test:runtime **465 断言**(S1~S9,含真实 ffmpeg 转码交付与 005 换档终态化矩阵) |
+| **verify:release(T144 脚本)实跑** | scripts/verify-release.sh 18 步聚合 | **全部通过**(最终净跑 run8:611s,EXIT=0):gen:types/lint/typecheck/build/server **1376**(111 文件)+web **100** vitest/E2E 12 套件 **66 用例**(无种子组 foundation 2+auth 3、fresh-loop 8;种子组逐文件独立调用:guide-kb 7、guide-perf 1[SC-006 三指标 20/20/20,中位 102.5/85/101ms]、home-personal 5、live 6、playback-intent 5、public-browse 4、responsive 12、settings-access 6、settings 7)/test:runtime **465 断言**(S1~S9,含真实 ffmpeg 转码交付与 005 换档终态化 401/404 矩阵)。CI=1+端口预检;分组原因:settings-access 末位改主 PIN、settings 末位改密码,共享库会致后续套件 403(实测复现) |
+
+**抖动处置备忘**:settings-access-grant.service.spec TTL 断言存在毫秒级时钟取整抖动(900000 vs 899999),已加固为 ±2ms 容差(随 5d5a8b2 提交);guide-performance 在机器高负载下曾现 18/20 近阈值(阈值 19),最终净跑 20/20——T144 正式门禁建议独占时段执行。
 
 **未竟事项(人工)**:T138 真实四浏览器矩阵(Chrome/Edge/Firefox/Safari 人工执行并记录版本)、T149 SC-002 五名首次使用者真人验收(≥4 名 3 分钟内独立完成)、T141 家庭基线(5 并发浏览器)复测、T142 真实网络抓包复核。上述完成前规格保持 Accepted/Implementing,不转 Verified。
