@@ -93,30 +93,49 @@ async function openProfileSwitch(page: Page): Promise<Locator> {
   return dialogOf(page);
 }
 
-/** 打开登录弹层(setup/status 探测偶发慢/失败时重试;弹层未开先关闭再点) */
+/** 打开登录弹层:/setup/status 偶发慢或公共限频(429→setup-unavailable 面)时按既有重试面恢复 */
 async function openLoginModal(page: Page): Promise<void> {
   const dialog = dialogOf(page);
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
     await page.getByRole('button', { name: '登录' }).first().click();
     try {
       await expect(dialog.getByRole('heading', { name: '登录', exact: true })).toBeVisible({ timeout: 8_000 });
       return;
     } catch {
+      // 限频/瞬时失败呈现「初始化状态未知」重试面(不误判未初始化,FR-006):
+      // 等待限频窗口滑动后点弹层自带「重试」
+      const retry = dialog.getByRole('button', { name: '重试' });
+      if (await retry.isVisible().catch(() => false)) {
+        await page.waitForTimeout(4_000);
+        await retry.click();
+        continue;
+      }
       const cancel = dialog.getByRole('button', { name: '取消' });
       if (await cancel.isVisible().catch(() => false)) {
         await cancel.click();
       }
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(1_000);
     }
   }
   await expectStep(page, '登录');
 }
 
-/** 确保已登录并选择主档案(串行套件内共享上下文;游客则现场完成登录选档) */
+/** 确保已登录并选择主档案(串行套件内共享上下文;游客则现场完成登录选档)。
+ *  一轮失败(reload 重置协调器状态)后整轮重试;仍失败则抛出暴露原因。 */
 async function ensureAuthenticated(page: Page): Promise<void> {
-  const status = await page.request.get('/api/auth/session');
-  if (status.status() === 200) {
-    return;
+  for (let round = 0; round < 2; round += 1) {
+    const status = await page.request.get('/api/auth/session');
+    if (status.status() === 200) {
+      return;
+    }
+    try {
+      await openLoginModal(page);
+      await loginAndSelectMain(page, '135790');
+      return;
+    } catch {
+      await page.reload();
+      await page.waitForTimeout(1_000);
+    }
   }
   await openLoginModal(page);
   await loginAndSelectMain(page, '135790');
@@ -147,7 +166,7 @@ async function expectPlaybackGone(page: Page): Promise<void> {
 test.describe.serial('T049 · 从任何页面发起同一套受控播放(SC-003)', () => {
   // probe 对不可达夹具源的失败时长取决于环境 DNS/连接超时(004 预算 30 秒),
   // 用例超时留足准备窗口
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
 
   let firstChannelTitle = '';
 

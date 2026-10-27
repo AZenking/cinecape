@@ -14,6 +14,7 @@ import {
   restartApp,
   startFreshApp,
 } from '../helpers';
+import { ensureSettingsUnlocked } from '../helpers-management';
 
 /**
  * T010(US1 契约 e2e):创建原子性 / 重启持久化 / 停用保留 / 名单读写夹具(FR-003/008/013 + ADR-0006)。
@@ -31,12 +32,13 @@ async function bootstrap(): Promise<SessionFixture> {
   expect(init.status).toBe(201);
   const loggedIn = await login(app, INITIALIZE_BODY.username, INITIALIZE_BODY.password);
   expect(loggedIn.status).toBe(200);
+  await ensureSettingsUnlocked(app, cookiePairOf(loggedIn));
   return { app, cookie: cookiePairOf(loggedIn) };
 }
 
 function createProfile(s: SessionFixture, body: Record<string, unknown>): Promise<request.Response> {
   return request(s.app.getHttpServer())
-    .post('/api/profiles')
+    .post('/api/settings/profiles')
     .set('Cookie', s.cookie)
     .send({ ownerPassword: INITIALIZE_BODY.password, ...body })
     .then((r) => r);
@@ -72,8 +74,9 @@ describe('US1 创建原子性/重启持久化/名单读写(契约 e2e)', () => {
     expect(child.status).toBe(201);
 
     const after = counts();
-    expect(after.profiles).toBe(2);
-    expect(after.policies).toBe(2); // 一档案一策略,无孤儿
+    // 005:夹具主档案先建(1 档案 + 1 策略),新两个档案原子各带策略
+    expect(after.profiles).toBe(3);
+    expect(after.policies).toBe(3); // 一档案一策略,无孤儿
     expect(listsOf(adult.body.id)).toMatchObject({ allowed: [], blocked: [], channels: [], version: 1 });
 
     // 非法输入 → 400,两者皆不落库
@@ -81,8 +84,9 @@ describe('US1 创建原子性/重启持久化/名单读写(契约 e2e)', () => {
     expect(invalid.status).toBe(400);
     expect(invalid.body.code).toBe(ProblemCode.VALIDATION_FAILED);
     const unchanged = counts();
-    expect(unchanged.profiles).toBe(2);
-    expect(unchanged.policies).toBe(2);
+    // 005:主档案先建,基线 3(2 新档案 + 主档案)
+    expect(unchanged.profiles).toBe(3);
+    expect(unchanged.policies).toBe(3);
   });
 
   it('重启持久化:保存后的策略在进程重启后 100% 保留;默认策略不覆盖已保存值', async () => {
@@ -91,23 +95,25 @@ describe('US1 创建原子性/重启持久化/名单读写(契约 e2e)', () => {
     expect(init.status).toBe(201);
     const loggedIn = await login(rig.app, INITIALIZE_BODY.username, INITIALIZE_BODY.password);
     const cookie = cookiePairOf(loggedIn);
+    await ensureSettingsUnlocked(rig.app, cookie);
     const created = await request(rig.app.getHttpServer())
-      .post('/api/profiles')
+      .post('/api/settings/profiles')
       .set('Cookie', cookie)
       .send({ name: '女儿', type: 'child', ownerPassword: INITIALIZE_BODY.password });
     expect(created.status).toBe(201);
 
     const saved = await request(rig.app.getHttpServer())
-      .put(`/api/profiles/${created.body.id}/policy`)
+      .put(`/api/settings/profiles/${created.body.id}/policy`)
       .set('Cookie', cookie)
       .send({ ownerPassword: INITIALIZE_BODY.password, expectedVersion: 1, policy: { maxContentLevel: 7, allowUnrated: true } });
     expect(saved.status).toBe(200);
     expect(saved.body.version).toBe(2);
 
     await restartApp(rig);
+    await ensureSettingsUnlocked(rig.app, cookie);
 
     const afterRestart = await request(rig.app.getHttpServer())
-      .get(`/api/profiles/${created.body.id}/policy`)
+      .get(`/api/settings/profiles/${created.body.id}/policy`)
       .set('Cookie', cookie);
     expect(afterRestart.status).toBe(200);
     expect(afterRestart.body).toMatchObject({ maxContentLevel: 7, allowUnrated: true, version: 2 });
@@ -118,18 +124,21 @@ describe('US1 创建原子性/重启持久化/名单读写(契约 e2e)', () => {
     const adult = await createProfile(s, { name: 'A', type: 'adult' });
     const kid = await createProfile(s, { name: 'K', type: 'child' });
 
+    const kidVersion = (
+      Database.db.prepare('SELECT version FROM profile WHERE id = ?').get(kid.body.id as string) as { version: number }
+    ).version;
     const disabled = await request(s.app.getHttpServer())
-      .patch(`/api/profiles/${kid.body.id}`)
+      .patch(`/api/settings/profiles/${kid.body.id}`)
       .set('Cookie', s.cookie)
-      .send({ status: 'disabled', ownerPassword: INITIALIZE_BODY.password });
+      .send({ status: 'disabled', clearPin: false, expectedVersion: kidVersion, ownerPassword: INITIALIZE_BODY.password });
     expect(disabled.status).toBe(200);
 
-    const read = await request(s.app.getHttpServer()).get(`/api/profiles/${kid.body.id}/policy`).set('Cookie', s.cookie);
+    const read = await request(s.app.getHttpServer()).get(`/api/settings/profiles/${kid.body.id}/policy`).set('Cookie', s.cookie);
     expect(read.status).toBe(200);
     expect(read.body).toMatchObject({ profileId: kid.body.id, maxContentLevel: 12 });
 
     const edited = await request(s.app.getHttpServer())
-      .put(`/api/profiles/${kid.body.id}/policy`)
+      .put(`/api/settings/profiles/${kid.body.id}/policy`)
       .set('Cookie', s.cookie)
       .send({ ownerPassword: INITIALIZE_BODY.password, expectedVersion: 1, policy: { maxContentLevel: 6, allowUnrated: false } });
     expect(edited.status).toBe(200);

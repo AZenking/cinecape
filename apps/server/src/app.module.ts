@@ -17,9 +17,10 @@ import { PlaybackModule } from './modules/playback/playback.module';
 import { PublicCatalogModule } from './modules/public-catalog/public-catalog.module';
 import { LiveModule } from './modules/live/live.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { PersonalModule } from './modules/personal/personal.module';
 
 @Module({
-  imports: [CommonModule, HealthModule, AuthModule, HouseholdModule, ProfileModule, PolicyModule, SourcesModule, RefreshModule, CatalogModule, EpgModule, PlaybackModule, PublicCatalogModule, LiveModule, SettingsModule],
+  imports: [CommonModule, HealthModule, AuthModule, HouseholdModule, ProfileModule, PolicyModule, SourcesModule, RefreshModule, CatalogModule, EpgModule, PlaybackModule, PersonalModule, PublicCatalogModule, LiveModule, SettingsModule],
   providers: [
     { provide: APP_FILTER, useClass: ProblemJsonFilter },
     // T009:所有 API 响应统一 Cache-Control: no-store + Referrer-Policy: no-referrer

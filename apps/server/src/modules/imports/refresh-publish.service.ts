@@ -277,6 +277,22 @@ export class RefreshPublishService {
         params.householdId,
       ) as MediaSourceRow;
       const replacedMediaIds = new Set<string>();
+      // T148(005 data-model §2 media_item.content_revision):同一 NAS 身份文件的可信
+      // size/mtime 真实变化时,导入发布事务内递增 content_revision(与目录发布原子;
+      // 失败/stale/未确认快照不会执行到本写入)。普通标题/分级修改只改既有 version,
+      // 不触发修订;同一成功快照重试时 size/mtime 与已存值一致 → 不再递增(幂等)。
+      // 缺列容忍(照 hasGroupTitleColumn 惯例):仅应用 0001~0005 的部分迁移库无该列,
+      // bump 静默跳过;已就绪库(含 0006)恒执行。
+      const hasContentRevisionColumn = (
+        db.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('media_item') WHERE name = 'content_revision'").get() as { n: number }
+      ).n === 1;
+      // 语句按缺列容忍惯例仅在列就绪时 prepare(缺列库上 prepare 未知列即抛错,
+      // 会使整个发布事务以 INTERNAL 失败 —— nas-replacement 等部分迁移夹具回归根因)
+      const bumpContentRevision = hasContentRevisionColumn
+        ? db.prepare(
+            'UPDATE media_item SET content_revision = content_revision + 1, version = version + 1, updated_at = ? WHERE id = ? AND household_id = ?',
+          )
+        : null;
       const insertMedia = db.prepare(
         "INSERT INTO media_item (id, household_id, type, title, description, poster_ref, content_level, title_overridden, type_overridden, version, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, NULL, NULL, 0, 0, 1, ?, ?)",
       );
@@ -378,6 +394,11 @@ export class RefreshPublishService {
             (existing.file_size_text !== sizeText || existing.file_mtime_ns !== mtimeNsText)
           ) {
             replacedMediaIds.add(mediaId);
+            // T148:真实内容变化(NAS 身份文件 size/mtime 任一不同)→ 同事务递增修订;
+            // 标题/分级路径不进入本分支(只改 version,不递增 content_revision)
+            if (bumpContentRevision !== null) {
+              bumpContentRevision.run(nowIso, mediaId, params.householdId);
+            }
           }
           if (hasGroupTitleColumn) {
             updateEntry.run(

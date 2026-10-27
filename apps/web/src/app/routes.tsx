@@ -23,11 +23,11 @@ import { MediaDetailPage } from '../features/catalog/MediaDetailPage';
 import { VodCatalogPage } from '../features/catalog/VodCatalogPage';
 import { HomePage } from '../features/home/HomePage';
 import { LivePage } from '../features/live/LivePage';
+import { GuidePage } from '../features/epg/GuidePage';
 import { SettingsAccountPage } from '../features/settings/settings-account-page';
 import { SettingsModulePlaceholder } from '../features/settings/settings-module-placeholder';
 import { SETTINGS_MODULES } from '../features/settings/settings-modules';
 import { NotFoundPage } from './NotFoundPage';
-import { PlaceholderPage } from './PlaceholderPage';
 
 export function AppRoutes(): ReactNode {
   return (
@@ -37,12 +37,9 @@ export function AppRoutes(): ReactNode {
         <Route path="/" element={<HomePage />} />
         <Route path="/vod" element={<VodCatalogPage />} />
         <Route path="/media/:id" element={<MediaDetailPage />} />
-        {/* T067(US5):直播首页;节目单墙由 US6 接入(占位不虚构排期数据) */}
+        {/* T067(US5):直播首页;T116(US6):/live/guide 挂真实 EPG 节目单页 */}
         <Route path="/live" element={<LivePage />} />
-        <Route
-          path="/live/guide"
-          element={<PlaceholderPage title="节目单" description="EPG 节目墙由 US6 接入(本占位不虚构排期数据)。" />}
-        />
+        <Route path="/live/guide" element={<GuidePage />} />
         {/* 未知路由:可回首页的 404,不重定向(ui.md §1) */}
         <Route path="*" element={<NotFoundPage />} />
       </Route>

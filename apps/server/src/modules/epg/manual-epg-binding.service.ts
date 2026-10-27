@@ -1,6 +1,7 @@
 import type DatabaseConstructor from 'better-sqlite3';
 import { ProblemCode } from '@hmp/shared';
 import { DomainError, createDomainError } from '../../common/domain-error';
+import { incrementCatalogRevision } from './catalog-revision.service';
 
 /**
  * 手动 EPG 绑定服务(T070;US5/ADR-0008,data-model「## 0004 增补」为权威):
@@ -181,10 +182,8 @@ function upsertBinding(
        version = excluded.version,
        updated_at = excluded.updated_at`,
   ).run(householdId, mediaId, mode, target.epgSourceId, target.xmltvChannelId, nextVersion, nowIso);
-  db.prepare(
-    `INSERT INTO catalog_state (household_id, revision) VALUES (?, 2)
-     ON CONFLICT(household_id) DO UPDATE SET revision = revision + 1`,
-  ).run(householdId);
+  // catalog_state.revision+1 平移至 catalog-revision.service 唯一实现(US6 T114;SQL 与事务位置不变)
+  incrementCatalogRevision(db, householdId);
 }
 
 /**
@@ -318,4 +317,134 @@ export function unbindBinding(db: DbHandle, input: UnbindManualBindingInput): Ma
     upsertBinding(db, input.householdId, input.mediaId, 'auto', { epgSourceId: null, xmltvChannelId: null }, version + 1, nowIso);
   })();
   return getBindingState(db, { householdId: input.householdId, mediaId: input.mediaId });
+}
+
+/* ------------------------------------------------------------------ */
+/* 候选查询(US8 T129 自 manual-epg-binding.controller 收编;查询语义零改动)   */
+/* ------------------------------------------------------------------ */
+
+import { and, eq, gt, inArray } from 'drizzle-orm';
+import type { EpgCandidatePageDto, EpgCandidateQueryRequest, ProgrammeDto } from '@hmp/shared';
+import { epgChannel, epgProgramme, mediaSource } from '../../database/schema';
+import { getDb } from '../auth/db';
+
+interface CandidateRow {
+  xmltvChannelId: string;
+  displayName: string;
+}
+
+function toProgrammeDto(row: Pick<typeof epgProgramme.$inferSelect, 'title' | 'description' | 'startsAt' | 'endsAt'>): ProgrammeDto {
+  return { title: row.title, description: row.description, startsAt: row.startsAt, endsAt: row.endsAt };
+}
+
+/** 窗口判定与 epg.service 同语义:current 起点 含/终点 不含,next 为未来最早一条(与 current 互斥) */
+function programmeWindowOf(rows: typeof epgProgramme.$inferSelect[]): { current: ProgrammeDto | null; next: ProgrammeDto | null } {
+  const now = Date.now();
+  let current: ProgrammeDto | null = null;
+  let next: ProgrammeDto | null = null;
+  for (const row of rows) {
+    const startsAtMs = Date.parse(row.startsAt);
+    const endsAtMs = Date.parse(row.endsAt);
+    if (current === null && startsAtMs <= now && now < endsAtMs) {
+      current = toProgrammeDto(row);
+      continue;
+    }
+    if (next === null && startsAtMs > now) {
+      next = toProgrammeDto(row);
+      break; // startsAt 升序:首个未来开始即最早 next
+    }
+  }
+  return { current, next };
+}
+
+/**
+ * 候选分页查询(只读;drizzle 直查,与旧控制器实现逐字同语义):
+ * 同家庭指定来源(404 同形)→ kind=epg 且启用且已成功导入(否则 422 EPG_SOURCE_NOT_READY)→
+ * 非 conflicted 频道 → q 大小写不敏感子串过滤 → 排序=当前/未来有节目优先,同组内
+ * xmltv_channel_id 升序稳定分页;仅当页频道查节目窗口;epgGeneration=来源当前值,
+ * 保存须回传该值(不等 → 409 EPG_CANDIDATE_STALE)。候选不含源地址/路径/凭据。
+ */
+export function listEpgCandidates(householdId: string, input: EpgCandidateQueryRequest): EpgCandidatePageDto {
+  const db = getDb();
+  const source = db
+    .select()
+    .from(mediaSource)
+    .where(and(eq(mediaSource.householdId, householdId), eq(mediaSource.id, input.epgSourceId)))
+    .get();
+  if (source === undefined) {
+    // 不存在/跨家庭来源统一 404 同形,不泄漏归属
+    throw notFound();
+  }
+  if (source.kind !== 'epg' || source.enabled !== 1 || source.lastSuccessAt === null) {
+    throw createDomainError('EPG_SOURCE_NOT_READY');
+  }
+  const channels = db
+    .select({ xmltvChannelId: epgChannel.xmltvChannelId, displayName: epgChannel.displayName })
+    .from(epgChannel)
+    .where(and(eq(epgChannel.householdId, householdId), eq(epgChannel.sourceId, input.epgSourceId), eq(epgChannel.conflicted, 0)))
+    .orderBy(epgChannel.xmltvChannelId)
+    .all();
+  // 大小写不敏感子串(SQLite LIKE 仅 ASCII 不敏感,这里在 JS 侧统一 Unicode 语义)
+  const needle = input.q?.trim().toLowerCase() ?? '';
+  const filtered: CandidateRow[] =
+    needle === ''
+      ? channels
+      : channels.filter(
+          (channel) => channel.xmltvChannelId.toLowerCase().includes(needle) || channel.displayName.toLowerCase().includes(needle),
+        );
+  // 排序优化(US5 反馈):当前/未来有节目的候选排前面,便于家长挑「绑了就有节目」的目标;
+  // 无节目数据(窗口内 ends_at 全部过期或无记录)的排后面——绑定仍允许,目标可能稍后有数据。
+  const nowIso = new Date().toISOString();
+  const liveRows = db
+    .selectDistinct({ xmltvChannelId: epgProgramme.xmltvChannelId })
+    .from(epgProgramme)
+    .where(
+      and(
+        eq(epgProgramme.householdId, householdId),
+        eq(epgProgramme.sourceId, input.epgSourceId),
+        gt(epgProgramme.endsAt, nowIso),
+      ),
+    )
+    .all();
+  const hasLive = new Set(liveRows.map((row) => row.xmltvChannelId));
+  filtered.sort((a, b) => {
+    const aLive = hasLive.has(a.xmltvChannelId) ? 1 : 0;
+    const bLive = hasLive.has(b.xmltvChannelId) ? 1 : 0;
+    if (aLive !== bLive) return bLive - aLive;
+    return a.xmltvChannelId < b.xmltvChannelId ? -1 : a.xmltvChannelId > b.xmltvChannelId ? 1 : 0;
+  });
+  const start = (input.page - 1) * input.pageSize;
+  const pageItems = filtered.slice(start, start + input.pageSize);
+  const pageIds = pageItems.map((item) => item.xmltvChannelId);
+  const programmeRows =
+    pageIds.length === 0
+      ? []
+      : db
+          .select()
+          .from(epgProgramme)
+          .where(
+            and(
+              eq(epgProgramme.householdId, householdId),
+              eq(epgProgramme.sourceId, input.epgSourceId),
+              inArray(epgProgramme.xmltvChannelId, pageIds),
+            ),
+          )
+          .orderBy(epgProgramme.xmltvChannelId, epgProgramme.startsAt)
+          .all();
+  const rowsByChannel = new Map<string, typeof epgProgramme.$inferSelect[]>();
+  for (const row of programmeRows) {
+    const bucket = rowsByChannel.get(row.xmltvChannelId);
+    if (bucket === undefined) {
+      rowsByChannel.set(row.xmltvChannelId, [row]);
+    } else {
+      bucket.push(row);
+    }
+  }
+  return {
+    items: pageItems.map((item) => ({ ...item, ...programmeWindowOf(rowsByChannel.get(item.xmltvChannelId) ?? []) })),
+    total: filtered.length,
+    page: input.page,
+    pageSize: input.pageSize,
+    epgGeneration: source.epgGeneration,
+  };
 }

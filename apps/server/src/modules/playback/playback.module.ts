@@ -51,6 +51,14 @@ import { PlaybackRecordsController } from './playback-records.controller';
 import { PlaybackRetentionService } from './playback-retention.service';
 import { PlaybackController } from './playback.controller';
 import { PlaybackStreamController } from './playback-stream.controller';
+import { PersonalModule } from '../personal/personal.module';
+import {
+  ProgressClockService,
+  registerPersonalPlaybackFactsPort,
+} from '../personal/progress-clock.service';
+import { ProgressWriteService } from '../personal/progress-write.service';
+import type { PlaybackFinalProgressPort } from './playback-lifecycle.service';
+import { CommonModule } from '../../common/common.module';
 import {
   PLAYBACK_CONVERSION_ACTIVE_STATES,
   isPlaybackStableErrorCode,
@@ -542,6 +550,9 @@ interface PatchableHttpServer {
 /** resolver 会话源引用端口注入 token(SessionSourceRefReader 的装配绑定) */
 const PLAYBACK_SESSION_SOURCE_PORT: unique symbol = Symbol('PlaybackSessionSourcePort(playback_source)');
 
+/** personal 可信时长装配桥 token(T100;工厂期向 personal 注册表注册 resolver 事实桥) */
+const PERSONAL_FACTS_BRIDGE: unique symbol = Symbol('PersonalPlaybackFactsBridge');
+
 /** resolver 转换启动端口注入 token(ResolverConversionLaunchPort 的装配绑定) */
 const PLAYBACK_CONVERSION_LAUNCH_PORT: unique symbol = Symbol('PlaybackConversionLaunchPort(bridge)');
 
@@ -711,6 +722,7 @@ class PlaybackBootstrapper implements OnModuleInit {
 /* ------------------------------------------------------------------ */
 
 @Module({
+  imports: [CommonModule, PersonalModule],
   controllers: [PlaybackController, PlaybackStreamController, PlaybackRecordsController],
   providers: [
     // T011 仓储(类 token + 工厂;预算工厂期读取「当前」已校验 env)
@@ -795,7 +807,8 @@ class PlaybackBootstrapper implements OnModuleInit {
         }),
       inject: [PlaybackRepository, PlaybackTaskDirectoryLedger],
     },
-    // T019 resolver(probe 端口经 token 注入;转换启动/会话源引用端口经装配 token 桥接)
+    // T019 resolver(probe 端口经 token 注入;转换启动/会话源引用端口经装配 token 桥接;
+    // T099/T101:进度绑定与续播冻结端口注入 —— 点播 resolve 分配 epoch + resume 冻结位置)
     {
       provide: PlaybackResolverService,
       useFactory: (
@@ -804,10 +817,13 @@ class PlaybackBootstrapper implements OnModuleInit {
         probePort: unknown,
         conversionLaunch: unknown,
         sessionSource: unknown,
+        progressClock: ProgressClockService,
       ) =>
         new PlaybackResolverService(repository, authorization, probePort as never, createPlaybackBudgets(getConfig()), {
           conversionLaunch: conversionLaunch as PlaybackConversionLaunchPort,
           sessionSource: sessionSource as PlaybackSessionSourcePort,
+          progressBind: progressClock,
+          resumePosition: progressClock,
         }),
       inject: [
         PlaybackRepository,
@@ -815,7 +831,19 @@ class PlaybackBootstrapper implements OnModuleInit {
         PLAYBACK_PROBE_PORT,
         PLAYBACK_CONVERSION_LAUNCH_PORT,
         PLAYBACK_SESSION_SOURCE_PORT,
+        ProgressClockService,
       ],
+    },
+    // T100 可信时长装配桥(resolver probe 事实 → personal 写入状态机;注册表避免模块环)
+    {
+      provide: PERSONAL_FACTS_BRIDGE,
+      useFactory: (resolver: PlaybackResolverService) => {
+        registerPersonalPlaybackFactsPort({
+          trustedDurationSeconds: (sessionId, generation) => resolver.factsFor(sessionId, generation)?.durationSeconds ?? null,
+        });
+        return true;
+      },
+      inject: [PlaybackResolverService],
     },
     // selection/subtitles 的事实端口:resolver 事实只读桥(+规范词表回落)
     {
@@ -848,7 +876,8 @@ class PlaybackBootstrapper implements OnModuleInit {
         }),
       inject: [PlaybackAuthorizationService, PLAYBACK_TRACK_FACTS_PORT, NasReaderService],
     },
-    // T028 生命周期(storage 端口组合 assets/ledger 释放;私有根 DATA_DIR/playback)
+    // T028 生命周期(storage 端口组合 assets/ledger 释放;私有根 DATA_DIR/playback;
+    // T101:progressFinal 端口 = personal 写入状态机 —— stop final 与终态同事务协作)
     {
       provide: PlaybackLifecycleService,
       useFactory: (
@@ -858,6 +887,7 @@ class PlaybackBootstrapper implements OnModuleInit {
         storage: ConversionStorageService,
         assets: PlaybackAssetsService,
         ledger: PlaybackTaskDirectoryLedger,
+        progressWrite: ProgressWriteService,
       ) =>
         new PlaybackLifecycleService({
           repository,
@@ -865,6 +895,7 @@ class PlaybackBootstrapper implements OnModuleInit {
           supervisor,
           budgets: createPlaybackBudgets(getConfig()),
           privateRootDir: path.join(getConfig().DATA_DIR, 'playback'),
+          progressFinal: progressWrite satisfies PlaybackFinalProgressPort,
           storage: {
             releaseSession: async (householdId: string, sessionId: string): Promise<void> => {
               await storage.releaseSession(householdId, sessionId);
@@ -883,6 +914,7 @@ class PlaybackBootstrapper implements OnModuleInit {
         ConversionStorageService,
         PlaybackAssetsService,
         PlaybackTaskDirectoryLedger,
+        ProgressWriteService,
       ],
     },
     // 转换装配桥接(换代协同 + 看门狗/监督者/暂停配对;转换交付入口 launchAndWaitFirstOutput())

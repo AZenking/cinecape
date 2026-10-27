@@ -14,6 +14,7 @@ import {
   restartApp,
   startFreshApp,
 } from '../helpers';
+import { ensureSettingsUnlocked } from '../helpers-management';
 
 /**
  * T020(US3 契约 e2e):家长验证锁定 —— FR-011/SC-004。
@@ -24,9 +25,14 @@ const PASSWORD = INITIALIZE_BODY.password;
 
 function patchRename(app: INestApplication, cookie: string, profileId: string, ownerPassword: string | undefined) {
   return request(app.getHttpServer())
-    .patch(`/api/profiles/${profileId}`)
+    .patch(`/api/settings/profiles/${profileId}`)
     .set('Cookie', cookie)
-    .send({ name: `名字-${Math.random().toString(36).slice(2, 6)}`, ...(ownerPassword !== undefined ? { ownerPassword } : {}) })
+    .send({
+      name: `名字-${Math.random().toString(36).slice(2, 6)}`,
+      clearPin: false,
+      expectedVersion: 1,
+      ...(ownerPassword !== undefined ? { ownerPassword } : {}),
+    })
     .then((r) => r);
 }
 
@@ -39,8 +45,9 @@ describe('US3 家长验证锁定(账号范围共享,FR-011)', () => {
     expect(init.status).toBe(201);
     const loggedIn = await login(rig.app, INITIALIZE_BODY.username, PASSWORD);
     const cookie = cookiePairOf(loggedIn);
+    await ensureSettingsUnlocked(rig.app, cookie);
     const created = await request(rig.app.getHttpServer())
-      .post('/api/profiles')
+      .post('/api/settings/profiles')
       .set('Cookie', cookie)
       .send({ name: '目标', type: 'adult', ownerPassword: PASSWORD });
     const profileId = created.body.id as string;
@@ -59,12 +66,14 @@ describe('US3 家长验证锁定(账号范围共享,FR-011)', () => {
     const secondLogin = await login(rig.app, INITIALIZE_BODY.username, PASSWORD, { deviceType: 'web', deviceName: 'browser-b' });
     expect(secondLogin.status).toBe(200);
     const cookieB = cookiePairOf(secondLogin);
+    await ensureSettingsUnlocked(rig.app, cookieB); // 新会话同样需要设置解锁才能发起管理写
     const stillLocked = await patchRename(rig.app, cookieB, profileId, PASSWORD);
     expect(stillLocked.status).toBe(423);
     expect(stillLocked.body.code).toBe(ProblemCode.PARENT_VERIFICATION_LOCKED);
 
-    // 重启应用:锁定保留(状态落库)
+    // 重启应用:锁定保留(状态落库);005 启动撤销 grants → 重新解锁设置
     await restartApp(rig);
+    await ensureSettingsUnlocked(rig.app, cookie);
     const afterRestart = await patchRename(rig.app, cookie, profileId, PASSWORD);
     expect(afterRestart.status).toBe(423);
     expect(afterRestart.body.code).toBe(ProblemCode.PARENT_VERIFICATION_LOCKED);
@@ -85,8 +94,9 @@ describe('US3 家长验证锁定(账号范围共享,FR-011)', () => {
     await initialize(rig.app);
     const loggedIn = await login(rig.app, INITIALIZE_BODY.username, PASSWORD);
     const cookie = cookiePairOf(loggedIn);
+    await ensureSettingsUnlocked(rig.app, cookie);
     const created = await request(rig.app.getHttpServer())
-      .post('/api/profiles')
+      .post('/api/settings/profiles')
       .set('Cookie', cookie)
       .send({ name: '目标', type: 'adult', ownerPassword: PASSWORD });
     const profileId = created.body.id as string;

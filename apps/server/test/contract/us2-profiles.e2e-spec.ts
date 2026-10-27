@@ -14,6 +14,7 @@ import {
   login,
   startFreshApp,
 } from '../helpers';
+import { ensureSettingsUnlocked, selectMainAndUnlockSettings } from '../helpers-management';
 
 /**
  * T023(US2 契约 e2e):选择与切换观看 Profile,含 PIN 保护。
@@ -58,6 +59,9 @@ async function bootstrap(): Promise<SessionFixture> {
   const household = await request(app.getHttpServer()).get('/api/household').set('Cookie', cookie);
   expect(household.status).toBe(200);
 
+  // US8 管理迁移:创建/编辑档案前置 = 主档案选中 + 设置解锁
+  await ensureSettingsUnlocked(app, cookie);
+
   return {
     app,
     cookie,
@@ -71,16 +75,24 @@ function createProfile(s: SessionFixture, body: Record<string, unknown>): reques
   // 阶段 2(002 契约变更):创建/编辑为管理写操作,须携带主账号密码;
   // 默认注入测试账号密码,个别用例可用 ownerPassword: undefined 显式省略
   return request(s.app.getHttpServer())
-    .post('/api/profiles')
+    .post('/api/settings/profiles')
     .set('Cookie', s.cookie)
     .send({ ownerPassword: INITIALIZE_BODY.password, ...body });
 }
 
-function patchProfile(s: SessionFixture, profileId: string, body: Record<string, unknown>): request.Test {
+function patchProfileWith(s: SessionFixture, cookie: string, profileId: string, body: Record<string, unknown>): request.Test {
   return request(s.app.getHttpServer())
-    .patch(`/api/profiles/${profileId}`)
+    .patch(`/api/settings/profiles/${profileId}`)
+    .set('Cookie', cookie)
+    .send({ clearPin: false, expectedVersion: 1, ownerPassword: INITIALIZE_BODY.password, ...body });
+}
+
+function patchProfile(s: SessionFixture, profileId: string, body: Record<string, unknown>): request.Test {
+  // US8:expectedVersion CAS + clearPin 为契约新增字段;用例可显式覆盖
+  return request(s.app.getHttpServer())
+    .patch(`/api/settings/profiles/${profileId}`)
     .set('Cookie', s.cookie)
-    .send({ ownerPassword: INITIALIZE_BODY.password, ...body });
+    .send({ clearPin: false, expectedVersion: 1, ownerPassword: INITIALIZE_BODY.password, ...body });
 }
 
 function selectProfile(s: SessionFixture, profileId: string, forgedQueryProfileId?: string, ownerPassword?: string): request.Test {
@@ -158,22 +170,25 @@ describe('US2 选择与切换观看 Profile,含 PIN 保护(契约 e2e)', () => {
     const adult = await createProfile(s, { name: '爸爸', type: 'adult', isDefault: true });
 
     expect(adult.status).toBe(201);
+    // 005 契约:settings 返回 ProfileSummary(新增 isMain/version);PIN 统一 6 位数字
     expect(adult.body).toEqual({
       id: expect.any(String),
       name: '爸爸',
       avatar: null,
       type: 'adult',
       isDefault: true,
+      isMain: false,
       pinProtected: false,
       status: 'active',
       createdAt: expect.any(String),
+      version: 1,
     });
 
     const child = await createProfile(s, {
       name: '女儿',
       type: 'child',
       avatar: 'https://example.test/a.png',
-      pin: '4321',
+      pin: '432100'.slice(0, 6),
     });
 
     expect(child.status).toBe(201);
@@ -230,30 +245,27 @@ describe('US2 选择与切换观看 Profile,含 PIN 保护(契约 e2e)', () => {
     ).toBe(a.body.id);
   });
 
-  it('场景c/FR-013:停用唯一可用 Profile → 409 LAST_ACTIVE_PROFILE(problem+json),数据保持不变;存在其他可用时才允许', async () => {
+  it('场景c/005:现任主档案不可停用 → 409 MAIN_PROFILE_CONFLICT(problem+json)且无写入;非主档案在主档案可用时可停用', async () => {
     const s = await bootstrap();
-    const a = await createProfile(s, { name: 'A', type: 'adult' });
-    expect(a.status).toBe(201);
+    // 夹具主档案(ensureSettingsUnlocked 首建,is_main=1)
+    const main = (await listProfiles(s).then((r) => r.body as Array<{ id: string; isMain: boolean }>)).find(
+      (profile) => profile.isMain,
+    );
+    expect(main, '夹具应含主档案').toBeDefined();
 
-    const rejected = await patchProfile(s, a.body.id, { status: 'disabled' });
-
+    const rejected = await patchProfile(s, main!.id, { status: 'disabled' });
     expect(rejected.status).toBe(409);
     expectProblemContentType(rejected);
-    expect(rejected.body.code).toBe(ProblemCode.LAST_ACTIVE_PROFILE);
+    expect(rejected.body.code).toBe('MAIN_PROFILE_CONFLICT');
     expect(rejected.body.status).toBe(409);
-    expect(profileRow(a.body.id)?.status).toBe('active'); // 拒绝即无任何写入
+    expect(profileRow(main!.id)?.status).toBe('active'); // 拒绝即无任何写入
 
-    const b = await createProfile(s, { name: 'B', type: 'child' });
+    // 非主档案:主档案恒可用 → 可停用(最后一个可用守卫改由主档案不可停用保证)
+    const a = await createProfile(s, { name: 'A', type: 'adult' });
     const disableA = await patchProfile(s, a.body.id, { status: 'disabled' });
     expect(disableA.status).toBe(200);
     expect(disableA.body).toMatchObject({ id: a.body.id, status: 'disabled' });
     expect(profileRow(a.body.id)?.status).toBe('disabled');
-
-    // B 成为唯一可用 → 再停用被拒
-    const rejectedB = await patchProfile(s, b.body.id, { status: 'disabled' });
-    expect(rejectedB.status).toBe(409);
-    expect(rejectedB.body.code).toBe(ProblemCode.LAST_ACTIVE_PROFILE);
-    expect(profileRow(b.body.id)?.status).toBe('active');
   });
 
   it('场景d/FR-014+FR-019:select 矩阵 —— 合法更新会话上下文;不存在/跨家庭 404 不泄露存在性;已停用 403 PROFILE_NOT_SELECTABLE', async () => {
@@ -300,18 +312,21 @@ describe('US2 选择与切换观看 Profile,含 PIN 保护(契约 e2e)', () => {
 
   it('场景e/FR-015:PIN 流 —— 未解锁 select 403 PROFILE_PIN_REQUIRED;错误 PIN 403(仅含剩余次数);连续 5 次错误触发锁定,窗口内正确 PIN 也 423;窗口过期重试成功并授予 select', async () => {
     const s = await bootstrap();
+    const mainId = ((await listProfiles(s).then((r) => r.body)) as Array<{ id: string; isMain: boolean }>).find(
+      (profile) => profile.isMain,
+    )!.id;
     const a = await createProfile(s, { name: 'A', type: 'adult' });
-    const b = await createProfile(s, { name: 'B', type: 'child', pin: '4321' });
+    const b = await createProfile(s, { name: 'B', type: 'child', pin: '432198' });
 
-    // 未解锁直接 select → 403 PROFILE_PIN_REQUIRED
+    // 未解锁直接 select → 403 PROFILE_PIN_REQUIRED(身份仍停留在主档案,不被失败请求改变)
     const locked = await selectProfile(s, b.body.id);
     expect(locked.status).toBe(403);
     expectProblemContentType(locked);
     expect(locked.body.code).toBe(ProblemCode.PROFILE_PIN_REQUIRED);
-    expect(activeProfileIdOf(s.sessionId)).toBeNull();
+    expect(activeProfileIdOf(s.sessionId)).toBe(mainId);
 
     // 错误 PIN → 403 FORBIDDEN;detail 只含剩余次数,不回显 PIN、无其他提示
-    const firstWrong = await unlockProfile(s, b.body.id, '0000');
+    const firstWrong = await unlockProfile(s, b.body.id, '000000');
     expect(firstWrong.status).toBe(403);
     expect(firstWrong.body.code).toBe(ProblemCode.FORBIDDEN);
     expect(firstWrong.body.detail).toContain('4'); // PIN_MAX_ATTEMPTS=5,剩余 4
@@ -320,7 +335,7 @@ describe('US2 选择与切换观看 Profile,含 PIN 保护(契约 e2e)', () => {
 
     // 连续错误至第 5 次:每次均 403(data-model:failed_pin_count < 5 → 验证),第 5 次触发锁定
     for (const remaining of [3, 2, 1, 0]) {
-      const res = await unlockProfile(s, b.body.id, '0000');
+      const res = await unlockProfile(s, b.body.id, '000000');
       expect(res.status).toBe(403);
       expect(res.body.code).toBe(ProblemCode.FORBIDDEN);
       expect(res.body.detail).toContain(String(remaining));
@@ -331,17 +346,17 @@ describe('US2 选择与切换观看 Profile,含 PIN 保护(契约 e2e)', () => {
     expect(Date.parse(bRow?.pin_locked_until as string)).toBeGreaterThan(Date.now());
 
     // 锁定窗口内:正确 PIN 也 423 PROFILE_PIN_LOCKED(默认窗口 5 分钟,立即断言,零等待)
-    const correctDuringLock = await unlockProfile(s, b.body.id, '4321');
+    const correctDuringLock = await unlockProfile(s, b.body.id, '432198');
     expect(correctDuringLock.status).toBe(423);
     expectProblemContentType(correctDuringLock);
     expect(correctDuringLock.body.code).toBe(ProblemCode.PROFILE_PIN_LOCKED);
-    expect(activeProfileIdOf(s.sessionId)).toBeNull();
+    expect(activeProfileIdOf(s.sessionId)).toBe(mainId);
 
     // 窗口过期(直写测试库把 pin_locked_until 改写为过去时刻,零等待)→ 正确 PIN 重试成功,计数清零
     Database.db
       .prepare('UPDATE profile SET pin_locked_until = ? WHERE id = ?')
       .run(new Date(Date.now() - 1000).toISOString(), b.body.id);
-    const recovered = await unlockProfile(s, b.body.id, '4321');
+    const recovered = await unlockProfile(s, b.body.id, '432198');
     expect(recovered.status).toBe(200);
     expect(recovered.body).toEqual({ unlocked: true });
     const cleared = profileRow(b.body.id);
@@ -371,7 +386,11 @@ describe('US2 选择与切换观看 Profile,含 PIN 保护(契约 e2e)', () => {
     expect((await selectProfile(s, a.body.id, undefined, INITIALIZE_BODY.password)).status).toBe(200);
     expect(activeProfileIdOf(s.sessionId)).toBe(a.body.id);
 
-    const disabled = await patchProfile(s, a.body.id, { status: 'disabled' });
+    // 005 设置边界:管理写须主档案选中 —— 另起管理会话执行停用
+    const mgmtLogin = await login(s.app, INITIALIZE_BODY.username, INITIALIZE_BODY.password);
+    expect(mgmtLogin.status).toBe(200);
+    await selectMainAndUnlockSettings(s.app, cookiePairOf(mgmtLogin));
+    const disabled = await patchProfileWith(s, cookiePairOf(mgmtLogin), a.body.id, { status: 'disabled' });
 
     expect(disabled.status).toBe(200);
     expect(disabled.body.status).toBe('disabled');
@@ -400,30 +419,34 @@ describe('US2 选择与切换观看 Profile,含 PIN 保护(契约 e2e)', () => {
       accountId: foreign.accountId,
       profileId: foreign.profileId,
     });
-    expect(created.status).toBe(201);
-    expect(created.body.id).not.toBe(foreign.profileId);
-    const createdRow = profileRow(created.body.id);
-    expect(createdRow?.household_id).toBe(s.householdId);
-    expect(createdRow?.account_id).toBe(s.accountId);
+    // 005 §1:未知/身份声明字段一律 400(不能借 body 扩大归属)
+    expect(created.status).toBe(400);
+    expect(created.body.code).toBe(ProblemCode.VALIDATION_FAILED);
+    expect(profileRow(foreign.profileId)?.name).toBe('别家档案');
+    expect(profileRow(foreign.profileId)?.household_id).toBe(foreign.householdId);
 
-    // 编辑:伪造 profileId/householdId → 目标仍是路径参数指向的本家庭档案,他家庭档案不受影响
-    const patched = await patchProfile(s, created.body.id, {
+    // 编辑:伪造 profileId/householdId → 400(严格拒绝);他家庭档案不受影响
+    const mainId = ((await listProfiles(s).then((r) => r.body)) as Array<{ id: string; isMain: boolean }>).find(
+      (profile) => profile.isMain,
+    )!.id;
+    const patched = await patchProfile(s, mainId, {
       name: '改名',
       profileId: foreign.profileId,
       householdId: foreign.householdId,
     });
-    expect(patched.status).toBe(200);
-    expect(patched.body).toMatchObject({ id: created.body.id, name: '改名' });
+    expect(patched.status).toBe(400);
     expect(profileRow(foreign.profileId)?.name).toBe('别家档案');
     expect(profileRow(foreign.profileId)?.household_id).toBe(foreign.householdId);
 
-    // select:伪造查询参数同样无效
-    const selected = await selectProfile(s, created.body.id, foreign.profileId);
+    // select:伪造查询参数同样无效(选无 PIN 的普通档案,query 里的 profileId 被忽略)
+    const plain = await createProfile(s, { name: '无PIN', type: 'adult' });
+    expect(plain.status).toBe(201);
+    const selected = await selectProfile(s, plain.body.id, foreign.profileId);
     expect(selected.status).toBe(200);
-    expect(selected.body.activeProfile).toMatchObject({ id: created.body.id });
+    expect(selected.body.activeProfile).toMatchObject({ id: plain.body.id });
 
     // 无会话访问受保护能力 → 401 SESSION_INVALID(FR-019)
-    const anonymous = await request(s.app.getHttpServer()).post('/api/profiles').send({ name: 'X', type: 'adult' });
+    const anonymous = await request(s.app.getHttpServer()).post('/api/settings/profiles').send({ name: 'X', type: 'adult' });
     expect(anonymous.status).toBe(401);
     expectProblemContentType(anonymous);
     expect(anonymous.body.code).toBe(ProblemCode.SESSION_INVALID);

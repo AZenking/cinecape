@@ -12,9 +12,8 @@ import { SETTINGS_MODULES } from '../src/features/settings/settings-modules';
  * 权威:docs/specs/005-pc-browsing-flow/contracts/ui.md §1/§7 + FR-028:
  * - 宽窗口左菜单(约 220px)/右主体(min-width:0);窄窗口收拢为菜单按钮;
  * - 面包屑/标题显示当前模块;七个子模块导航全部注册;
- * - 账号与安全空架经 GET /api/settings/account 读取只读 AccountSummary;
- *   404(US8 端点未交付)显示读取失败态并注明,不造假数据;
- * - 占位模块显式标注「模块内容由 US8 填充」。
+ * - 账号与安全经 GET /api/settings/account 读取 AccountSummary;失败显示读取失败态,
+ *   不造假数据(T131 起 US8 真实模块绑定注册表,占位文案已由实页取代)。
  */
 
 interface FetchCall {
@@ -42,6 +41,27 @@ function installFetch(): void {
       }
       if (call.path === '/api/settings/account') {
         return Promise.resolve(jsonResponse(accountReply.body, accountReply.status));
+      }
+      if (call.path === '/api/settings/profiles') {
+        return Promise.resolve(
+          jsonResponse([
+            {
+              id: 'p-main',
+              name: '主档案',
+              avatar: null,
+              type: 'adult',
+              isDefault: true,
+              isMain: true,
+              pinProtected: true,
+              status: 'active',
+              createdAt: '2026-01-01T00:00:00.000Z',
+              version: 1,
+            },
+          ]),
+        );
+      }
+      if (call.path === '/api/settings/household') {
+        return Promise.resolve(jsonResponse({ name: '家', language: 'zh-CN', timezone: 'Asia/Shanghai', version: 1, mainProfileVersion: 1 }));
       }
       return Promise.resolve(jsonResponse({ title: 'Not Found', status: 404, code: 'NOT_FOUND' }, 404));
     }),
@@ -142,17 +162,19 @@ describe('T078 · 设置布局(ui.md §1/§7)', () => {
     expect(fetchCalls.some((call) => call.path === '/api/settings/account')).toBe(true);
   });
 
-  it('账号与安全:端点 404(US8 未交付)显示「模块内容由 US8 填充」读取失败态,不造假数据', async () => {
+  it('账号与安全:端点 404 显示读取失败态,不造假数据(T131 后仍成立)', async () => {
     accountReply = { status: 404, body: { status: 404, code: 'NOT_FOUND', title: 'Not Found' } };
     renderSettingsAt('/settings/account');
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('模块内容由 US8 填充');
+    expect(alert).toHaveTextContent('读取失败');
     expect(screen.queryByTestId('account-summary')).toBeNull();
   });
 
-  it('占位子模块:显式标注「模块内容由 US8 填充」,不发起管理请求', async () => {
+  it('子模块为真实模块(注册表 component 绑定),不再渲染 US8 占位文案', async () => {
     renderSettingsAt('/settings/profiles');
-    expect(await screen.findByText(/模块内容由 US8 填充/)).toBeVisible();
-    expect(fetchCalls.some((call) => call.path === '/api/settings/account')).toBe(false);
+    // 档案管理为真实页面:注册表组件渲染档案列表(需要已解锁设置)
+    expect(await screen.findByTestId('profile-list')).toBeVisible();
+    expect(screen.queryByText(/模块内容由 US8 填充/)).toBeNull();
+    expect(fetchCalls.some((call) => call.path === '/api/settings/profiles')).toBe(true);
   });
 });

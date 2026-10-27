@@ -10,6 +10,7 @@ import {
   initialize,
   login,
 } from '../helpers';
+import { ensureSettingsUnlocked } from '../helpers-management';
 import { cleanupSettingsRigs, restartSettingsApp, startSettingsApp, type SettingsTestRig } from '../helpers-settings';
 
 /**
@@ -50,14 +51,16 @@ async function setupRig(): Promise<Rig> {
     .send({ name: '妈妈', pin: MAIN_PIN, ownerPassword: INITIALIZE_BODY.password });
   expect(bootstrapped.status).toBe(201);
   const mainProfileId = (bootstrapped.body as { id: string }).id;
+  // US8:子档案创建属管理写,前置 = 主档案选中 + 设置解锁
+  await ensureSettingsUnlocked(rig.app, cookie, { mainPin: MAIN_PIN });
   const child = await request(rig.app.getHttpServer())
-    .post('/api/profiles')
+    .post('/api/settings/profiles')
     .set('Cookie', cookie)
     .send({ name: '儿童档案', type: 'child', pin: CHILD_PIN, ownerPassword: INITIALIZE_BODY.password });
   expect(child.status).toBe(201);
   const childProfileId = (child.body as { id: string }).id;
   await selectProfile(rig.app, cookie, mainProfileId, MAIN_PIN);
-  const devices = await request(rig.app.getHttpServer()).get('/api/devices').set('Cookie', cookie);
+  const devices = await request(rig.app.getHttpServer()).get('/api/settings/devices').set('Cookie', cookie);
   expect(devices.status).toBe(200);
   const deviceId = (devices.body as Array<{ id: string }>)[0]!.id;
   return { rig, cookie, mainProfileId, childProfileId, deviceId };
@@ -202,9 +205,9 @@ describe('T076 · SettingsAccessGuard 失效矩阵(contracts/api.md §7)', () =>
     const rig = await setupRig();
     await unlockSettings(rig);
     const revoke = await request(rig.rig.app.getHttpServer())
-      .post(`/api/devices/${rig.deviceId}/revoke`)
+      .post(`/api/settings/devices/${rig.deviceId}/revoke`)
       .set('Cookie', rig.cookie)
-      .send({});
+      .send({ ownerPassword: INITIALIZE_BODY.password });
     expect(revoke.status).toBe(204);
     const res = await getAccount(rig);
     expect(res.status).toBe(401);

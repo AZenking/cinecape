@@ -20,6 +20,7 @@ import {
   type ControlledMediaServer,
   type NasRootFixture,
 } from '../helpers';
+import { selectMainAndUnlockSettings } from '../helpers-management';
 
 /**
  * T019(US1 契约 e2e):刷新执行与待确认 —— POST /sources/{sourceId}/refresh、
@@ -65,6 +66,7 @@ async function bootstrap(): Promise<RefreshRig> {
   expect(init.status).toBe(201);
   const loggedIn = await login(app, INITIALIZE_BODY.username, OWNER_PASSWORD);
   expect(loggedIn.status).toBe(200);
+  await selectMainAndUnlockSettings(app, cookiePairOf(loggedIn));
   const household = await request(app.getHttpServer()).get('/api/household').set('Cookie', cookiePairOf(loggedIn));
   expect(household.status).toBe(200);
   const accountRow = Database.db.prepare("SELECT id FROM account WHERE role = 'owner'").get() as { id: string };
@@ -114,12 +116,12 @@ afterAll(async () => {
 /* ------------------------------------------------------------------ */
 
 function postSource(s: RefreshRig, body: Record<string, unknown>): Promise<request.Response> {
-  return request(s.app.getHttpServer()).post('/api/sources').set('Cookie', s.cookie).send(body).then((r) => r);
+  return request(s.app.getHttpServer()).post('/api/settings/sources').set('Cookie', s.cookie).send(body).then((r) => r);
 }
 
 function patchSource(s: RefreshRig, sourceId: string, body: Record<string, unknown>): Promise<request.Response> {
   return request(s.app.getHttpServer())
-    .patch(`/api/sources/${sourceId}`)
+    .patch(`/api/settings/sources/${sourceId}`)
     .set('Cookie', s.cookie)
     .send(body)
     .then((r) => r);
@@ -127,19 +129,19 @@ function patchSource(s: RefreshRig, sourceId: string, body: Record<string, unkno
 
 function postRefresh(s: RefreshRig, sourceId: string, body: Record<string, unknown>): Promise<request.Response> {
   return request(s.app.getHttpServer())
-    .post(`/api/sources/${sourceId}/refresh`)
+    .post(`/api/settings/sources/${sourceId}/refresh`)
     .set('Cookie', s.cookie)
     .send(body)
     .then((r) => r);
 }
 
 function getRefresh(s: RefreshRig, refreshId: string): Promise<request.Response> {
-  return request(s.app.getHttpServer()).get(`/api/refreshes/${refreshId}`).set('Cookie', s.cookie).then((r) => r);
+  return request(s.app.getHttpServer()).get(`/api/settings/refreshes/${refreshId}`).set('Cookie', s.cookie).then((r) => r);
 }
 
 function postConfirm(s: RefreshRig, refreshId: string, body: Record<string, unknown>): Promise<request.Response> {
   return request(s.app.getHttpServer())
-    .post(`/api/refreshes/${refreshId}/confirm`)
+    .post(`/api/settings/refreshes/${refreshId}/confirm`)
     .set('Cookie', s.cookie)
     .send(body)
     .then((r) => r);
@@ -147,7 +149,7 @@ function postConfirm(s: RefreshRig, refreshId: string, body: Record<string, unkn
 
 function postDiscard(s: RefreshRig, refreshId: string, body: Record<string, unknown>): Promise<request.Response> {
   return request(s.app.getHttpServer())
-    .post(`/api/refreshes/${refreshId}/discard`)
+    .post(`/api/settings/refreshes/${refreshId}/discard`)
     .set('Cookie', s.cookie)
     .send(body)
     .then((r) => r);
@@ -225,7 +227,7 @@ async function startRefreshOk(
   expect(res.status, `发起刷新前置失败: ${JSON.stringify(res.body)}`).toBe(202);
   const body = res.body as Record<string, unknown>;
   const id = body.id as string;
-  expect(res.headers.location, 'Location 应指向任务状态地址').toBe(`/api/refreshes/${id}`);
+  expect(res.headers.location, 'Location 应指向任务状态地址').toBe(`/api/settings/refreshes/${id}`);
   expectRefreshDtoShape(body, '202 响应');
   return { id, body };
 }
@@ -593,7 +595,7 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
     expect(busyAwaiting.body.code).toBe(ProblemCode.SOURCE_BUSY);
   });
 
-  it('未知/跨家庭来源与任务统一 404 同形;禁用来源 422 SOURCE_DISABLED;无会话 401;非 owner 403', async () => {
+  it('未知/跨家庭来源与任务统一 404 同形;禁用来源 422 SOURCE_DISABLED;无会话 401;admin 允许', async () => {
     const s = await bootstrap();
     const foreign = insertForeignHousehold();
     const foreignRefreshId = insertForeignRefresh(foreign);
@@ -601,10 +603,10 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
     // 无会话:SessionGuard 先于一切(四个端点同语义;逐个创建后立即 await ——
     // supertest 7 会在空闲时关闭自启服务器,批量预建 Test 对象会命中已关闭地址)
     const anonymousCases: Array<() => Promise<request.Response>> = [
-      () => request(s.app.getHttpServer()).post(`/api/sources/${randomUUID()}/refresh`).send(validRefreshBody()),
-      () => request(s.app.getHttpServer()).get(`/api/refreshes/${randomUUID()}`),
-      () => request(s.app.getHttpServer()).post(`/api/refreshes/${randomUUID()}/confirm`).send(validJobBody()),
-      () => request(s.app.getHttpServer()).post(`/api/refreshes/${randomUUID()}/discard`).send(validJobBody()),
+      () => request(s.app.getHttpServer()).post(`/api/settings/sources/${randomUUID()}/refresh`).send(validRefreshBody()),
+      () => request(s.app.getHttpServer()).get(`/api/settings/refreshes/${randomUUID()}`),
+      () => request(s.app.getHttpServer()).post(`/api/settings/refreshes/${randomUUID()}/confirm`).send(validJobBody()),
+      () => request(s.app.getHttpServer()).post(`/api/settings/refreshes/${randomUUID()}/discard`).send(validJobBody()),
     ];
     for (const send of anonymousCases) {
       const res = await send();
@@ -627,19 +629,11 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
     expect(disabledRefresh.status).toBe(422);
     expect(disabledRefresh.body.code).toBe(ProblemCode.SOURCE_DISABLED);
 
-    // 非 owner 403(先于目标归属与格式校验;四个端点同语义)
+    // 005 settings 边界 = owner/admin:admin 允许(禁用来源 422 先于一切;api.md §1)
     Database.db.prepare("UPDATE account SET role = 'admin'").run();
-    const forbiddenCases: Array<() => Promise<request.Response>> = [
-      () => postRefresh(s, disabled.body.id as string, validRefreshBody()),
-      () => getRefresh(s, randomUUID()),
-      () => postConfirm(s, randomUUID(), validJobBody()),
-      () => postDiscard(s, randomUUID(), validJobBody()),
-    ];
-    for (const send of forbiddenCases) {
-      const res = await send();
-      expect(res.status).toBe(403);
-      expect(res.body.code).toBe(ProblemCode.FORBIDDEN);
-    }
+    const adminDisabled = await postRefresh(s, disabled.body.id as string, validRefreshBody());
+    expect(adminDisabled.status).toBe(422);
+    expect(adminDisabled.body.code).toBe(ProblemCode.SOURCE_DISABLED);
     Database.db.prepare("UPDATE account SET role = 'owner'").run();
 
     // 任务端点:未知 refreshId vs 跨家庭 refreshId → 404 同形;confirm/discard 同样拒绝

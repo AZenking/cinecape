@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SESSION_COOKIE } from '@hmp/shared';
-import { cleanupRigs, startFreshApp, type TestRig } from '../../helpers';
+import { cleanupRigs, cookiePairOf, startFreshApp, type TestRig } from '../../helpers';
 import {
   PLAYBACK_FIXTURE_NOW,
   seedPlaybackWorld,
@@ -11,6 +11,7 @@ import {
 } from '../../fixtures/playback';
 import { getDb } from '../../../src/modules/auth/db';
 import { Database } from '../../../src/database/database';
+import { selectMainAndUnlockSettings } from '../../helpers-management';
 import { getConfig } from '../../../src/config/env';
 import { createPlaybackBudgets } from '../../../src/config/playback-budgets';
 import { hashToken } from '../../../src/modules/auth/token.service';
@@ -64,6 +65,23 @@ async function setupWorld(options?: { nasEnabled?: boolean }): Promise<Rig> {
   const rig = await startFreshApp({ prefix: 'hmp-t047-identity-' });
   const world = await seedPlaybackWorld(rig, { now: PLAYBACK_FIXTURE_NOW, nasEnabled: options?.nasEnabled ?? true });
   return { rig, world, cookie: `${SESSION_COOKIE}=${world.sessionToken}` };
+}
+
+/**
+ * US8 管理迁移夹具:把「有 PIN 成人档案」升格为主档案(库内直改,与 CHECK 一致),
+ * 另建一个独立管理会话(登录→选主档案→设置 PIN 解锁);管理写经 /api/settings/*。
+ */
+async function setupManagementSession(rig: { app: TestRig['app'] }, world: PlaybackWorld): Promise<string> {
+  Database.db
+    .prepare("UPDATE profile SET is_main = 1 WHERE id = ? AND type = 'adult' AND status = 'active' AND pin_hash IS NOT NULL")
+    .run(world.profileWithPinId);
+  const login = await request(rig.app.getHttpServer())
+    .post('/api/auth/login')
+    .send({ username: 'player', password: world.password });
+  expect(login.status).toBe(200);
+  const cookie = cookiePairOf(login);
+  await selectMainAndUnlockSettings(rig.app, cookie, { mainPin: world.pin, ownerPassword: world.password });
+  return cookie;
 }
 
 function sessionRowOf(sessionId: string): typeof playbackSession.$inferSelect {
@@ -180,17 +198,18 @@ describe('T047 · 身份变化事务终态化旧播放并撤票(FR-014)', () => 
   });
 
   it('档案停用(API PATCH status=disabled):使用该档案的会话身份清空 + pcv 递增 + 播放 interrupted + 撤票(不只清 active_profile_id)', async () => {
-    const { rig, world, cookie } = await setupWorld();
+    const { rig, world } = await setupWorld();
+    const managementCookie = await setupManagementSession(rig, world);
     // 会话当前使用 A(world.profileId),旧上下文(A)活动播放即为本用例的核对面
     const sessionId = seedActiveSession(world);
     const ticketId = seedTicket(world, sessionId);
     const pcvBefore = deviceSessionRowOf(world.deviceSessionId).profileContextVersion;
 
-    // 停用 A:家庭内 B 仍可用(「至少一个可用」守卫通过)
+    // 停用 A(US8:管理写迁 /api/settings/profiles,expectedVersion CAS + 当次密码)
     const disable = await request(rig.app.getHttpServer())
-      .patch(`/api/profiles/${world.profileId}`)
-      .set('Cookie', cookie)
-      .send({ status: 'disabled', ownerPassword: world.password });
+      .patch(`/api/settings/profiles/${world.profileId}`)
+      .set('Cookie', managementCookie)
+      .send({ status: 'disabled', clearPin: false, expectedVersion: 1, ownerPassword: world.password });
     expect(disable.status, JSON.stringify(disable.body)).toBe(200);
 
     const after = deviceSessionRowOf(world.deviceSessionId);
@@ -203,7 +222,8 @@ describe('T047 · 身份变化事务终态化旧播放并撤票(FR-014)', () => 
   });
 
   it('PIN 变更(API PATCH pin):强制重新选档 —— 清身份 + pcv 递增 + 播放终态化 + 撤票 + pin_version 递增', async () => {
-    const { rig, world, cookie } = await setupWorld();
+    const { rig, world } = await setupWorld();
+    const managementCookie = await setupManagementSession(rig, world);
     const sessionId = seedActiveSession(world);
     const ticketId = seedTicket(world, sessionId);
     const pcvBefore = deviceSessionRowOf(world.deviceSessionId).profileContextVersion;
@@ -212,9 +232,9 @@ describe('T047 · 身份变化事务终态化旧播放并撤票(FR-014)', () => 
     ).pin_version;
 
     const res = await request(rig.app.getHttpServer())
-      .patch(`/api/profiles/${world.profileId}`)
-      .set('Cookie', cookie)
-      .send({ pin: '654321', ownerPassword: world.password });
+      .patch(`/api/settings/profiles/${world.profileId}`)
+      .set('Cookie', managementCookie)
+      .send({ pin: '654321', clearPin: false, expectedVersion: 1, ownerPassword: world.password });
     expect(res.status, JSON.stringify(res.body)).toBe(200);
 
     const after = deviceSessionRowOf(world.deviceSessionId);
@@ -230,13 +250,14 @@ describe('T047 · 身份变化事务终态化旧播放并撤票(FR-014)', () => 
   });
 
   it('设备撤销(API):该设备全部会话的活动播放终态化并撤票(不依赖前端 stop)', async () => {
-    const { rig, world, cookie } = await setupWorld();
+    const { rig, world } = await setupWorld();
+    const managementCookie = await setupManagementSession(rig, world);
     const sessionId = seedActiveSession(world);
     const ticketId = seedTicket(world, sessionId);
 
     const revoke = await request(rig.app.getHttpServer())
-      .post(`/api/devices/${world.deviceId}/revoke`)
-      .set('Cookie', cookie)
+      .post(`/api/settings/devices/${world.deviceId}/revoke`)
+      .set('Cookie', managementCookie)
       .send({ ownerPassword: world.password });
     expect(revoke.status).toBe(204);
 

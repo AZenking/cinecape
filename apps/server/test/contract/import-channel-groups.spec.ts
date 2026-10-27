@@ -15,6 +15,7 @@ import {
   login,
   type ControlledMediaServer,
 } from '../helpers';
+import { selectMainAndUnlockSettings } from '../helpers-management';
 import { groupKeyOf } from '../../src/modules/live/live-grouping';
 import { AppModule } from '../../src/app.module';
 import { LiveModule } from '../../src/modules/live/live.module';
@@ -79,7 +80,9 @@ async function bootstrap(): Promise<Rig> {
   expect(init.status).toBe(201);
   const loggedIn = await login(app, INITIALIZE_BODY.username, OWNER_PASSWORD);
   expect(loggedIn.status).toBe(200);
-  return { app, cookie: cookiePairOf(loggedIn), sessionId: loggedIn.body.sessionId as string, dataDir, dbFilename };
+  const cookie = cookiePairOf(loggedIn);
+  await selectMainAndUnlockSettings(app, cookie);
+  return { app, cookie, sessionId: loggedIn.body.sessionId as string, dataDir, dbFilename };
 }
 
 /** 同一 DATA_DIR 重启(真实重启语义;不重放迁移) */
@@ -124,7 +127,7 @@ afterAll(async () => {
 /** 创建 IPTV 来源(创建期禁回环,先占位 URL,再以既有 DB 访问模式接到受控夹具) */
 async function createIptvSource(rig: Rig, name: string, targetPath: string): Promise<string> {
   const created = await request(rig.app.getHttpServer())
-    .post('/api/sources')
+    .post('/api/settings/sources')
     .set('Cookie', rig.cookie)
     .send({ ownerPassword: OWNER_PASSWORD, kind: 'iptv', name, remoteUrl: 'http://iptv.placeholder.invalid/list.m3u' });
   expect(created.status).toBe(201);
@@ -138,7 +141,7 @@ async function createIptvSource(rig: Rig, name: string, targetPath: string): Pro
 
 async function startRefresh(rig: Rig, sourceId: string): Promise<string> {
   const res = await request(rig.app.getHttpServer())
-    .post(`/api/sources/${sourceId}/refresh`)
+    .post(`/api/settings/sources/${sourceId}/refresh`)
     .set('Cookie', rig.cookie)
     .send({ ownerPassword: OWNER_PASSWORD, expectedVersion: 1, operationKey: randomUUID() });
   expect(res.status, JSON.stringify(res.body)).toBe(202);
@@ -148,7 +151,7 @@ async function startRefresh(rig: Rig, sourceId: string): Promise<string> {
 async function waitForStatus(rig: Rig, refreshId: string, statuses: string[], timeoutMs = 10_000): Promise<Record<string, unknown>> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const res = await request(rig.app.getHttpServer()).get(`/api/refreshes/${refreshId}`).set('Cookie', rig.cookie);
+    const res = await request(rig.app.getHttpServer()).get(`/api/settings/refreshes/${refreshId}`).set('Cookie', rig.cookie);
     expect(res.status).toBe(200);
     const body = res.body as Record<string, unknown>;
     if (statuses.includes(body.status as string)) {

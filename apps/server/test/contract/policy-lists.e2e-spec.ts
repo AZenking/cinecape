@@ -14,6 +14,7 @@ import {
   login,
   startFreshApp,
 } from '../helpers';
+import { ensureSettingsUnlocked } from '../helpers-management';
 
 /**
  * T049(US3 契约 e2e):PUT /profiles/{profileId}/policy/lists —— 真实媒体黑白名单事务。
@@ -91,17 +92,18 @@ async function setupLists(): Promise<ListsFixture> {
   const loggedIn = await login(app, INITIALIZE_BODY.username, OWNER_PASSWORD);
   expect(loggedIn.status).toBe(200);
   const cookie = cookiePairOf(loggedIn);
+  await ensureSettingsUnlocked(app, cookie);
   const household = await request(app.getHttpServer()).get('/api/household').set('Cookie', cookie);
   const householdId = (household.body as { id: string }).id;
 
   // 成人档案先建:停用目标(儿童)档案时家庭仍保留可用档案,不触发「最后可用档案」保护
   const adult = await request(app.getHttpServer())
-    .post('/api/profiles')
+    .post('/api/settings/profiles')
     .set('Cookie', cookie)
     .send({ name: '名单成人', type: 'adult', ownerPassword: OWNER_PASSWORD });
   expect(adult.status).toBe(201);
   const child = await request(app.getHttpServer())
-    .post('/api/profiles')
+    .post('/api/settings/profiles')
     .set('Cookie', cookie)
     .send({ name: '名单儿童', type: 'child', ownerPassword: OWNER_PASSWORD });
   expect(child.status).toBe(201);
@@ -113,14 +115,14 @@ async function setupLists(): Promise<ListsFixture> {
 
 function putLists(f: ListsFixture, body: Record<string, unknown>): request.Test {
   return request(f.app.getHttpServer())
-    .put(`/api/profiles/${f.profileId}/policy/lists`)
+    .put(`/api/settings/profiles/${f.profileId}/policy/lists`)
     .set('Cookie', f.cookie)
     .send(body);
 }
 
 function putLevel(f: ListsFixture, expectedVersion: number, policy: Record<string, unknown>): request.Test {
   return request(f.app.getHttpServer())
-    .put(`/api/profiles/${f.profileId}/policy`)
+    .put(`/api/settings/profiles/${f.profileId}/policy`)
     .set('Cookie', f.cookie)
     .send({ ownerPassword: OWNER_PASSWORD, expectedVersion, policy });
 }
@@ -363,9 +365,9 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
   it('非 active Profile 保存成功:归属校验与是否 active 无关', async () => {
     const f = await setupLists();
     const disable = await request(f.app.getHttpServer())
-      .patch(`/api/profiles/${f.profileId}`)
+      .patch(`/api/settings/profiles/${f.profileId}`)
       .set('Cookie', f.cookie)
-      .send({ ownerPassword: OWNER_PASSWORD, status: 'disabled' });
+      .send({ ownerPassword: OWNER_PASSWORD, status: 'disabled', clearPin: false, expectedVersion: 1 });
     expect(disable.status).toBe(200);
     expect((disable.body as { status: string }).status).toBe('disabled');
 
@@ -421,20 +423,20 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
     expect(wrongPwd.body.code).toBe(ProblemCode.PARENT_VERIFICATION_FAILED);
     expect(String(wrongPwd.body.detail ?? '')).not.toContain('not-the-password');
 
-    // 非 owner:403 先于格式校验(非法名单同样 403)
+    // 005 settings 边界 = owner/admin:admin 允许(超长 ID 400 先于密码校验)
     Database.db.prepare("UPDATE account SET role = 'admin'").run();
     const admin = await putLists(f, { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, allowedMediaIds: ['x'.repeat(129)], blockedMediaIds: [], allowedChannelIds: [] });
-    expect(admin.status).toBe(403);
-    expect(admin.body.code).toBe(ProblemCode.FORBIDDEN);
+    expect(admin.status).toBe(400);
+    expect(admin.body.code).toBe(ProblemCode.VALIDATION_FAILED);
     Database.db.prepare("UPDATE account SET role = 'owner'").run();
 
     // 不存在与跨家庭 Profile 统一 404 同形
     const missing = await request(f.app.getHttpServer())
-      .put(`/api/profiles/${randomUUID()}/policy/lists`)
+      .put(`/api/settings/profiles/${randomUUID()}/policy/lists`)
       .set('Cookie', f.cookie)
       .send({ ownerPassword: OWNER_PASSWORD, expectedVersion: 1, ...validLists });
     const foreignProfile = await request(f.app.getHttpServer())
-      .put(`/api/profiles/${FOREIGN_PROFILE_ID}/policy/lists`)
+      .put(`/api/settings/profiles/${FOREIGN_PROFILE_ID}/policy/lists`)
       .set('Cookie', f.cookie)
       .send({ ownerPassword: OWNER_PASSWORD, expectedVersion: 1, ...validLists });
     for (const problem of [missing, foreignProfile]) {

@@ -14,6 +14,7 @@ import {
   login,
   startFreshApp,
 } from '../helpers';
+import { selectMainAndUnlockSettings } from '../helpers-management';
 
 /**
  * T032(US2 契约 e2e):观看目录 GET /media 与 GET /media/{mediaId}。
@@ -179,12 +180,14 @@ async function setupCatalog(): Promise<CatalogFixture> {
   const household = await request(app.getHttpServer()).get('/api/household').set('Cookie', cookie);
   const householdId = (household.body as { id: string }).id;
 
+  // US8 管理迁移:档案创建前置 = 主档案选中 + 设置解锁
+  await selectMainAndUnlockSettings(app, cookie);
   const adult = await request(app.getHttpServer())
-    .post('/api/profiles')
+    .post('/api/settings/profiles')
     .set('Cookie', cookie)
     .send({ name: '成人', type: 'adult', ownerPassword: OWNER_PASSWORD });
   const child = await request(app.getHttpServer())
-    .post('/api/profiles')
+    .post('/api/settings/profiles')
     .set('Cookie', cookie)
     .send({ name: '儿童', type: 'child', ownerPassword: OWNER_PASSWORD });
   expect(adult.status).toBe(201);
@@ -195,7 +198,7 @@ async function setupCatalog(): Promise<CatalogFixture> {
   // 儿童策略:等级 6 + 未评级拒绝(经 API 保存);三名单直写(照 policy-api.e2e-spec 惯例):
   // allowed∩blocked 同 id 交集 → 黑名单必须优先;频道白名单仅 m-zeta。
   const saved = await request(app.getHttpServer())
-    .put(`/api/profiles/${childProfileId}/policy`)
+    .put(`/api/settings/profiles/${childProfileId}/policy`)
     .set('Cookie', cookie)
     .send({ ownerPassword: OWNER_PASSWORD, expectedVersion: 1, policy: { maxContentLevel: 6, allowUnrated: false } });
   expect(saved.status).toBe(200);

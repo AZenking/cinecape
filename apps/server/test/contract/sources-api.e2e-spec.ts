@@ -16,6 +16,7 @@ import {
   startFreshApp,
   type NasRootFixture,
 } from '../helpers';
+import { selectMainAndUnlockSettings } from '../helpers-management';
 
 /**
  * T018(US1 契约 e2e):来源管理 —— GET /sources、POST /sources、PATCH /sources/{sourceId}、
@@ -56,6 +57,8 @@ async function bootstrap(env: Record<string, string> = {}): Promise<SourcesRig> 
   expect(loggedIn.status).toBe(200);
   const household = await request(app.getHttpServer()).get('/api/household').set('Cookie', cookiePairOf(loggedIn));
   expect(household.status).toBe(200);
+  // US8 管理迁移:管理写前置 = 主档案已选 + 设置解锁(零档案时由夹具首建主档案)
+  await selectMainAndUnlockSettings(app, cookiePairOf(loggedIn));
   const accountRow = Database.db.prepare("SELECT id FROM account WHERE role = 'owner'").get() as { id: string };
   return {
     app,
@@ -77,25 +80,25 @@ afterEach(() => {
 
 function getSources(s: SourcesRig, query = ''): Promise<request.Response> {
   return request(s.app.getHttpServer())
-    .get(`/api/sources${query}`)
+    .get(`/api/settings/sources${query}`)
     .set('Cookie', s.cookie)
     .then((r) => r);
 }
 
 function postSource(s: SourcesRig, body: Record<string, unknown>): Promise<request.Response> {
-  return request(s.app.getHttpServer()).post('/api/sources').set('Cookie', s.cookie).send(body).then((r) => r);
+  return request(s.app.getHttpServer()).post('/api/settings/sources').set('Cookie', s.cookie).send(body).then((r) => r);
 }
 
 function patchSource(s: SourcesRig, sourceId: string, body: Record<string, unknown>): Promise<request.Response> {
   return request(s.app.getHttpServer())
-    .patch(`/api/sources/${sourceId}`)
+    .patch(`/api/settings/sources/${sourceId}`)
     .set('Cookie', s.cookie)
     .send(body)
     .then((r) => r);
 }
 
 function getSourceRoots(s: SourcesRig): Promise<request.Response> {
-  return request(s.app.getHttpServer()).get('/api/source-roots').set('Cookie', s.cookie).then((r) => r);
+  return request(s.app.getHttpServer()).get('/api/settings/source-roots').set('Cookie', s.cookie).then((r) => r);
 }
 
 interface CreateOverrides {
@@ -235,7 +238,7 @@ describe('T018 来源管理(契约 e2e)', () => {
 
   it('GET /sources:无会话 401;SourcePage 形状;SourceDto 键集合与脱敏 locationLabel(无 path/query/userinfo)', async () => {
     const s = await bootstrap();
-    const anonymous = await request(s.app.getHttpServer()).get('/api/sources');
+    const anonymous = await request(s.app.getHttpServer()).get('/api/settings/sources');
     expect(anonymous.status).toBe(401);
     expectProblemContentType(anonymous);
     expect(anonymous.body.code).toBe(ProblemCode.SESSION_INVALID);
@@ -277,26 +280,23 @@ describe('T018 来源管理(契约 e2e)', () => {
     expect(serialized).not.toContain('householdId');
   });
 
-  it('GET /sources:非 owner 403 FORBIDDEN;POST/PATCH 同样 owner only(先于格式校验)', async () => {
+  it('GET/POST/PATCH sources:admin 角色在 005 settings 边界内允许(Owner/admin + grant;api.md §1)', async () => {
     const s = await bootstrap();
     Database.db.prepare("UPDATE account SET role = 'admin'").run();
 
     const list = await getSources(s);
-    expect(list.status).toBe(403);
-    expect(list.body.code).toBe(ProblemCode.FORBIDDEN);
+    expect(list.status).toBe(200);
 
     const created = await postSource(s, createBody());
-    expect(created.status).toBe(403);
-    expect(created.body.code).toBe(ProblemCode.FORBIDDEN);
+    expect(created.status).toBe(201);
+    expect(created.body.version).toBe(1);
 
-    const patched = await patchSource(s, randomUUID(), {
+    const patched = await patchSource(s, (created.body as { id: string }).id, {
       ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       name: 'X',
     });
-    expect(patched.status).toBe(403);
-    expect(patched.body.code).toBe(ProblemCode.FORBIDDEN);
-    expect(sourceCountInHousehold(s.householdId)).toBe(0);
+    expect(patched.status).toBe(200);
   });
 
   it('GET /sources:分页默认 1/20;page/pageSize 切片;非法分页与未知查询键 400', async () => {
@@ -815,9 +815,9 @@ describe('T018 来源管理(契约 e2e)', () => {
     expect(noPwd.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
   });
 
-  it('GET /source-roots:无会话 401;RootDto(rootKey+label)不含绝对路径;非 owner 403;未配置根为空数组', async () => {
+  it('GET /source-roots:无会话 401;RootDto(rootKey+label)不含绝对路径;admin 允许;未配置根为空数组', async () => {
     const s = await bootstrap();
-    const anonymous = await request(s.app.getHttpServer()).get('/api/source-roots');
+    const anonymous = await request(s.app.getHttpServer()).get('/api/settings/source-roots');
     expect(anonymous.status).toBe(401);
     expect(anonymous.body.code).toBe(ProblemCode.SESSION_INVALID);
 
@@ -829,9 +829,9 @@ describe('T018 来源管理(契约 e2e)', () => {
     expect(serialized).not.toContain('/');
 
     Database.db.prepare("UPDATE account SET role = 'admin'").run();
-    const forbidden = await getSourceRoots(s);
-    expect(forbidden.status).toBe(403);
-    expect(forbidden.body.code).toBe(ProblemCode.FORBIDDEN);
+    const adminAllowed = await getSourceRoots(s);
+    // 005 settings 边界 = owner/admin:admin 允许读取(旧 owner-only 前提已被 005 取代)
+    expect(adminAllowed.status).toBe(200);
 
     const noRoots = await bootstrap({ MEDIA_ROOTS: '' });
     const emptyRes = await getSourceRoots(noRoots);

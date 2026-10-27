@@ -18,6 +18,7 @@ import {
   type PlaybackSessionFixture,
   type PlaybackWorld,
 } from '../fixtures/playback';
+import { selectMainAndUnlockSettings } from '../helpers-management';
 import { getDb } from '../../src/modules/auth/db';
 import { Database } from '../../src/database/database';
 import { deviceSession } from '../../src/database/schema';
@@ -136,9 +137,17 @@ describe('T045 · resolve 上下文绑定与旧上下文拒绝(FR-014/SC-003 负
       state: 'playing',
       delivery: 'hls_proxy',
       playbackSourceId: rig.world.iptv.playbackSourceId,
+      // 005:解锁换档后设备会话身份=主档案;旧播放绑定该档案,撤销才会在同一事务被终态化
+      profileId: rig.world.profileWithPinId,
       ticket: {},
       at: PLAYBACK_FIXTURE_NOW,
     });
+    // pcv 对齐(种子行默认 1,换档后设备会话已 +1)
+    Database.db
+      .prepare(
+        'UPDATE playback_session SET profile_context_version = (SELECT profile_context_version FROM device_session WHERE id = ?) WHERE id = ?',
+      )
+      .run(rig.world.deviceSessionId, oldSession.sessionId);
     const oldTicket = oldSession.ticket;
     if (oldTicket === null) {
       throw new Error('夹具错误:旧票未建立');
@@ -203,9 +212,17 @@ describe('T045 · resolve 上下文绑定与旧上下文拒绝(FR-014/SC-003 负
       state: 'playing',
       delivery: 'hls_proxy',
       playbackSourceId: rig.world.iptv.playbackSourceId,
+      // 005:解锁换档后设备会话身份=主档案;旧播放绑定该档案,撤销才会在同一事务被终态化
+      profileId: rig.world.profileWithPinId,
       ticket: {},
       at: PLAYBACK_FIXTURE_NOW,
     });
+    // pcv 对齐(种子行默认 1,换档后设备会话已 +1)
+    Database.db
+      .prepare(
+        'UPDATE playback_session SET profile_context_version = (SELECT profile_context_version FROM device_session WHERE id = ?) WHERE id = ?',
+      )
+      .run(rig.world.deviceSessionId, oldSession.sessionId);
 
     const logout = await request(rig.app.getHttpServer()).post('/api/auth/logout').set('Cookie', rig.cookie).send({});
     expect(logout.status).toBe(204);
@@ -243,16 +260,30 @@ describe('T045 · resolve 上下文绑定与旧上下文拒绝(FR-014/SC-003 负
 
   it('设备撤销后旧会话/旧票拒绝;旧活动播放被同一事务终态化(不依赖前端 stop)', async () => {
     const rig = await setupWorld();
+    // US8:设备撤销迁入设置边界(/settings/devices/{id}/revoke)——先解锁设置。
+    // 此时库内尚无活动播放,解锁的换档不产生终态化干扰;撤销终态化由本用例单独验证。
+    Database.db
+      .prepare("UPDATE profile SET is_main = 1 WHERE id = ? AND type = 'adult' AND status = 'active' AND pin_hash IS NOT NULL")
+      .run(rig.world.profileWithPinId);
+    await selectMainAndUnlockSettings(rig.app, rig.cookie, { mainPin: rig.world.pin });
     const oldSession = seedPlaybackSession(rig.world, {
       state: 'playing',
       delivery: 'hls_proxy',
       playbackSourceId: rig.world.iptv.playbackSourceId,
+      // 005:解锁换档后设备会话身份=主档案;旧播放绑定该档案,撤销才会在同一事务被终态化
+      profileId: rig.world.profileWithPinId,
       ticket: {},
       at: PLAYBACK_FIXTURE_NOW,
     });
+    // pcv 对齐(种子行默认 1,换档后设备会话已 +1)
+    Database.db
+      .prepare(
+        'UPDATE playback_session SET profile_context_version = (SELECT profile_context_version FROM device_session WHERE id = ?) WHERE id = ?',
+      )
+      .run(rig.world.deviceSessionId, oldSession.sessionId);
 
     const revoke = await request(rig.app.getHttpServer())
-      .post(`/api/devices/${rig.world.deviceId}/revoke`)
+      .post(`/api/settings/devices/${rig.world.deviceId}/revoke`)
       .set('Cookie', rig.cookie)
       .send({ ownerPassword: rig.world.password });
     expect(revoke.status, JSON.stringify(revoke.body)).toBe(204);
@@ -281,9 +312,17 @@ describe('T045 · resolve 上下文绑定与旧上下文拒绝(FR-014/SC-003 负
       state: 'playing',
       delivery: 'hls_proxy',
       playbackSourceId: rig.world.iptv.playbackSourceId,
+      // 005:解锁换档后设备会话身份=主档案;旧播放绑定该档案,撤销才会在同一事务被终态化
+      profileId: rig.world.profileWithPinId,
       ticket: {},
       at: PLAYBACK_FIXTURE_NOW,
     });
+    // pcv 对齐(种子行默认 1,换档后设备会话已 +1)
+    Database.db
+      .prepare(
+        'UPDATE playback_session SET profile_context_version = (SELECT profile_context_version FROM device_session WHERE id = ?) WHERE id = ?',
+      )
+      .run(rig.world.deviceSessionId, oldSession.sessionId);
     const ticket = oldSession.ticket;
     if (ticket === null) {
       throw new Error('夹具错误:旧票未建立');

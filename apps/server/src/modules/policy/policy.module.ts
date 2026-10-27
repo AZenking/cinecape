@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { PolicyController } from './policy.controller';
 
 /**
  * Policy 模块(T011):策略管理契约路由。
@@ -8,6 +7,6 @@ import { PolicyController } from './policy.controller';
  * 不注册到本模块或生产 AppModule(FR-015/plan)。
  */
 @Module({
-  controllers: [PolicyController],
+  controllers: [],
 })
 export class PolicyModule {}

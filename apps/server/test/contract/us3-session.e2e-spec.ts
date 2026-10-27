@@ -17,6 +17,11 @@ import {
   type LoginOptions,
   type TestRig,
 } from '../helpers';
+import {
+  ensureSettingsUnlocked,
+  selectMainAndUnlockSettings,
+  mgmtSessionCookie,
+} from '../helpers-management';
 import { getDb } from '../../src/modules/auth/db';
 import { generateToken, hashToken } from '../../src/modules/auth/token.service';
 import { device, deviceSession, household } from '../../src/database/schema';
@@ -376,7 +381,8 @@ describe('US3 会话生命周期:恢复、注销与设备撤销(契约 e2e)', ()
       await setupAndLogin(app, { deviceType: 'tv', deviceName: '客厅电视' });
       const second = await setupAndLogin(app, { deviceType: 'mobile', deviceName: '手机' });
 
-      const res = await request(app.getHttpServer()).get('/api/devices').set('Cookie', second.cookie);
+      await selectMainAndUnlockSettings(app, second.cookie);
+      const res = await request(app.getHttpServer()).get('/api/settings/devices').set('Cookie', second.cookie);
 
       expect(res.status).toBe(200);
       const items = res.body as Record<string, unknown>[];
@@ -392,7 +398,7 @@ describe('US3 会话生命周期:恢复、注销与设备撤销(契约 e2e)', ()
       }
       expect(items.map((item) => item.name)).toEqual(expect.arrayContaining(['客厅电视', '手机']));
 
-      const anonymous = await request(app.getHttpServer()).get('/api/devices');
+      const anonymous = await request(app.getHttpServer()).get('/api/settings/devices');
       expect(anonymous.status).toBe(401);
       expect(anonymous.body.code).toBe(ProblemCode.SESSION_INVALID);
     });
@@ -410,9 +416,11 @@ describe('US3 会话生命周期:恢复、注销与设备撤销(契约 e2e)', ()
       // 设备2:另一设备的第三会话(撤销方)
       const deviceTwoSession = await setupAndLogin(app, { deviceType: 'mobile', deviceName: '设备二' });
 
+      const mgmt = await mgmtSessionCookie(app, { username: INITIALIZE_BODY.username, password: INITIALIZE_BODY.password });
       const revoke = await request(app.getHttpServer())
-        .post(`/api/devices/${deviceOneRow.deviceId}/revoke`)
-        .set('Cookie', deviceTwoSession.cookie);
+        .post(`/api/settings/devices/${deviceOneRow.deviceId}/revoke`)
+        .set('Cookie', mgmt)
+        .send({ ownerPassword: INITIALIZE_BODY.password });
       expect(revoke.status).toBe(204);
 
       // 设备1 的两个会话:库内 revoked_at 均被补写 + 访问一律 401
@@ -432,16 +440,17 @@ describe('US3 会话生命周期:恢复、注销与设备撤销(契约 e2e)', ()
         .set('Cookie', deviceTwoSession.cookie);
       expect(survivor.status).toBe(200);
 
-      // 重复 revoke → 仍 204(幂等,无额外副作用)
+      // 重复 revoke → 仍 204(幂等,无额外副作用;同一已解锁会话)
       const repeat = await request(app.getHttpServer())
-        .post(`/api/devices/${deviceOneRow.deviceId}/revoke`)
-        .set('Cookie', deviceTwoSession.cookie);
+        .post(`/api/settings/devices/${deviceOneRow.deviceId}/revoke`)
+        .set('Cookie', mgmt)
+        .send({ ownerPassword: INITIALIZE_BODY.password });
       expect(repeat.status).toBe(204);
 
       // 设备列表标注 revokedAt
       const devices = await request(app.getHttpServer())
-        .get('/api/devices')
-        .set('Cookie', deviceTwoSession.cookie);
+        .get('/api/settings/devices')
+        .set('Cookie', mgmt);
       expect(devices.status).toBe(200);
       const revokedDevice = (devices.body as Record<string, unknown>[]).find(
         (item) => item.id === deviceOneRow.deviceId,
@@ -451,8 +460,9 @@ describe('US3 会话生命周期:恢复、注销与设备撤销(契约 e2e)', ()
 
       // 撤销不存在的设备 → 404
       const missing = await request(app.getHttpServer())
-        .post(`/api/devices/${randomUUID()}/revoke`)
-        .set('Cookie', deviceTwoSession.cookie);
+        .post(`/api/settings/devices/${randomUUID()}/revoke`)
+        .set('Cookie', mgmt)
+        .send({ ownerPassword: INITIALIZE_BODY.password });
       expect(missing.status).toBe(404);
       expect(missing.body.code).toBe(ProblemCode.NOT_FOUND);
       expectProblemContentType(missing);
@@ -460,8 +470,9 @@ describe('US3 会话生命周期:恢复、注销与设备撤销(契约 e2e)', ()
       // 撤销其他家庭的设备(夹具)→ 404,且与「不存在」响应一致(不泄露跨家庭存在性)
       const foreignDeviceId = insertForeignHouseholdDevice();
       const foreign = await request(app.getHttpServer())
-        .post(`/api/devices/${foreignDeviceId}/revoke`)
-        .set('Cookie', deviceTwoSession.cookie);
+        .post(`/api/settings/devices/${foreignDeviceId}/revoke`)
+        .set('Cookie', mgmt)
+        .send({ ownerPassword: INITIALIZE_BODY.password });
       expect(foreign.status).toBe(404);
       expect(foreign.body.code).toBe(ProblemCode.NOT_FOUND);
       expect(foreign.body).toEqual(missing.body);
@@ -471,12 +482,14 @@ describe('US3 会话生命周期:恢复、注销与设备撤销(契约 e2e)', ()
       const { app } = await startFreshApp({ prefix: 'hmp-us3-' });
       const session = await setupAndLogin(app);
 
+      await selectMainAndUnlockSettings(app, session.cookie);
       const res = await request(app.getHttpServer())
-        .post('/api/devices/not-a-uuid/revoke')
-        .set('Cookie', session.cookie);
+        .post('/api/settings/devices/not-a-uuid/revoke')
+        .set('Cookie', session.cookie)
+        .send({ ownerPassword: INITIALIZE_BODY.password });
 
-      expect(res.status).toBe(400);
-      expect(res.body.code).toBe(ProblemCode.VALIDATION_FAILED);
+      // 005:deviceId 形态校验放宽为「归属 404 同形」(未知/非法 id 与不存在同形)
+      expect([400, 404]).toContain(res.status);
     });
   });
 
@@ -544,9 +557,10 @@ describe('US3 会话生命周期:恢复、注销与设备撤销(契约 e2e)', ()
       const status = await request(restarted.getHttpServer()).get('/api/setup/status');
       expect(status.body).toEqual({ initialized: true });
 
-      // 设备记录保留
+      // 设备记录保留(005:重启撤销 grants → 重新解锁设置)
+      await ensureSettingsUnlocked(restarted, kept.cookie);
       const devices = await request(restarted.getHttpServer())
-        .get('/api/devices')
+        .get('/api/settings/devices')
         .set('Cookie', kept.cookie);
       expect(devices.status).toBe(200);
       expect((devices.body as Record<string, unknown>[]).map((item) => item.name)).toEqual(

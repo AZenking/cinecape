@@ -312,6 +312,8 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
                   playbackGeneration: ticket.generation,
                   playbackUrl: ticket.playbackUrl,
                   ticketExpiresAt: ticket.ticketExpiresAt,
+                  // T101:resume 由服务端冻结的起播位置(US4;beginning/无有效进度恒 0)
+                  presentationStartSeconds: status.presentationStartSeconds,
                 },
               });
             } catch (error) {
@@ -377,14 +379,21 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
     [session, runPlayback, startLogin],
   );
 
-  /** 关闭播放面:废弃当前意图并补发幂等 stop(用户主动退出) */
+  /**
+   * 关闭播放面:废弃当前意图并补发幂等 stop(用户主动退出)。
+   * T104(US4):playing 相位的 stop 由 PlayerView 卸载时的进度队列承担
+   * (携 finalProgress / 未确认时空 stop + 未保存提示),本处不再并发空 stop ——
+   * 空 stop 先到终态化会话会让 final 成为无害 no-op,丢失最终保存。其余相位
+   * (authorizing/preparing/unavailable)仍保留幂等清理;换档/退出路径同样保留
+   * (服务端身份变化事务已终态化并 flush,客户端补发仅作卫生清理)。
+   */
   const close = useCallback((): void => {
     const current = stateRef.current.playback;
     if (current === null) {
       return;
     }
     dispatchWithMirror({ type: 'playEnd', intentId: current.intentId });
-    if (current.sessionId !== null) {
+    if (current.sessionId !== null && current.phase !== 'playing') {
       abandonSession(current.sessionId);
     }
   }, [abandonSession]);
@@ -744,6 +753,7 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
                   playbackUrl={playback.playbackUrl}
                   ticketExpiresAt={playback.ticketExpiresAt ?? ''}
                   delivery={playback.delivery}
+                  presentationStartSeconds={playback.presentationStartSeconds ?? 0}
                   onTerminated={(message) => {
                     dispatchWithMirror({ type: 'playPatch', intentId: playback.intentId, patch: { phase: 'unavailable', message } });
                   }}

@@ -29,7 +29,7 @@ import {
  * 2. 旧已初始化库(0001~0005)只读拒绝:预检判 STORAGE_GENERATION_UNSUPPORTED
  *    且主库文件 sha256 不变(不得自动升级/清空);
  * 3. 守卫拒绝未认证管理读取:startFreshApp 后无 Cookie 请求既有管理路由
- *    (GET /api/sources、GET /api/devices,均挂 SessionGuard)→ 401 SESSION_INVALID。
+ *    (GET /api/settings/sources、GET /api/settings/devices,均挂 SessionGuard)→ 401 SESSION_INVALID。
  *
  * 夹具照 migration-0006.spec.ts(独立 DATA_DIR + Database.close() 单例重置)与
  * test/helpers.ts(startFreshApp)既有模式;不新增夹具机制。
@@ -154,10 +154,10 @@ describe('T013 foundation 冒烟 · 服务端(仅 Phase 1~2 基础骨架)', () =
     expect(sha256(rig.dbFile)).toBe(hashBefore);
   });
 
-  it('守卫拒绝未认证管理读取:GET /api/sources 与 /api/devices 无 Cookie → 401 SESSION_INVALID', async () => {
+  it('守卫拒绝未认证管理读取:GET /api/settings/sources 与 /api/devices 无 Cookie → 401 SESSION_INVALID', async () => {
     const rig = await startFreshApp({ prefix: 'hmp-foundation-guard-' });
 
-    for (const adminPath of ['/api/sources', '/api/devices']) {
+    for (const adminPath of ['/api/settings/sources', '/api/settings/devices']) {
       const res = await request(rig.app.getHttpServer()).get(adminPath);
       expect(res.status, `${adminPath} 未认证应 401`).toBe(401);
       expectProblemContentType(res);
@@ -169,7 +169,7 @@ describe('T013 foundation 冒烟 · 服务端(仅 Phase 1~2 基础骨架)', () =
     const rig = await startFreshApp({ prefix: 'hmp-foundation-guard-forged-' });
 
     const res = await request(rig.app.getHttpServer())
-      .get('/api/devices')
+      .get('/api/settings/devices')
       .set('Cookie', 'hmp_session=forged-invalid-token');
     expect(res.status).toBe(401);
     expectProblemContentType(res);

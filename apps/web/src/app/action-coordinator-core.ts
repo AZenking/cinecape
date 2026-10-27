@@ -60,6 +60,11 @@ export interface PlaybackIntentState {
   readonly ticketExpiresAt: string | null;
   /** 探测确定的交付模式(native direct 或 hls.js 消费) */
   readonly delivery: string | null;
+  /**
+   * 服务端冻结的起播位置秒(T101,005 US4 resume):ready 状态读取;direct 交付由
+   * 播放器安装时定位,转换交付经 presentationStart 安装。beginning/无有效进度恒 0。
+   */
+  readonly presentationStartSeconds: number | null;
   /** 面向观看者的稳定提示(授权拒绝/资源不可用;不含内部策略与源位置) */
   readonly message: string | null;
 }
@@ -200,6 +205,7 @@ export function coordinatorReducer(state: CoordinatorState, action: CoordinatorA
           playbackUrl: null,
           ticketExpiresAt: null,
           delivery: null,
+          presentationStartSeconds: null,
           message: null,
         },
         pendingPlay: null,

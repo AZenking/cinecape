@@ -6,6 +6,7 @@ import { getDb } from '../auth/db';
 import { deviceSession, playbackSession } from '../../database/schema';
 import type { PlaybackAuthorizationService, PlaybackResourceCandidate } from './playback-authorization.service';
 import type { PlaybackRepository } from './playback.repository';
+import type { PlaybackProgressBindPort, PlaybackResumePositionPort } from '../personal/progress-clock.service';
 import type {
   MarkPlayingInput,
   PlaybackDelivery,
@@ -191,6 +192,18 @@ export interface PlaybackSessionSourcePort {
 export interface PlaybackResolverPorts {
   readonly conversionLaunch?: PlaybackConversionLaunchPort;
   readonly sessionSource?: PlaybackSessionSourcePort;
+  /**
+   * 点播 resolve 的进度绑定端口(T099,005 US4):点播 resolve 接受时在短事务分配
+   * epoch 并创建 playback_progress_state(不写可见历史);直播不调用。缺位(单测
+   * 装配)时跳过绑定,不影响既有解析链路。
+   */
+  readonly progressBind?: PlaybackProgressBindPort;
+  /**
+   * 续播冻结读取端口(T101):resume 在可信 probe 完成后、任何转换输出启动或 direct
+   * 输出安装之前,由服务端重读当前 Profile 历史冻结 presentationStartSeconds;
+   * 缺位时恒为 0(从头)。
+   */
+  readonly resumePosition?: PlaybackResumePositionPort;
 }
 
 /** probe 失败分类 → 稳定失败码(映射表集中一处) */
@@ -271,6 +284,10 @@ function isProbeSuccess(outcome: PlaybackProbeOutcome): outcome is PlaybackProbe
 export class PlaybackResolverService {
   /** 会话 probe 事实缓存(内存私有;key=sessionId,记录建档代以失效换代后的事实) */
   private readonly factsBySession = new Map<string, { generation: number; facts: PlaybackProbeFacts }>();
+  /** 会话起播模式(005 §5:beginning|resume;resume 在 probe 后冻结起播位置) */
+  private readonly startModeBySession = new Map<string, 'beginning' | 'resume'>();
+  /** 已冻结的起播位置(按代失效;ready 提交仅重验,不改已冻结输出) */
+  private readonly presentationStartBySession = new Map<string, { generation: number; seconds: number }>();
 
   constructor(
     private readonly repository: PlaybackRepository,
@@ -311,9 +328,23 @@ export class PlaybackResolverService {
       throw playbackErrToDomainError(created);
     }
     const session = created.value;
+    // 2.5 进度绑定(T099,005 US4):点播 resolve 接受时在短事务分配递增 epoch 并创建
+    // playback_progress_state(candidate_epoch/content_revision/profile_context_version),
+    // 不写可见历史 —— 历史仅首次有效 started 后产生;直播(channel)不分配不绑定。
+    if (grant.mediaType !== 'channel' && this.ports.progressBind !== undefined) {
+      this.ports.progressBind.bindVodResolveCandidate({
+        householdId: grant.snapshot.householdId,
+        profileId: grant.snapshot.profileId,
+        mediaId: grant.snapshot.mediaId,
+        playbackSessionId: session.id,
+        profileContextVersion: grant.snapshot.profileContextVersion,
+      });
+    }
+    // 2.6 起播模式记录(resume 冻结在 probe 后;本会话生命周期内不再改变)
+    this.startModeBySession.set(session.id, options.startMode ?? 'beginning');
     // 3. fire-and-forget 异步准备(总期限共享:单次端口调用携带全部候选与同一 30s 期限)
     const deadlineMs = options.deadlineMs ?? this.budgets.watchdog.prepareTimeoutSeconds * 1000;
-    void this.prepare(grant.snapshot.householdId, session.id, session.generation, session.version, grant.candidates, deadlineMs, options.at);
+    void this.prepare(grant.snapshot.householdId, grant.snapshot.profileId, session.id, session.generation, session.version, grant.candidates, deadlineMs, options.at);
     // 4. 返回 preparing 形态(delivery/源为空:不猜 delivery)
     return { session, dto: this.toDto(session) };
   }
@@ -327,6 +358,7 @@ export class PlaybackResolverService {
    */
   private async prepare(
     householdId: string,
+    profileId: string,
     sessionId: string,
     generation: number,
     version: number,
@@ -339,6 +371,19 @@ export class PlaybackResolverService {
       // CAS 基准 = 建档时刻:probe 窗口内发生 stop/seek/换轨(换代)则本结果作废
       const cas = { expectedVersion: version, expectedGeneration: generation };
       if (isProbeSuccess(outcome)) {
+        // resume 冻结(T101):可信 probe 完成后、任何转换输出启动或 direct 输出安装之前,
+        // 服务端重读当前 Profile 最新有效历史,按资源修订与可信 duration 冻结本次
+        // presentationStartSeconds(无有效位置则 0;不删除旧历史)。ready 提交仅重验
+        // 身份/修订/generation,不改变已冻结输出;冻结后另一设备的后续观看不悄悄改位置。
+        if ((this.startModeBySession.get(sessionId) ?? 'beginning') === 'resume' && this.ports.resumePosition !== undefined) {
+          const seconds = this.ports.resumePosition.readResumeFreeze({
+            householdId,
+            profileId,
+            mediaId: this.sessionMediaIdOf(sessionId),
+            probeDurationSeconds: outcome.facts.durationSeconds,
+          });
+          this.presentationStartBySession.set(sessionId, { generation, seconds });
+        }
         if (isConversionDelivery(outcome.delivery)) {
           // 缺口1:plan 为转换/remux → probe 完成后进入「启动转换」阶段(30 秒共享总期限
           // 顺延为转换首帧期限;首产物前保持 preparing —— ready 前无票语义不变)
@@ -389,12 +434,21 @@ export class PlaybackResolverService {
     }
   }
 
+  /** 会话媒体 ID 只读投影(resume 冻结读取需要;行缺失回退空串,冻结为 0) */
+  private sessionMediaIdOf(sessionId: string): string {
+    const row = getDb()
+      .select({ mediaId: playbackSession.mediaId })
+      .from(playbackSession)
+      .where(eq(playbackSession.id, sessionId))
+      .get();
+    return row?.mediaId ?? '';
+  }
+
   /**
    * 上下文版本复查(T051):playback_session 捕获的 profile_context_version 必须仍等于
    * 其 DeviceSession 当前版本。不等(或行已缺失)→ false。直查 getDb()(与
    * authorization/lifecycle 同一先例,不扩仓储 API 面)。
-   */
-  private identityContextCurrent(sessionId: string): boolean {
+   */  private identityContextCurrent(sessionId: string): boolean {
     const row = getDb()
       .select({
         sessionContextVersion: playbackSession.profileContextVersion,
@@ -584,6 +638,10 @@ export class PlaybackResolverService {
     void options.includeTicketFields;
     const cached = this.factsBySession.get(session.id);
     const facts = cached !== undefined && cached.generation === session.generation ? cached.facts : undefined;
+    // 冻结起播位置(resume:T101;按代有效 —— 换代后回落 0,由新代重新冻结或从头)
+    const frozen = this.presentationStartBySession.get(session.id);
+    const presentationStartSeconds =
+      frozen !== undefined && frozen.generation === session.generation ? frozen.seconds : 0;
     const dto: PlaybackDto = {
       id: session.id,
       state: session.state,
@@ -594,7 +652,7 @@ export class PlaybackResolverService {
       positionSeconds: session.positionSeconds,
       durationSeconds: facts?.durationSeconds ?? null,
       timelineOffsetSeconds: 0,
-      presentationStartSeconds: 0,
+      presentationStartSeconds,
       // GET 不重签也不复现旧票:票据字段恒空,仅 renew 的 TicketReply 携带(T018)
       ticketExpiresAt: null,
       playbackUrl: null,

@@ -14,6 +14,7 @@ import {
   login,
   startFreshApp,
 } from '../helpers';
+import { selectMainAndUnlockSettings } from '../helpers-management';
 
 /**
  * T040(US4 契约 e2e):GET /media/{mediaId}/programmes,
@@ -216,12 +217,13 @@ async function setupProgrammes(): Promise<GuideRig> {
   const household = await request(app.getHttpServer()).get('/api/household').set('Cookie', cookie);
   const householdId = (household.body as { id: string }).id;
 
+  await selectMainAndUnlockSettings(app, cookie);
   const adult = await request(app.getHttpServer())
-    .post('/api/profiles')
+    .post('/api/settings/profiles')
     .set('Cookie', cookie)
     .send({ name: '成人', type: 'adult', ownerPassword: OWNER_PASSWORD });
   const child = await request(app.getHttpServer())
-    .post('/api/profiles')
+    .post('/api/settings/profiles')
     .set('Cookie', cookie)
     .send({ name: '儿童', type: 'child', ownerPassword: OWNER_PASSWORD });
   expect(adult.status).toBe(201);

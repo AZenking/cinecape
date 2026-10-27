@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { RefreshModule } from '../imports/refresh.module';
-import { RefreshesController, SourcesController, SourceRootsController } from './sources.controller';
 
 /**
  * Sources 模块(T020/T028):来源管理 + 刷新任务契约路由。
@@ -10,6 +9,6 @@ import { RefreshesController, SourcesController, SourceRootsController } from '.
  */
 @Module({
   imports: [RefreshModule],
-  controllers: [SourcesController, SourceRootsController, RefreshesController],
+  controllers: [],
 })
 export class SourcesModule {}

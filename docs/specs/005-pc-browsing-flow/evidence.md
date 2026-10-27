@@ -98,3 +98,27 @@ Lead 集成项:app.module 注册 PublicCatalogModule+LiveModule;routes.tsx 挂�
 新增用例计数:US3 server 29 + web 8 + e2e 5;US7 server 27 + web 14 + e2e 6。
 
 Lead 集成项:app.module 注册 SettingsModule;providers 挂 SettingsAccessProvider;coordinator 增 settingsPin 步骤+startSettings(AuthStep/stepTitles/renderStep/事件桥);identity-menu 设置入口接 startSettings 弹层流;bootstrap pin-recovery 事务补 revokeUnlockGrantsForProfile(US7 发现的选档授予残留缺口);US3/US1 相关 web 测试补 SettingsAccessProvider 包装;settings e2e 两场景适配统一弹层流。
+
+---
+
+## Wave C 验证记录(US4/US6/US8,T088~T136,T147,T148)
+
+日期:2026-10-27。范围:三个 P2 故事(首页个人区/EPG 墙/设置七模块)实现完成后的集成验证。
+
+| 验证项 | 命令 | 结果 |
+| --- | --- | --- |
+| server 全量 | `pnpm --filter @hmp/server test` | 109 文件 / 1362 tests 全绿 |
+| web 全量 | `pnpm --filter @hmp/web test` | 18 文件 / 100 tests 全绿 |
+| lint / 双端 typecheck | `pnpm lint` / tsc | 0 错误 |
+| e2e US4 首页个人区 | home-personal.e2e.spec.ts(E2E_SEED_SCALE=1) | 5/5(双浏览器上下文) |
+| e2e US6 EPG 键盘/恢复 | guide-keyboard-scroll-restore.spec.ts | 7/7 |
+| e2e US6 SC-006 性能 | guide-performance.spec.ts | 达标:首个视图 20/20≤3s(中位105ms)、切日 19/20≤2s(1次2049ms离群)、回现在 20/20(本机开发环境;T141 家庭基线复测照旧) |
+| e2e US8 设置 | settings.spec.ts(逐文件运行) | 7/7(键盘七子域读写+改密压轴;导入/同步断言至任务层——无 LAN_ALLOWED_TARGETS) |
+| e2e US8 设置解锁 | settings-access.spec.ts | 6/6 |
+| e2e Wave A/B 回归 | foundation/auth/public-browse/live/playback-intent/auth(全新库) | 2+3+4+6+5 全绿(auth-profile-flow 需无种子全新库) |
+
+新增用例计数:US4 69 server+10 web+5 e2e;US6 60 server+7 web+8 e2e;US8 37 server+11 web+8 e2e+1 server 重启用例。
+
+US8 路由迁移:旧 /api/{profiles(管理),sources,catalog,devices,policy} 管理入口全部迁入 /api/settings/* 并删除,无兼容别名;选档 GET /api/profiles 与 unlock/select 保留。28 个既有测试文件取线/契约同步更新;新增 helpers-management.ts 共享夹具(ensureSettingsUnlocked 等)。
+
+已知遗留(记录于 T144 前收口):①apps/server/test/runtime-smoke.mjs(2195 行)仍按 005 前旧路由编写,迁移后 401——需按新 settings 路由改写后 test:runtime 才能作为 T144 门禁;②旧 POST /api/devices/{id}/playback-records/query 仍由 playback 模块挂载(其迁移涉及 runtime-smoke 收口);③混合多套件同窗 e2e 会触发公共限频抖动——按单文件运行(已文档化);④auth-profile-flow 与 settings 套件的数据前置不同(全新空库 vs 种子库),勿共用 E2E_SEED_SCALE。

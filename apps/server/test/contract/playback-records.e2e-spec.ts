@@ -14,6 +14,8 @@ import {
   startFreshApp,
   type TestRig,
 } from '../helpers';
+import { Database } from '../../src/database/database';
+import { selectMainAndUnlockSettings } from '../helpers-management';
 import {
   seedPlaybackSession,
   seedPlaybackWorld,
@@ -73,6 +75,8 @@ import { account, deviceSession, playbackFailureEvent, playbackSession, playback
 const RESOLVE_URL = '/api/playback/resolve';
 const sessionUrl = (id: string): string => `/api/playback/sessions/${id}`;
 const recordsQueryUrl = (deviceId: string): string => `/api/devices/${deviceId}/playback-records/query`;
+/** US8 迁移后的 settings 记录查询(独立管理会话 Cookie 使用) */
+const recordsQueryUrlSettings = (deviceId: string): string => `/api/settings/devices/${deviceId}/playback-records/query`;
 
 /** openapi PlaybackSessionRecord:additionalProperties:false 的精确键集(字典序) */
 const SESSION_RECORD_KEYS = [
@@ -170,6 +174,18 @@ function queryRecords(app: INestApplication, cookie: string, deviceId: string, b
 /* ------------------------------------------------------------------ */
 /* DB 断言/直改助手(注明用途,夹具缺变体时 spec 内补种)                 */
 /* ------------------------------------------------------------------ */
+
+
+/** US8:设备记录查询属 Settings 边界 —— 升格有 PIN 成人为主档案并以本会话解锁设置,返回该会话 Cookie */
+async function mgmtCookieOf(rig: TestRig, world: PlaybackWorld): Promise<string> {
+  Database.db
+    .prepare("UPDATE profile SET is_main = 1 WHERE id = ? AND type = 'adult' AND status = 'active' AND pin_hash IS NOT NULL")
+    .run(world.profileWithPinId);
+  // 以观看会话自身解锁(幂等):grant 与解锁后的主档案选中落在同一会话,后续
+  // world-cookie 的查询/断言链路无需区分「观看会话/管理会话」两套 Cookie。
+  await selectMainAndUnlockSettings(rig.app, cookieOf(world), { mainPin: world.pin });
+  return cookieOf(world);
+}
 
 function sessionRowsOfHousehold(householdId: string): (typeof playbackSession.$inferSelect)[] {
   return getDb().select().from(playbackSession).where(eq(playbackSession.householdId, householdId)).all();
@@ -351,10 +367,13 @@ describe('记录生成(session 记录 / failure 事件分离,T043)', () => {
     expect(sessionRowOf(sessionId).state).toBe('ended');
     expect(sessionRowOf(sessionId).endedAt).not.toBeNull();
 
-    // 6) 家长记录查询:恰一条 session 记录,字段形态=PlaybackSessionRecord
-    const page = await queryRecords(rig.app, cookie, world.deviceId, { ownerPassword: world.password });
+    // 6) 家长记录查询(US8 settings 端点:独立管理会话;成功体为普通 JSON)
+    const page = await request(rig.app.getHttpServer())
+      .post(recordsQueryUrlSettings(world.deviceId))
+      .set('Cookie', await mgmtCookieOf(rig, world))
+      .send({ ownerPassword: world.password });
     expect(page.status).toBe(200);
-    expectProblemContentType(page);
+    expect(String(page.headers['content-type'])).toContain('application/json');
     const body = page.body as Record<string, unknown>;
     expectPageEnvelope(body);
     expect(body['nextCursor']).toBeNull();
@@ -401,25 +420,27 @@ describe('记录生成(session 记录 / failure 事件分离,T043)', () => {
     const cookie = cookieOf(world);
 
     // 儿童档案 + 黑名单:可见媒体的策略拒绝(同形 404,不泄漏策略明细)
+    // 005 设置边界:播放世界无主档案标记 —— 把「有 PIN 成人」升格为主档案,并以独立管理会话执行管理写
+    Database.db
+      .prepare("UPDATE profile SET is_main = 1 WHERE id = ? AND type = 'adult' AND status = 'active' AND pin_hash IS NOT NULL")
+      .run(world.profileWithPinId);
+    const mgmtLogin = await request(rig.app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ username: world.username, password: world.password });
+    expect(mgmtLogin.status).toBe(200);
+    const mgmtCookie = cookiePairOf(mgmtLogin);
+    await selectMainAndUnlockSettings(rig.app, mgmtCookie, { mainPin: world.pin });
     const created = await request(rig.app.getHttpServer())
-      .post('/api/profiles')
-      .set('Cookie', cookie)
+      .post('/api/settings/profiles')
+      .set('Cookie', mgmtCookie)
       .send({ name: '记录儿童', type: 'child', ownerPassword: world.password });
     expect(created.status).toBe(201);
     const childProfileId = String((created.body as Record<string, unknown>)['id']);
     expect(
       (
         await request(rig.app.getHttpServer())
-          .post(`/api/profiles/${childProfileId}/select`)
-          .set('Cookie', cookie)
-          .send({})
-      ).status,
-    ).toBe(200);
-    expect(
-      (
-        await request(rig.app.getHttpServer())
-          .put(`/api/profiles/${childProfileId}/policy/lists`)
-          .set('Cookie', cookie)
+          .put(`/api/settings/profiles/${childProfileId}/policy/lists`)
+          .set('Cookie', mgmtCookie)
           .send({
             ownerPassword: world.password,
             expectedVersion: 1,
@@ -431,7 +452,12 @@ describe('记录生成(session 记录 / failure 事件分离,T043)', () => {
       ).status,
     ).toBe(200);
 
-    // 两次被拒解析:策略拒绝(可见媒体)+ 无启用源(可见媒体)→ 同形 404
+    // 观看会话切到儿童(名单黑名单生效),两次被拒解析:策略拒绝 + 无启用源 → 同形 404
+    const childSelected = await request(rig.app.getHttpServer())
+      .post(`/api/profiles/${childProfileId}/select`)
+      .set('Cookie', cookie)
+      .send({});
+    expect(childSelected.status, JSON.stringify(childSelected.body)).toBe(200);
     const blocked = await postResolve(rig.app, cookie, world.iptv.mediaId);
     expectStableProblem(blocked, 404, ProblemCode.MEDIA_NOT_FOUND);
     const sourceless = await postResolve(rig.app, cookie, world.nas.mediaId);
@@ -442,7 +468,7 @@ describe('记录生成(session 记录 / failure 事件分离,T043)', () => {
     expect(failureEventRowsOfHousehold(world.householdId)).toHaveLength(2);
 
     // 家长查询:两条独立 failure 记录,稳定码=该次拒绝的公开稳定码,媒体可见故 mediaId 保留
-    const page = await queryRecords(rig.app, cookie, world.deviceId, { ownerPassword: world.password });
+    const page = await queryRecords(rig.app, await mgmtCookieOf(rig, world), world.deviceId, { ownerPassword: world.password });
     expect(page.status).toBe(200);
     const body = page.body as Record<string, unknown>;
     expectPageEnvelope(body);
@@ -475,7 +501,7 @@ describe('记录生成(session 记录 / failure 事件分离,T043)', () => {
     expect(rows[0]?.profileId).toBe(world.profileId);
 
     // 查询侧:failure 记录 mediaId=null,且响应体不出现客户端原始目标 ID
-    const page = await queryRecords(rig.app, cookie, world.deviceId, { ownerPassword: world.password });
+    const page = await queryRecords(rig.app, await mgmtCookieOf(rig, world), world.deviceId, { ownerPassword: world.password });
     expect(page.status).toBe(200);
     const items = (page.body as Record<string, unknown>)['items'] as Record<string, unknown>[];
     expect(items).toHaveLength(1);
@@ -516,7 +542,7 @@ describe('记录生成(session 记录 / failure 事件分离,T043)', () => {
     expect(failureEventRowsOfHousehold(world.householdId)).toHaveLength(0);
     expect(sessionRowsOfHousehold(expired.householdId)).toHaveLength(0);
     expect(failureEventRowsOfHousehold(expired.householdId)).toHaveLength(0);
-    const page = await queryRecords(rig.app, cookieOf(world), world.deviceId, { ownerPassword: world.password });
+    const page = await queryRecords(rig.app, await mgmtCookieOf(rig, world), world.deviceId, { ownerPassword: world.password });
     expect(page.status).toBe(200);
     expectPageEnvelope(page.body as Record<string, unknown>);
     expect((page.body as Record<string, unknown>)['items']).toEqual([]);
@@ -539,7 +565,7 @@ describe('记录生成(session 记录 / failure 事件分离,T043)', () => {
     expect(failureEventRowsOfHousehold(world.householdId)).toHaveLength(0);
     expect(sessionRowsOfHousehold(world.householdId)).toHaveLength(1);
 
-    const page = await queryRecords(rig.app, cookieOf(world), world.deviceId, { ownerPassword: world.password });
+    const page = await queryRecords(rig.app, await mgmtCookieOf(rig, world), world.deviceId, { ownerPassword: world.password });
     expect(page.status).toBe(200);
     const items = (page.body as Record<string, unknown>)['items'] as Record<string, unknown>[];
     expect(items).toHaveLength(1);
@@ -577,7 +603,7 @@ describe('记录生成(session 记录 / failure 事件分离,T043)', () => {
     // 重复 stop 不改写结束时间:仅一个结束事件
     expect(sessionRowOf(seeded.sessionId).endedAt).toBe(endedAtAfterFirst);
 
-    const page = await queryRecords(rig.app, cookie, world.deviceId, { ownerPassword: world.password });
+    const page = await queryRecords(rig.app, await mgmtCookieOf(rig, world), world.deviceId, { ownerPassword: world.password });
     expect(page.status).toBe(200);
     const items = (page.body as Record<string, unknown>)['items'] as Record<string, unknown>[];
     expect(items).toHaveLength(1);
@@ -605,7 +631,7 @@ describe('POST /api/devices/{deviceId}/playback-records/query(T044)', () => {
     seedPlaybackSession(world, { state: 'ended', at: freshNow() });
 
     // 正确当次密码 → 200 信封(当次密码不发放任何长期家长态)
-    const ok = await queryRecords(rig.app, cookie, world.deviceId, { ownerPassword: world.password });
+    const ok = await queryRecords(rig.app, await mgmtCookieOf(rig, world), world.deviceId, { ownerPassword: world.password });
     expect(ok.status).toBe(200);
     expectPageEnvelope(ok.body as Record<string, unknown>);
     expect(String(ok.headers['cache-control'])).toContain('no-store');
@@ -628,7 +654,7 @@ describe('POST /api/devices/{deviceId}/playback-records/query(T044)', () => {
       403,
       ProblemCode.PARENT_VERIFICATION_FAILED,
     );
-    const again = await queryRecords(rig.app, cookie, world.deviceId, { ownerPassword: world.password });
+    const again = await queryRecords(rig.app, await mgmtCookieOf(rig, world), world.deviceId, { ownerPassword: world.password });
     expect(again.status).toBe(200);
     expect(((again.body as Record<string, unknown>)['items'] as unknown[]).length).toBeGreaterThan(0);
   });
@@ -637,6 +663,8 @@ describe('POST /api/devices/{deviceId}/playback-records/query(T044)', () => {
     const rig = await startFreshApp({ prefix: 'hmp-pb-rec-lock-' });
     const world = await seedWorld(rig);
     const cookie = cookieOf(world);
+    // 005 §7:grant 先于当次密码 —— 记录查询属设置主体,先解锁设置再验证密码错误计数
+    await mgmtCookieOf(rig, world);
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       expectStableProblem(
@@ -646,7 +674,7 @@ describe('POST /api/devices/{deviceId}/playback-records/query(T044)', () => {
       );
     }
     // 锁定窗口内正确密码也拒(不校验密码)
-    const locked = await queryRecords(rig.app, cookie, world.deviceId, { ownerPassword: world.password });
+    const locked = await queryRecords(rig.app, await mgmtCookieOf(rig, world), world.deviceId, { ownerPassword: world.password });
     expect(locked.status).toBe(423);
     expectProblemContentType(locked);
     expect((locked.body as { code?: string }).code).toBe(ProblemCode.PARENT_VERIFICATION_LOCKED);
@@ -682,14 +710,16 @@ describe('POST /api/devices/{deviceId}/playback-records/query(T044)', () => {
     const rig = await startFreshApp({ prefix: 'hmp-pb-rec-scope-' });
     const world = await seedWorld(rig);
     const other = await seedOtherHousehold(rig, world.householdId.slice(0, 8));
+    // 005 §7:grant 先于当次密码/归属重验 —— 记录查询属设置主体,先解锁设置
+    const cookie = await mgmtCookieOf(rig, world);
 
     // 跨家庭目标:owner + 正确密码仍统一 404,与不存在设备同形(openapi:不泄漏归属)
-    const crossHousehold = await queryRecords(rig.app, cookieOf(world), other.deviceId, {
+    const crossHousehold = await queryRecords(rig.app, cookie, other.deviceId, {
       ownerPassword: world.password,
     });
     expect(crossHousehold.status).toBe(404);
     expectProblemContentType(crossHousehold);
-    const missing = await queryRecords(rig.app, cookieOf(world), randomUUID(), { ownerPassword: world.password });
+    const missing = await queryRecords(rig.app, cookie, randomUUID(), { ownerPassword: world.password });
     expect(missing.status).toBe(404);
     expectSameProblemShape(crossHousehold, missing);
 
@@ -700,7 +730,7 @@ describe('POST /api/devices/{deviceId}/playback-records/query(T044)', () => {
       .where(eq(account.id, world.accountId))
       .run();
     expectStableProblem(
-      await queryRecords(rig.app, cookieOf(world), world.deviceId, { ownerPassword: world.password }),
+      await queryRecords(rig.app, cookie, world.deviceId, { ownerPassword: world.password }),
       403,
       ProblemCode.FORBIDDEN,
     );
@@ -709,7 +739,8 @@ describe('POST /api/devices/{deviceId}/playback-records/query(T044)', () => {
   it('limit 请求校验:0/101/负数/小数/非数字 → 400 VALIDATION_FAILED;未知字段拒绝', async () => {
     const rig = await startFreshApp({ prefix: 'hmp-pb-rec-limit-' });
     const world = await seedWorld(rig);
-    const cookie = cookieOf(world);
+    // 005 §7:严格入参在 grant 之后 —— 先解锁设置,未知字段/越界 limit 才落到 400 管道
+    const cookie = await mgmtCookieOf(rig, world);
 
     for (const limit of [0, 101, -1, 1.5, '20']) {
       expectStableProblem(
@@ -788,7 +819,7 @@ describe('POST /api/devices/{deviceId}/playback-records/query(T044)', () => {
       .map((entry) => entry.id);
 
     // 默认 limit=20:首页 20 条 + nextCursor 非空;cursor 翻页 5 条到底(null)
-    const firstPage = await queryRecords(rig.app, cookie, world.deviceId, { ownerPassword: world.password });
+    const firstPage = await queryRecords(rig.app, await mgmtCookieOf(rig, world), world.deviceId, { ownerPassword: world.password });
     expect(firstPage.status).toBe(200);
     const firstBody = firstPage.body as Record<string, unknown>;
     expectPageEnvelope(firstBody);
@@ -876,7 +907,7 @@ describe('POST /api/devices/{deviceId}/playback-records/query(T044)', () => {
       stableCode: 'MEDIA_NOT_FOUND',
     });
 
-    const page = await queryRecords(rig.app, cookieOf(world), world.deviceId, { ownerPassword: world.password });
+    const page = await queryRecords(rig.app, await mgmtCookieOf(rig, world), world.deviceId, { ownerPassword: world.password });
     expect(page.status).toBe(200);
     expect(String(page.headers['cache-control'])).toContain('no-store');
     expect(String(page.headers['referrer-policy'])).toBe('no-referrer');
@@ -926,7 +957,7 @@ describe('POST /api/devices/{deviceId}/playback-records/query(T044)', () => {
     seedPlaybackSession(other, { state: 'ended', at: freshNow() });
 
     // 查询本设备:精确 id 集合=本设备 2 条;另一设备/跨家庭记录均不混入
-    const page = await queryRecords(rig.app, cookie, world.deviceId, { ownerPassword: world.password });
+    const page = await queryRecords(rig.app, await mgmtCookieOf(rig, world), world.deviceId, { ownerPassword: world.password });
     expect(page.status).toBe(200);
     const items = (page.body as Record<string, unknown>)['items'] as Record<string, unknown>[];
     expect(items.map((item) => item['id']).sort()).toEqual([ownSession.sessionId, ownFailureId].sort());

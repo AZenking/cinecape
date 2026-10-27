@@ -66,20 +66,10 @@ async function openIdentityMenu(page: Page): Promise<void> {
 test.describe.serial('T079 · 主 Profile 验证后进入统一设置(SC-007)', () => {
   let ordinaryAdultId: string | null = null;
 
-  test('主 Profile:菜单设置入口 → 独立 PIN 验证 → 左菜单/右主体布局与可导航空架', async ({ page }) => {
+  test('主 Profile:菜单设置入口 → 独立 PIN 验证 → 左菜单/右主体布局与七实页', async ({ page }) => {
     await apiLogin(page);
     const main = await mainProfileOf(page);
     await unlockAndSelect(page, main.id, MAIN_PIN);
-
-    // 夹具补一个普通成人档案(后续负向用例使用;经既有管理接口,需当次密码)
-    if (ordinaryAdultId === null) {
-      const created = await page.request.post('/api/profiles', {
-        data: { name: '爸爸', type: 'adult', pin: '369258', ownerPassword: LOGIN.password },
-      });
-      if (created.status() === 201) {
-        ordinaryAdultId = ((await created.json()) as { id: string }).id;
-      }
-    }
 
     // 管理主体零预取:进入设置前监听请求
     const accountRequests: string[] = [];
@@ -119,17 +109,29 @@ test.describe.serial('T079 · 主 Profile 验证后进入统一设置(SC-007)', 
       await expect(nav.getByRole('link', { name: title })).toBeVisible();
     }
     await expect(page.getByTestId('settings-current-module')).toHaveText('账号与安全');
-    // 可导航空架:账号与安全读取只读 AccountSummary(真实服务端数据,不造假)
+    // 账号与安全实页(T132):只读 AccountSummary 呈现真实服务端数据
     await expect(page.getByTestId('account-summary')).toContainText('fixtureadmin');
     expect(accountRequests.length).toBeGreaterThanOrEqual(1);
 
-    // 导航到占位模块:显式标注「模块内容由 US8 填充」,不以空白页宣称整合
+    // 夹具补一个普通成人档案(后续负向用例使用)。005 US8 起管理写迁入设置边界:
+    // 旧 POST /api/profiles 已删除,经 /api/settings/profiles 创建(需先解锁设置,
+    // 上面 UI PIN 验证已解锁;ownerPassword 逐次验证语义由服务端表达)
+    if (ordinaryAdultId === null) {
+      const created = await page.request.post('/api/settings/profiles', {
+        data: { name: '爸爸', type: 'adult', pin: '369258', ownerPassword: LOGIN.password },
+      });
+      if (created.status() === 201) {
+        ordinaryAdultId = ((await created.json()) as { id: string }).id;
+      }
+    }
+
+    // 导航到档案管理:US8 实页(T131 后占位已替换)—— 档案列表呈现真实服务端数据
     await nav.getByRole('link', { name: '档案管理' }).click();
     await expect(page).toHaveURL(/\/settings\/profiles$/);
     await expect(page.getByTestId('settings-current-module')).toHaveText('档案管理');
-    await expect(page.getByText(/模块内容由 US8 填充/)).toBeVisible();
+    await expect(page.getByTestId('profile-list')).toBeVisible();
+    await expect(page.getByTestId('profile-list')).toContainText('主档案');
   });
-
   test('选档解锁与设置解锁相互独立:选档后进设置仍要求 PIN;取消返回原页面', async ({ page }) => {
     await apiLogin(page);
     const main = await mainProfileOf(page);

@@ -185,9 +185,23 @@ export function revokeCurrentSessionGrant(context: SessionContext): void {
  * settings_access_grant(存在/未撤销/三版本/expires_at>serverNow)。
  * Session 失效先 401;档案/grant 不满足 403 SETTINGS_ACCESS_REQUIRED;过期 403
  * SETTINGS_ACCESS_EXPIRED。通过仅返回 expiresAt 元数据(无 bearer、无管理主体)。
+ *
+ * 管理写路径在 BEGIN IMMEDIATE 事务内以 requireValidSettingsGrantTx 重验同一份
+ * 权限快照(data-model §1「提交前重新校验权限快照」);两个入口共用同一判定体。
  */
 export function requireValidSettingsGrant(context: SessionContext): SettingsGrantValidation {
-  const db = getDb();
+  return validateSettingsGrant(getDb(), context);
+}
+
+/** 事务内变体:调用方传入 BEGIN IMMEDIATE 事务句柄(或共享连接),提交前重验权限快照 */
+export function requireValidSettingsGrantTx(tx: Db | TxDb, context: SessionContext): SettingsGrantValidation {
+  return validateSettingsGrant(tx, context);
+}
+
+/** better-sqlite3 同步事务回调入参(与 parent-verification/policy.service 同一惯用法) */
+type TxDb = Parameters<Parameters<Db['transaction']>[0]>[0];
+
+function validateSettingsGrant(db: Db | TxDb, context: SessionContext): SettingsGrantValidation {
   const householdId = context.session.householdId;
   const now = Date.now();
 

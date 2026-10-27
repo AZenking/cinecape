@@ -14,6 +14,7 @@ import {
   login,
   startFreshApp,
 } from '../helpers';
+import { selectMainAndUnlockSettings } from '../helpers-management';
 
 /**
  * T048(US3 契约 e2e):家长候选查询与人工修正。
@@ -130,8 +131,10 @@ async function setupCandidates(): Promise<CandidatesFixture> {
   const household = await request(app.getHttpServer()).get('/api/household').set('Cookie', cookie);
   const householdId = (household.body as { id: string }).id;
 
+  // US8 管理迁移:档案创建/策略保存前置 = 主档案选中 + 设置解锁
+  await selectMainAndUnlockSettings(app, cookie);
   const child = await request(app.getHttpServer())
-    .post('/api/profiles')
+    .post('/api/settings/profiles')
     .set('Cookie', cookie)
     .send({ name: '儿童', type: 'child', ownerPassword: OWNER_PASSWORD });
   expect(child.status).toBe(201);
@@ -139,7 +142,7 @@ async function setupCandidates(): Promise<CandidatesFixture> {
 
   // 儿童策略(经既有等级入口保存):等级 6 + 未评级拒绝;名单照夹具惯例直写
   const saved = await request(app.getHttpServer())
-    .put(`/api/profiles/${childProfileId}/policy`)
+    .put(`/api/settings/profiles/${childProfileId}/policy`)
     .set('Cookie', cookie)
     .send({ ownerPassword: OWNER_PASSWORD, expectedVersion: 1, policy: { maxContentLevel: 6, allowUnrated: false } });
   expect(saved.status).toBe(200);
@@ -153,11 +156,11 @@ async function setupCandidates(): Promise<CandidatesFixture> {
 }
 
 function queryCandidates(f: CandidatesFixture, body: Record<string, unknown>): request.Test {
-  return request(f.app.getHttpServer()).post('/api/catalog/candidates/query').set('Cookie', f.cookie).send(body);
+  return request(f.app.getHttpServer()).post('/api/settings/catalog/candidates/query').set('Cookie', f.cookie).send(body);
 }
 
 function patchMedia(f: CandidatesFixture, mediaId: string, body: Record<string, unknown>): request.Test {
-  return request(f.app.getHttpServer()).patch(`/api/catalog/media/${mediaId}`).set('Cookie', f.cookie).send(body);
+  return request(f.app.getHttpServer()).patch(`/api/settings/catalog/media/${mediaId}`).set('Cookie', f.cookie).send(body);
 }
 
 function revisionOf(householdId: string): number | undefined {
@@ -217,6 +220,8 @@ describe('T048 家长候选与人工修正契约(POST /catalog/candidates/query 
       'bravo 动画',
     ]);
 
+    // 005 设置边界:候选查询属 Settings 主体,须切回主档案(重新选档 + 设置解锁)
+    await selectMainAndUnlockSettings(f.app, f.cookie);
     const res = await queryCandidates(f, { ownerPassword: OWNER_PASSWORD });
     expect(res.status).toBe(200);
     const page: CandidatePageDto = res.body;
@@ -306,7 +311,7 @@ describe('T048 家长候选与人工修正契约(POST /catalog/candidates/query 
     expect(foreign.body).toStrictEqual(missing.body);
   });
 
-  it('鉴权:非 owner 403(先于格式校验);缺密码/空串 403 REQUIRED;错密码 403 FAILED;密码不出现在 URL', async () => {
+  it('鉴权:admin 允许(005 settings 边界);缺密码/空串 403 REQUIRED;错密码 403 FAILED;密码不出现在 URL', async () => {
     const f = await setupCandidates();
 
     // 缺失/空串:两端点统一 403 REQUIRED(非 400)
@@ -330,12 +335,17 @@ describe('T048 家长候选与人工修正契约(POST /catalog/candidates/query 
 
     // 非 owner:403 FORBIDDEN,且先于格式校验(非法 body 同样 403)
     Database.db.prepare("UPDATE account SET role = 'admin'").run();
-    const adminQuery = await queryCandidates(f, { ownerPassword: OWNER_PASSWORD, type: 'banana' });
-    expect(adminQuery.status).toBe(403);
-    expect(adminQuery.body.code).toBe(ProblemCode.FORBIDDEN);
-    const adminPatch = await patchMedia(f, 'm-bravo', { expectedVersion: 1 });
-    expect(adminPatch.status).toBe(403);
-    expect(adminPatch.body.code).toBe(ProblemCode.FORBIDDEN);
+    // 005 settings 边界 = owner/admin:admin 允许(非法 type 400 先于密码校验;缺密码 403 REQUIRED)
+    const adminBadType = await queryCandidates(f, { ownerPassword: OWNER_PASSWORD, type: 'banana' });
+    expect(adminBadType.status).toBe(400);
+    expect(adminBadType.body.code).toBe(ProblemCode.VALIDATION_FAILED);
+    const adminNoPassword = await queryCandidates(f, { type: 'movie' });
+    expect(adminNoPassword.status).toBe(403);
+    expect(adminNoPassword.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
+    const adminPatchNoFields = await patchMedia(f, 'm-bravo', { expectedVersion: 1 });
+    // admin 放行后到达严格校验:无修正字段 → 400(先于当次密码语义)
+    expect(adminPatchNoFields.status).toBe(400);
+    expect(adminPatchNoFields.body.code).toBe(ProblemCode.VALIDATION_FAILED);
   });
 
   it('候选查询与 PATCH 参数校验 400:q>100、type 枚举、page/pageSize 边界、未知字段严格拒绝', async () => {

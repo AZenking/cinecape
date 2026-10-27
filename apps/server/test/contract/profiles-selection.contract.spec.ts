@@ -12,6 +12,7 @@ import {
   login,
   startFreshApp,
 } from '../helpers';
+import { ensureSettingsUnlocked } from '../helpers-management';
 
 /**
  * T032(005 US2 契约测试,先 FAIL):最小选档接口。
@@ -53,8 +54,9 @@ async function createProfileViaApi(
   rig: Rig,
   body: { name: string; type: 'adult' | 'child'; pin?: string },
 ): Promise<{ id: string }> {
+  await ensureSettingsUnlocked(rig.app, rig.cookie, { mainPin: '111111' });
   const res = await request(rig.app.getHttpServer())
-    .post('/api/profiles')
+    .post('/api/settings/profiles')
     .set('Cookie', rig.cookie)
     .send({ ...body, ownerPassword: INITIALIZE_BODY.password });
   expect(res.status, JSON.stringify(res.body)).toBe(201);
@@ -101,10 +103,13 @@ describe('T032 · 最小选档接口(005 FR-008)', () => {
     const mainId = await bootstrapMain(rig);
     const child = await createProfileViaApi(rig, { name: '弟弟', type: 'child', pin: '333333' });
     const disabled = await createProfileViaApi(rig, { name: '停用者', type: 'adult' });
+    const disabledVersion = (
+      Database.db.prepare('SELECT version FROM profile WHERE id = ?').get(disabled.id) as { version: number }
+    ).version;
     const patch = await request(rig.app.getHttpServer())
-      .patch(`/api/profiles/${disabled.id}`)
+      .patch(`/api/settings/profiles/${disabled.id}`)
       .set('Cookie', rig.cookie)
-      .send({ status: 'disabled', ownerPassword: INITIALIZE_BODY.password });
+      .send({ status: 'disabled', clearPin: false, expectedVersion: disabledVersion, ownerPassword: INITIALIZE_BODY.password });
     expect(patch.status).toBe(200);
 
     const res = await listProfiles(rig);
@@ -211,43 +216,41 @@ describe('T032 · 最小选档接口(005 FR-008)', () => {
     const mainId = await bootstrapMain(rig, '妈妈', '111111');
     const b = await createProfileViaApi(rig, { name: '爸爸', type: 'adult' });
 
+    // 005:夹具创建档案时已解锁设置(会话停在主档案)→ 以库内现值为基线做相对断言
     const v0 = await currentContextVersion(rig);
-    expect(v0).toBe(1);
 
-    // 空档 → 妈妈(实际换档):1 → 2
-    expect((await unlockProfile(rig, mainId, { pin: '111111' })).status).toBe(200);
-    const toMain = await selectProfile(rig, mainId);
-    expect(toMain.status).toBe(200);
-    expect((toMain.body as { profileContextVersion: number }).profileContextVersion).toBe(2);
-    expect(sessionRowOf(rig.sessionId).profile_context_version).toBe(2);
-
-    // 妈妈 → 爸爸(实际换档):2 → 3
+    // 妈妈 → 爸爸(实际换档):v0 → v0+1
     const toB = await selectProfile(rig, b.id);
     expect(toB.status).toBe(200);
-    expect((toB.body as { profileContextVersion: number }).profileContextVersion).toBe(3);
+    expect((toB.body as { profileContextVersion: number }).profileContextVersion).toBe(v0 + 1);
+    expect(sessionRowOf(rig.sessionId).profile_context_version).toBe(v0 + 1);
 
     // 同一有效档案重选:200 但不递增
     const reSelectB = await selectProfile(rig, b.id);
     expect(reSelectB.status).toBe(200);
-    expect((reSelectB.body as { profileContextVersion: number }).profileContextVersion).toBe(3);
-    expect(sessionRowOf(rig.sessionId).profile_context_version).toBe(3);
+    expect((reSelectB.body as { profileContextVersion: number }).profileContextVersion).toBe(v0 + 1);
+    expect(sessionRowOf(rig.sessionId).profile_context_version).toBe(v0 + 1);
 
-    // 爸爸 → 妈妈(A→B→A):3 → 4(仅比较最终 activeProfileId 的实现必须在此失败)
+    // 爸爸 → 妈妈(A→B→A):再 +1(仅比较最终 activeProfileId 的实现必须在此失败)
     expect((await unlockProfile(rig, mainId, { pin: '111111' })).status).toBe(200);
     const backToMain = await selectProfile(rig, mainId);
     expect(backToMain.status).toBe(200);
-    expect((backToMain.body as { profileContextVersion: number }).profileContextVersion).toBe(4);
-    expect(sessionRowOf(rig.sessionId).profile_context_version).toBe(4);
+    expect((backToMain.body as { profileContextVersion: number }).profileContextVersion).toBe(v0 + 2);
+    expect(sessionRowOf(rig.sessionId).profile_context_version).toBe(v0 + 2);
   });
 
   it('伪造身份声明:body 携带 householdId/profileId/isAdmin 等未知字段一律 400;目标不存在统一 404;禁用档案可见但 select 拒绝', async () => {
     const rig = await setupRig();
     const mainId = await bootstrapMain(rig);
     const disabled = await createProfileViaApi(rig, { name: '停用者', type: 'adult' });
-    await request(rig.app.getHttpServer())
-      .patch(`/api/profiles/${disabled.id}`)
+    const disabledVersion = (
+      Database.db.prepare('SELECT version FROM profile WHERE id = ?').get(disabled.id) as { version: number }
+    ).version;
+    const disableRes = await request(rig.app.getHttpServer())
+      .patch(`/api/settings/profiles/${disabled.id}`)
       .set('Cookie', rig.cookie)
-      .send({ status: 'disabled', ownerPassword: INITIALIZE_BODY.password });
+      .send({ status: 'disabled', clearPin: false, expectedVersion: disabledVersion, ownerPassword: INITIALIZE_BODY.password });
+    expect(disableRes.status, JSON.stringify(disableRes.body)).toBe(200);
 
     // 伪造声明字段 → 400(不能借此扩大权限或切换身份)
     for (const forged of [
@@ -272,6 +275,8 @@ describe('T032 · 最小选档接口(005 FR-008)', () => {
     const rejected = await selectProfile(rig, disabled.id);
     expect(rejected.status).toBe(403);
     expect(rejected.body.code).toBe(ProblemCode.PROFILE_NOT_SELECTABLE);
-    expect(sessionRowOf(rig.sessionId).active_profile_id).toBeNull();
+    // 005:夹具会话已选主档案 → 失败 select 不改变身份(仍为主档案,非 null)
+    const mainRow = (await listProfiles(rig).then((r) => r.body)) as Array<{ id: string; isMain: boolean }>;
+    expect(sessionRowOf(rig.sessionId).active_profile_id).toBe(mainRow.find((p) => p.isMain)!.id);
   });
 });

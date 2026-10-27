@@ -18,6 +18,7 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router';
 import { Button } from '@heroui/react';
 import { SettingsAccessProvider, useSettingsAccess } from '../features/settings/settings-access-provider';
 import { SettingsUnlockGate } from '../features/settings/settings-unlock-gate';
+import { UnsavedGuardProvider } from '../features/settings/shared/unsaved-guard';
 import { SETTINGS_MODULES, settingsModulePath, useSettingsPageMeta } from '../features/settings/settings-modules';
 import { useMediaQuery } from '../features/settings/use-media-query';
 
@@ -46,7 +47,7 @@ function SettingsShell(): ReactNode {
   const navigate = useNavigate();
   const access = useSettingsAccess();
   const current = useSettingsPageMeta();
-  const wide = useMediaQuery('(min-width: 768px)');
+  const wide = useMediaQuery('(min-width: 900px)');
   const [menuOpen, setMenuOpen] = useState(false);
 
   /** 取消 PIN 输入:清凭据(门内已清)并回到原页面 —— 返回观看保留登录 */
@@ -110,9 +111,12 @@ function SettingsShell(): ReactNode {
           </div>
         ) : null}
         <main className="min-w-0 flex-1">
-          {/* 解锁门:未解锁不渲染 Outlet(管理主体零请求;目标由 URL 保存) */}
+          {/* 解锁门:未解锁不渲染 Outlet(管理主体零请求;目标由 URL 保存)。
+              门内再挂布局级未保存拦截(T135:子模块切换时 Provider 不卸载,可拦截)。 */}
           <SettingsUnlockGate onCancel={handleCancel}>
-            <Outlet />
+            <UnsavedGuardProvider>
+              <Outlet />
+            </UnsavedGuardProvider>
           </SettingsUnlockGate>
         </main>
       </div>

@@ -14,6 +14,7 @@ import {
   login,
   startFreshApp,
 } from '../helpers';
+import { ensureSettingsUnlocked, mgmtSessionCookie } from '../helpers-management';
 
 /**
  * T016(US2 集成):服务端授权入口 authorizeCurrentProfile —— FR-005/006/007 + SC-003。
@@ -37,11 +38,12 @@ async function bootstrap(): Promise<Fixture> {
   const loggedIn = await login(app, INITIALIZE_BODY.username, INITIALIZE_BODY.password);
   expect(loggedIn.status).toBe(200);
   const cookie = cookiePairOf(loggedIn);
+  await ensureSettingsUnlocked(app, cookie);
   const household = await request(app.getHttpServer()).get('/api/household').set('Cookie', cookie);
   const householdId = household.body.id as string;
 
-  const adult = await request(app.getHttpServer()).post('/api/profiles').set('Cookie', cookie).send({ name: '成人', type: 'adult', ownerPassword: INITIALIZE_BODY.password });
-  const child = await request(app.getHttpServer()).post('/api/profiles').set('Cookie', cookie).send({ name: '儿童', type: 'child', ownerPassword: INITIALIZE_BODY.password });
+  const adult = await request(app.getHttpServer()).post('/api/settings/profiles').set('Cookie', cookie).send({ name: '成人', type: 'adult', ownerPassword: INITIALIZE_BODY.password });
+  const child = await request(app.getHttpServer()).post('/api/settings/profiles').set('Cookie', cookie).send({ name: '儿童', type: 'child', ownerPassword: INITIALIZE_BODY.password });
 
   // 以 DB 行构造服务端 SessionContext(与 SessionGuard 产出同构;信任源为会话行本身)
   const sessionRow = Database.db
@@ -112,8 +114,9 @@ describe('US2 授权入口 authorizeCurrentProfile(集成,夹具目录)', () => 
       new Map([['m-1', { householdId: f.householdId, mediaId: 'm-1', type: 'movie', channelId: null, contentLevel: 16, householdEnabled: true }]]),
     );
 
-    const noProfile = await authorizeCurrentProfile(f.context, 'm-1', catalog);
-    expect(noProfile).toStrictEqual({ allowed: false, reason: 'ACTIVE_PROFILE_REQUIRED' });
+    // 005:夹具登录即选主档案 → 当前观看者为主档案(成人,max=18)→ 放行
+    const mainViewer = await authorizeCurrentProfile(f.context, 'm-1', catalog);
+    expect(mainViewer).toStrictEqual({ allowed: true, reason: 'LEVEL_ALLOWED' });
 
     expect((await selectProfile(f, f.childProfileId)).status).toBe(200);
     const childDecision = await authorizeCurrentProfile(f.context, 'm-1', catalog);
@@ -132,15 +135,27 @@ describe('US2 授权入口 authorizeCurrentProfile(集成,夹具目录)', () => 
     );
     expect((await selectProfile(f, f.adultProfileId, INITIALIZE_BODY.password)).status).toBe(200);
 
-    // 停用当前观看者(保留儿童,满足「至少一个可用」)→ 授权拒绝
-    await request(f.app.getHttpServer()).patch(`/api/profiles/${f.adultProfileId}`).set('Cookie', f.cookie).send({ status: 'disabled', ownerPassword: INITIALIZE_BODY.password });
+    // 停用当前观看者(保留儿童/主档案)→ 授权拒绝;管理写经独立管理会话(005 设置边界)
+    const mgmt = await mgmtSessionCookie(f.app, { username: INITIALIZE_BODY.username, password: INITIALIZE_BODY.password });
+    const adultVersion = (
+      Database.db.prepare('SELECT version FROM profile WHERE id = ?').get(f.adultProfileId) as { version: number }
+    ).version;
+    await request(f.app.getHttpServer())
+      .patch(`/api/settings/profiles/${f.adultProfileId}`)
+      .set('Cookie', mgmt)
+      .send({ status: 'disabled', clearPin: false, expectedVersion: adultVersion, ownerPassword: INITIALIZE_BODY.password });
     expect(await authorizeCurrentProfile(f.context, 'm-16', catalog)).toStrictEqual({
       allowed: false,
       reason: 'ACTIVE_PROFILE_REQUIRED',
     });
 
     // 重新启用并选择成人;伪造上下文(声称当前观看者是儿童/他家庭)→ 判定仍以会话行为准(成人允许)
-    await request(f.app.getHttpServer()).patch(`/api/profiles/${f.adultProfileId}`).set('Cookie', f.cookie).send({ status: 'active', ownerPassword: INITIALIZE_BODY.password });
+    // 005:重启后/管理写后 grant 已失效 —— 重启用经新的管理会话
+    const mgmt2 = await mgmtSessionCookie(f.app, { username: INITIALIZE_BODY.username, password: INITIALIZE_BODY.password });
+    await request(f.app.getHttpServer())
+      .patch(`/api/settings/profiles/${f.adultProfileId}`)
+      .set('Cookie', mgmt2)
+      .send({ status: 'active', clearPin: false, expectedVersion: adultVersion + 1, ownerPassword: INITIALIZE_BODY.password });
     expect((await selectProfile(f, f.adultProfileId, INITIALIZE_BODY.password)).status).toBe(200);
     expect(await authorizeCurrentProfile(f.context, 'm-16', catalog)).toStrictEqual({
       allowed: true,
@@ -199,10 +214,11 @@ describe('US2 授权入口 authorizeCurrentProfile(集成,夹具目录)', () => 
       reason: 'LEVEL_EXCEEDED',
     });
 
-    // 家长保存新策略(经服务 API,模拟另一设备修改)
+    // 家长保存新策略(经服务 API,模拟另一设备修改;管理写经独立管理会话)
+    const mgmt = await mgmtSessionCookie(f.app, { username: INITIALIZE_BODY.username, password: INITIALIZE_BODY.password });
     const saved = await request(f.app.getHttpServer())
-      .put(`/api/profiles/${f.childProfileId}/policy`)
-      .set('Cookie', f.cookie)
+      .put(`/api/settings/profiles/${f.childProfileId}/policy`)
+      .set('Cookie', mgmt)
       .send({ ownerPassword: INITIALIZE_BODY.password, expectedVersion: 1, policy: { maxContentLevel: 16, allowUnrated: false } });
     expect(saved.status).toBe(200);
 

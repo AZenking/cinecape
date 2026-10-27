@@ -19,6 +19,7 @@ import { getDb } from '../../src/modules/auth/db';
 import { Database } from '../../src/database/database';
 import { mediaItem } from '../../src/database/schema';
 import { hashToken } from '../../src/modules/auth/token.service';
+import { selectMainAndUnlockSettings } from '../helpers-management';
 
 /**
  * T046(005 US3 契约负向测试,先 FAIL):策略/资源失效拒绝同形不泄露 +
@@ -67,10 +68,15 @@ function expectNoInternalLeak(res: request.Response): void {
   expectProblemContentType(res);
 }
 
-/** 经既有管理接口创建档案(US8 前契约;ownerPassword 沿用夹具密码) */
+/** 经设置路由创建档案(US8:管理写迁 /api/settings/profiles;先解锁设置边界) */
 async function createProfileViaApi(rig: Rig, body: { name: string; type: 'adult' | 'child'; pin?: string }): Promise<string> {
+  // 设置解锁:升格有 PIN 成人为主档案并以 world 会话完成选档 + PIN 验证
+  Database.db
+    .prepare("UPDATE profile SET is_main = 1 WHERE id = ? AND type = 'adult' AND status = 'active' AND pin_hash IS NOT NULL")
+    .run(rig.world.profileWithPinId);
+  await selectMainAndUnlockSettings(rig.app, rig.cookie, { mainPin: rig.world.pin });
   const res = await request(rig.app.getHttpServer())
-    .post('/api/profiles')
+    .post('/api/settings/profiles')
     .set('Cookie', rig.cookie)
     .send({ ...body, ownerPassword: rig.world.password });
   expect(res.status, JSON.stringify(res.body)).toBe(201);

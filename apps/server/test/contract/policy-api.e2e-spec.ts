@@ -14,6 +14,7 @@ import {
   login,
   startFreshApp,
 } from '../helpers';
+import { ensureSettingsUnlocked, mgmtSessionCookie } from '../helpers-management';
 
 /**
  * T009(US1 契约 e2e):策略读取/整体保存 —— FR-001/002/004/009/011/013/014。
@@ -36,6 +37,7 @@ async function bootstrap(): Promise<SessionFixture> {
   expect(init.status).toBe(201);
   const loggedIn = await login(app, INITIALIZE_BODY.username, OWNER_PASSWORD);
   expect(loggedIn.status).toBe(200);
+  await ensureSettingsUnlocked(app, cookiePairOf(loggedIn));
   const household = await request(app.getHttpServer()).get('/api/household').set('Cookie', cookiePairOf(loggedIn));
   expect(household.status).toBe(200);
   return { app, cookie: cookiePairOf(loggedIn), sessionId: loggedIn.body.sessionId as string, householdId: household.body.id as string };
@@ -43,19 +45,19 @@ async function bootstrap(): Promise<SessionFixture> {
 
 function createProfile(s: SessionFixture, body: Record<string, unknown>): Promise<request.Response> {
   return request(s.app.getHttpServer())
-    .post('/api/profiles')
+    .post('/api/settings/profiles')
     .set('Cookie', s.cookie)
     .send({ ownerPassword: OWNER_PASSWORD, ...body })
     .then((r) => r);
 }
 
 function getPolicy(s: SessionFixture, profileId: string): Promise<request.Response> {
-  return request(s.app.getHttpServer()).get(`/api/profiles/${profileId}/policy`).set('Cookie', s.cookie).then((r) => r);
+  return request(s.app.getHttpServer()).get(`/api/settings/profiles/${profileId}/policy`).set('Cookie', s.cookie).then((r) => r);
 }
 
 function putPolicy(s: SessionFixture, profileId: string, body: Record<string, unknown>): Promise<request.Response> {
   return request(s.app.getHttpServer())
-    .put(`/api/profiles/${profileId}/policy`)
+    .put(`/api/settings/profiles/${profileId}/policy`)
     .set('Cookie', s.cookie)
     .send(body)
     .then((r) => r);
@@ -306,12 +308,15 @@ describe('US1 策略读取/整体保存(契约 e2e)', () => {
     const c = await createProfile(s, { name: 'C', type: 'child' });
     expect((await request(s.app.getHttpServer()).post(`/api/profiles/${a.body.id}/select`).set('Cookie', s.cookie).send({ ownerPassword: OWNER_PASSWORD })).status).toBe(200);
 
-    // 会话当前观看者为 A,仍可管理 C 的策略(ADR-0006 §6 管理目标语义)
-    const manageOther = await getPolicy(s, c.body.id);
+    // 会话当前观看者为 A:管理目标语义经独立管理会话表达(005 设置边界要求主档案选中)
+    const mgmt = await mgmtSessionCookie(s.app, { username: INITIALIZE_BODY.username, password: OWNER_PASSWORD });
+    const manageOther = await request(s.app.getHttpServer())
+      .get(`/api/settings/profiles/${c.body.id}/policy`)
+      .set('Cookie', mgmt);
     expect(manageOther.status).toBe(200);
     expect(manageOther.body.profileId).toBe(c.body.id);
 
-    const anonymous = await request(s.app.getHttpServer()).get(`/api/profiles/${a.body.id}/policy`);
+    const anonymous = await request(s.app.getHttpServer()).get(`/api/settings/profiles/${a.body.id}/policy`);
     expect(anonymous.status).toBe(401);
     expect(anonymous.body.code).toBe(ProblemCode.SESSION_INVALID);
   });

@@ -4,7 +4,10 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import type { PlaybackBudgets } from '../../config/playback-budgets';
 import { playbackConversion, playbackSession } from '../../database/schema';
+import { Database } from '../../database/database';
 import { getDb } from '../auth/db';
+import { DomainError } from '../../common/domain-error';
+import type { ProgressSampleReply } from '../personal/progress-write.service';
 import type { PlaybackRepository } from './playback.repository';
 import {
   PLAYBACK_ACTIVE_SESSION_STATES,
@@ -81,6 +84,20 @@ export interface LifecycleSupervisorPort {
   cancel(conversionId: string): Promise<void>;
 }
 
+/** 进度 final 协作端口(T101;生产实现 = personal/ProgressWriteService,单测可注入 fake) */
+export interface PlaybackFinalProgressPort {
+  /**
+   * 在调用方事务内验证并处理 finalProgress(硬性非法抛 DomainError → 整体回滚;
+   * stale/superseded 返回 applied=false 不覆盖;无 started 返回 null 不建历史)。
+   */
+  applyFinalInTransaction(input: {
+    readonly householdId: string;
+    readonly sessionId: string;
+    readonly at: string;
+    readonly final: { readonly sampleSeq: number; readonly expectedGeneration: number; readonly positionSeconds: number };
+  }): ProgressSampleReply | null;
+}
+
 export interface PlaybackLifecycleDeps {
   readonly repository: PlaybackRepository;
   readonly authorization: PlaybackRevalidatePort;
@@ -94,6 +111,8 @@ export interface PlaybackLifecycleDeps {
    * rootDir 派生一致)。recoverOnBoot 据此扫描孤儿目录;缺省跳过磁盘扫描(仍完成 DB 标记)。
    */
   readonly privateRootDir?: string;
+  /** stop final 协作端口(T101;缺位时 stopSessionWithFinal 退化为普通 stop) */
+  readonly progressFinal?: PlaybackFinalProgressPort;
 }
 
 export interface LifecycleHeartbeatOptions {
@@ -123,6 +142,14 @@ function defaultLifecycleClock(): LifecycleClock {
         setTimeout(resolve, ms);
       }),
   };
+}
+
+/** stop-with-final 的 CAS 竞态中止信号(携领域结果抛出 → 外层事务回滚) */
+class StopWithFinalAbort extends Error {
+  constructor(readonly result: PlaybackResult<PlaybackSessionView>) {
+    super('stop-with-final aborted');
+    this.name = 'StopWithFinalAbort';
+  }
 }
 
 @Injectable()
@@ -169,6 +196,64 @@ export class PlaybackLifecycleService implements OnApplicationShutdown {
   /** 用户主动停止:活动态→ended + 取消转换 + 安排清理;重复 stop 幂等(终态零副作用) */
   async stopSession(sessionId: string, options: LifecycleTerminateOptions = {}): Promise<PlaybackResult<PlaybackSessionView>> {
     return this.reclaim(sessionId, { to: 'ended' }, options);
+  }
+
+  /**
+   * 携 finalProgress 的停止(T101,005 api.md §5「stop 与最终保存」):
+   * 「活动态同一事务先验证并处理 finalProgress,再终态化」—— final 与终态在同一个
+   * better-sqlite3 事务(嵌套调用自动 savepoint),任一失败整体回滚,不部分保存;
+   * 「已终态的重复 stop 保持 204,不用新 finalProgress 重写历史」;终态后不复活;
+   * 「stale/superseded 的 final 不覆盖历史但停止成功」。
+   */
+  async stopSessionWithFinal(
+    sessionId: string,
+    final: { readonly sampleSeq: number; readonly expectedGeneration: number; readonly positionSeconds: number },
+    options: LifecycleTerminateOptions = {},
+  ): Promise<PlaybackResult<PlaybackSessionView>> {
+    const row = this.readSessionRow(sessionId);
+    if (row === undefined) {
+      return playbackErr('PLAYBACK_NOT_FOUND', '播放会话不存在');
+    }
+    if (isPlaybackTerminalSessionState(row.state)) {
+      // 幂等:终态不可复活,不接受新 final 更新(不重写历史)
+      return this.deps.repository.getSession(row.householdId, sessionId);
+    }
+    const progressFinal = this.deps.progressFinal;
+    if (progressFinal === undefined) {
+      // 装配缺位:退化为普通 stop(final 不落地,绝不允许无协作的部分保存路径)
+      return this.stopSession(sessionId, options);
+    }
+    const at = options.at ?? this.isoNow();
+    const cas = { expectedVersion: row.version };
+    let outcome: PlaybackResult<PlaybackSessionView>;
+    try {
+      outcome = Database.db.transaction((): PlaybackResult<PlaybackSessionView> => {
+        // 先验证并处理 final(硬性非法抛 DomainError → 整体回滚,不部分保存)
+        progressFinal.applyFinalInTransaction({
+          householdId: row.householdId,
+          sessionId,
+          at,
+          final,
+        });
+        const ended = this.deps.repository.endSession(sessionId, { cas, at });
+        if (!ended.ok) {
+          // CAS 竞态(seek/换代):回滚 final,由调用方按领域结果处理
+          throw new StopWithFinalAbort(ended);
+        }
+        return ended;
+      })();
+    } catch (error) {
+      if (error instanceof StopWithFinalAbort) {
+        return error.result;
+      }
+      if (error instanceof DomainError) {
+        throw error; // final 硬性非法:按稳定错误码返回,会话保持活动(客户端可改空 stop)
+      }
+      return playbackErr('PLAYBACK_NOT_READY', '停止处理失败,请重试');
+    }
+    await this.cancelSessionConversions(sessionId);
+    this.scheduleCleanup(row.householdId, sessionId);
+    return outcome;
   }
 
   /**

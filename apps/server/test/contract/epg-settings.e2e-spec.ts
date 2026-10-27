@@ -22,6 +22,7 @@ import {
   type ControlledMediaServer,
   type TestRig,
 } from '../helpers';
+import { selectMainAndUnlockSettings } from '../helpers-management';
 
 /**
  * T041/T043(US4 契约 e2e):EPG 来源设置 + 真实刷新链路复核,
@@ -65,6 +66,7 @@ async function bootstrap(): Promise<EpgRig> {
   expect(init.status).toBe(201);
   const loggedIn = await login(app, INITIALIZE_BODY.username, OWNER_PASSWORD);
   expect(loggedIn.status).toBe(200);
+  await selectMainAndUnlockSettings(app, cookiePairOf(loggedIn));
   const household = await request(app.getHttpServer()).get('/api/household').set('Cookie', cookiePairOf(loggedIn));
   expect(household.status).toBe(200);
   const accountRow = Database.db.prepare("SELECT id FROM account WHERE role = 'owner'").get() as { id: string };
@@ -102,23 +104,23 @@ afterAll(async () => {
 /* ------------------------------------------------------------------ */
 
 function postSource(s: EpgRig, body: Record<string, unknown>): Promise<request.Response> {
-  return request(s.app.getHttpServer()).post('/api/sources').set('Cookie', s.cookie).send(body);
+  return request(s.app.getHttpServer()).post('/api/settings/sources').set('Cookie', s.cookie).send(body);
 }
 
 function patchSource(s: EpgRig, sourceId: string, body: Record<string, unknown>): Promise<request.Response> {
-  return request(s.app.getHttpServer()).patch(`/api/sources/${sourceId}`).set('Cookie', s.cookie).send(body);
+  return request(s.app.getHttpServer()).patch(`/api/settings/sources/${sourceId}`).set('Cookie', s.cookie).send(body);
 }
 
 function postRefresh(s: EpgRig, sourceId: string, body: Record<string, unknown>): Promise<request.Response> {
-  return request(s.app.getHttpServer()).post(`/api/sources/${sourceId}/refresh`).set('Cookie', s.cookie).send(body);
+  return request(s.app.getHttpServer()).post(`/api/settings/sources/${sourceId}/refresh`).set('Cookie', s.cookie).send(body);
 }
 
 function getRefresh(s: EpgRig, refreshId: string): Promise<request.Response> {
-  return request(s.app.getHttpServer()).get(`/api/refreshes/${refreshId}`).set('Cookie', s.cookie);
+  return request(s.app.getHttpServer()).get(`/api/settings/refreshes/${refreshId}`).set('Cookie', s.cookie);
 }
 
 function getSources(s: EpgRig): Promise<request.Response> {
-  return request(s.app.getHttpServer()).get('/api/sources').set('Cookie', s.cookie);
+  return request(s.app.getHttpServer()).get('/api/settings/sources').set('Cookie', s.cookie);
 }
 
 interface CreateOverrides {
@@ -171,7 +173,7 @@ async function startRefreshOk(s: EpgRig, sourceId: string, expectedVersion = 1):
   });
   expect(res.status, `发起刷新前置失败: ${JSON.stringify(res.body)}`).toBe(202);
   const body = res.body as Record<string, unknown>;
-  expect(res.headers.location).toBe(`/api/refreshes/${body.id as string}`);
+  expect(res.headers.location).toBe(`/api/settings/refreshes/${body.id as string}`);
   expectRefreshDtoShape(body, '202 响应');
   return body;
 }
@@ -402,9 +404,9 @@ describe('T041/T043 EPG 设置与真实刷新链路(契约 e2e)', () => {
     const liveJob = await startRefreshOk(s, iptv.body.id as string);
     await waitForStatus(s, liveJob.id as string, ['succeeded']);
 
-    // 观看管线需当前档案:创建并选择成人档案
+    // 观看管线需当前档案:创建并选择成人档案(经 /api/settings/profiles,当次密码)
     const profile = await request(s.app.getHttpServer())
-      .post('/api/profiles')
+      .post('/api/settings/profiles')
       .set('Cookie', s.cookie)
       .send({ name: '成人', type: 'adult', ownerPassword: OWNER_PASSWORD });
     expect(profile.status).toBe(201);
@@ -586,19 +588,17 @@ describe('T041/T043 EPG 设置与真实刷新链路(契约 e2e)', () => {
     });
 
     // 无会话 401 先于一切
-    const anonymous = await request(s.app.getHttpServer()).post(`/api/sources/${epgId}/refresh`).send(refreshBody());
+    const anonymous = await request(s.app.getHttpServer()).post(`/api/settings/sources/${epgId}/refresh`).send(refreshBody());
     expect(anonymous.status).toBe(401);
     expect(anonymous.body.code).toBe(ProblemCode.SESSION_INVALID);
 
     // 非 owner 403(创建/刷新/任务查询同语义)
     Database.db.prepare("UPDATE account SET role = 'admin'").run();
-    const forbiddenCreate = await postSource(s, createBody());
-    const forbiddenRefresh = await postRefresh(s, epgId, refreshBody());
-    const forbiddenJob = await getRefresh(s, randomUUID());
-    for (const res of [forbiddenCreate, forbiddenRefresh, forbiddenJob]) {
-      expect(res.status).toBe(403);
-      expect(res.body.code).toBe(ProblemCode.FORBIDDEN);
-    }
+    // 005 settings 边界 = owner/admin:admin 允许创建/刷新/读任务
+    const adminCreate = await postSource(s, createBody());
+    expect(adminCreate.status).toBe(201);
+    const adminJob = await getRefresh(s, randomUUID());
+    expect(adminJob.status).toBe(404); // 未知任务 404 同形(已放行至目标归属段)
     Database.db.prepare("UPDATE account SET role = 'owner'").run();
 
     // 错密码 403 FAILED(错误响应不回显密码);缺失/空串统一 403 REQUIRED
@@ -650,8 +650,10 @@ describe('T041/T043 EPG 设置与真实刷新链路(契约 e2e)', () => {
     await waitForStatus(s, started.id as string, ['running']);
 
     // 真实重启 AppModule:onModuleInit recoverInterrupted 将 running → interrupted(不自动重跑);
-    // 重启须重放 LAN 许可(restartApp 的 env 覆盖默认不继承)
+    // 重启须重放 LAN 许可(restartApp 的 env 覆盖默认不继承);
+    // 005:启动时撤销所有 grants(data-model §3)—— 重启后重新 PIN 解锁再继续管理轮询
     await restartApp(s.rig, { LAN_ALLOWED_TARGETS: '127.0.0.1' });
+    await selectMainAndUnlockSettings(s.app, s.cookie);
     const interrupted = await waitForStatus(s, started.id as string, ['interrupted']);
     expect(interrupted.errorCode).toBeNull();
     expect(interrupted.finishedAt).not.toBeNull();

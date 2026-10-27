@@ -11,6 +11,7 @@ import { ProblemCode, SESSION_COOKIE } from '@hmp/shared';
 import { createDomainError } from '../../src/common/domain-error';
 import { ProblemJsonFilter } from '../../src/common/problem-json.filter';
 import { getDb } from '../../src/modules/auth/db';
+import { Database } from '../../src/database/database';
 import {
   deviceSession,
   mediaItem,
@@ -28,6 +29,7 @@ import {
   startFreshApp,
   type TestRig,
 } from '../helpers';
+import { selectMainAndUnlockSettings } from '../helpers-management';
 import {
   seedPlaybackSession,
   seedPlaybackWorld,
@@ -97,6 +99,19 @@ function expectStableProblem(res: request.Response, status: number, code: Proble
 /** 同形断言:两响应的 problem 体逐字段一致(码与体结构一致,无法区分存在性) */
 function expectSameProblemShape(a: request.Response, b: request.Response): void {
   expect(a.body).toEqual(b.body);
+}
+
+/**
+ * US8 设置边界:策略/档案管理写需「主档案选中 + 设置解锁」——升格有 PIN 成人为主档案,
+ * 以 world 会话完成选档与 PIN 解锁(005 §7:grant 先于当次密码/严格入参)。
+ * 副作用注明:换档使 world 会话 activeProfile 切至主档案且 pcv 递增(旧上下文播放
+ * 终态化),故调用方须在 seedPlaybackSession/resolve 之前调用并绑定主档案。
+ */
+async function unlockSettingsAsOwner(app: INestApplication, world: SeededWorld): Promise<void> {
+  Database.db
+    .prepare("UPDATE profile SET is_main = 1 WHERE id = ? AND type = 'adult' AND status = 'active' AND pin_hash IS NOT NULL")
+    .run(world.profileWithPinId);
+  await selectMainAndUnlockSettings(app, cookieOf(world), { mainPin: world.pin });
 }
 
 /** seedWorld 句柄:PlaybackWorld + 显式 username(登录类用例需要;多家庭须互异) */
@@ -182,7 +197,7 @@ function postUnlockPin(app: INestApplication, cookie: string, profileId: string,
   return request(app.getHttpServer()).post(`/api/profiles/${profileId}/unlock`).set('Cookie', cookie).send({ pin });
 }
 function getPolicyDto(app: INestApplication, cookie: string, profileId: string): request.Test {
-  return request(app.getHttpServer()).get(`/api/profiles/${profileId}/policy`).set('Cookie', cookie);
+  return request(app.getHttpServer()).get(`/api/settings/profiles/${profileId}/policy`).set('Cookie', cookie);
 }
 
 /** PUT /profiles/{id}/policy(等级/allowUnrated;version+1) */
@@ -196,7 +211,7 @@ function putPolicyLevel(
     policy: { maxContentLevel: number; allowUnrated: boolean };
   },
 ): request.Test {
-  return request(app.getHttpServer()).put(`/api/profiles/${profileId}/policy`).set('Cookie', cookie).send(body);
+  return request(app.getHttpServer()).put(`/api/settings/profiles/${profileId}/policy`).set('Cookie', cookie).send(body);
 }
 
 /** PUT /profiles/{id}/policy/lists(三名单整体替换;version+1)——矩阵「策略收紧」的 HTTP 路径 */
@@ -213,7 +228,7 @@ function putPolicyLists(
   },
 ): request.Test {
   return request(app.getHttpServer())
-    .put(`/api/profiles/${profileId}/policy/lists`)
+    .put(`/api/settings/profiles/${profileId}/policy/lists`)
     .set('Cookie', cookie)
     // 契约 UpdateLists:三名单必填数组(strictObject),整体替换
     .send({ allowedMediaIds: [], blockedMediaIds: [], allowedChannelIds: [], ...body });
@@ -226,15 +241,16 @@ async function currentPolicyVersion(app: INestApplication, cookie: string, profi
   return res.body.version as number;
 }
 
-/** 经 HTTP 名单入口把媒体加入黑名单(家长验证 + version+1;返回新 version) */
+/** 经 HTTP 名单入口把媒体加入黑名单(家长验证 + version+1;返回新 version;名单落在 targetProfileId) */
 async function blockMediaViaLists(
   app: INestApplication,
   cookie: string,
   world: SeededWorld,
+  targetProfileId: string,
   mediaId: string,
 ): Promise<void> {
-  const version = await currentPolicyVersion(app, cookie, world.profileId);
-  const res = await putPolicyLists(app, cookie, world.profileId, {
+  const version = await currentPolicyVersion(app, cookie, targetProfileId);
+  const res = await putPolicyLists(app, cookie, targetProfileId, {
     ownerPassword: world.password,
     expectedVersion: version,
     blockedMediaIds: [mediaId],
@@ -248,11 +264,13 @@ async function createChildProfile(
   app: INestApplication,
   world: SeededWorld,
 ): Promise<{ cookie: string; profileId: string }> {
+  // 005 US8:建档案属管理写(设置边界)——先解锁设置,再经 /api/settings/profiles 创建
+  await unlockSettingsAsOwner(app, world);
   const create = await request(app.getHttpServer())
-    .post('/api/profiles')
+    .post('/api/settings/profiles')
     .set('Cookie', cookieOf(world))
     .send({ name: '儿童档案', type: 'child', ownerPassword: world.password });
-  expect(create.status, 'POST /profiles 应 201').toBe(201);
+  expect(create.status, 'POST /settings/profiles 应 201').toBe(201);
   const childProfileId = (create.body as Record<string, unknown>)['id'] as string;
   const fresh = await login(app, world.username, world.password);
   expect(fresh.status).toBe(200);
@@ -333,6 +351,8 @@ async function setupDirectWorld(prefix: string): Promise<{
   fs.writeFileSync(path.join(nasRoot, MOVIE_REL_PATH), Buffer.alloc(65536, 0x5a));
   const rig = await startFreshApp({ prefix, env: { MEDIA_ROOTS: `${NAS_ROOT_KEY}=${nasRoot}` } });
   const world = await seedWorld(rig, { nasEnabled: true });
+  // US8:名单入口属设置边界 —— 先解锁(active 切至主档案),会话种子随之绑定主档案
+  await unlockSettingsAsOwner(rig.app, world);
   getDb()
     .update(playbackSource)
     .set({ location: `${NAS_ROOT_KEY}/${MOVIE_REL_PATH}`, mimeType: null })
@@ -342,8 +362,10 @@ async function setupDirectWorld(prefix: string): Promise<{
     state: 'playing',
     delivery: 'direct',
     playbackSourceId: world.nas.playbackSourceId,
+    profileId: world.profileWithPinId,
     at: freshNow(),
   });
+  alignSeededSessionPcv(world, session.sessionId);
   return { rig, world, cookie: cookieOf(world), session };
 }
 
@@ -370,6 +392,17 @@ function streamUrl(session: PlaybackSessionFixture, ticket: string): string {
 }
 
 /** 便捷会话构造:ready/playing 直播(hls_proxy,IPTV 启用代表行;可选绑定档案/预置票) */
+
+/** US8:unlockSettingsAsOwner 切主档案使 device_session.pcv+1 —— 直改种子会话 pcv 对齐当前上下文
+ *  (fixture 不暴露 pcv 入参;此为取线路径迁移的最小夹具适配,不改共享 fixture) */
+function alignSeededSessionPcv(world: PlaybackWorld, sessionId: string): void {
+  Database.db
+    .prepare(
+      'UPDATE playback_session SET profile_context_version = (SELECT profile_context_version FROM device_session WHERE id = ?) WHERE id = ?',
+    )
+    .run(world.deviceSessionId, sessionId);
+}
+
 function seedReadySession(
   world: PlaybackWorld,
   state: 'ready' | 'playing',
@@ -561,9 +594,11 @@ describe('T035 策略维度(儿童等级/未评级/黑白名单/收紧)', () => 
     const rig = await startFreshApp({ prefix: 'hmp-authz-c2-' });
     const world = await seedWorld(rig);
     const cookie = cookieOf(world);
+    // US8:名单入口属设置边界 —— 先解锁(active 切至主档案),resolve 回填主档案策略行
+    await unlockSettingsAsOwner(rig.app, world);
     // 先成功 resolve 一次:授权链惰性回填默认策略行,随后名单入口可用
     expect((await postResolve(rig.app, cookie, world.iptv.mediaId)).status).toBe(201);
-    await blockMediaViaLists(rig.app, cookie, world, world.iptv.mediaId);
+    await blockMediaViaLists(rig.app, cookie, world, world.profileWithPinId, world.iptv.mediaId);
     expectStableProblem(await postResolve(rig.app, cookie, world.iptv.mediaId), 404, ProblemCode.MEDIA_NOT_FOUND);
   });
 
@@ -571,13 +606,15 @@ describe('T035 策略维度(儿童等级/未评级/黑白名单/收紧)', () => 
     const rig = await startFreshApp({ prefix: 'hmp-authz-c3-' });
     const world = await seedWorld(rig);
     const cookie = cookieOf(world);
+    // US8:等级入口属设置边界 —— 先解锁(active 切至主档案),等级收紧落在主档案
+    await unlockSettingsAsOwner(rig.app, world);
     // DB 直改注明:IPTV 频道代表行置 NULL = 未评级
     setContentLevel(world.iptv.mediaId, null);
     // 基线:成人默认策略(授权链回填 allowUnrated=true)对未评级放行
     expect((await postResolve(rig.app, cookie, world.iptv.mediaId)).status).toBe(201);
     // HTTP 等级入口收紧:allowUnrated=false(version+1)
-    const version = await currentPolicyVersion(rig.app, cookie, world.profileId);
-    const tightened = await putPolicyLevel(rig.app, cookie, world.profileId, {
+    const version = await currentPolicyVersion(rig.app, cookie, world.profileWithPinId);
+    const tightened = await putPolicyLevel(rig.app, cookie, world.profileWithPinId, {
       ownerPassword: world.password,
       expectedVersion: version,
       policy: { maxContentLevel: 18, allowUnrated: false },
@@ -613,13 +650,17 @@ describe('T035 策略维度(儿童等级/未评级/黑白名单/收紧)', () => 
   it('策略收紧(version+1)后:已 active session 的下一次 GET/renew/媒体请求 → 404 MEDIA_NOT_FOUND 拒绝', async () => {
     const rig = await startFreshApp({ prefix: 'hmp-authz-c6-' });
     const world = await seedWorld(rig);
+    // US8:名单入口属设置边界 —— 先解锁(active 切至主档案),会话种子绑定主档案,
+    // 使收紧后拒绝点落在策略链(404 MEDIA_NOT_FOUND)而非旧上下文(PLAYBACK_NOT_FOUND)
+    await unlockSettingsAsOwner(rig.app, world);
     const cookie = cookieOf(world);
-    const session = seedReadySession(world, 'ready');
+    const session = seedReadySession(world, 'ready', { profileId: world.profileWithPinId });
+    alignSeededSessionPcv(world, session.sessionId);
     // 收紧前:GET 200、renew 签票 200
     expect((await getSession(rig.app, cookie, session.sessionId)).status).toBe(200);
     const asset = await renewForPlaybackUrl(rig, cookie, session);
     // 收紧(黑名单,version+1)
-    await blockMediaViaLists(rig.app, cookie, world, world.iptv.mediaId);
+    await blockMediaViaLists(rig.app, cookie, world, world.profileWithPinId, world.iptv.mediaId);
     // 收紧后:下一次控制请求一律 404(不缓存授权正结果)
     expectStableProblem(await getSession(rig.app, cookie, session.sessionId), 404, ProblemCode.MEDIA_NOT_FOUND);
     expectStableProblem(await postRenew(rig.app, cookie, session.sessionId, 1), 404, ProblemCode.MEDIA_NOT_FOUND);
@@ -636,7 +677,7 @@ describe('T035 策略维度(儿童等级/未评级/黑白名单/收紧)', () => 
     expect(playing.status).toBe(200);
     expect(String(playing.headers['content-type'])).toContain('video/mp4');
     // 收紧(黑名单)后:同一 URL 的新请求即拒
-    await blockMediaViaLists(rig.app, cookie, world, world.nas.mediaId);
+    await blockMediaViaLists(rig.app, cookie, world, world.profileWithPinId, world.nas.mediaId);
     expectStableProblem(await getStream(rig.app, cookie, asset.url), 404, ProblemCode.MEDIA_NOT_FOUND);
   });
 });
@@ -792,10 +833,13 @@ describe('T035 异步提交授权变化(201 已接受不等于继续放行)', ()
     const rig = await startFreshApp({ prefix: 'hmp-authz-f2-' });
     const world = await seedWorld(rig);
     const cookie = cookieOf(world);
+    // US8:名单入口属设置边界 —— 先解锁(active 切至主档案),resolve 与收紧同落在主档案,
+    // 避免收紧入口的解锁换档把旧上下文拒绝(PLAYBACK_NOT_FOUND)混入策略拒绝断言
+    await unlockSettingsAsOwner(rig.app, world);
     const resolved = await postResolve(rig.app, cookie, world.iptv.mediaId);
     expect(resolved.status).toBe(201);
     const sessionId = (resolved.body as Record<string, unknown>)['id'] as string;
-    await blockMediaViaLists(rig.app, cookie, world, world.iptv.mediaId);
+    await blockMediaViaLists(rig.app, cookie, world, world.profileWithPinId, world.iptv.mediaId);
     expectStableProblem(await getSession(rig.app, cookie, sessionId), 404, ProblemCode.MEDIA_NOT_FOUND);
     expectStableProblem(await postRenew(rig.app, cookie, sessionId, 1), 404, ProblemCode.MEDIA_NOT_FOUND);
     // 异步窗口内未签出任何票
@@ -834,10 +878,12 @@ describe('T035 幂等与同形(存在性不可区分;归属不因幂等放开)',
     const world = await seedWorld(rig, { username: 'shape-owner' });
     const other = await seedOtherHousehold(rig, world.householdId.slice(0, 8));
     const cookie = cookieOf(world);
+    // US8:名单入口属设置边界 —— 先解锁(active 切至主档案),策略拒绝断言落在主档案
+    await unlockSettingsAsOwner(rig.app, world);
     const session = seedReadySession(world, 'ready');
 
     expect((await postResolve(rig.app, cookie, world.iptv.mediaId)).status).toBe(201);
-    await blockMediaViaLists(rig.app, cookie, world, world.iptv.mediaId);
+    await blockMediaViaLists(rig.app, cookie, world, world.profileWithPinId, world.iptv.mediaId);
     const blocked = await postResolve(rig.app, cookie, world.iptv.mediaId);
     const missingMedia = await postResolve(rig.app, cookie, randomUUID());
     expectStableProblem(blocked, 404, ProblemCode.MEDIA_NOT_FOUND);

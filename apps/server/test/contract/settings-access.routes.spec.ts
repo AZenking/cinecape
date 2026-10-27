@@ -11,6 +11,7 @@ import {
   type TestRig,
 } from '../helpers';
 import { cleanupSettingsRigs, startSettingsApp } from '../helpers-settings';
+import { ensureSettingsUnlocked } from '../helpers-management';
 
 /**
  * T075(005 US7 契约测试,先 FAIL):/settings/access 三端点分层语义。
@@ -61,8 +62,9 @@ async function selectProfile(rig: Rig, profileId: string, pin: string): Promise<
 }
 
 async function createOrdinaryProfile(rig: Rig, body: { name: string; type: 'adult' | 'child'; pin: string }): Promise<string> {
+  await ensureSettingsUnlocked(rig.app, rig.ownerCookie);
   const res = await request(rig.app.getHttpServer())
-    .post('/api/profiles')
+    .post('/api/settings/profiles')
     .set('Cookie', rig.ownerCookie)
     .send({ ...body, ownerPassword: INITIALIZE_BODY.password });
   expect(res.status).toBe(201);

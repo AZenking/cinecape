@@ -1,20 +1,26 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useLocation, useParams } from 'react-router';
 import type { PublicMediaDto } from '@hmp/shared';
-import { isAbortError, publicFetch } from '../../shared/fetch';
+import { isAbortError, isFetchApiError, publicFetch } from '../../shared/fetch';
 import { LoadingSpinner, RetryableAlert } from '../../shared/ui';
 import { PlayButton } from '../playback/use-play-action';
+import { useSession } from '../../app/session-provider';
+import { fetchHistoryItem, type HistoryItem } from '../history/history-api';
+import { FavoriteStarButton } from '../favorites/favorite-star-button';
 
 /**
- * 公共媒体详情页(T029,US1;contracts/ui.md §1、data-model §9):
+ * 公共媒体详情页(T029,US1;T103 续播入口,US4;contracts/ui.md §1、data-model §9):
  * - 渲染 PublicMedia 白名单元数据与海报:posterRef 仅同源资源或 null,当前部署无
  *   同源海报端点(公共投影恒为 null)→ 渲染占位,绝不直接渲染任意外部 URL;
- * - 元数据对游客完全可见、不按儿童/成人策略隐藏(US1 场景2);无个人状态
- *   (历史/进度/收藏)与播放凭据(个人数据属 US4 从 /me 读取,不进本页);
+ * - 元数据对游客完全可见、不按儿童/成人策略隐藏(US1 场景2);
+ * - 个人状态(US4):仅已选档经 GET /me/history/{mediaId} 读取本档案记录 —— 游客与
+ *   未选档不发个人请求,进度不进入公共详情 HTML(公共响应/缓存不含个人数据);
+ *   canResume=true 展示「继续观看」(startMode=resume)与「从头播放」
+ *   (startMode=beginning),二者都经统一受控播放重新授权;无效/到尾/资源变化
+ *   仅从头;频道媒体提供独立星标收藏/取消(不冒泡播放);
  * - 播放入口接入 US3 统一受控播放流程(PlayButton → usePlayAction):本页不自行
- *   发起播放、不伪造可播放承诺;不可用内容禁用并给理由;游客点击进入登录选档意图;
- *   startMode 占位(继续观看/从头按钮语义与进度数据由 US4 补全);
+ *   发起播放、不伪造可播放承诺;不可用内容禁用并给理由;
  * - 不存在/不可用(服务端统一 404)→ 可回目录的失败态,不泄露存在性。
  */
 
@@ -34,8 +40,12 @@ type DetailState =
 
 export function MediaDetailPage(): ReactNode {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const session = useSession();
   const [state, setState] = useState<DetailState>({ kind: 'loading' });
   const [reloadToken, setReloadToken] = useState(0);
+  /** 本档案观看历史(US4;仅已选档读取;游客/未选档恒 null 不发请求) */
+  const [history, setHistory] = useState<HistoryItem | null>(null);
 
   useEffect(() => {
     if (id === undefined || id === '') {
@@ -66,6 +76,35 @@ export function MediaDetailPage(): ReactNode {
       });
     return () => controller.abort();
   }, [id, reloadToken]);
+
+  // 个人历史读取(US4 T103):身份键变化即重读/丢弃;游客/未选档零个人请求。
+  // 失败静默(公共详情不因个人区失败受阻;进度本来就不进公共详情)。
+  const personalCacheKey = session.personalCacheKey;
+  const mediaId = state.kind === 'ready' ? state.media.id : null;
+  useEffect(() => {
+    if (personalCacheKey === null || mediaId === null) {
+      setHistory(null);
+      return;
+    }
+    const controller = new AbortController();
+    fetchHistoryItem(mediaId, controller.signal)
+      .then((item) => {
+        if (!controller.signal.aborted) {
+          setHistory(item);
+        }
+      })
+      .catch((error: unknown) => {
+        if (isAbortError(error)) {
+          return;
+        }
+        if (isFetchApiError(error) && (error.status === 401 || error.status === 403)) {
+          setHistory(null); // 失效回落:清个人展示,公共详情不受阻(FR-009)
+          return;
+        }
+        setHistory(null);
+      });
+    return () => controller.abort();
+  }, [personalCacheKey, mediaId]);
 
   if (state.kind === 'loading') {
     return <LoadingSpinner label="加载详情…" />;
@@ -138,16 +177,52 @@ export function MediaDetailPage(): ReactNode {
             <p className="max-w-prose text-sm leading-6 text-foreground">{media.description}</p>
           ) : null}
 
-          {/* 播放入口(US3 统一受控播放):只经 usePlayAction 发起;不可用内容禁用给理由 */}
-          <div className="flex items-center gap-3">
-            <PlayButton
-              mediaId={media.id}
-              title={media.title}
-              disabled={media.availability !== 'available'}
-              disabledReason={media.availability !== 'available' ? '该内容当前不可用' : undefined}
-              ariaLabel={`播放 ${media.title}`}
-            />
+          {/* 播放入口(US3 统一受控播放 + US4 续播入口):
+              - canResume=true:「继续观看」(resume)与「从头播放」(beginning),均经
+                统一受控播放重新授权;无效/到尾/资源变化仅从头(不越界定位);
+              - 不可用内容禁用并给理由;频道提供独立星标收藏/取消(不冒泡播放)。 */}
+          <div className="flex flex-wrap items-center gap-3">
+            {media.type === 'channel' ? (
+              <FavoriteStarButton
+                mediaId={media.id}
+                title={media.title}
+                favorited={(location.state as { favorited?: boolean } | null)?.favorited ?? false}
+                unavailable={media.availability !== 'available'}
+              />
+            ) : null}
+            {media.type !== 'channel' && history !== null && history.canResume && media.availability === 'available' ? (
+              <PlayButton
+                mediaId={media.id}
+                title={media.title}
+                startMode="resume"
+                label="继续观看"
+                ariaLabel={`继续观看 ${media.title}`}
+              />
+            ) : null}
+            {media.type !== 'channel' && media.availability === 'available' ? (
+              <PlayButton
+                mediaId={media.id}
+                title={media.title}
+                startMode="beginning"
+                label={history !== null && history.canResume ? '从头播放' : '播放'}
+                variant={history !== null && history.canResume ? 'secondary' : 'primary'}
+                ariaLabel={`${history !== null && history.canResume ? '从头播放' : '播放'} ${media.title}`}
+              />
+            ) : (
+              <PlayButton
+                mediaId={media.id}
+                title={media.title}
+                disabled={media.availability !== 'available'}
+                disabledReason={media.availability !== 'available' ? '该内容当前不可用' : undefined}
+                ariaLabel={`播放 ${media.title}`}
+              />
+            )}
           </div>
+          {history !== null && history.canResume ? (
+            <p className="text-xs text-muted" data-testid="detail-resume-hint">
+              上次观看至 {Math.floor(history.positionSeconds / 60)} 分钟,可继续观看或从头播放。
+            </p>
+          ) : null}
         </div>
       </div>
     </section>

@@ -108,23 +108,42 @@ function programmeRowOf(raw: {
   };
 }
 
+/** 频道元数据行(不含播放地址/来源身份;guide 墙与直播列表共用同一投影) */
+export interface ChannelMetaRow {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string | null;
+  readonly posterRef: string | null;
+  readonly contentLevel: number | null;
+}
+
+/** 关联解析核心的集合装载结果(US6 T113 起供 modules/epg/binding-core 复用) */
+export interface ChannelAssociationCore {
+  /** 家庭全部频道元数据行(含不可用;可用性由 availableIds 判定) */
+  readonly channelRows: ChannelMetaRow[];
+  /** 家庭真实可用频道集合(present 条目 × 启用来源 × 播放资源,无政策语义) */
+  readonly availableIds: Set<string>;
+  /** mediaId → 关联对 pairKey;null = 无有效关联(manual 失效不回退/自动无匹配) */
+  readonly associationByMedia: Map<string, string | null>;
+  /** mediaId → 分组标题来源集合(主分组选择输入;guide 不消费) */
+  readonly groupSourcesByMedia: Map<string, GroupTitleSource[]>;
+}
+
 /**
- * 批量直播投影:可用频道 → 稳定主分组 → 关联(手动优先/失效不回退/自动精确)→
- * 批量节目窗口。options.mediaIds 过滤供单频道路径复用同一管线(仍是同一套集合查询);
- * options.includeProgrammes=false 供分组列表跳过节目窗口(分组不依赖节目)。
+ * 关联解析核心(T063 内联逻辑自 US6 T113 起平移为独立导出,语义逐字不变;
+ * 供 live 投影与 epg guide 窗口共用,不建立第二套匹配算法):
+ * 固定 6 次集合查询 —— 1 频道 + 1 可用性 + 1 source_entry + 1 media_source +
+ * 1 manual_epg_binding + 1 epg_channel;可用性复用 policy.batch-context 的
+ * loadAvailableMediaIdSet(join 链一致、无政策语义);关联解析规则见文件头注释。
  */
-export function loadLiveChannelWindows(
+export function loadChannelAssociationCore(
   householdId: string,
-  nowMs: number,
-  options: { readonly mediaIds?: readonly string[]; readonly includeProgrammes?: boolean } = {},
-): LiveChannelProjection[] {
-  const mediaIds = options.mediaIds;
-  const includeProgrammes = options.includeProgrammes ?? true;
+  options: { readonly mediaIds?: readonly string[] } = {},
+): ChannelAssociationCore {  const mediaIds = options.mediaIds;
   const db = getDb();
-  const nowIso = new Date(nowMs).toISOString();
 
   // 1) 频道集合 + 家庭真实可用性(集合查询:present 条目 × 启用来源 × 播放资源)
-  const channelRows = db
+  const channelRows: ChannelMetaRow[] = db
     .select({
       id: mediaItem.id,
       title: mediaItem.title,
@@ -201,8 +220,7 @@ export function loadLiveChannelWindows(
   }
 
   // 3) 关联解析(手动优先/失效不回退/自动精确),收集每频道目标对
-  const associationByMedia = new Map<string, { pairKey: string } | 'invalid'>();
-  const neededPairs = new Set<string>();
+  const associationByMedia = new Map<string, string | null>();
   for (const channel of channelRows) {
     if (!availableIds.has(channel.id)) {
       continue;
@@ -221,11 +239,10 @@ export function loadLiveChannelWindows(
           : epgChannelByKey.get(key);
       if (key === null || target === undefined || target.conflicted !== 0) {
         // 失效不回退:手动失效是配置事实,不自动改用其他来源
-        associationByMedia.set(channel.id, 'invalid');
+        associationByMedia.set(channel.id, null);
         continue;
       }
-      associationByMedia.set(channel.id, { pairKey: key });
-      neededPairs.add(key);
+      associationByMedia.set(channel.id, key);
       continue;
     }
     // 自动精确关联:present 条目按 (source_id, entry_id) 升序;来源链两端启用;conflicted=0
@@ -257,16 +274,51 @@ export function loadLiveChannelWindows(
         break;
       }
     }
-    if (resolved !== null) {
-      associationByMedia.set(channel.id, { pairKey: resolved });
-      neededPairs.add(resolved);
+    associationByMedia.set(channel.id, resolved);
+  }
+  // 分组标题来源集合(主分组选择输入;live 消费,guide 不消费)
+  const groupSourcesByMedia = new Map<string, GroupTitleSource[]>();
+  for (const row of entryRows) {
+    const list = groupSourcesByMedia.get(row.mediaId);
+    const source: GroupTitleSource = { sourceId: row.sourceId, entryId: row.entryId, groupTitle: row.groupTitle };
+    if (list === undefined) {
+      groupSourcesByMedia.set(row.mediaId, [source]);
+    } else {
+      list.push(source);
     }
   }
+  return { channelRows, availableIds, associationByMedia, groupSourcesByMedia };
+}
+
+/**
+ * 批量直播投影:可用频道 → 稳定主分组 → 关联(手动优先/失效不回退/自动精确)→
+ * 批量节目窗口。options.mediaIds 过滤供单频道路径复用同一管线(仍是同一套集合查询);
+ * options.includeProgrammes=false 供分组列表跳过节目窗口(分组不依赖节目)。
+ */
+export function loadLiveChannelWindows(
+  householdId: string,
+  nowMs: number,
+  options: { readonly mediaIds?: readonly string[]; readonly includeProgrammes?: boolean } = {},
+): LiveChannelProjection[] {
+  const mediaIds = options.mediaIds;
+  const includeProgrammes = options.includeProgrammes ?? true;
+  const nowIso = new Date(nowMs).toISOString();
+
+  // 1~3) 频道 + 可用性 + 关联解析(集合查询核心,T113 平移为 loadChannelAssociationCore 共用)
+  const core = loadChannelAssociationCore(householdId, { mediaIds });
+  const { channelRows, availableIds, associationByMedia, groupSourcesByMedia } = core;
 
   // 4) 批量节目窗口:覆盖 now 的行 + 每关联对最早未来行(两次集合查询)
+  const neededPairs = new Set<string>();
+  for (const pairKey of associationByMedia.values()) {
+    if (pairKey !== null) {
+      neededPairs.add(pairKey);
+    }
+  }
   const pairKeys = includeProgrammes ? [...neededPairs] : [];
   const rowsByPair = new Map<string, ProgrammeRow[]>();
   if (pairKeys.length > 0) {
+    const db = getDb();
     const pairExpression = sql`(${epgProgramme.sourceId} || char(0) || ${epgProgramme.xmltvChannelId})`;
     const pairFilter = inArray(pairExpression, pairKeys);
     const covering = db
@@ -340,7 +392,7 @@ export function loadLiveChannelWindows(
       continue;
     }
     const association = associationByMedia.get(channel.id);
-    const pairKey = typeof association === 'object' ? association.pairKey : null;
+    const pairKey = association ?? null;
     const rows = pairKey === null ? [] : rowsByPair.get(pairKey) ?? [];
     const windows = pickCurrentNext(
       rows.map((row) => ({
@@ -352,11 +404,7 @@ export function loadLiveChannelWindows(
       })),
       nowMs,
     );
-    const groupSources: GroupTitleSource[] = (entriesByMedia.get(channel.id) ?? []).map((row) => ({
-      sourceId: row.sourceId,
-      entryId: row.entryId,
-      groupTitle: row.groupTitle,
-    }));
+    const groupSources: GroupTitleSource[] = groupSourcesByMedia.get(channel.id) ?? [];
     projections.push({
       mediaId: channel.id,
       title: channel.title,

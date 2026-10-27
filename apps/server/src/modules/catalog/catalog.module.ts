@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { CatalogController } from './catalog.controller';
-import { CatalogAdminController, PolicyListsController } from './catalog-admin.controller';
 
 /**
  * 观看目录模块(T035;US2):只读目录路由 + 家长候选/人工修正(T050)。
@@ -10,6 +9,6 @@ import { CatalogAdminController, PolicyListsController } from './catalog-admin.c
  * 该路由最终应迁入 policy.controller.ts(本任务不可写该文件),迁移时仅动控制器注册。
  */
 @Module({
-  controllers: [CatalogController, CatalogAdminController, PolicyListsController],
+  controllers: [CatalogController],
 })
 export class CatalogModule {}

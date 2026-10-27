@@ -14,6 +14,7 @@ import {
   login,
   startFreshApp,
 } from '../helpers';
+import { selectMainAndUnlockSettings } from '../helpers-management';
 
 /**
  * T069(US5 契约 e2e,预期红):手动 EPG 绑定管理端点 HTTP 矩阵,对照
@@ -34,7 +35,7 @@ import {
  */
 
 const OWNER_PASSWORD = INITIALIZE_BODY.password;
-const API = '/api/catalog/media';
+const API = '/api/settings/catalog/media';
 const NOW_ISO = '2026-01-01T00:00:00.000Z';
 
 /** 管理成功响应绝不允许出现的敏感字样(仅对 200 响应体做反向断言;problem.type 合法含 http) */
@@ -114,6 +115,7 @@ async function setupBindingRig(): Promise<BindingFixture> {
   const household = await request(app.getHttpServer()).get('/api/household').set('Cookie', cookie);
   const householdId = (household.body as { id: string }).id;
   seedCatalog(householdId);
+  await selectMainAndUnlockSettings(app, cookie);
 
   const fixture: BindingFixture = { app, cookie, householdId };
 
@@ -121,7 +123,7 @@ async function setupBindingRig(): Promise<BindingFixture> {
   const probe = await queryBinding(fixture, 'm-chan', { ownerPassword: OWNER_PASSWORD });
   if (probe.status !== 200) {
     throw new Error(
-      `manual EPG 管理端点未实现(T071):POST /catalog/media/{id}/epg-binding/query 返回 ${probe.status};` +
+      `manual EPG 管理端点未实现(T071):POST /api/settings/catalog/media/{id}/epg-binding/query 返回 ${probe.status};` +
         '本契约文件按 T069 预期保持红,T071 接线后应转绿',
     );
   }

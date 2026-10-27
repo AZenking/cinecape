@@ -8,6 +8,7 @@ import { RateLimitGuard } from '../../common/rate-limit/rate-limit.guard';
 import { StrictQueryPipe } from '../../common/strict-input/strict-pipes';
 import { PublicContextService } from '../../common/public-context/public-context.service';
 import { Database } from '../../database/database';
+import { readCatalogRevision } from '../epg/catalog-revision.service';
 import { liveNowMs } from './live-clock';
 import { groupKeyOf, OTHER_GROUP_LABEL } from './live-grouping';
 import { loadLiveGroups } from './live-grouping.service';
@@ -24,7 +25,7 @@ import { DEFAULT_PAGE_SIZE, paginate, sortChannelRows, type LiveSectionName, typ
  *   身份/授权事实字段不可能扩大公开查询范围);
  * - 每个响应冻结同一 now(liveNowMs 一次)+ 家庭 timezone + catalogRevision 同步快照;
  *   不要求不同 HTTP 请求的 now 相等;Cache-Control: no-store 由全局安全头拦截器统一附加;
- * - catalogRevision 最小读取(T063 阶段;US6 才建 catalog-revision.service):
+ * - catalogRevision 读取(US6 T114 起平移至 modules/epg/catalog-revision.service):
  *   读 catalog_state.revision(来源/EPG 发布与管理修改同事务递增的既有计数),
  *   行缺失按「创建后应为 1」语义取 1(与 catalog-admin/sources 补建惯例一致)。
  */
@@ -58,13 +59,8 @@ function readSnapshot(householdId: string | null, nowMs: number): LiveSnapshot {
     if (household !== undefined) {
       timezone = household.timezone;
     }
-    // catalog_state 行缺失(初始化后尚无来源)= 修订 1(创建后应为 1,与补建惯例一致)
-    const catalog = Database.db
-      .prepare('SELECT revision FROM catalog_state WHERE household_id = ?')
-      .get(householdId) as { revision: number } | undefined;
-    if (catalog !== undefined) {
-      catalogRevision = catalog.revision;
-    }
+    // catalog_state.revision 读取点平移至 catalog-revision.service(US6 T114;行缺失=1 规则不变)
+    catalogRevision = readCatalogRevision(householdId);
   }
   return { now: new Date(nowMs).toISOString(), timezone, catalogRevision };
 }
