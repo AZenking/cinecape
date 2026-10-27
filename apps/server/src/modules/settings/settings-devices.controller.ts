@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { z } from 'zod';
-import type { PlaybackRecordPageDto } from '../playback/playback-records.controller';
+import type { PlaybackRecordPageDto } from './settings-devices.service';
 import { CurrentSession } from '../../common/current-session.decorator';
 import type { SessionContext } from '../../common/current-session.decorator';
 import { SameOriginGuard } from '../../common/same-origin/same-origin.guard';

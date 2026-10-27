@@ -122,3 +122,23 @@ Lead 集成项:app.module 注册 SettingsModule;providers 挂 SettingsAccessProv
 US8 路由迁移:旧 /api/{profiles(管理),sources,catalog,devices,policy} 管理入口全部迁入 /api/settings/* 并删除,无兼容别名;选档 GET /api/profiles 与 unlock/select 保留。28 个既有测试文件取线/契约同步更新;新增 helpers-management.ts 共享夹具(ensureSettingsUnlocked 等)。
 
 已知遗留(记录于 T144 前收口):①apps/server/test/runtime-smoke.mjs(2195 行)仍按 005 前旧路由编写,迁移后 401——需按新 settings 路由改写后 test:runtime 才能作为 T144 门禁;②旧 POST /api/devices/{id}/playback-records/query 仍由 playback 模块挂载(其迁移涉及 runtime-smoke 收口);③混合多套件同窗 e2e 会触发公共限频抖动——按单文件运行(已文档化);④auth-profile-flow 与 settings 套件的数据前置不同(全新空库 vs 种子库),勿共用 E2E_SEED_SCALE。
+
+---
+
+## Phase 11 验证记录(T137~T144 脚本部分)
+
+日期:2026-10-27。范围:Polish 阶段自动化证据与最终门禁脚本;**T138/T149 人工证据未落地,T144 整体保持未勾选**。
+
+| 验证项 | 交付 | 结果 |
+| --- | --- | --- |
+| T137 响应式/键盘矩阵 | responsive-matrix.spec.ts(宽度×高×降级 768/600/200%+纯键盘+焦点陷阱) | 12/12 ×2 复跑 |
+| T139 新环境闭环(SC-010) | fresh-deployment-loop.spec.ts(空库配置→首建→真实 m3u/NAS 导入→浏览→收藏→播放至 prepare/ready→历史→设置;零 DELETE/源媒体原样) | 8/8 ×2 复跑 |
+| T140 备份恢复与回滚演练 | scripts/drill-0006.sh(临时库 up/down/up+真实 grant/收藏/历史/活动播放→VACUUM INTO 备份→还原→28 断言:grants 撤销/播放 interrupted/收藏历史保留/新 epoch>旧值) | 28/28 断言通过 |
+| T141 性能与限频证据 | evidence-perf.md(硬件/浏览器/67,200 规模/SC-006 达标数字)+ rate-limit-evidence.e2e-spec.ts(public120/guide30/progress60 真实 429+Retry-After) | 4/4;家庭基线 5 并发复测=待办 |
+| T142 隐私与日志复查 | privacy-negative.e2e-spec.ts(no-store 六抽样/FR-003 白名单+泄漏探针/密码 PIN 不落日志/ticket=[REDACTED]) | 10/10;真实抓包留人工 |
+| runtime-smoke 改写 | 全场景迁移 005 契约(S1~S9) | 465 断言 PASS |
+| 设备记录入口收口 | 旧 /api/devices/{id}/playback-records/query 删除,迁入 settings-devices(唯一权威) | playback-records 14/14 |
+| 顺带修复真实产品缺陷 | ①三处 Modal 缺 Backdrop 导致特定视口弹窗不可见(FR-042/043);②访问日志票据明文泄漏(接 redactQueryTicket) | 回归全绿 |
+| **verify:release(T144 脚本)实跑** | scripts/verify-release.sh 18 步聚合 | **全部通过,604s**:gen:types/lint/typecheck/build/server **1376**+web **100** vitest/E2E 12 套件 **67 用例**(foundation 5、auth 3、fresh-loop 8、responsive 12、home-personal 5、guide-kb 7、guide-perf 1、live 6、playback-intent 5、public-browse 4、settings-access 6、settings 7)/test:runtime **465 断言**(S1~S9,含真实 ffmpeg 转码交付与 005 换档终态化矩阵) |
+
+**未竟事项(人工)**:T138 真实四浏览器矩阵(Chrome/Edge/Firefox/Safari 人工执行并记录版本)、T149 SC-002 五名首次使用者真人验收(≥4 名 3 分钟内独立完成)、T141 家庭基线(5 并发浏览器)复测、T142 真实网络抓包复核。上述完成前规格保持 Accepted/Implementing,不转 Verified。

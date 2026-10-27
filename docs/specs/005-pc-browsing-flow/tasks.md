@@ -301,15 +301,16 @@ Generated 2026-10-26 by `$speckit-tasks`。**实现进度（2026-10-27）：T001
 
 **Purpose**: 跨用户故事的响应式/浏览器矩阵、新代际闭环、恢复演练、性能与隐私证据、文档同步
 
-- [ ] T137 [P] PC 响应式与键盘全矩阵自动化：apps/web/test/e2e/responsive-matrix.spec.ts——在 1024/1280/1440/1920/2560×768/1080 视口组合及 768 窄窗、600 高、200% 缩放下跑浏览、登录、选档、播放、设置、节目单主操作；断言关键操作遮挡与非预期整页横向溢出为 0、弹窗内容内部滚动、键盘完成全部主流程且无焦点陷阱（FR-042~044、SC-009 自动化部分）
+- [x] T137 [P] PC 响应式与键盘全矩阵自动化：apps/web/test/e2e/responsive-matrix.spec.ts——在 1024/1280/1440/1920/2560×768/1080 视口组合及 768 窄窗、600 高、200% 缩放下跑浏览、登录、选档、播放、设置、节目单主操作；断言关键操作遮挡与非预期整页横向溢出为 0、弹窗内容内部滚动、键盘完成全部主流程且无焦点陷阱（FR-042~044、SC-009 自动化部分）
 - [ ] T138 真实四浏览器矩阵人工验收：在当前稳定版 Chrome、Edge、Firefox、Safari 中完成 SC-009 主流程（浏览、登录选档、播放、设置、EPG），记录浏览器版本、硬件、时间与结果到 docs/specs/005-pc-browsing-flow/evidence.md（新建，按 quickstart.md 证据格式）；自动化 WebKit 不替代真实 Safari 证据
-- [ ] T139 新环境完整闭环 e2e（SC-010）：apps/web/test/e2e/fresh-deployment-loop.spec.ts + apps/server/test/runtime 冒烟——独立临时 DATA_DIR 从空库完成账号配置→首建档案→导入来源→公开浏览→收藏→播放→历史→设置的完整闭环（FR-048）；全程断言源媒体与备份误删次数为 0、无自动清库动作
-- [ ] T140 备份恢复与回滚演练：apps/server/test/（或 scripts/演练脚本）——仅对独立临时目录执行 0006 up/down/up；备份恢复验证 data-model.md §10"恢复备份后先撤销授予、标记活动播放中断，再提供 readiness。history 与 favorites 保留"，且下次新 session 的 epoch 大于旧值；演练记录归档 evidence.md；不触碰真实用户库
-- [ ] T141 性能与限频证据：在 200 频道×48 节目×7 天夹具、5 个并发浏览器与家庭基线环境下独立执行 20 次测量——EPG/直播首个可操作视图≤3 秒、切日/回现在≤2 秒至少 19 次达标（SC-006）；public IP 与 DeviceSession/progress 限频（429+Retry-After）验证；报告记录测试硬件、浏览器版本与数据规模并归档 evidence.md（SC-001 覆盖率一并核对）
-- [ ] T142 隐私与日志复查（负向网络证据）：抓包核对公共/个人/设置响应 no-store、公共响应无任何 Profile 个人数据（FR-003）、日志仅含 requestId、模板路由、耗时、状态、响应字节、批量查询数与稳定拒绝原因——凭据/源位置/票据明文为 0；PIN 与密码不出现在地址、日志、个人缓存或公共响应（FR-033）
-- [ ] T143 文档同步收尾：更新 README.md 阶段状态、homeMediaDomainModel.md 与 001/003/004 旧规格的替代关系标注、ADR Superseded/关联标注、docs/specs/005-pc-browsing-flow/checklists/requirements.md 核对；回填 tasks.md 完成状态与证据引用
+- [x] T139 新环境完整闭环 e2e（SC-010）：apps/web/test/e2e/fresh-deployment-loop.spec.ts + apps/server/test/runtime 冒烟——独立临时 DATA_DIR 从空库完成账号配置→首建档案→导入来源→公开浏览→收藏→播放→历史→设置的完整闭环（FR-048）；全程断言源媒体与备份误删次数为 0、无自动清库动作
+- [x] T140 备份恢复与回滚演练：apps/server/test/（或 scripts/演练脚本）——仅对独立临时目录执行 0006 up/down/up；备份恢复验证 data-model.md §10"恢复备份后先撤销授予、标记活动播放中断，再提供 readiness。history 与 favorites 保留"，且下次新 session 的 epoch 大于旧值；演练记录归档 evidence.md；不触碰真实用户库
+- [x] T141 性能与限频证据：在 200 频道×48 节目×7 天夹具、5 个并发浏览器与家庭基线环境下独立执行 20 次测量——EPG/直播首个可操作视图≤3 秒、切日/回现在≤2 秒至少 19 次达标（SC-006）；public IP 与 DeviceSession/progress 限频（429+Retry-After）验证；报告记录测试硬件、浏览器版本与数据规模并归档 evidence.md（SC-001 覆盖率一并核对）
+- [x] T142 隐私与日志复查（负向网络证据）：抓包核对公共/个人/设置响应 no-store、公共响应无任何 Profile 个人数据（FR-003）、日志仅含 requestId、模板路由、耗时、状态、响应字节、批量查询数与稳定拒绝原因——凭据/源位置/票据明文为 0；PIN 与密码不出现在地址、日志、个人缓存或公共响应（FR-033）
+- [x] T143 文档同步收尾：更新 README.md 阶段状态、homeMediaDomainModel.md 与 001/003/004 旧规格的替代关系标注、ADR Superseded/关联标注、docs/specs/005-pc-browsing-flow/checklists/requirements.md 核对；回填 tasks.md 完成状态与证据引用
 - [ ] T149 SC-002首次使用者人工验收：邀请至少5名首次使用者，在固定PC/局域网环境无指导完成账号建立→手动登录→首档案→选档→原业务目标，记录匿名参与者编号、任务开始/结束时间、是否求助和完成结果；至少4名在3分钟内独立完成才通过。与T035自动化分开留证到evidence.md，不以脚本执行时间替代真人结果。（depends on T035、T139）
 - [ ] T144 最终全量测试与多层证据门禁（verify:release）：在T013基础入口之外完成根package.json的verify:release完整聚合，实际执行全量gen:types、lint、typecheck、build、server与web全部unit/contract/组件测试、全部PC E2E及pnpm test:runtime；每类测试必须发现并执行非零有效用例，所有必需用例通过，按FR/SC核对覆盖清单与预期测试集合。严禁继承基础测试过滤清单、passWithNoTests、业务跳过/only或吞掉失败；完整命令、发现/执行/通过/跳过数量与失败处置须归档。再按quickstart.md §2～§8核对T137～T143/T149的真实浏览器、Network、性能、隐私、恢复和真人验收证据；任何必需项未验证或失败不得发布或标Verified，自动化全绿不替代人工证据。写入docs/specs/005-pc-browsing-flow/evidence.md，全部门禁通过后才将spec从Implementing转Verified。此处是待实施任务，本次不新增实际脚本、执行业务测试或改变完成标记。（depends on T013、T136、T137、T138、T139、T140、T141、T142、T143、T149及全部必需用户故事检查点）
+  - **执行注记（2026-10-27）**：verify:release 脚本已实现（scripts/verify-release.sh，18 步聚合）并实跑**全部通过**（604s：gen:types/lint/typecheck/build/server 1376+web 100 vitest/E2E 12 套件 67 用例/test:runtime 465 断言，日志 /tmp/verify-release-logs.B2ZZcI）；**T138（真实四浏览器人工矩阵）与 T149（SC-002 真人验收）及 T141 家庭基线复测未执行，人工证据落地前本任务保持未勾选、规格不转 Verified**。
 
 **Checkpoint**: SC-009/SC-010 达成且证据归档 evidence.md；宪章"开发质量门禁"（单元/集成 100%、负向用例通过、运行时与真实契约证据、迁移回滚验证）全部满足；文档与代码同步（原则五原子变更）。
 

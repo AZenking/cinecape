@@ -32,7 +32,8 @@ import { account, deviceSession, playbackFailureEvent, playbackSession, playback
  * 权威依据(docs/specs/004-playback-resolver,均为唯一接口权威):
  * - tasks.md T042 条目(成功/失败/停止记录、不可见 media_id=null、无效会话仅安全日志、
  *   owner 当次密码/锁定/撤销/跨家庭、游标 limit 20/100、重复 stop 不重复结束事件);
- * - contracts/api.md 控制端点表末行:POST /devices/{deviceId}/playback-records/query
+ * - contracts/api.md 控制端点表末行(005 US8 收口:POST /settings/devices/
+ *   {deviceId}/playback-records/query,继承 004 POST /devices/... 全部语义)
  *   {ownerPassword,cursor?,limit?} → 200 {items,nextCursor};owner+当次密码,重验家庭目标;
  *   limit 默认 20 最大 100,按时间/id 倒序游标;no-store;返回当前家庭该设备的 session 及
  *   failure 事件,无源位置/ticket;密码缺失/错误按现有家长验证规则拒绝(403);
@@ -49,10 +50,11 @@ import { account, deviceSession, playbackFailureEvent, playbackSession, playback
  *   连错 5 次落窗口,窗口内正确密码也 423 PARENT_VERIFICATION_LOCKED;成功清零;
  *   计数按 (household, account) 持久化 —— 「当次密码」不发放任何长期家长态。
  *
- * RED 约定(TDD 先行):playback-audit.service(T043)/playback-records.controller(T044)
- * 尚不存在,POST /api/devices/{deviceId}/playback-records/query 现阶段 404 —— 本文件
- * 预期大面积 RED;流程类用例(resolve/renew/GET 媒体/stop 为 US1/US2 已实现路径)在
- * RED 阶段于首次记录查询断言处失败,任何失败即为本任务 RED 证据。
+ * 历史注记(TDD RED → 005 收口):T044 阶段本文件曾以旧 POST /api/devices/{id}/
+ * playback-records/query RED 起步;005 US8 管理迁移后查询入口唯一收敛为
+ * /api/settings/devices/{id}/playback-records/query(settings-devices.controller),
+ * 旧 /devices 控制器已删除且 playback.module 不再注册 —— 本文件全部用例经
+ * recordsQueryUrlSettings 驱动,grant 前置由 mgmtCookieOf(观看会话自身解锁)承担。
  *
  * 夹具(全部复用既有设施,本文件不改 fixtures/helpers/其他 spec):
  * - test/fixtures/playback/(seedPlaybackWorld/seedPlaybackSession);
@@ -74,8 +76,12 @@ import { account, deviceSession, playbackFailureEvent, playbackSession, playback
 /** 控制端点路径(api 全局前缀,与 main.ts/helpers.ts 一致) */
 const RESOLVE_URL = '/api/playback/resolve';
 const sessionUrl = (id: string): string => `/api/playback/sessions/${id}`;
-const recordsQueryUrl = (deviceId: string): string => `/api/devices/${deviceId}/playback-records/query`;
-/** US8 迁移后的 settings 记录查询(独立管理会话 Cookie 使用) */
+/**
+ * 记录查询唯一入口(005 US8 收口):api.md §6 末行 + §8「不保留旧 /devices 管理入口」——
+ * 旧 POST /api/devices/{id}/playback-records/query(playback-records.controller)已删除,
+ * playback.module 不再注册;权威实现 = POST /api/settings/devices/{id}/playback-records/query
+ * (settings-devices.controller,Settings 边界:主档案选中+设置授予 → owner-only → 当次密码)。
+ */
 const recordsQueryUrlSettings = (deviceId: string): string => `/api/settings/devices/${deviceId}/playback-records/query`;
 
 /** openapi PlaybackSessionRecord:additionalProperties:false 的精确键集(字典序) */
@@ -166,9 +172,9 @@ function postLogout(app: INestApplication, cookie: string): request.Test {
   return request(app.getHttpServer()).post('/api/auth/logout').set('Cookie', cookie).send({});
 }
 
-/** T044 目标端点:POST /api/devices/{deviceId}/playback-records/query */
+/** 记录查询端点(005 收口后唯一入口):POST /api/settings/devices/{deviceId}/playback-records/query */
 function queryRecords(app: INestApplication, cookie: string, deviceId: string, body: object): request.Test {
-  return request(app.getHttpServer()).post(recordsQueryUrl(deviceId)).set('Cookie', cookie).send(body);
+  return request(app.getHttpServer()).post(recordsQueryUrlSettings(deviceId)).set('Cookie', cookie).send(body);
 }
 
 /* ------------------------------------------------------------------ */
@@ -623,7 +629,7 @@ describe('记录生成(session 记录 / failure 事件分离,T043)', () => {
 /* 查询接口(T044:owner 当次密码/锁定/撤销/边界/分页/脱敏)              */
 /* ------------------------------------------------------------------ */
 
-describe('POST /api/devices/{deviceId}/playback-records/query(T044)', () => {
+describe('POST /api/settings/devices/{deviceId}/playback-records/query(T044 定形 → T130 settings 收口)', () => {
   it('owner 当次密码正确 → 200 {items,nextCursor};缺失/空串 → 403 REQUIRED;错误 → 403 FAILED;成功验证清零后仍可查', async () => {
     const rig = await startFreshApp({ prefix: 'hmp-pb-rec-auth-' });
     const world = await seedWorld(rig);

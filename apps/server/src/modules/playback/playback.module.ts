@@ -47,7 +47,6 @@ import { ConversionStorageService, type StorageTaskRef } from './conversion-stor
 import { ConversionWatchdogService } from './conversion-watchdog.service';
 import { PlaybackLifecycleService, type LifecycleStoragePort } from './playback-lifecycle.service';
 import { PlaybackAuditService } from './playback-audit.service';
-import { PlaybackRecordsController } from './playback-records.controller';
 import { PlaybackRetentionService } from './playback-retention.service';
 import { PlaybackController } from './playback.controller';
 import { PlaybackStreamController } from './playback-stream.controller';
@@ -75,9 +74,13 @@ import {
  * - PlaybackController:/api/playback/** 控制端点(resolve/GET/renew/heartbeat/stop/
  *   selection/seek;SessionGuard + 同源/体限制守卫 + 每设备滑动窗口限频);
  * - PlaybackStreamController:/api/playback/stream/{sessionId}/{generation}/{assetId}
- *   媒体网关(SessionGuard → ticket → 绑定 → authorizeControl → asset 归属 → 交付);
- * - PlaybackRecordsController(T044):POST /api/devices/{deviceId}/playback-records/query
- *   家长记录查询(owner+当次密码;SessionGuard + 同源/体限制守卫)。
+ *   媒体网关(SessionGuard → ticket → 绑定 → authorizeControl → asset 归属 → 交付)。
+ *
+ * 005 US8 收口:设备播放记录查询(旧 PlaybackRecordsController,POST
+ * /api/devices/{deviceId}/playback-records/query)已随管理迁移整体迁出本模块 ——
+ * 权威实现在 modules/settings(settings-devices.controller/service,POST
+ * /api/settings/devices/{deviceId}/playback-records/query,Settings 边界);
+ * 旧 /devices 管理入口按 005 api.md §8 不保留别名,本模块不再注册该控制器。
  *
  * DI 选择说明(承 T013 既有约定):
  * - PlaybackRepository 类 token + 工厂构造(有状态,持有 SQLite 句柄);
@@ -723,7 +726,7 @@ class PlaybackBootstrapper implements OnModuleInit {
 
 @Module({
   imports: [CommonModule, PersonalModule],
-  controllers: [PlaybackController, PlaybackStreamController, PlaybackRecordsController],
+  controllers: [PlaybackController, PlaybackStreamController],
   providers: [
     // T011 仓储(类 token + 工厂;预算工厂期读取「当前」已校验 env)
     {

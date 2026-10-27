@@ -130,16 +130,19 @@ export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNod
         onClose();
       }
     }}>
-      <Modal.Container placement="center" size="md">
-        <Modal.Dialog aria-label={`节目详情:${target.programme.title}`}>
-          <Modal.Header>
-            <Modal.Heading className="text-base font-semibold">节目详情</Modal.Heading>
-          </Modal.Header>
-          <Modal.Body>
-            <DetailBody {...props} target={target} />
-          </Modal.Body>
-        </Modal.Dialog>
-      </Modal.Container>
+      {/* T137 修复:同 password-confirm-modal —— 缺 Backdrop 时 Overlay 无 fixed 定位,弹窗脱离视口 */}
+      <Modal.Backdrop>
+        <Modal.Container placement="center" size="md">
+          <Modal.Dialog aria-label={`节目详情:${target.programme.title}`}>
+            <Modal.Header>
+              <Modal.Heading className="text-base font-semibold">节目详情</Modal.Heading>
+            </Modal.Header>
+            <Modal.Body>
+              <DetailBody {...props} target={target} />
+            </Modal.Body>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
     </Modal.Root>
   );
 }

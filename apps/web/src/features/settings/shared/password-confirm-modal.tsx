@@ -70,7 +70,11 @@ export function PasswordConfirmModal({
 
   return (
     <Modal.Root isOpen={open} onOpenChange={(next: boolean) => { if (!next && !busy) { onClose(); } }}>
-      <Modal.Container placement="center" size="sm">
+      {/* T137 矩阵发现的定位缺陷修复:Container 必须包在 Modal.Backdrop(fixed 全视口
+          Overlay,HeroUI modal__backdrop 层)内;缺 Backdrop 时 react-aria 退化为无样式
+          静态 Overlay,弹窗被排入文档流尾部、脱离视口(窄高视口下不可见,FR-042/043)。 */}
+      <Modal.Backdrop>
+        <Modal.Container placement="center" size="sm">
         <Modal.Dialog aria-label={title}>
           <Modal.Header>
             <Modal.Heading className="text-base font-semibold">{title}</Modal.Heading>
@@ -98,7 +102,8 @@ export function PasswordConfirmModal({
             </Form>
           </Modal.Body>
         </Modal.Dialog>
-      </Modal.Container>
+        </Modal.Container>
+      </Modal.Backdrop>
     </Modal.Root>
   );
 }

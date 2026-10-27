@@ -1,11 +1,5 @@
 import { and, desc, eq, lt, or, type SQL } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import type {
-  PlaybackFailureRecordDto,
-  PlaybackRecordItemDto,
-  PlaybackRecordPageDto,
-  PlaybackSessionRecordDto,
-} from '../playback/playback-records.controller';
 import type { PlaybackDelivery, PlaybackSessionState } from '../playback/playback.types';
 import { device, deviceSession, playbackFailureEvent, playbackSession } from '../../database/schema';
 import { DomainError } from '../../common/domain-error';
@@ -24,11 +18,53 @@ import { requireValidSettingsGrantTx } from './settings-access-grant.service';
  * - POST /{deviceId}/playback-records/query:经必要再验证的播放记录
  *   (ownerPassword 必填;不能用作个人历史)。
  *
- * ⚠️ 播放记录查询实现:modules/playback(playback-records.controller)按任务硬边界
- * 只读 import —— 其查询体为模块私有,故此处按同一键集分页语义(记录只含脱敏字段、
- * (time,id) 倒序、base64url 游标)对库内同一两张表做等义查询;若后续 playback 模块
- * 导出该查询,应以导出实现替换本私有副本(见最终报告)。
+ * 记录查询/DTO 所有权(005 US8 收口):设备播放记录入口已随管理迁移整体收口到
+ * settings(005 api.md §6 末行 + §8「不保留旧 /devices 管理入口」)——旧
+ * modules/playback/playback-records.controller(POST /api/devices/...)已删除,
+ * playback.module 不再注册;本文件为记录查询与 openapi 记录 DTO 的唯一权威实现
+ * (键集分页语义与被删除的 004 控制器逐义相同:记录只含脱敏字段、(time,id) 倒序、
+ * base64url 游标;服务层额外承担 Settings 授予重验与 owner-only)。
  */
+
+/* ------------------------------------------------------------------ */
+/* 记录响应契约(openapi components/schemas 权威;T044 定形,T130 收口所有) */
+/* ------------------------------------------------------------------ */
+
+/** PlaybackSessionRecord(additionalProperties:false 的精确键集) */
+export interface PlaybackSessionRecordDto {
+  readonly kind: 'session';
+  readonly id: string;
+  readonly deviceId: string;
+  readonly mediaId: string;
+  readonly profileId: string;
+  readonly state: PlaybackSessionState;
+  readonly delivery: PlaybackDelivery | null;
+  readonly positionSeconds: number;
+  readonly createdAt: string;
+  readonly startedAt: string | null;
+  readonly endedAt: string | null;
+  readonly failureCode: string | null;
+  readonly playbackSourceId: string | null;
+}
+
+/** PlaybackFailureRecord(additionalProperties:false 的精确键集;无 deviceId) */
+export interface PlaybackFailureRecordDto {
+  readonly kind: 'failure';
+  readonly id: string;
+  readonly occurredAt: string;
+  readonly stableCode: string;
+  readonly profileId: string | null;
+  readonly mediaId: string | null;
+}
+
+/** PlaybackRecordItem(kind 判别联合) */
+export type PlaybackRecordItemDto = PlaybackSessionRecordDto | PlaybackFailureRecordDto;
+
+/** PlaybackRecordPage(additionalProperties:false,恰 {items,nextCursor}) */
+export interface PlaybackRecordPageDto {
+  readonly items: readonly PlaybackRecordItemDto[];
+  readonly nextCursor: string | null;
+}
 
 export function listDevices(householdId: string): DeviceDtoBody[] {
   return listHouseholdDevices(householdId);
@@ -60,7 +96,7 @@ async function requireParentVerification(context: SessionContext, ownerPassword:
 }
 
 /* ------------------------------------------------------------------ */
-/* 设备播放记录(keyset:(time,id) 倒序;与 playback-records.controller 同语义) */
+/* 设备播放记录(keyset:(time,id) 倒序;与被收口的 004 控制器同语义)      */
 /* ------------------------------------------------------------------ */
 
 export interface DevicePlaybackRecordsInput {
@@ -145,7 +181,7 @@ function requireDeviceOfHousehold(db: Db, householdId: string, deviceId: string)
 
 /**
  * 设备播放记录查询仅主账号(继承 004 语义「家长查询仅 owner」:admin 属管理角色但不
- * 放行家长记录查询;与旧 PlaybackRecordsController.requireOwner 一致)。
+ * 放行家长记录查询;与被收口的旧 PlaybackRecordsController.requireOwner 一致)。
  */
 function requireOwnerRole(context: SessionContext): void {
   if (context.account.role !== 'owner') {

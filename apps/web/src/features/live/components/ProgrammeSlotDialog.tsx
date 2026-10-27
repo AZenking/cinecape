@@ -36,7 +36,9 @@ export function ProgrammeSlotDialog(props: ProgrammeSlotDialogProps): ReactNode 
     props;
   return (
     <Modal.Root isOpen={open} onOpenChange={onOpenChange}>
-      <Modal.Container placement="center" size="md">
+      {/* T137 修复:同 password-confirm-modal —— 缺 Backdrop 时 Overlay 无 fixed 定位,弹窗脱离视口 */}
+      <Modal.Backdrop>
+        <Modal.Container placement="center" size="md">
         <Modal.Dialog aria-label={`节目时段:${channelTitle}`}>
           <Modal.Header>
             <Modal.Heading className="text-base font-semibold">
@@ -85,7 +87,8 @@ export function ProgrammeSlotDialog(props: ProgrammeSlotDialogProps): ReactNode 
             </Button>
           </Modal.Footer>
         </Modal.Dialog>
-      </Modal.Container>
+        </Modal.Container>
+      </Modal.Backdrop>
     </Modal.Root>
   );
 }

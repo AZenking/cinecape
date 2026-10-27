@@ -18,7 +18,7 @@
     "migration:drill": "pnpm --filter @hmp/server migration:drill",
     "test:runtime": "node apps/server/test/runtime-smoke.mjs",
     "verify:foundation": "pnpm gen:types && pnpm lint && pnpm typecheck && pnpm build && pnpm --filter @hmp/server exec vitest run test/unit/foundation-smoke.spec.ts && pnpm --filter @hmp/web exec vitest run test/foundation-smoke.spec.tsx && pnpm --filter @hmp/web exec playwright test test/e2e/foundation-smoke.spec.ts",
-    "verify:release": "echo 'verify:release(完整全量验证聚合:gen:types/lint/typecheck/build/全部 unit+contract 组件测试/全部 PC E2E/test:runtime/多层证据门禁)的实现与执行绑定 T144(tasks.md),T013 不宣称其已通过。'"
+    "verify:release": "bash scripts/verify-release.sh"
   },
   "devDependencies": {
     "@eslint/js": "^9",

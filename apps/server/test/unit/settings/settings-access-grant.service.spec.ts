@@ -130,8 +130,8 @@ describe('T073 · settings_access_grant 签发/校验/撤销(data-model §3)', (
     expect(row.pin_version).toBe(snapshot.pinVersion);
     expect(row.main_profile_version).toBe(snapshot.mainProfileVersion);
     expect(row.revoked_at).toBeNull();
-    // expires_at = issued_at + 15 分钟(固定)
-    expect(Date.parse(row.expires_at) - Date.parse(row.issued_at)).toBe(SETTINGS_GRANT_TTL_MS);
+    // expires_at = issued_at + 15 分钟(固定;issued/expires 两次时钟读取允许 ≤2ms 取整差)
+    expect(Math.abs(Date.parse(row.expires_at) - Date.parse(row.issued_at) - SETTINGS_GRANT_TTL_MS)).toBeLessThanOrEqual(2);
     expect(Date.parse(issued.expiresAt)).toBe(Date.parse(row.expires_at));
   });
 

@@ -1,6 +1,11 @@
 // Uses a fresh temporary database and compiled production assets, never user data.
 // 003-media-catalog 阶段 3 扩展(T031/T039/T047/T053/T056/T073):真实构建产物 + 临时库 + 真实 HTTP
 // 服务 + 本地受控 M3U/XMLTV 夹具服务(127.0.0.1 随机端口)+ os.tmpdir 临时 NAS 根,非 mock。
+// 005-pc-browsing-flow 收口改写(US8 管理迁移 + T083 设置解锁):管理面全部改走
+// /api/settings/*(§6「新 settings 前缀是替代,不保留旧 /sources、/catalog、/devices
+// 等管理入口」),前置编排 = 登录 → bootstrap 主档案(零档案唯一首建)→
+// POST /profiles/{id}/unlock{pin} → select → POST /settings/access{pin} 签 15 分钟
+// 固定授予;换档/重启撤销授予由 mapi() 幂等重解锁吸收(§7 授权次序)。
 // 场景分节:S1 来源闭环 / S2 目录矩阵 / S3 EPG 全流程 / S4 名单闭环 / S5 性能基准(SC-005)
 //        / S6 手动 EPG 绑定增补(T073;US5/ADR-0008,quickstart H/SC-010)
 //        / S7 US2 播放负向矩阵(T039;真实 HTTP:切档案/收紧策略/注销/停源 → 下一请求拒绝,
@@ -10,7 +15,9 @@
 //          video_transcode)/续期同 session 与任务行/Range/seek 换代/纯字幕 version+1/
 //          额度满(尽力+实测依据,见 S8 组 4)/限时失败与 preparing
 //          取消/失联扫描/recoverOnBoot 重启/旁车字幕 WEBVTT)。
-//        / S9 US2b SC-004 记录真实 HTTP 场景(T047;quickstart「SC-004:记录」):
+//        / S9 US2b SC-004 记录真实 HTTP 场景(T047;quickstart「SC-004:记录」;
+//          005 T130:记录查询迁入 /settings/devices/{id}/playback-records/query,
+//          Settings 边界 = 主档案选中+设置授予+当次密码):
 //          独立记录设备(新登录=新 Device,限频/家长验证计数天然隔离)成功播放+解析失败
 //          → 家长密码查询恰 2 条、session 13 键/failure 6 键字段完整率 100%、伪造 token
 //          401 不入设备记录、权限负向(错误密码/缺密码/非 owner/不存在设备 404 同形)、
@@ -322,6 +329,50 @@ function api(route, method = 'GET', body, status = 200) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 005 契约前置辅助(T081/T082/T083;api.md §6/§7):设置边界 = Session +    */
+/* 当前主 Profile + 管理 PIN 授予。管理面调用一律经 mapi():先幂等解锁。    */
+/* ------------------------------------------------------------------ */
+
+/** 主档案管理 PIN(bootstrap 建档时设定;6 位数字,契约 pattern ^[0-9]{6}$) */
+const mainPin = '135790';
+/** bootstrap 创建的主档案(005:管理写要求「当前主 Profile」,观看成人即主档案) */
+let mainProfile = null;
+
+/**
+ * 005 设置解锁编排(幂等,对齐 helpers-management selectMainAndUnlockSettings 的
+ * HTTP 层语义;.mjs 不能 import TS helper 故内联):GET /settings/access 仅 Session →
+ * 未解锁则 GET /profiles 选档摘要定位主档案 → POST /profiles/{id}/unlock{pin} →
+ * select → POST /settings/access{pin} 签 15 分钟固定授予(不续期)。
+ * 换档撤销授予 / 重启撤销授予由本函数幂等吸收(再解锁,不改变观看语义:
+ * 主档案已选中时 select 为同档案重选,不递增上下文、不终态化播放)。
+ */
+async function ensureSettings(bearer = token) {
+  if ((await apiWith(bearer, '/settings/access')).unlocked === true) return;
+  const main = (await apiWith(bearer, '/profiles')).find(profile => profile.isMain);
+  check(main !== undefined, '005 前置:主档案存在于选档摘要(GET /profiles)');
+  await apiWith(bearer, `/profiles/${main.id}/unlock`, 'POST', { pin: mainPin });
+  await apiWith(bearer, `/profiles/${main.id}/select`, 'POST', {});
+  await apiWith(bearer, '/settings/access', 'POST', { pin: mainPin });
+}
+
+/** PIN 保护主档案的一次性选档授予 + 选择(005 §3;替代旧「成人 + ownerPassword」选档) */
+async function selectMain(bearer = token) {
+  await apiWith(bearer, `/profiles/${mainProfile.id}/unlock`, 'POST', { pin: mainPin });
+  return apiWith(bearer, `/profiles/${mainProfile.id}/select`, 'POST', {});
+}
+
+/** 管理面请求(指定会话):先幂等解锁设置,再发请求 */
+async function mapiWith(bearer, route, method = 'GET', body, status = 200) {
+  await ensureSettings(bearer);
+  return apiWith(bearer, route, method, body, status);
+}
+
+/** 管理面请求(主会话) */
+function mapi(route, method = 'GET', body, status = 200) {
+  return mapiWith(token, route, method, body, status);
+}
+
+/* ------------------------------------------------------------------ */
 /* 阶段 3 断言计数辅助(新增场景断言数统计)                              */
 /* ------------------------------------------------------------------ */
 
@@ -358,16 +409,17 @@ function pointSourceAt(sourceId, remoteUrl) {
 }
 
 async function sourceVersionOf(sourceId) {
-  const page = await api('/sources?page=1&pageSize=50');
+  // 005:T124 来源管理迁入 /settings/sources(Settings 边界,api.md §6)
+  const page = await mapi('/settings/sources?page=1&pageSize=50');
   const item = page.items.find(source => source.id === sourceId);
   check(item !== undefined, `来源应在列表中: ${sourceId}`);
   return item.version;
 }
 
-/** 发起刷新:ownerPassword + 当前 source.version + 幂等 operationKey */
+/** 发起刷新:ownerPassword + 当前 source.version + 幂等 operationKey(005 T124 settings 前缀) */
 async function startRefresh(sourceId, status = 202) {
   const expectedVersion = await sourceVersionOf(sourceId);
-  return api(`/sources/${sourceId}/refresh`, 'POST', {
+  return mapi(`/settings/sources/${sourceId}/refresh`, 'POST', {
     ownerPassword: password, expectedVersion, operationKey: randomUUID(),
   }, status);
 }
@@ -377,7 +429,8 @@ async function waitForRefresh(refreshId, statuses, timeoutMs = 30_000) {
   let polls = 0;
   for (;;) {
     polls += 1;
-    const body = await api(`/refreshes/${refreshId}`);
+    // 005:T124 刷新任务轮询迁入 /settings/refreshes/{id}(Location 同步更新)
+    const body = await mapi(`/settings/refreshes/${refreshId}`);
     if (statuses.includes(body.status)) return body;
     if (polls % 50 === 0) console.log(`[wait] refresh ${refreshId} polls=${polls} status=${body.status}`);
     if (Date.now() > deadline) {
@@ -395,15 +448,19 @@ try {
   migrate('up');
   migrate('up');
   await start();
-  for (const route of ['/', '/setup', '/profiles/manage']) {
+  // 005 ui.md §1(T010):旧 /setup、/profiles 管理骨架已整体移除,SPA 地址只保留
+  // 公共观看路由与 /settings/*;此处断言「编译产物 + 静态回退」仍按 005 地址面成立。
+  for (const route of ['/', '/vod', '/live/guide', '/settings/account']) {
     const response = await fetch(`${base}${route}`);
     assert.equal(response.status, 200);
     assert.match(await response.text(), /<div id="root">/);
   }
   assert.equal((await fetch(`${base}/api/not-a-route`)).status, 404);
   const credentials = { householdName: 'Runtime QA', username: 'runtimeqa', password };
+  // 005 §3(T036):initialize 仅建 Household+Account,201 {initialized:true} ——
+  // 无会话/无 sessionToken/不自动登录。旧「初始化即自动登录」断言按契约改写为显式 login。
   const init = await api('/setup/initialize', 'POST', credentials, 201);
-  token = init.sessionToken;
+  checkEq(init, { initialized: true }, '005:initialize 201 仅 {initialized:true}(无 sessionToken/无 Set-Cookie)');
   await api('/setup/initialize', 'POST', credentials, 409);
   await api('/auth/login', 'POST', { username: 'runtimeqa', password: 'wrong' }, 401);
   const timings = [];
@@ -412,37 +469,58 @@ try {
     await api('/auth/login', 'POST', { username: 'runtimeqa', password });
     timings.push(performance.now() - started);
   }
-  const profile = await api('/profiles', 'POST', { name: 'Protected', type: 'child', pin: '4321', ownerPassword: password }, 201);
+  // 005 §3:登录不自动选档;零档案会话 bootstrapRequired=true,唯一首建入口为
+  // bootstrap-profile(管理角色+当次密码,创建即主档案、PIN 保护、不自动选档)。
+  const bootstrapLogin = await api('/auth/login', 'POST', { username: 'runtimeqa', password });
+  token = bootstrapLogin.sessionToken;
+  checkEq(bootstrapLogin.bootstrapRequired, true, '005:零档案会话 bootstrapRequired=true(不允许借字段写身份)');
+  mainProfile = await api('/auth/bootstrap-profile', 'POST', { name: 'SmokeOwner', pin: mainPin, ownerPassword: password }, 201);
+  checkEq([mainProfile.isMain, mainProfile.pinProtected, mainProfile.type], [true, true, 'adult'],
+    '005:bootstrap 主档案 isMain/PIN 保护/adult,且未自动选档(002 契约不自动选档保留)');
+  checkEq((await api('/auth/session')).activeProfile, null, '005:bootstrap 后 activeProfile 仍为 null(不自动选档)');
+  // 005 设置解锁编排首次成立(登录 → 主档案 unlock+select → POST /settings/access)。
+  // 管理面建立后才能建档案:旧 POST /profiles 管理口已迁入 /settings/profiles(T125)。
+  await ensureSettings();
+  checkEq((await api('/settings/access')).unlocked, true, '005:设置授予已签发(GET /settings/access 最小状态)');
+  // 阶段 2(002 契约保留):儿童档案 PIN 选档流 —— 005 统一 6 位数字 PIN(契约 pattern)
+  const profile = await mapi('/settings/profiles', 'POST', { name: 'Protected', type: 'child', pin: '443210', ownerPassword: password }, 201);
   await api(`/profiles/${profile.id}/select`, 'POST', {}, 403);
-  await api(`/profiles/${profile.id}/unlock`, 'POST', { pin: '0000' }, 403);
-  await api(`/profiles/${profile.id}/unlock`, 'POST', { pin: '4321' });
+  await api(`/profiles/${profile.id}/unlock`, 'POST', { pin: '000000' }, 403);
+  await api(`/profiles/${profile.id}/unlock`, 'POST', { pin: '443210' });
   await api(`/profiles/${profile.id}/select`, 'POST', {});
   // 阶段 2(002 契约):策略读取/保存 —— 默认值、家长验证、版本冲突、锁定(真实 HTTP,非 mock)
-  const policyRoute = `/profiles/${profile.id}/policy`;
-  const policy = await api(policyRoute, 'GET');
+  // 005 T126:策略管理迁入 /settings/profiles/{id}/policy;换档(儿童→主档案)已同事务
+  // 撤销设置授予(identity-transition),ensureSettings 幂等重解锁。
+  const policyRoute = `/settings/profiles/${profile.id}/policy`;
+  const policy = await mapi(policyRoute, 'GET');
   assert.equal(policy.maxContentLevel, 12, 'child default level');
   assert.equal(policy.allowUnrated, false, 'child default unrated');
   assert.equal(policy.version, 1);
-  const savedPolicy = await api(policyRoute, 'PUT', { ownerPassword: password, expectedVersion: 1, policy: { maxContentLevel: 10, allowUnrated: false } });
+  const savedPolicy = await mapi(policyRoute, 'PUT', { ownerPassword: password, expectedVersion: 1, policy: { maxContentLevel: 10, allowUnrated: false } });
   assert.equal(savedPolicy.version, 2, 'version bump');
   assert.equal(savedPolicy.maxContentLevel, 10);
-  await api(policyRoute, 'PUT', { ownerPassword: password, expectedVersion: 1, policy: { maxContentLevel: 3, allowUnrated: false } }, 409);
-  await api(policyRoute, 'PUT', { expectedVersion: 2, policy: { maxContentLevel: 3, allowUnrated: false } }, 403);
+  await mapi(policyRoute, 'PUT', { ownerPassword: password, expectedVersion: 1, policy: { maxContentLevel: 3, allowUnrated: false } }, 409);
+  await mapi(policyRoute, 'PUT', { expectedVersion: 2, policy: { maxContentLevel: 3, allowUnrated: false } }, 403);
   for (let i = 0; i < 5; i++) {
-    await api(policyRoute, 'PUT', { ownerPassword: 'wrong-password', expectedVersion: 2, policy: { maxContentLevel: 3, allowUnrated: false } }, 403);
+    await mapi(policyRoute, 'PUT', { ownerPassword: 'wrong-password', expectedVersion: 2, policy: { maxContentLevel: 3, allowUnrated: false } }, 403);
   }
-  await api(policyRoute, 'PUT', { ownerPassword: password, expectedVersion: 2, policy: { maxContentLevel: 3, allowUnrated: false } }, 423);
+  await mapi(policyRoute, 'PUT', { ownerPassword: password, expectedVersion: 2, policy: { maxContentLevel: 3, allowUnrated: false } }, 423);
+  // 切回儿童档案跨重启(005:选档上下文持久;重启后管理读需主档案,届时再切回)
+  await api(`/profiles/${profile.id}/unlock`, 'POST', { pin: '443210' });
+  await api(`/profiles/${profile.id}/select`, 'POST', {});
   await stop();
   await start();
-  assert.equal((await api('/auth/session')).activeProfile.id, profile.id);
-  const policyAfterRestart = await api(policyRoute, 'GET');
+  assert.equal((await api('/auth/session')).activeProfile.id, profile.id, '005:儿童选档跨重启持久');
+  await ensureSettings(); // 重启撤销全部设置授予(data-model §3)→ 重解锁;儿童→主档案换档
+  const policyAfterRestart = await mapi(policyRoute, 'GET');
   assert.equal(policyAfterRestart.maxContentLevel, 10, 'policy persists across restart');
   assert.equal(policyAfterRestart.version, 2);
   const db = new SQLite(path.join(dir, 'hmp.db'));
   await db.backup(path.join(dir, 'restore.db'));
   db.close();
   const restored = new SQLite(path.join(dir, 'restore.db'), { readonly: true });
-  assert.equal(restored.prepare('SELECT name FROM profile').get().name, 'Protected');
+  // 005:bootstrap 先建主档案(首行已不再是儿童档)—— 断言儿童档在备份中存在
+  assert.equal(restored.prepare("SELECT COUNT(*) AS n FROM profile WHERE name = 'Protected'").get().n, 1, 'backup contains Protected profile');
   assert.equal(restored.pragma('integrity_check', { simple: true }), 'ok');
   restored.close();
   await api('/auth/logout', 'POST', {}, 204);
@@ -451,26 +529,28 @@ try {
   timings.sort((a, b) => a - b);
   assert.ok(timings[18] < 3000, 'SC-002 login p95 < 3 seconds');
   console.log(JSON.stringify({ result: 'PASS', loginP95Ms: Math.round(timings[18]), scenarios: [
-    'migration drill/idempotent up', 'compiled SPA/API routing', 'initialization/login',
-    'PIN rejection/unlock/select', 'parent-verified policy save/version conflict/lockout(423)',
-    'process restart persistence(policy+session)', 'backup restore integrity', 'logout/idempotency',
+    'migration drill/idempotent up', 'compiled SPA/API routing(005 address map)', 'initialization(no auto-login)+explicit login',
+    'bootstrap main profile(PIN)/selection unlock+select(6-digit)', 'settings access unlock(005 T083)',
+    'parent-verified policy save/version conflict/lockout(423,settings prefix)',
+    'process restart persistence(selection+policy+grant revoked-then-reunlock)', 'backup restore integrity', 'logout/idempotency',
   ] }));
 
   /* -------------------------------------------------------------- */
   /* 阶段 3 前置:重新登录(阶段 2 以 logout 收尾)并清除阶段 2 刻意     */
-  /* 造成的家长验证锁定(直改 DB,与 pointSourceAt 同一直访模式),建    */
-  /* 成人档案供目录读取(家庭已含儿童档案 → 成人选择需家长验证)。       */
+  /* 造成的家长验证锁定(直改 DB,与 pointSourceAt 同一直访模式)。       */
+  /* 005:观看成人 = 主档案 —— 管理写要求「当前主 Profile」,独立无 PIN    */
+  /* 成人档无法承载管理调用;主档案 PIN 保护 → unlock+select 编排。       */
   /* -------------------------------------------------------------- */
   const relaunch = await api('/auth/login', 'POST', { username: 'runtimeqa', password });
   token = relaunch.sessionToken;
   serverDb().prepare('DELETE FROM parent_verification_state').run();
-  const adultProfile = await api('/profiles', 'POST', { name: 'SmokeAdult', type: 'adult', ownerPassword: password }, 201);
-  await api(`/profiles/${adultProfile.id}/select`, 'POST', { ownerPassword: password });
+  await ensureSettings();
+  const adultProfile = mainProfile; // 005:观看成人即主档案(后续 S2~S9 沿用该别名)
 
   /* -------------------------------------------------------------- */
   /* S1 US1 来源闭环(T031;quickstart A/SC-001/002)                  */
   /* -------------------------------------------------------------- */
-  const iptv = await api('/sources', 'POST', {
+  const iptv = await mapi('/settings/sources', 'POST', {
     ownerPassword: password, kind: 'iptv', name: '烟雾直播', remoteUrl: 'http://iptv-fixture.example/live.m3u',
   }, 201);
   pointSourceAt(iptv.id, `${fixtureBase}/live.m3u`);
@@ -479,7 +559,7 @@ try {
   const iptvDone = await waitForRefresh(iptvJob.id, ['succeeded']);
   checkEq(iptvDone.counts, { added: 3, updated: 0, missing: 0, failed: 0, channels: 0, programmes: 0 }, 'IPTV 首刷 added=3');
 
-  const epg = await api('/sources', 'POST', {
+  const epg = await mapi('/settings/sources', 'POST', {
     ownerPassword: password, kind: 'epg', name: '烟雾指南', remoteUrl: 'http://epg-fixture.example/guide.xml',
   }, 201);
   pointSourceAt(epg.id, `${fixtureBase}/guide.xml`);
@@ -489,7 +569,7 @@ try {
 
   fs.writeFileSync(path.join(nasRoot, 'smoke-family-movie.mp4'), Buffer.alloc(4096, 7));
   fs.writeFileSync(path.join(nasRoot, 'smoke-late-night-horror.mp4'), Buffer.alloc(2048, 7));
-  const nasSource = await api('/sources', 'POST', {
+  const nasSource = await mapi('/settings/sources', 'POST', {
     ownerPassword: password, kind: 'nas', name: '烟雾影库', rootKey: 'nas-main', relativeDirectory: '',
   }, 201);
   const nasJob = await startRefresh(nasSource.id);
@@ -515,12 +595,12 @@ try {
   checkEq(list3.total, 5, '失败刷新保留上次成功目录');
 
   const disableVersion = await sourceVersionOf(iptv.id);
-  await api(`/sources/${iptv.id}`, 'PATCH', { ownerPassword: password, expectedVersion: disableVersion, enabled: false });
+  await mapi(`/settings/sources/${iptv.id}`, 'PATCH', { ownerPassword: password, expectedVersion: disableVersion, enabled: false });
   const list4 = await adultList();
   checkEq(list4.total, 2, '禁用 IPTV 后仅 NAS 内容可见');
   check(list4.items.every(item => item.type === 'video'), '禁用后 IPTV 频道不可见');
   const enableVersion = await sourceVersionOf(iptv.id);
-  await api(`/sources/${iptv.id}`, 'PATCH', { ownerPassword: password, expectedVersion: enableVersion, enabled: true });
+  await mapi(`/settings/sources/${iptv.id}`, 'PATCH', { ownerPassword: password, expectedVersion: enableVersion, enabled: true });
   const list5 = await adultList();
   checkEq(list5.total, 5, '重新启用后目录恢复');
   console.log('[S1] US1 来源闭环 OK:三来源成功导入/幂等刷新身份稳定/失败保留/禁用即时生效');
@@ -528,7 +608,8 @@ try {
   /* -------------------------------------------------------------- */
   /* S2 US2 目录矩阵(T039;quickstart B/SC-003)                      */
   /* -------------------------------------------------------------- */
-  const childProfile = await api('/profiles', 'POST', { name: 'SmokeChild', type: 'child', ownerPassword: password }, 201);
+  // 005 T125:档案创建迁入 /settings/profiles(POST /profiles 管理口已删除)
+  const childProfile = await mapi('/settings/profiles', 'POST', { name: 'SmokeChild', type: 'child', ownerPassword: password }, 201);
   const listS2 = await adultList('?pageSize=100');
   const mediaByTitle = (title) => listS2.items.find(item => item.title === title);
   const ch1 = mediaByTitle('烟雾一台');
@@ -537,19 +618,20 @@ try {
   const videoA = mediaByTitle('smoke-family-movie');
   const videoB = mediaByTitle('smoke-late-night-horror');
   check(ch1 && ch2 && ch3 && videoA && videoB, 'S2 前置:五条媒体均可在目录中定位');
-  // 人工分级(经真实 PATCH /catalog/media):ch1=0(白名单内可见)/videoA=3/videoB=18(超限);ch2/ch3 保持未评级
+  // 人工分级(经真实 PATCH /settings/catalog/media,T128):ch1=0(白名单内可见)/videoA=3/videoB=18(超限);ch2/ch3 保持未评级
   for (const [media, level] of [[ch1, 0], [videoA, 3], [videoB, 18]]) {
-    const patched = await api(`/catalog/media/${media.id}`, 'PATCH', {
+    const patched = await mapi(`/settings/catalog/media/${media.id}`, 'PATCH', {
       ownerPassword: password, expectedVersion: media.version, contentLevel: level,
     });
     checkEq(patched.contentLevel, level, `人工分级生效: ${media.title}`);
     checkEq(patched.version, media.version + 1, '人工修正版本 +1');
   }
   // 儿童策略:maxContentLevel=6 + allowUnrated=false + blocked 含 ch3;白名单 ch1(可见)/ch2(未评级仍拒绝)
-  await api(`/profiles/${childProfile.id}/policy`, 'PUT', {
+  // 005 T126:策略/名单管理迁入 /settings/profiles/{id}/policy(/lists)
+  await mapi(`/settings/profiles/${childProfile.id}/policy`, 'PUT', {
     ownerPassword: password, expectedVersion: 1, policy: { maxContentLevel: 6, allowUnrated: false },
   });
-  const childLists = await api(`/profiles/${childProfile.id}/policy/lists`, 'PUT', {
+  const childLists = await mapi(`/settings/profiles/${childProfile.id}/policy/lists`, 'PUT', {
     ownerPassword: password, expectedVersion: 2,
     allowedMediaIds: [], blockedMediaIds: [ch3.id], allowedChannelIds: [ch1.id, ch2.id],
   });
@@ -596,7 +678,7 @@ try {
   const epgAgainDone = await waitForRefresh(epgAgain.id, ['succeeded']);
   checkEq(epgAgainDone.counts, { added: 0, updated: 0, missing: 0, failed: 0, channels: 2, programmes: 3 }, 'EPG 刷新成功 counts');
   const patchVersion = await sourceVersionOf(iptv.id);
-  await api(`/sources/${iptv.id}`, 'PATCH', { ownerPassword: password, expectedVersion: patchVersion, epgSourceId: epg.id });
+  await mapi(`/settings/sources/${iptv.id}`, 'PATCH', { ownerPassword: password, expectedVersion: patchVersion, epgSourceId: epg.id });
   const progCh1 = await api(`/media/${ch1.id}/programmes`);
   checkEq(progCh1.status, 'available', '关联频道节目可用');
   checkEq(progCh1.current.title, '晨间新闻', 'current 节目');
@@ -605,7 +687,7 @@ try {
   checkEq(progCh1.next.endsAt, new Date(guideBase + 150 * MIN_MS).toISOString(), 'next 结束边界');
   const progCh3 = await api(`/media/${ch3.id}/programmes`);
   checkEq(progCh3, { status: 'unavailable', current: null, next: null }, '未关联 tvg-id → unavailable');
-  const wrongPatch = await api(`/sources/${iptv.id}`, 'PATCH', { ownerPassword: 'wrong-password', expectedVersion: patchVersion + 1, name: 'X' }, 403);
+  const wrongPatch = await mapi(`/settings/sources/${iptv.id}`, 'PATCH', { ownerPassword: 'wrong-password', expectedVersion: patchVersion + 1, name: 'X' }, 403);
   checkEq(wrongPatch.code, 'PARENT_VERIFICATION_FAILED', '错误密码拒绝');
 
   // 并发刷新拒绝:hang 路由占住第一任务 → 第二任务 409 SOURCE_BUSY;释放后第一任务 failed,旧指南保留
@@ -641,22 +723,23 @@ try {
   /* -------------------------------------------------------------- */
   /* S4 US3 名单闭环(T053;quickstart B3/B4/SC-004)                  */
   /* -------------------------------------------------------------- */
-  const noPwdQuery = await api('/catalog/candidates/query', 'POST', {}, 403);
+  // 005 T128:候选查询/人工修正迁入 /settings/catalog/*(api.md §6)
+  const noPwdQuery = await mapi('/settings/catalog/candidates/query', 'POST', {}, 403);
   checkEq(noPwdQuery.code, 'PARENT_VERIFICATION_REQUIRED', '未验证不能查询候选');
-  const wrongPwdQuery = await api('/catalog/candidates/query', 'POST', { ownerPassword: 'definitely-wrong' }, 403);
+  const wrongPwdQuery = await mapi('/settings/catalog/candidates/query', 'POST', { ownerPassword: 'definitely-wrong' }, 403);
   checkEq(wrongPwdQuery.code, 'PARENT_VERIFICATION_FAILED', '错误密码不能查询候选');
-  const noPwdSave = await api(`/profiles/${childProfile.id}/policy/lists`, 'PUT', {
+  const noPwdSave = await mapi(`/settings/profiles/${childProfile.id}/policy/lists`, 'PUT', {
     expectedVersion: 1, allowedMediaIds: [], blockedMediaIds: [], allowedChannelIds: [],
   }, 403);
   checkEq(noPwdSave.code, 'PARENT_VERIFICATION_REQUIRED', '未验证不能保存名单');
 
-  const candidates = await api('/catalog/candidates/query', 'POST', { ownerPassword: password });
+  const candidates = await mapi('/settings/catalog/candidates/query', 'POST', { ownerPassword: password });
   check(candidates.items.some(item => item.id === videoB.id), '候选可见被儿童策略隐藏的媒体(超限 videoB)');
 
   const childBefore = await apiWith(sessionB, '/media?pageSize=100');
   checkEq(childBefore.total, 2, '名单变更前儿童不可见 videoB');
-  const policyNow = await api(`/profiles/${childProfile.id}/policy`);
-  const allowSaved = await api(`/profiles/${childProfile.id}/policy/lists`, 'PUT', {
+  const policyNow = await mapi(`/settings/profiles/${childProfile.id}/policy`);
+  const allowSaved = await mapi(`/settings/profiles/${childProfile.id}/policy/lists`, 'PUT', {
     ownerPassword: password, expectedVersion: policyNow.version,
     allowedMediaIds: [videoB.id], blockedMediaIds: [ch3.id], allowedChannelIds: [ch1.id, ch2.id],
   });
@@ -664,7 +747,7 @@ try {
   const childAfterAllow = await apiWith(sessionB, '/media?pageSize=100');
   checkEq(childAfterAllow.total, 3, '加入允许名单后儿童可见');
   check(childAfterAllow.items.some(item => item.id === videoB.id), '另一会话下一请求即生效(允许)');
-  const blockSaved = await api(`/profiles/${childProfile.id}/policy/lists`, 'PUT', {
+  const blockSaved = await mapi(`/settings/profiles/${childProfile.id}/policy/lists`, 'PUT', {
     ownerPassword: password, expectedVersion: allowSaved.version,
     allowedMediaIds: [videoB.id], blockedMediaIds: [ch3.id, videoB.id], allowedChannelIds: [ch1.id, ch2.id],
   });
@@ -677,7 +760,7 @@ try {
   /* -------------------------------------------------------------- */
   /* S5 SC-005 性能基准(T056;quickstart G)—— HTTP 层证据              */
   /* -------------------------------------------------------------- */
-  const perfSource = await api('/sources', 'POST', {
+  const perfSource = await mapi('/settings/sources', 'POST', {
     ownerPassword: password, kind: 'iptv', name: '性能直播源', remoteUrl: 'http://perf-fixture.example/perf.m3u',
   }, 201);
   console.log('[S5] perf source created, pointing at fixture');
@@ -795,10 +878,11 @@ try {
   fixtureRoutes.set('/s6-live.m3u', (req, res) => fixtureText(res, 200, 'audio/x-mpegurl', s6M3uText));
 
   const s6StartCount = assertionCount;
-  const catalogMediaRoute = (mediaId) => `/catalog/media/${mediaId}`;
-  const queryBindingS6 = (mediaId, body, status = 200) => api(`${catalogMediaRoute(mediaId)}/epg-binding/query`, 'POST', body, status);
-  const queryCandidatesS6 = (mediaId, body, status = 200) => api(`${catalogMediaRoute(mediaId)}/epg-candidates/query`, 'POST', body, status);
-  const putBindingS6 = (mediaId, body, status = 200) => api(`${catalogMediaRoute(mediaId)}/epg-binding`, 'PUT', body, status);
+  // 005 T128:手动 EPG 绑定迁入 /settings/catalog/media/{id}(§6「不保留旧 /catalog 管理入口」)
+  const catalogMediaRoute = (mediaId) => `/settings/catalog/media/${mediaId}`;
+  const queryBindingS6 = (mediaId, body, status = 200) => mapi(`${catalogMediaRoute(mediaId)}/epg-binding/query`, 'POST', body, status);
+  const queryCandidatesS6 = (mediaId, body, status = 200) => mapi(`${catalogMediaRoute(mediaId)}/epg-candidates/query`, 'POST', body, status);
+  const putBindingS6 = (mediaId, body, status = 200) => mapi(`${catalogMediaRoute(mediaId)}/epg-binding`, 'PUT', body, status);
   // manual 保存体工厂(家长验证语义沿用 S1 的 ownerPassword 请求写法);
   // expectedVersion/expectedEpgGeneration 每次显式给出 —— 服务层按 generation→version 次序校验。
   const manualSave = (overrides = {}) => ({
@@ -807,21 +891,21 @@ try {
   });
 
   // 三来源:EPG-A(chan-match/chan-other)/EPG-B(chan-alt)/S6 IPTV(tvg-id 全不相交)
-  const epgA = await api('/sources', 'POST', {
+  const epgA = await mapi('/settings/sources', 'POST', {
     ownerPassword: password, kind: 'epg', name: 'S6指南A', remoteUrl: 'http://s6-epg-a-fixture.example/guide.xml',
   }, 201);
   pointSourceAt(epgA.id, `${fixtureBase}/s6-epg-a.xml`);
   const epgAFirst = await startRefresh(epgA.id);
   checkEq((await waitForRefresh(epgAFirst.id, ['succeeded'])).counts,
     { added: 0, updated: 0, missing: 0, failed: 0, channels: 2, programmes: 4 }, 'S6 前置:EPG-A 首刷 counts(2 频道 4 节目)');
-  const epgB = await api('/sources', 'POST', {
+  const epgB = await mapi('/settings/sources', 'POST', {
     ownerPassword: password, kind: 'epg', name: 'S6指南B', remoteUrl: 'http://s6-epg-b-fixture.example/guide.xml',
   }, 201);
   pointSourceAt(epgB.id, `${fixtureBase}/s6-epg-b.xml`);
   const epgBFirst = await startRefresh(epgB.id);
   checkEq((await waitForRefresh(epgBFirst.id, ['succeeded'])).counts,
     { added: 0, updated: 0, missing: 0, failed: 0, channels: 1, programmes: 2 }, 'S6 前置:EPG-B 首刷 counts(1 频道 2 节目)');
-  const s6Iptv = await api('/sources', 'POST', {
+  const s6Iptv = await mapi('/settings/sources', 'POST', {
     ownerPassword: password, kind: 'iptv', name: 'S6直播', remoteUrl: 'http://s6-iptv-fixture.example/live.m3u',
   }, 201);
   pointSourceAt(s6Iptv.id, `${fixtureBase}/s6-live.m3u`);
@@ -834,7 +918,7 @@ try {
 
   // —— 组 1:自动不匹配(已关联 EPG-A 但 tvg-id 全不相交)—————————————
   const s6AssocVersion = await sourceVersionOf(s6Iptv.id);
-  await api(`/sources/${s6Iptv.id}`, 'PATCH', { ownerPassword: password, expectedVersion: s6AssocVersion, epgSourceId: epgA.id });
+  await mapi(`/settings/sources/${s6Iptv.id}`, 'PATCH', { ownerPassword: password, expectedVersion: s6AssocVersion, epgSourceId: epgA.id });
   const s6IptvAgain = await startRefresh(s6Iptv.id);
   checkEq((await waitForRefresh(s6IptvAgain.id, ['succeeded'])).counts,
     { added: 0, updated: 2, missing: 0, failed: 0, channels: 0, programmes: 0 }, 'S6-1:关联后刷新 IPTV 幂等 updated=2');
@@ -894,7 +978,7 @@ try {
     'S6-4:SIGKILL+respawn 后绑定保留');
   checkEq((await api(`/media/${s6Bound.id}/programmes`)).current.title, 'S6匹配当前', 'S6-4:重启后节目仍正确');
   const s6PatchVersion = await sourceVersionOf(s6Iptv.id);
-  await api(`/sources/${s6Iptv.id}`, 'PATCH', { ownerPassword: password, expectedVersion: s6PatchVersion, epgSourceId: epgB.id });
+  await mapi(`/settings/sources/${s6Iptv.id}`, 'PATCH', { ownerPassword: password, expectedVersion: s6PatchVersion, epgSourceId: epgB.id });
   checkEq((await api(`/media/${s6Bound.id}/programmes`)).current.title, 'S6匹配当前',
     'S6-4:IPTV 默认 EPG 改关联 EPG-B 后仍用 manual 目标(EPG-A chan-match)节目');
   checkEq((await queryBindingS6(s6Bound.id, { ownerPassword: password })).epgSourceId, epgA.id, 'S6-4:绑定目标未随默认 EPG 漂移');
@@ -955,15 +1039,24 @@ try {
   checkEq([resaved.status, resaved.version, resaved.xmltvChannelId], ['valid', 4, 'chan-match'],
     'S6-7:重查候选后以新 generation 重存成功 → v4(锁定 chan-match 供负向组)');
 
-  // —— 组 8:负向(非 owner/缺错密码/非频道/禁用源)与泄漏反向断言 ————————
-  // 非 owner:直改 account.role 与 pointSourceAt 同直访模式,SessionGuard 每请求重读角色;
-  // 用后立即恢复 owner,期间无其他请求。
+  // —— 组 8:负向(管理角色/缺错密码/非频道/禁用源)与泄漏反向断言 ——————————
+  // 005 契约差异(api.md §1/§6):Settings 边界管理角色 = owner **与 admin** ——
+  // 旧 004「requireOwner → 403 FORBIDDEN」的 owner-only 语义在设置路由不复存在
+  // (device 记录查询在服务层继承 owner-only,见 S9-4)。直改 role 与 pointSourceAt
+  // 同直访模式,SessionGuard/SettingsAccessGuard 每请求重读;用后立即恢复 owner。
   serverDb().prepare("UPDATE account SET role = 'admin' WHERE username = 'runtimeqa'").run();
-  const forbiddenRole = await queryBindingS6(s6Bound.id, { ownerPassword: password }, 403);
-  checkEq(forbiddenRole.code, 'FORBIDDEN', 'S6-8:非 owner 账号 → 403 FORBIDDEN(requireOwner 先于家长验证)');
+  const adminQuery = await queryBindingS6(s6Bound.id, { ownerPassword: password });
+  checkEq([adminQuery.mode, adminQuery.status, adminQuery.version], ['manual', 'valid', 4],
+    'S6-8:admin 亦为管理角色 → 设置查询 200(005 契约;旧 owner-only 断言按契约改写)');
+  const adminGrantRevoked = await mapi('/settings/access', 'DELETE', undefined, 204);
+  checkEq(adminGrantRevoked, undefined, 'S6-8:DELETE /settings/access 仅 Session 即可撤销(幂等 204)');
+  // 无授予负向必须绕过 ensureSettings(否则幂等重解锁会把断言打穿):直用 api()
+  const adminNoGrant = await api(`${catalogMediaRoute(s6Bound.id)}/epg-binding/query`, 'POST', { ownerPassword: password }, 403);
+  checkEq(adminNoGrant.code, 'SETTINGS_ACCESS_REQUIRED', 'S6-8:管理角色但无设置授予 → 403(grant 维度独立拒绝)');
   serverDb().prepare("UPDATE account SET role = 'owner' WHERE username = 'runtimeqa'").run();
+  await ensureSettings(); // 恢复授予,后续负向按「有授予」口径断言
   const childNoPwd = await apiWith(sessionB, `${catalogMediaRoute(s6Bound.id)}/epg-binding/query`, 'POST', {}, 403);
-  checkEq(childNoPwd.code, 'PARENT_VERIFICATION_REQUIRED', 'S6-8:儿童档案会话且缺密码 → 403');
+  checkEq(childNoPwd.code, 'SETTINGS_ACCESS_REQUIRED', 'S6-8:儿童档案会话(非主档案)→ 403(005 设置边界先于密码;旧 PARENT_VERIFICATION_REQUIRED 语义由 grant 前置取代)');
   const ownerNoPwd = await queryBindingS6(s6Bound.id, {}, 403);
   checkEq(ownerNoPwd.code, 'PARENT_VERIFICATION_REQUIRED', 'S6-8:owner 会话缺密码 → 403');
   const wrongPwd = await putBindingS6(s6Bound.id,
@@ -972,7 +1065,7 @@ try {
   const videoPut = await putBindingS6(videoA.id, manualSave({ expectedVersion: 0, expectedEpgGeneration: 3 }), 400);
   checkEq(videoPut.code, 'VALIDATION_FAILED', 'S6-8:非频道媒体(NAS 导入 video)→ 400');
   const epgADisableVersion = await sourceVersionOf(epgA.id);
-  await api(`/sources/${epgA.id}`, 'PATCH', { ownerPassword: password, expectedVersion: epgADisableVersion, enabled: false });
+  await mapi(`/settings/sources/${epgA.id}`, 'PATCH', { ownerPassword: password, expectedVersion: epgADisableVersion, enabled: false });
   const disabledState = await queryBindingS6(s6Bound.id, { ownerPassword: password });
   checkEq([disabledState.status, disabledState.invalidReason], ['invalid', 'source_disabled'],
     'S6-8:禁用目标源 → 现有绑定 invalid/source_disabled');
@@ -983,7 +1076,7 @@ try {
   const disabledCand = await queryCandidatesS6(s6Bound.id, { ownerPassword: password, epgSourceId: epgA.id }, 422);
   checkEq(disabledCand.code, 'EPG_SOURCE_NOT_READY', 'S6-8:禁用源候选查询 → 422 EPG_SOURCE_NOT_READY');
   const epgAEnableVersion = await sourceVersionOf(epgA.id);
-  await api(`/sources/${epgA.id}`, 'PATCH', { ownerPassword: password, expectedVersion: epgAEnableVersion, enabled: true });
+  await mapi(`/settings/sources/${epgA.id}`, 'PATCH', { ownerPassword: password, expectedVersion: epgAEnableVersion, enabled: true });
   const reEnabled = await queryBindingS6(s6Bound.id, { ownerPassword: password });
   checkEq([reEnabled.status, reEnabled.invalidReason, reEnabled.version], ['valid', null, 4],
     'S6-8:重新启用目标源 → 恢复 valid(版本不变)');
@@ -1120,7 +1213,7 @@ try {
   // location/requires_proxy 接到本地上游(与 pointSourceAt 同直访模式,仅测试夹具)。
   fixtureRoutes.set('/s7-live.m3u', (req, res) => fixtureText(res, 200, 'audio/x-mpegurl',
     buildM3uText([{ name: 'S7直播台', tvgId: 's7-ch-1', url: 'http://s7-iptv-fixture.example/master.m3u8' }])));
-  const s7Iptv = await api('/sources', 'POST', {
+  const s7Iptv = await mapi('/settings/sources', 'POST', {
     ownerPassword: password, kind: 'iptv', name: 'S7直播', remoteUrl: 'http://s7-iptv-fixture.example/live.m3u',
   }, 201);
   pointSourceAt(s7Iptv.id, `${fixtureBase}/s7-live.m3u`);
@@ -1288,60 +1381,68 @@ try {
   check((s7Vtt.headers.get('content-type') ?? '').includes('text/vtt') && s7Vtt.text.startsWith('WEBVTT'),
     'S7-1b:字幕 text/vtt 纯文本');
 
-  // —— 组 2 切换档案:切儿童 → 同一票 URL/清单/分片/key/字幕/GET 会话/renew 下一请求 403;
-  //      切回成人 → 会话仍 ready/playing 语义内,同票 URL 恢复 200(旧缓冲不计停止期限)——
+  // —— 组 2 切换档案(005 T039 契约改写):实际换档同事务「终态化旧上下文活动播放 +
+  //      撤票 + 递增 profile_context_version」—— 切儿童后旧票 URL 立即 401(票已撤销)、
+  //      旧会话控制面 404 同形(上下文版本为唯一拒绝依据,A→B→A 不能复活);
+  //      切回主档案后旧会话不复活,恢复证据由全新解析承担(005 §5)——
   await api(`/profiles/${childProfile.id}/select`, 'POST', {});
   const s7SwitchDirect = await s7Media(s7AUrl, token);
-  checkEq(s7SwitchDirect.status, 403, 'S7-2:切儿童档案后同一票 URL 立即 403(旧缓冲不计停止期限)');
-  checkEq(JSON.parse(s7SwitchDirect.text).code, 'ACTIVE_PROFILE_REQUIRED', 'S7-2:绑定档案≠当前档案 → 403(契约「PIN 既有错误槽位/ACTIVE_PROFILE_REQUIRED」口径)');
+  checkEq(s7SwitchDirect.status, 401, 'S7-2:切儿童档案后同一票 URL 立即 401(换档事务已撤票,旧缓冲不计停止期限)');
+  checkEq(JSON.parse(s7SwitchDirect.text).code, 'PLAYBACK_TICKET_INVALID', 'S7-2:票门先于授权 → PLAYBACK_TICKET_INVALID(撤销票不因换档复活)');
   const s7SwitchManifest = await s7Media(s7DUrl, token);
-  checkEq(s7SwitchManifest.status, 403, 'S7-2:清单请求同拒');
+  checkEq(s7SwitchManifest.status, 401, 'S7-2:清单请求同拒(同事务撤票)');
   const s7SwitchSeg = await s7Media(s7SegUrl, token);
-  checkEq(s7SwitchSeg.status, 403, 'S7-2:分片请求同拒');
+  checkEq(s7SwitchSeg.status, 401, 'S7-2:分片请求同拒');
   const s7SwitchKey = await s7Media(s7KeyUrl, token);
-  checkEq(s7SwitchKey.status, 403, 'S7-2:key 请求同拒');
+  checkEq(s7SwitchKey.status, 401, 'S7-2:key 请求同拒');
   const s7SwitchVtt = await s7Media(s7VttUrl, token);
-  checkEq(s7SwitchVtt.status, 403, 'S7-2:字幕请求同拒');
-  const s7SwitchSession = await api(`/playback/sessions/${s7A.id}`, 'GET', undefined, 403);
-  checkEq(s7SwitchSession.code, 'ACTIVE_PROFILE_REQUIRED', 'S7-2:GET 会话同拒');
-  await api(`/profiles/${adultProfile.id}/select`, 'POST', { ownerPassword: password });
-  const s7StateBack = await api(`/playback/sessions/${s7A.id}`);
-  if (s7StateBack.state === 'playing' || s7StateBack.state === 'ready') {
-    const s7BackDirect = await s7Media(s7AUrl, token);
-    checkEq(s7BackDirect.status, 200, 'S7-2:切回成人后同票 URL 恢复 200');
-    checkEq(s7BackDirect.body, movieBytesA, 'S7-2:恢复后字节一致');
-    checkEq((await s7Media(s7DUrl, token)).status, 200, 'S7-2:清单恢复 200');
-    checkEq((await s7Media(s7SegUrl, token)).status, 200, 'S7-2:分片恢复 200');
-    check(['ready', 'playing'].includes(s7StateBack.state), 'S7-2:恢复发生在 ready/playing 语义内');
-  } else {
-    // 竞态分支(见 s7RecoverAfterRestore 说明):回收即系统回收语义,恢复证据由全新解析承担
-    checkEq(s7StateBack.state, 'interrupted', 'S7-2:竞态分支 —— 会话被后台复核回收(interrupted)');
-    console.log('[S7] note: 组 2 后台权限复核拍恰在拒绝窗口内回收会话(系统回收语义);恢复证据改由全新解析承担');
-    const s7BackReborn = await s7RecoverAfterRestore(s7A.id, s7AReady.generation, 'S7-2');
-    checkEq((await s7Media(s7EntryUrlOf(s7BackReborn.playbackUrl), token)).status, 200, 'S7-2:恢复档案后全新解析→取票→GET 200');
-  }
+  checkEq(s7SwitchVtt.status, 401, 'S7-2:字幕请求同拒');
+  const s7SwitchSession = await api(`/playback/sessions/${s7A.id}`, 'GET', undefined, 404);
+  checkEq(s7SwitchSession.code, 'PLAYBACK_NOT_FOUND', 'S7-2:旧上下文 GET 会话 404 同形(上下文版本失配与不存在不可区分,不泄露旧会话)');
+  // 切回主档案(PIN 保护:unlock 一次性选档授予 → select;005 §3)
+  await selectMain();
+  // A→B→A 不能复活:旧会话终态 interrupted 且版本失配持续(与 playback-context-binding 契约同口径)
+  const s7DbState = serverDb().prepare('SELECT state, ended_at AS endedAt FROM playback_session WHERE id = ?').get(s7A.id);
+  checkEq(s7DbState.state, 'interrupted', 'S7-2:换档同事务终态化旧上下文播放(DB 事实,interrupted)');
+  check(s7DbState.endedAt !== null, 'S7-2:interrupted 具备 ended_at');
+  const s7StaleRenewAfterSwitch = await s7ApiLoose(`/playback/sessions/${s7A.id}/renew`, 'POST', { expectedGeneration: s7AReady.generation });
+  checkEq([s7StaleRenewAfterSwitch.status, s7StaleRenewAfterSwitch.body.code], [404, 'PLAYBACK_NOT_FOUND'],
+    'S7-2:旧上下文 renew 404(不产生新票,A→B→A 不能复活)');
+  const s7SwitchGetAfterBack = await api(`/playback/sessions/${s7A.id}`, 'GET', undefined, 404);
+  checkEq(s7SwitchGetAfterBack.code, 'PLAYBACK_NOT_FOUND', 'S7-2:切回主档案后旧会话仍 404(版本绑定是唯一拒绝依据)');
+  const s7SwitchReborn = await api('/playback/resolve', 'POST', { mediaId: playableA.id }, 201);
+  const s7SwitchRebornReady = await s7WaitForPlayback(s7SwitchReborn.id, ['ready']);
+  const s7SwitchRebornTicket = await api(`/playback/sessions/${s7SwitchReborn.id}/renew`, 'POST', { expectedGeneration: s7SwitchRebornReady.generation });
+  checkEq((await s7Media(s7EntryUrlOf(s7SwitchRebornTicket.playbackUrl), token)).status, 200,
+    'S7-2:切回主档案后全新解析→取票→GET 200(恢复仅经新会话)');
 
-  // —— 组 3 收紧策略:黑名单该媒体 → 媒体 GET/renew/GET 会话 下一请求 404 同形(无策略明细);
+  // —— 组 3 收紧策略(005:组 2 换档已确定性终态化组 1 会话,基线改由全新解析建立):
+  //      黑名单该媒体 → 媒体 GET/renew/GET 会话 下一请求 404 同形(无策略明细);
   //      恢复策略 → renew 可用、旧票 URL 恢复 200(立即生效,不因旧响应放行/拒绝)——
-  const s7PolicyBefore = await api(`/profiles/${adultProfile.id}/policy`);
-  await api(`/profiles/${adultProfile.id}/policy/lists`, 'PUT', {
+  const s7B = await api('/playback/resolve', 'POST', { mediaId: playableA.id }, 201);
+  const s7BReady = await s7WaitForPlayback(s7B.id, ['ready']);
+  const s7BTicket = await api(`/playback/sessions/${s7B.id}/renew`, 'POST', { expectedGeneration: s7BReady.generation });
+  const s7BUrl = s7EntryUrlOf(s7BTicket.playbackUrl);
+  // 005 T126:策略管理迁入 /settings/profiles/{id}/policy(/lists)
+  const s7PolicyBefore = await mapi(`/settings/profiles/${adultProfile.id}/policy`);
+  await mapi(`/settings/profiles/${adultProfile.id}/policy/lists`, 'PUT', {
     ownerPassword: password, expectedVersion: s7PolicyBefore.version,
     allowedMediaIds: [], blockedMediaIds: [playableA.id], allowedChannelIds: [],
   });
-  const s7PolicyDirect = await s7Media(s7AUrl, token);
+  const s7PolicyDirect = await s7Media(s7BUrl, token);
   checkEq(s7PolicyDirect.status, 404, 'S7-3:黑名单后媒体 GET 404(策略拒绝统一同形)');
   checkEq(JSON.parse(s7PolicyDirect.text).code, 'MEDIA_NOT_FOUND', 'S7-3:统一 MEDIA_NOT_FOUND(不返回策略明细)');
-  const s7PolicyRenew = await api(`/playback/sessions/${s7A.id}/renew`, 'POST',
-    { expectedGeneration: s7AReady.generation }, 404);
+  const s7PolicyRenew = await api(`/playback/sessions/${s7B.id}/renew`, 'POST',
+    { expectedGeneration: s7BReady.generation }, 404);
   checkEq(s7PolicyRenew.code, 'MEDIA_NOT_FOUND', 'S7-3:renew 同拒(提交前重验最新策略)');
-  const s7PolicySession = await api(`/playback/sessions/${s7A.id}`, 'GET', undefined, 404);
+  const s7PolicySession = await api(`/playback/sessions/${s7B.id}`, 'GET', undefined, 404);
   checkEq(s7PolicySession.code, 'MEDIA_NOT_FOUND', 'S7-3:GET 会话同拒');
-  await api(`/profiles/${adultProfile.id}/policy/lists`, 'PUT', {
+  await mapi(`/settings/profiles/${adultProfile.id}/policy/lists`, 'PUT', {
     ownerPassword: password, expectedVersion: s7PolicyBefore.version + 1,
     allowedMediaIds: [], blockedMediaIds: [], allowedChannelIds: [],
   });
-  const s7PolicyBack = await s7RecoverAfterRestore(s7A.id, s7AReady.generation, 'S7-3');
-  const s7PolicyBackUrl = s7PolicyBack.sameSession ? s7AUrl : s7EntryUrlOf(s7PolicyBack.playbackUrl);
+  const s7PolicyBack = await s7RecoverAfterRestore(s7B.id, s7BReady.generation, 'S7-3');
+  const s7PolicyBackUrl = s7PolicyBack.sameSession ? s7BUrl : s7EntryUrlOf(s7PolicyBack.playbackUrl);
   const s7PolicyBackDirect = await s7Media(s7PolicyBackUrl, token);
   checkEq(s7PolicyBackDirect.status, 200, 'S7-3:恢复策略后取票/媒体 GET 恢复 200');
   if (s7PolicyBack.sameSession) {
@@ -1353,18 +1454,14 @@ try {
   //      分层说明:direct 场景 fd 语义下 unlink 不中断已打开读取,流中途 IO 错误的可靠
   //      注入属 unit 层 streamFactory 钩子(nas-reader.spec「流中途错误」);本组以 HLS
   //      上游断流提供运行时真服务证据(与 playback-stream.e2e「上游中途断流」同场景)。
-  //      若组 2 竞态分支回收了 D,则断流场景改用全新 HLS 会话(同一上游位置)。
-  let s7BrokenSessionId = s7D.id;
-  let s7BrokenEntryUrl = s7DUrl;
-  const s7DState = await api(`/playback/sessions/${s7D.id}`);
-  if (!['ready', 'playing'].includes(s7DState.state)) {
-    checkEq(s7DState.state, 'interrupted', 'S7-3b:竞态分支 —— D 被后台复核回收,断流改用全新会话');
-    const s7D2 = await api('/playback/resolve', 'POST', { mediaId: s7Channel.id }, 201);
-    const s7D2Ready = await s7WaitForPlayback(s7D2.id, ['ready']);
-    const s7D2Ticket = await api(`/playback/sessions/${s7D2.id}/renew`, 'POST', { expectedGeneration: s7D2Ready.generation });
-    s7BrokenSessionId = s7D2.id;
-    s7BrokenEntryUrl = s7EntryUrlOf(s7D2Ticket.playbackUrl);
-  }
+  //      005:组 2 换档已同事务终态化 s7D(旧上下文 GET 404 同形、不可复活),断流场景
+  //      按契约语义改用全新 HLS 会话(同一上游位置),不再探测旧会话状态。
+  const s7D2 = await api('/playback/resolve', 'POST', { mediaId: s7Channel.id }, 201);
+  const s7D2Ready = await s7WaitForPlayback(s7D2.id, ['ready']);
+  checkEq(s7D2Ready.delivery, 'hls_proxy', 'S7-3b:全新 HLS 会话 ready(组 2 终态化不影响新解析)');
+  const s7D2Ticket = await api(`/playback/sessions/${s7D2.id}/renew`, 'POST', { expectedGeneration: s7D2Ready.generation });
+  const s7BrokenSessionId = s7D2.id;
+  const s7BrokenEntryUrl = s7EntryUrlOf(s7D2Ticket.playbackUrl);
   s7VariantBroken = true;
   const s7BrokenManifest = await s7Media(s7BrokenEntryUrl, token);
   checkEq(s7BrokenManifest.status, 200, 'S7-3b:断流场景清单照常 200(失败在分片读取中)');
@@ -1401,7 +1498,8 @@ try {
     { expectedGeneration: s7AReady.generation }, 401);
   checkEq(s7LogoutRenew.code, 'SESSION_INVALID', 'S7-4:renew 401');
   token = (await api('/auth/login', 'POST', { username: 'runtimeqa', password })).sessionToken;
-  await api(`/profiles/${adultProfile.id}/select`, 'POST', { ownerPassword: password });
+  // 005 §3:主档案 PIN 保护 → unlock+select(替代旧「无 PIN 成人 + ownerPassword」选档)
+  await selectMain();
   const s7ReloginDirect = await s7Media(s7AUrl, token);
   checkEq(s7ReloginDirect.status, 401, 'S7-4:重新登录+选档案后旧票 URL 仍 401');
   checkEq(JSON.parse(s7ReloginDirect.text).code, 'PLAYBACK_TICKET_INVALID',
@@ -1459,7 +1557,7 @@ try {
     'S7-7:响应体不含 NAS 物理路径/文件名');
 
   const s7AssertionCount = assertionCount - s7StartCount;
-  console.log(`[S7] US2 播放负向矩阵 OK:基线起播(direct+HLS 清单/分片/MAP/key/字幕)/切档案 403/收紧策略 404/注销 401+旧票作废/停源 404/Range 206+HEAD/流中失败不注入 JSON+失败码可轮询(新增 ${s7AssertionCount} 断言)`);
+  console.log(`[S7] US2 播放负向矩阵 OK(005):基线起播(direct+HLS 清单/分片/MAP/key/字幕)/换档同事务终态化+撤票(旧票 401/旧会话 404 不复活,恢复经全新解析)/收紧策略 404/注销 401+旧票作废/停源 404/Range 206+HEAD/流中失败不注入 JSON+失败码可轮询(新增 ${s7AssertionCount} 断言)`);
 
   /* -------------------------------------------------------------- */
   /* S8 US1 004 播放正向/鲁棒性真实 HTTP 场景(T033;SC-001/SC-009 HTTP 层) */
@@ -1884,14 +1982,14 @@ try {
   const s8RestartProbe = await api('/playback/resolve', 'POST', { mediaId: s8Direct.id }, 201);
   await s7WaitForPlayback(s8RestartProbe.id, ['ready']); // 重启前保持活动,供 recoverOnBoot 标记
   const s8MediaTotalBefore = (await adultList('?page=1&pageSize=1')).total;
-  const s8PolicyBefore = await api(`/profiles/${adultProfile.id}/policy`);
+  const s8PolicyBefore = await mapi(`/settings/profiles/${adultProfile.id}/policy`);
   const s8ProgrammeBefore = await api(`/media/${ch1.id}/programmes`);
   await killHard();
   await startResilient();
   checkEq((await api(`/playback/sessions/${s8RestartProbe.id}`)).state, 'interrupted', 'S8-8:重启后活动播放会话全 interrupted');
   check(!fs.existsSync(s8OrphanDir), 'S8-8:私有根孤儿任务目录已清理(recoverOnBoot 扫描)');
   checkEq((await adultList('?page=1&pageSize=1')).total, s8MediaTotalBefore, 'S8-8:目录数据保留');
-  checkEq((await api(`/profiles/${adultProfile.id}/policy`)).version, s8PolicyBefore.version, 'S8-8:名单/策略保留');
+  checkEq((await mapi(`/settings/profiles/${adultProfile.id}/policy`)).version, s8PolicyBefore.version, 'S8-8:名单/策略保留');
   checkEq((await api(`/media/${ch1.id}/programmes`)).current.title, s8ProgrammeBefore.current.title, 'S8-8:EPG 数据保留');
   const s8Reborn = await api('/playback/resolve', 'POST', { mediaId: s8Direct.id }, 201);
   const s8RebornReady = await s7WaitForPlayback(s8Reborn.id, ['ready']);
@@ -1906,7 +2004,9 @@ try {
   /* S9 US2b SC-004 记录真实 HTTP 场景(T047;quickstart「SC-004:记录」)  */
   /* 「有效设备失败事件与成功 session 分离、字段齐全;无效会话不进入设备    */
   /* 记录;家长能按设备查询且越权拒绝」。复用 S7/S8 播放世界(夹具媒体/    */
-  /* s7Media/s7EntryUrlOf 直访辅助);鉴权/密码/计数语义按 T044 控制器。   */
+  /* s7Media/s7EntryUrlOf 直访辅助);005 T130:记录查询迁入               */
+  /* /settings/devices/{id}/playback-records/query(Settings 边界 = 主档案 */
+  /* 选中 + 设置授予 + owner-only + 当次密码,api.md §6/§8)。             */
   /* 浏览器 UI 验收(DevicePlaybackRecords 组件操作)不在本文件能力内 ——  */
   /* 分层说明:本 API 即 UI 数据源(T046 已交付组件并过 tsc/build 门禁), */
   /* 浏览器层缺口由 evidence.md 如实记录(归 T054/T055 浏览器链路层)。    */
@@ -1922,9 +2022,10 @@ try {
   const s9TokenA = s9LoginA.sessionToken;
   const s9DeviceA = serverDb().prepare('SELECT device_id AS id FROM device_session WHERE id = ?').get(s9LoginA.sessionId).id;
   check(typeof s9DeviceA === 'string' && s9DeviceA.length > 0, 'S9 前置:登录即建新 Device,记录设备 A 定位(sessionId→device_id 直访)');
-  await apiWith(s9TokenA, `/profiles/${adultProfile.id}/select`, 'POST', { ownerPassword: password });
-  const s9RecordsUrlOf = (deviceId) => `/devices/${deviceId}/playback-records/query`;
-  const s9PagePre = await apiWith(s9TokenA, s9RecordsUrlOf(s9DeviceA), 'POST', { ownerPassword: password });
+  // 005:device A 会话选主档案(PIN 保护 → unlock+select)并解锁设置(记录查询的 Settings 前置)
+  await ensureSettings(s9TokenA);
+  const s9RecordsUrlOf = (deviceId) => `/settings/devices/${deviceId}/playback-records/query`; // 005 T130 settings 前缀
+  const s9PagePre = await mapiWith(s9TokenA, s9RecordsUrlOf(s9DeviceA), 'POST', { ownerPassword: password });
   checkEq(s9PagePre.items.length, 0, 'S9 前置:新设备记录页初始为空(「恰 2 条」判定的确定性前提)');
 
   /* S9 专用辅助(bearer 参数化;S7/S8 同类辅助硬编码全局 token,跨设备会话不可复用) */
@@ -1969,18 +2070,19 @@ try {
   checkEq(s9Entry.status, 200, 'S9-1:首次媒体 GET 200(首次交付 → started_at 一次性落库)');
   await apiWith(s9TokenA, `/playback/sessions/${s9Resolve.id}/stop`, 'POST', {}, 204);
   checkEq((await apiWith(s9TokenA, `/playback/sessions/${s9Resolve.id}`)).state, 'ended', 'S9-1:stop → 终态 ended(ended_at 终态迁移落库)');
-  const s9PolicyBefore = await apiWith(s9TokenA, `/profiles/${adultProfile.id}/policy`);
-  await apiWith(s9TokenA, `/profiles/${adultProfile.id}/policy/lists`, 'PUT', {
+  // 005 T126:策略管理迁入 /settings/profiles/{id}/policy(/lists);device A 会话已选主档案
+  const s9PolicyBefore = await mapiWith(s9TokenA, `/settings/profiles/${adultProfile.id}/policy`);
+  await mapiWith(s9TokenA, `/settings/profiles/${adultProfile.id}/policy/lists`, 'PUT', {
     ownerPassword: password, expectedVersion: s9PolicyBefore.version,
     allowedMediaIds: [], blockedMediaIds: [s8Direct.id], allowedChannelIds: [],
   });
   const s9Denied = await apiWith(s9TokenA, '/playback/resolve', 'POST', { mediaId: s8Direct.id }, 404);
   checkEq(s9Denied.code, 'MEDIA_NOT_FOUND', 'S9-1:黑名单后 resolve → 404 同形(有效会话解析被拒 → 审计写入路径)');
-  await apiWith(s9TokenA, `/profiles/${adultProfile.id}/policy/lists`, 'PUT', {
+  await mapiWith(s9TokenA, `/settings/profiles/${adultProfile.id}/policy/lists`, 'PUT', {
     ownerPassword: password, expectedVersion: s9PolicyBefore.version + 1,
     allowedMediaIds: [], blockedMediaIds: [], allowedChannelIds: [],
   });
-  const s9Page = await apiWith(s9TokenA, s9RecordsUrlOf(s9DeviceA), 'POST', { ownerPassword: password });
+  const s9Page = await mapiWith(s9TokenA, s9RecordsUrlOf(s9DeviceA), 'POST', { ownerPassword: password });
   checkEq(s9Page.items.length, 2, 'S9-1:记录恰 2 条(1 session + 1 failure,成功/失败分离)');
   const s9SessionRec = s9Page.items.find(item => item.kind === 'session');
   const s9FailureRec = s9Page.items.find(item => item.kind === 'failure');
@@ -2043,7 +2145,7 @@ try {
   checkEq(s9RawRecords.status, 200, 'S9-2:记录查询原始响应 200(响应面检查)');
   checkEq(s9RawRecords.headers.get('cache-control'), 'no-store', 'S9-2:记录查询 Cache-Control no-store');
   checkEq(s9RawRecords.headers.get('referrer-policy'), 'no-referrer', 'S9-2:Referrer-Policy no-referrer');
-  checkEq(s9RawRecords.headers.get('content-type'), 'application/problem+json; charset=utf-8', 'S9-2:成功响应 Content-Type 按契约形态');
+  checkEq(s9RawRecords.headers.get('content-type'), 'application/json; charset=utf-8', 'S9-2:成功响应 Content-Type = application/json(005 settings 端点;problem+json 仅错误响应,旧 004 成功体 problem+json 形态不保留)');
   const s9RawText = await s9RawRecords.text();
   check(!s9RawText.includes(nasRoot) && !s9RawText.includes('.mp4') && !s9RawText.includes('ticket=') && !s9RawText.includes(password),
     'S9-2:记录体零泄漏(无 NAS 路径/文件名/票明文/家长密码回显)');
@@ -2056,26 +2158,29 @@ try {
   });
   checkEq(s9Forged.status, 401, 'S9-3:伪造 token resolve → 401(无效会话)');
   checkEq((await s9Forged.json()).code, 'SESSION_INVALID', 'S9-3:稳定码 SESSION_INVALID(仅脱敏安全日志语义)');
-  const s9PageAfterForged = await apiWith(s9TokenA, s9RecordsUrlOf(s9DeviceA), 'POST', { ownerPassword: password });
+  const s9PageAfterForged = await mapiWith(s9TokenA, s9RecordsUrlOf(s9DeviceA), 'POST', { ownerPassword: password });
   checkEq(s9PageAfterForged.items.map(item => item.id), s9Page.items.map(item => item.id),
     'S9-3:未认证解析不入设备记录(记录集合逐 id 不变)');
 
   // —— 组 4 权限负向:错误密码/缺密码/非 owner/不存在设备 404 同形 ————————
-  const s9WrongPwd = await apiWith(s9TokenA, s9RecordsUrlOf(s9DeviceA), 'POST', { ownerPassword: 's9-definitely-wrong' }, 403);
+  // 005 T130:Settings 边界(主档案+授予)先于 owner-only 与当次密码(服务层继承 004 语义)
+  const s9WrongPwd = await mapiWith(s9TokenA, s9RecordsUrlOf(s9DeviceA), 'POST', { ownerPassword: 's9-definitely-wrong' }, 403);
   checkEq(s9WrongPwd.code, 'PARENT_VERIFICATION_FAILED', 'S9-4:错误密码 → 403 FAILED(当次密码;全程 1 次 ≪ 锁定阈值)');
-  const s9NoPwd = await apiWith(s9TokenA, s9RecordsUrlOf(s9DeviceA), 'POST', {}, 403);
+  const s9NoPwd = await mapiWith(s9TokenA, s9RecordsUrlOf(s9DeviceA), 'POST', {}, 403);
   checkEq(s9NoPwd.code, 'PARENT_VERIFICATION_REQUIRED', 'S9-4:缺失密码 → 403 REQUIRED(不计入失败计数)');
-  const s9RecoverPage = await apiWith(s9TokenA, s9RecordsUrlOf(s9DeviceA), 'POST', { ownerPassword: password });
+  const s9RecoverPage = await mapiWith(s9TokenA, s9RecordsUrlOf(s9DeviceA), 'POST', { ownerPassword: password });
   checkEq(s9RecoverPage.items.map(item => item.id), s9Page.items.map(item => item.id),
     'S9-4:失败尝试后正确密码恢复查询(成功验证清零,集合不变)');
-  // 非 owner:S6 同款直改 role(SessionGuard 每请求重读;用后立即恢复,期间无其他请求)
+  // 非 owner:直改 role 与 S6 同款直访模式(SessionGuard 每请求重读;用后立即恢复,期间无其他请求)。
+  // 005 语义:admin 属管理角色可通过 Settings 守卫,但记录查询 owner-only 在服务层继承 ——
+  // 仍 403 FORBIDDEN(与旧 004 断言同形; requireOwner 先于家长验证)。
   serverDb().prepare("UPDATE account SET role = 'admin' WHERE username = 'runtimeqa'").run();
-  const s9AdminBody = await apiWith(s9TokenA, s9RecordsUrlOf(s9DeviceA), 'POST', { ownerPassword: password }, 403);
-  checkEq(s9AdminBody.code, 'FORBIDDEN', 'S9-4:非 owner 账号(admin)→ 403 FORBIDDEN(requireOwner 先于家长验证)');
+  const s9AdminBody = await mapiWith(s9TokenA, s9RecordsUrlOf(s9DeviceA), 'POST', { ownerPassword: password }, 403);
+  checkEq(s9AdminBody.code, 'FORBIDDEN', 'S9-4:非 owner 账号(admin)→ 403 FORBIDDEN(服务层 owner-only 继承;Settings 守卫放行 admin 不放宽记录查询)');
   serverDb().prepare("UPDATE account SET role = 'owner' WHERE username = 'runtimeqa'").run();
-  const s9UnknownA = await apiWith(s9TokenA, s9RecordsUrlOf(randomUUID()), 'POST', { ownerPassword: password }, 404);
+  const s9UnknownA = await mapiWith(s9TokenA, s9RecordsUrlOf(randomUUID()), 'POST', { ownerPassword: password }, 404);
   checkEq(s9UnknownA.code, 'NOT_FOUND', 'S9-4:不存在 deviceId → 404(密码正确仍拒,不泄漏存在性)');
-  const s9UnknownB = await apiWith(s9TokenA, s9RecordsUrlOf(randomUUID()), 'POST', { ownerPassword: password }, 404);
+  const s9UnknownB = await mapiWith(s9TokenA, s9RecordsUrlOf(randomUUID()), 'POST', { ownerPassword: password }, 404);
   checkEq(s9UnknownB, s9UnknownA, 'S9-4:两个随机 deviceId 404 响应体逐字段一致(同形,不可枚举)');
 
   // —— 组 5 设备隔离:device B(S2 第二登录既有设备)自有记录不混入 device A ————
@@ -2085,12 +2190,14 @@ try {
   await apiWith(sessionB, `/profiles/${childProfile.id}/select`, 'POST', {});
   const s9BDenied = await apiWith(sessionB, '/playback/resolve', 'POST', { mediaId: ch3.id }, 404);
   checkEq(s9BDenied.code, 'MEDIA_NOT_FOUND', 'S9-5:device B(child 黑名单 ch3)解析拒绝 → 404 同形(构造 device B 自有记录)');
-  const s9PageB = await apiWith(sessionB, s9RecordsUrlOf(s9DeviceB), 'POST', { ownerPassword: password });
+  // 005 T130:记录查询属 Settings 边界 → device B 会话切回主档案(选档撤销其授予,重解锁)后查询
+  await ensureSettings(sessionB);
+  const s9PageB = await mapiWith(sessionB, s9RecordsUrlOf(s9DeviceB), 'POST', { ownerPassword: password });
   checkEq(s9PageB.items.length, 1, 'S9-5:device B 记录恰 1 条(仅自有 failure,无 device A 记录)');
   checkEq([s9PageB.items[0].kind, s9PageB.items[0].stableCode, s9PageB.items[0].mediaId, s9PageB.items[0].profileId],
     ['failure', 'MEDIA_NOT_FOUND', ch3.id, childProfile.id],
     'S9-5:device B failure 字段语义正确(child 档案拒绝时激活档案;可见媒体保留 mediaId)');
-  const s9PageA2 = await apiWith(s9TokenA, s9RecordsUrlOf(s9DeviceA), 'POST', { ownerPassword: password });
+  const s9PageA2 = await mapiWith(s9TokenA, s9RecordsUrlOf(s9DeviceA), 'POST', { ownerPassword: password });
   checkEq(s9PageA2.items.map(item => item.id), s9Page.items.map(item => item.id),
     'S9-5:device A 记录集合不变(不混入 device B 记录;session 记录 deviceId 恒为 device A)');
   check(!s9PageA2.items.some(item => item.id === s9PageB.items[0].id), 'S9-5:device B failure id 不出现在 device A 页');
@@ -2112,15 +2219,15 @@ try {
     s7: {
       assertionCount: s7AssertionCount,
       matrix: {
-        profileSwitch: '403 ACTIVE_PROFILE_REQUIRED(媒体/清单/分片/key/字幕/GET 会话)',
+        profileSwitch: '005 换档同事务终态化:旧票 URL 401 PLAYBACK_TICKET_INVALID(媒体/清单/分片/key/字幕)+ 旧会话 GET/renew 404 PLAYBACK_NOT_FOUND(上下文版本为唯一拒绝依据);A→B→A 不复活,恢复经全新解析',
         policyTighten: '404 MEDIA_NOT_FOUND 同形(媒体/renew/GET 会话)',
         logout: '401 SESSION_INVALID + 重登录后旧票 401 PLAYBACK_TICKET_INVALID',
         sourceDisabled: '404 MEDIA_NOT_FOUND 同形(renew/媒体 GET)',
         rangeHead: '206 Content-Range 一致;HEAD 200 无体 / 未授权 401',
         midStreamFailure: 'HLS 断流:截断字节流无 JSON 注入 + 失败码轮询可见;direct 未发 headers → 503 problem',
       },
-      directSession: { id: s7A.id, delivery: s7AReady.delivery, generation: s7AReady.generation },
-      hlsSession: { id: s7D.id, delivery: s7DReady.delivery, failureCode: s7FailureCode },
+      directSession: { id: s7A.id, delivery: s7AReady.delivery, generation: s7AReady.generation, note: '组 2 换档后已确定性 interrupted(005 终态化语义)' },
+      hlsSession: { id: s7BrokenSessionId, delivery: 'hls_proxy', failureCode: s7FailureCode, note: '断流场景使用组 3b 全新 HLS 会话(组 1 会话被组 2 换档终态化)' },
     },
     s8: {
       assertionCount: s8AssertionCount,
@@ -2156,7 +2263,7 @@ try {
       permissionMatrix: {
         wrongPassword: '403 PARENT_VERIFICATION_FAILED(全程 1 次 ≪ 5 次×5min 锁定阈值;成功验证清零后恢复)',
         missingPassword: '403 PARENT_VERIFICATION_REQUIRED(不计入失败计数)',
-        nonOwner: '403 FORBIDDEN(admin 直改 role 同 S6 手法,requireOwner 先于家长验证)',
+        nonOwner: '403 FORBIDDEN(admin 直改 role 同 S6 手法;Settings 守卫放行管理角色,owner-only 在记录查询服务层继承 004 语义)',
         unknownDevice: '404 NOT_FOUND,两个随机 deviceId 响应体逐字段一致(同形不可枚举)',
       },
       deviceIsolation: 'device B(第二登录)自有 failure 记录不混入 device A 查询,反向亦然(恰 1 条/恰 2 条互斥)',
