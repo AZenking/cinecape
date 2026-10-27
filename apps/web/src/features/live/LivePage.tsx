@@ -1,9 +1,11 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import type { ExperienceProgrammeDto } from '@hmp/shared';
+import type { ChannelRowDto, ExperienceProgrammeDto } from '@hmp/shared';
 import { Alert, Button, Input, Label, TextField } from '@heroui/react';
-import { fetchLiveChannels, fetchLiveGroups, type LiveSection } from './live-api';
+import { keepPreviousData } from '../../shared/query/hooks';
+import { queryKeys } from '../../shared/query/keys';
+import { fetchLiveChannels, fetchLiveGroups, type LiveChannelQuery, type LiveSection } from './live-api';
 import { usePlayAction } from '../playback/use-play-action';
 import { useLiveRefresh } from './hooks/use-live-refresh';
 import { useLiveSection } from './hooks/use-live-sections';
@@ -11,12 +13,15 @@ import { NowSection } from './components/NowSection';
 import { NextSection } from './components/NextSection';
 import { GroupSections } from './components/GroupSections';
 import { FocusedSection, sectionTitleOf } from './components/FocusedSection';
+import { NowHero } from './components/NowHero';
 import { ProgrammeSlotDialog } from './components/ProgrammeSlotDialog';
 import { GuestActionNotice } from './components/GuestActionNotice';
 
 /**
  * 直播首页(T067/T068/T069/T070/T071;FR-021/022/023/024/045、ui.md §5/§8):
- * - 固定分区顺序:所有节目单入口 → 正在直播 → 即将播放 → 各分组正在直播;
+ * - Netflix 式布局演进:固定分区顺序不变 —— 所有节目单入口 → 此刻直播精选横幅(非分区,
+ *   仅取 now 区服务端稳定排序首频道)→ 正在直播 → 即将播放 → 各分组正在直播;
+ *   后三区为横向滚动瓦片行(溢出限于行内,整页无横向溢出,ui.md §8);
  * - section/group/q/page 写入 URL 查询参数作为公共浏览状态:概览(无参数)与聚焦视图
  *   (section 必配)互转;详情返回或登录取消后经 URL 恢复原浏览状态(FR-045);
  * - 公共请求一律 publicFetch(credentials:'omit');每区独立资源,失败仅重试本区;
@@ -77,67 +82,92 @@ export function LivePage(): ReactNode {
     [updateParams],
   );
 
-  /* ---------------- 资源:概览(全部区独立)+ 聚焦视图 ---------------- */
+  /* ---------------- 资源:概览(全部区独立)+ 聚焦视图 ----------------
+   * T023 迁移:取数状态机已收口到 shared/query(useAppQuery;signal 透传、
+   * 缓存与后台刷新由数据层承担),键一律取自 queryKeys.public 工厂——
+   * live 分组/频道为工厂 live() 前缀的派生键(工厂暂无分组/频道子资源条目,
+   * 扩工厂属 query-keys 契约变更,归数据层任务):首段仍为 'public' 身份域,
+   * 参数对象置于末位、可序列化,同参同键、异参异键。频道列表在 section/q/page
+   * 变键时以 keepPreviousData 保留上一份内容(旧「代次」行为:换键不吞旧数据)。 */
 
   const focused = section !== null;
-  const groupsResource = useLiveSection(useCallback((signal) => fetchLiveGroups(signal), []), refreshKey);
+
+  const groupsResource = useLiveSection(
+    {
+      domain: 'public',
+      queryKey: queryKeys.public.liveGroups(),
+      queryFn: ({ signal }) => fetchLiveGroups(signal),
+    },
+    refreshKey,
+  );
+
+  const nowQuery: LiveChannelQuery = {
+    section: 'now',
+    page: 1,
+    pageSize: PREVIEW_PAGE_SIZE,
+    q: qParam || undefined,
+  };
   const nowResource = useLiveSection(
-    useCallback(
-      (signal) =>
-        fetchLiveChannels(
-          { section: 'now', page: 1, pageSize: PREVIEW_PAGE_SIZE, q: qParam || undefined },
-          signal,
-        ),
-      [qParam],
-    ),
+    {
+      domain: 'public',
+      queryKey: queryKeys.public.liveChannels(nowQuery),
+      queryFn: ({ signal }) => fetchLiveChannels(nowQuery, signal),
+      placeholderData: keepPreviousData,
+    },
     refreshKey,
     !focused,
-    `now:overview:${qParam}`,
   );
+
+  const nextQuery: LiveChannelQuery = {
+    section: 'next',
+    page: 1,
+    pageSize: PREVIEW_PAGE_SIZE,
+    q: qParam || undefined,
+  };
   const nextResource = useLiveSection(
-    useCallback(
-      (signal) =>
-        fetchLiveChannels(
-          { section: 'next', page: 1, pageSize: PREVIEW_PAGE_SIZE, q: qParam || undefined },
-          signal,
-        ),
-      [qParam],
-    ),
+    {
+      domain: 'public',
+      queryKey: queryKeys.public.liveChannels(nextQuery),
+      queryFn: ({ signal }) => fetchLiveChannels(nextQuery, signal),
+      placeholderData: keepPreviousData,
+    },
     refreshKey,
     !focused,
-    `next:overview:${qParam}`,
   );
+
+  const overviewAllQuery: LiveChannelQuery = {
+    section: 'all',
+    page: 1,
+    pageSize: OVERVIEW_GROUP_FETCH_SIZE,
+    q: qParam || undefined,
+  };
   const groupsChannelsResource = useLiveSection(
-    useCallback(
-      (signal) =>
-        fetchLiveChannels(
-          { section: 'all', page: 1, pageSize: OVERVIEW_GROUP_FETCH_SIZE, q: qParam || undefined },
-          signal,
-        ),
-      [qParam],
-    ),
+    {
+      domain: 'public',
+      queryKey: queryKeys.public.liveChannels(overviewAllQuery),
+      queryFn: ({ signal }) => fetchLiveChannels(overviewAllQuery, signal),
+      placeholderData: keepPreviousData,
+    },
     refreshKey,
     !focused,
-    `all:overview:${qParam}`,
   );
+
+  const focusedQuery: LiveChannelQuery = {
+    section: section ?? 'all',
+    groupKey: section === 'group' ? groupKeyParam : undefined,
+    page: pageParam,
+    pageSize: FOCUSED_PAGE_SIZE,
+    q: qParam || undefined,
+  };
   const focusedResource = useLiveSection(
-    useCallback(
-      (signal) =>
-        fetchLiveChannels(
-          {
-            section: section ?? 'all',
-            groupKey: section === 'group' ? groupKeyParam : undefined,
-            page: pageParam,
-            pageSize: FOCUSED_PAGE_SIZE,
-            q: qParam || undefined,
-          },
-          signal,
-        ),
-      [section, groupKeyParam, pageParam, qParam],
-    ),
+    {
+      domain: 'public',
+      queryKey: queryKeys.public.liveChannels(focusedQuery),
+      queryFn: ({ signal }) => fetchLiveChannels(focusedQuery, signal),
+      placeholderData: keepPreviousData,
+    },
     refreshKey,
     focused,
-    `focused:${section ?? ''}:${groupKeyParam ?? ''}:${pageParam}:${qParam}`,
   );
 
   /* ---------------- 游客播放入口占位(US3 统一入口接管前的占位) ---------------- */
@@ -157,6 +187,8 @@ export function LivePage(): ReactNode {
 
   const timezone = groupsResource.data?.timezone ?? focusedResource.data?.timezone ?? 'UTC';
   const serverNowIso = groupsResource.data?.now ?? focusedResource.data?.now ?? null;
+  /** 此刻直播精选横幅对象:now 区服务端稳定排序首频道(数据未就绪为 null,横幅不渲染) */
+  const firstNowRow: ChannelRowDto | null = nowResource.data?.items[0] ?? null;
 
   const groupLabelOf = useMemo((): string | undefined => {
     if (section !== 'group' || groupKeyParam === undefined) {
@@ -236,6 +268,15 @@ export function LivePage(): ReactNode {
 
       {section === null ? (
         <>
+          {/* 此刻直播精选(Netflix 式横幅;非 FR-021 分区,位于所有节目单入口之后,
+              取 now 区服务端稳定排序首频道,数据未就绪时不渲染) */}
+          {firstNowRow !== null && nowResource.data !== null ? (
+            <NowHero
+              row={firstNowRow}
+              timezone={nowResource.data.timezone}
+              onOpenProgramme={setSlotDialog}
+            />
+          ) : null}
           <NowSection
             resource={nowResource}
             onRetry={nowResource.retry}

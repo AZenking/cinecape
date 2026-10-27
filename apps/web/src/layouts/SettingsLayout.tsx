@@ -20,7 +20,8 @@ import { SettingsAccessProvider, useSettingsAccess } from '../features/settings/
 import { SettingsUnlockGate } from '../features/settings/settings-unlock-gate';
 import { UnsavedGuardProvider } from '../features/settings/shared/unsaved-guard';
 import { SETTINGS_MODULES, settingsModulePath, useSettingsPageMeta } from '../features/settings/settings-modules';
-import { useMediaQuery } from '../features/settings/use-media-query';
+// T033(006 US4):useMediaQuery 收编至 shared/hooks(原 features/settings/use-media-query.ts 已删除)
+import { useMediaQuery } from '../shared/hooks';
 
 function SettingsSubmenu({ onNavigate }: { onNavigate?: () => void }): ReactNode {
   return (

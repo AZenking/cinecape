@@ -1,27 +1,36 @@
-import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useLocation, useParams } from 'react-router';
 import type { PublicMediaDto } from '@hmp/shared';
-import { isAbortError, isFetchApiError, publicFetch } from '../../shared/fetch';
+import { useAppQuery } from '../../shared/query/hooks';
+import { queryKeys } from '../../shared/query/keys';
+import { formatApiError } from '../../shared/query/error';
+import { isFetchApiError, publicFetch } from '../../shared/fetch';
 import { LoadingSpinner, RetryableAlert } from '../../shared/ui';
 import { PlayButton } from '../playback/use-play-action';
 import { useSession } from '../../app/session-provider';
-import { fetchHistoryItem, type HistoryItem } from '../history/history-api';
+import { useHistoryItemQuery } from '../history/use-history';
 import { FavoriteStarButton } from '../favorites/favorite-star-button';
 
 /**
- * 公共媒体详情页(T029,US1;T103 续播入口,US4;contracts/ui.md §1、data-model §9):
+ * 公共媒体详情页(T029,US1;T103 续播入口,US4;T023 迁移:006 统一数据层;
+ * contracts/ui.md §1、data-model §9):
  * - 渲染 PublicMedia 白名单元数据与海报:posterRef 仅同源资源或 null,当前部署无
  *   同源海报端点(公共投影恒为 null)→ 渲染占位,绝不直接渲染任意外部 URL;
  * - 元数据对游客完全可见、不按儿童/成人策略隐藏(US1 场景2);
- * - 个人状态(US4):仅已选档经 GET /me/history/{mediaId} 读取本档案记录 —— 游客与
- *   未选档不发个人请求,进度不进入公共详情 HTML(公共响应/缓存不含个人数据);
- *   canResume=true 展示「继续观看」(startMode=resume)与「从头播放」
- *   (startMode=beginning),二者都经统一受控播放重新授权;无效/到尾/资源变化
- *   仅从头;频道媒体提供独立星标收藏/取消(不冒泡播放);
+ * - 公共详情取数经 useAppQuery(public 域;键取自 queryKeys.public.media 工厂;
+ *   signal 透传/缓存/后台刷新由数据层承担):服务端对不存在/跨家庭/不可用统一
+ *   404 → 以 FetchApiError.status 404 判定,同形呈现「内容不存在」,不泄露存在性;
+ *   其余失败 → 可重试失败态,文案经 formatApiError 映射链(不暴露原始报文);
+ * - 个人状态(US4):仅已选档经统一数据层 useHistoryItemQuery(profile 域;键 =
+ *   queryKeys.profile(pid).progress(id),identity 未知 enabled 关闭,FR-016 不发
+ *   任何 /me 请求)读取本档案记录——游客与未选档不发个人请求,进度不进入公共
+ *   详情 HTML(公共响应/缓存不含个人数据);查询失败(data undefined)静默回落
+ *   无进度展示,公共详情不受阻(FR-009);canResume=true 展示「继续观看」
+ *   (startMode=resume)与「从头播放」(startMode=beginning),二者都经统一受控
+ *   播放重新授权;无效/到尾/资源变化仅从头;频道媒体提供独立星标收藏/取消(不
+ *   冒泡播放);
  * - 播放入口接入 US3 统一受控播放流程(PlayButton → usePlayAction):本页不自行
- *   发起播放、不伪造可播放承诺;不可用内容禁用并给理由;
- * - 不存在/不可用(服务端统一 404)→ 可回目录的失败态,不泄露存在性。
+ *   发起播放、不伪造可播放承诺;不可用内容禁用并给理由。
  */
 
 const MEDIA_TYPE_LABELS: Record<string, string> = {
@@ -32,112 +41,77 @@ const MEDIA_TYPE_LABELS: Record<string, string> = {
   video: '视频',
 };
 
-type DetailState =
-  | { readonly kind: 'loading' }
-  | { readonly kind: 'ready'; readonly media: PublicMediaDto }
-  | { readonly kind: 'notFound' }
-  | { readonly kind: 'error'; readonly message: string };
+/** 「内容不存在或已下架」视图:路由缺参与服务端 404 同形呈现,不泄露存在性 */
+function NotFoundView(): ReactNode {
+  return (
+    <section className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
+      <h1 className="text-xl font-semibold text-foreground">内容不存在或已下架</h1>
+      <p className="max-w-prose text-sm text-muted">该内容当前不可浏览,可返回点播目录查看其他内容。</p>
+      <Link
+        to="/vod"
+        className="rounded px-1 text-sm font-medium text-accent underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+      >
+        返回点播
+      </Link>
+    </section>
+  );
+}
 
 export function MediaDetailPage(): ReactNode {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
   const session = useSession();
-  const [state, setState] = useState<DetailState>({ kind: 'loading' });
-  const [reloadToken, setReloadToken] = useState(0);
-  /** 本档案观看历史(US4;仅已选档读取;游客/未选档恒 null 不发请求) */
-  const [history, setHistory] = useState<HistoryItem | null>(null);
 
-  useEffect(() => {
-    if (id === undefined || id === '') {
-      setState({ kind: 'notFound' });
-      return;
-    }
-    const controller = new AbortController();
-    setState({ kind: 'loading' });
-    publicFetch<PublicMediaDto>(`/public/media/${encodeURIComponent(id)}`, {
-      signal: controller.signal,
-    })
-      .then((media) => {
-        setState({ kind: 'ready', media });
-      })
-      .catch((err: unknown) => {
-        if (isAbortError(err)) {
-          return;
-        }
-        if (err instanceof Error && 'status' in err && (err as { status?: number }).status === 404) {
-          // 服务端对不存在/跨家庭/不可用统一 404:同形呈现,不泄露存在性
-          setState({ kind: 'notFound' });
-          return;
-        }
-        setState({
-          kind: 'error',
-          message: err instanceof Error && err.message ? err.message : '加载失败,请稍后重试',
-        });
-      });
-    return () => controller.abort();
-  }, [id, reloadToken]);
+  // 公共详情查询(public 域):路由 id 缺失时不发请求,直接按不存在呈现
+  const hasMediaId = id !== undefined && id !== '';
+  const {
+    data: media,
+    isPending,
+    isError,
+    error,
+    refetch,
+  } = useAppQuery<PublicMediaDto>({
+    domain: 'public',
+    queryKey: queryKeys.public.media(id ?? ''),
+    queryFn: ({ signal }) =>
+      publicFetch<PublicMediaDto>(`/public/media/${encodeURIComponent(id ?? '')}`, { signal }),
+    enabled: hasMediaId,
+  });
 
-  // 个人历史读取(US4 T103):身份键变化即重读/丢弃;游客/未选档零个人请求。
-  // 失败静默(公共详情不因个人区失败受阻;进度本来就不进公共详情)。
-  const personalCacheKey = session.personalCacheKey;
-  const mediaId = state.kind === 'ready' ? state.media.id : null;
-  useEffect(() => {
-    if (personalCacheKey === null || mediaId === null) {
-      setHistory(null);
-      return;
-    }
-    const controller = new AbortController();
-    fetchHistoryItem(mediaId, controller.signal)
-      .then((item) => {
-        if (!controller.signal.aborted) {
-          setHistory(item);
-        }
-      })
-      .catch((error: unknown) => {
-        if (isAbortError(error)) {
-          return;
-        }
-        if (isFetchApiError(error) && (error.status === 401 || error.status === 403)) {
-          setHistory(null); // 失效回落:清个人展示,公共详情不受阻(FR-009)
-          return;
-        }
-        setHistory(null);
-      });
-    return () => controller.abort();
-  }, [personalCacheKey, mediaId]);
+  // 个人历史(US4 T103;T023 迁移统一数据层):useHistoryItemQuery(profile 域,
+  // 键 = queryKeys.profile(pid).progress(id));profileId/mediaId 任一未知即不启用
+  // (游客/未选档/公共详情未就绪零个人请求,FR-016);失败(data undefined)静默
+  // 回落为无进度展示,公共详情不受阻(与原直接 fetch 的 401/403/网络失败回落一致)。
+  const profileId = session.session?.activeProfile?.id ?? null;
+  const history = useHistoryItemQuery(profileId, media?.id ?? null).data;
 
-  if (state.kind === 'loading') {
+  if (!hasMediaId) {
+    return <NotFoundView />;
+  }
+
+  if (isPending) {
     return <LoadingSpinner label="加载详情…" />;
   }
 
-  if (state.kind === 'error') {
+  if (isError) {
+    // 服务端对不存在/跨家庭/不可用统一 404:同形呈现,不泄露存在性
+    if (isFetchApiError(error) && error.status === 404) {
+      return <NotFoundView />;
+    }
     return (
       <RetryableAlert
         title="详情加载失败"
-        description={state.message}
+        description={formatApiError(error)}
         onRetry={() => {
-          setReloadToken((token) => token + 1);
+          void refetch();
         }}
       />
     );
   }
 
-  if (state.kind === 'notFound') {
-    return (
-      <section className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
-        <h1 className="text-xl font-semibold text-foreground">内容不存在或已下架</h1>
-        <p className="max-w-prose text-sm text-muted">该内容当前不可浏览,可返回点播目录查看其他内容。</p>
-        <Link
-          to="/vod"
-          className="rounded px-1 text-sm font-medium text-accent underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-        >
-          返回点播
-        </Link>
-      </section>
-    );
+  if (media === undefined) {
+    return null; // 不可达:成功态必有 data(类型收窄辅助)
   }
-
-  const { media } = state;
 
   return (
     <section className="flex flex-col gap-6">
@@ -190,7 +164,7 @@ export function MediaDetailPage(): ReactNode {
                 unavailable={media.availability !== 'available'}
               />
             ) : null}
-            {media.type !== 'channel' && history !== null && history.canResume && media.availability === 'available' ? (
+            {media.type !== 'channel' && history?.canResume === true && media.availability === 'available' ? (
               <PlayButton
                 mediaId={media.id}
                 title={media.title}
@@ -204,9 +178,9 @@ export function MediaDetailPage(): ReactNode {
                 mediaId={media.id}
                 title={media.title}
                 startMode="beginning"
-                label={history !== null && history.canResume ? '从头播放' : '播放'}
-                variant={history !== null && history.canResume ? 'secondary' : 'primary'}
-                ariaLabel={`${history !== null && history.canResume ? '从头播放' : '播放'} ${media.title}`}
+                label={history?.canResume === true ? '从头播放' : '播放'}
+                variant={history?.canResume === true ? 'secondary' : 'primary'}
+                ariaLabel={`${history?.canResume === true ? '从头播放' : '播放'} ${media.title}`}
               />
             ) : (
               <PlayButton
@@ -218,7 +192,7 @@ export function MediaDetailPage(): ReactNode {
               />
             )}
           </div>
-          {history !== null && history.canResume ? (
+          {history?.canResume === true ? (
             <p className="text-xs text-muted" data-testid="detail-resume-hint">
               上次观看至 {Math.floor(history.positionSeconds / 60)} 分钟,可继续观看或从头播放。
             </p>

@@ -9,7 +9,7 @@ import { RateLimitGuard } from '../../common/rate-limit/rate-limit.guard';
 import { StrictQueryPipe } from '../../common/strict-input/strict-pipes';
 import { PublicContextService } from '../../common/public-context/public-context.service';
 import { liveNowMs } from '../live/live-clock';
-import { allowedGuideDates, defaultGuideWindowMs, guideDateString, guideDayWindowMs, todayCalendarDateOf } from './guide-calendar';
+import { allowedGuideDates, guideDateString, guideDayWindowMs, todayCalendarDateOf } from './guide-calendar';
 import { loadGuideWindow } from './guide-window.service';
 
 /**
@@ -25,7 +25,7 @@ import { loadGuideWindow } from './guide-window.service';
  * - 限频 @RateLimit('guide')(每连接 IP 30 次/分钟,429 + Retry-After;契约 §1);
  * - Cache-Control: no-store 由全局安全头拦截器统一附加(所有响应,含错误);
  * - 校验次序:严格入参(管道 400)→ 日期范围(昨天/已过期 409 GUIDE_DATE_EXPIRED +
- *   新 allowedDates;未到允许未来范围 400)→ 窗口形态(跨日/>6h/倒置 422/400)→ 查询;
+ *   新 allowedDates;未到允许未来范围 400)→ 窗口形态(跨日/倒置 422/400)→ 查询;
  * - 未初始化家庭:返回 UTC 默认空窗口(与 live 公共端点同口径,不伪装已初始化);
  * - 集合查询:guide 数据装配 8 次(关联核心 6 + 批量窗口 1 + revision 1),
  *   外加全部公共端点共用的 1 次 household 范围判定(PublicContextService,非 guide 装配)。
@@ -47,8 +47,7 @@ const guideQuerySchema = z.strictObject({
 function uninitializedGuideWindow(query: z.infer<typeof guideQuerySchema>, nowMs: number): GuideWindowDto {
   const timezone = 'UTC';
   const today = todayCalendarDateOf(nowMs, timezone);
-  const day = guideDayWindowMs(today, timezone);
-  const window = defaultGuideWindowMs(nowMs, day);
+  const window = guideDayWindowMs(today, timezone);
   return {
     date: guideDateString(today),
     timezone,
@@ -75,8 +74,8 @@ export class PublicGuideController {
   /**
    * GET /public/guide:公共 EPG 墙窗口。date 缺省今天;显式 date 昨天或已过期 →
    * 409 GUIDE_DATE_EXPIRED(+新 allowedDates),today+7 及以后 → 400;from/to 必须
-   * 落在该日真实边界内、to>from、跨度≤6 小时(跨日/超限 422 GUIDE_WINDOW_TOO_LARGE,
-   * 倒置 400);默认窗口 = 现在前 30 分钟起 6 小时(裁剪日界)。
+   * 落在该日真实边界内、to>from(跨日 422 GUIDE_WINDOW_TOO_LARGE,倒置 400;
+   * 跨度上限即该日真实日长,普通日 24 小时);默认窗口 = 该日完整 24 小时(真实日界,全天展示)。
    */
   @Get('guide')
   @RateLimit('guide')

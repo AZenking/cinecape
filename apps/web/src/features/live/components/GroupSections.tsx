@@ -1,20 +1,22 @@
 import type { ReactNode } from 'react';
 import type { ChannelPageDto, GroupPageDto } from '@hmp/shared';
 import { Button } from '@heroui/react';
-import { ProgrammeCard } from './ProgrammeCard';
+import { ChannelTile } from './ChannelTile';
+import { MediaScroller } from './MediaScroller';
 import { SectionFrame } from './SectionFrame';
 import { formatZoneLabel } from '../live-format';
 import type { LiveResource } from '../hooks/use-live-sections';
 
 /**
  * 各来源主分组正在直播(T067/T070;FR-021 顺序第四区、FR-023「缺失归入其他」):
- * - 一次 section=all 集合请求,前端按 ChannelRow.groupKey 分区展示(不按标题臆测类型);
- * - 每分组预览若干频道 +「查看更多」进入该分组聚焦视图(URL section=group&group=…);
+ * - Netflix 式分组行:一次 section=all 集合请求,前端按 ChannelRow.groupKey 分行展示
+ *   (不按标题臆测类型),每分组一条横向滚动瓦片行;
+ * - 每分组行头右侧「查看更多」进入该分组聚焦视图(URL section=group&group=…);
  * - 无节目可用频道按频道行照常出现(暂无节目占位),不把无节目等同无频道(FR-023)。
  */
 
-/** 概览区每组预览频道数(完整列表经查看更多) */
-export const GROUP_PREVIEW_COUNT = 4;
+/** 概览区每组预览频道数(横向行内可滚动浏览;完整列表经查看更多) */
+export const GROUP_PREVIEW_COUNT = 10;
 
 export interface GroupSectionsProps {
   readonly groupsResource: LiveResource<GroupPageDto>;
@@ -22,7 +24,7 @@ export interface GroupSectionsProps {
   readonly focusedGroupKey: string | null;
   readonly onRetry: () => void;
   readonly onViewMore: (groupKey: string) => void;
-  readonly onOpenProgramme: Parameters<typeof ProgrammeCard>[0]['onOpenProgramme'];
+  readonly onOpenProgramme: Parameters<typeof ChannelTile>[0]['onOpenProgramme'];
   readonly onRequireAuth: (actionLabel: string) => void;
 }
 
@@ -61,29 +63,38 @@ export function GroupSections({
         hasStaleContent={channels !== null}
         isEmpty={preview.length === 0}
         emptyText="该分组暂无可用频道"
-        skeletonCount={2}
+        skeletonVariant="row"
+        skeletonCount={3}
         onRetry={onRetry}
-        footer={
+        headerAction={
           rows.length > preview.length ? (
-            <div className="mt-3">
-              <Button size="sm" variant="outline" onPress={() => onViewMore(groupKey)}>
-                查看更多
-              </Button>
-            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              onPress={() => {
+                onViewMore(groupKey);
+              }}
+            >
+              查看更多 ›
+            </Button>
           ) : null
         }
       >
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-          {preview.map((row) => (
-            <ProgrammeCard
-              key={row.media.id}
-              row={row}
-              timezone={channels?.timezone ?? 'UTC'}
-              onOpenProgramme={onOpenProgramme}
-              onRequireAuth={onRequireAuth}
-            />
-          ))}
-        </div>
+        {preview.length > 0 ? (
+          <MediaScroller label={`${label} · 正在直播`}>
+            {preview.map((row) => (
+              <li key={row.media.id} className="w-60 shrink-0 snap-start sm:w-64 lg:w-72">
+                <ChannelTile
+                  row={row}
+                  timezone={channels?.timezone ?? 'UTC'}
+                  nowIso={channels?.now ?? null}
+                  onOpenProgramme={onOpenProgramme}
+                  onRequireAuth={onRequireAuth}
+                />
+              </li>
+            ))}
+          </MediaScroller>
+        ) : null}
       </SectionFrame>
     );
   };

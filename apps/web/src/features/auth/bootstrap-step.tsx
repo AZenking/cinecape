@@ -2,11 +2,14 @@
  * 首建主档案步骤(T041,FR-030):零档案会话经名称 + 6 位数字 PIN + 当次账号密码
  * 创建成人主 Profile;成功后仅通知父层进入选档(不静默激活主档案),可取消返回
  * 公共浏览。客户端先行校验(名称与 6 位数字 PIN),密码仅表单内存。
+ * 数据访问(T026):经 auth-api(privateFetch 档,Set-Cookie 同源)发起,
+ * confirmed 语义无缓存写入;PIN/密码计数与锁定均在服务端,客户端仅呈现。
  */
 import { useState, type ReactNode } from 'react';
 import { Button, Form } from '@heroui/react';
-import { isFetchApiError, privateFetch } from '../../shared/fetch';
+import { isFetchApiError } from '../../shared/fetch';
 import { validateBootstrapInput } from '../../app/action-coordinator-core';
+import { bootstrapMainProfile } from './auth-api';
 import { FormError, FormField } from './field';
 import type { ProfileSummary } from '../../app/session-types';
 
@@ -35,10 +38,8 @@ export function BootstrapStep({ formEpoch, onSuccess, onCancel }: BootstrapStepP
     setIssues(null);
     setBusy(true);
     try {
-      const profile = await privateFetch<ProfileSummary>('/auth/bootstrap-profile', {
-        method: 'POST',
-        body: { name: name.trim(), pin, ownerPassword },
-      });
+      // T026:经 auth-api 统一首建端点(privateFetch 档,Set-Cookie 同源)
+      const profile = await bootstrapMainProfile({ name: name.trim(), pin, ownerPassword });
       // 成功:进入选档(picker),不自动激活主档案(服务端不设置 active_profile_id)
       onSuccess(profile);
     } catch (err) {

@@ -1,81 +1,112 @@
 /**
- * Profile 管理页(T133,US8;FR-036):
- * - 档案列表(创建/编辑/停用/PIN 管理),expectedVersion CAS;主档案不允许清 PIN、
- *   不能停用最后一个可用档案、现任主档案须先转移(错误以服务端稳定文案呈现);
- * - 主档案转移:目标须为「可用 + 成人 + 已设 PIN」;三项 CAS(家庭 mainProfileVersion /
- *   现任 version / 目标 version)来自当前读取,当次密码确认;成功后关闭设置进入切档
- *   验证(不静默激活目标),不再继续读取设置主体;
- * - 409 VERSION_CONFLICT 提示冲突并重读现值,不静默覆盖。
+ * Profile 管理页(T133,US8;FR-036;T025 数据层迁移):
+ * - 档案列表 + 家庭设置经 useAppQuery(settings.profiles 键,合并读取,硬请求 +
+ *   isPending 门控 / isError RetryableAlert(formatApiError + 重试)/ 成功出主体);
+ * - 创建/编辑/停用/清 PIN/主档案转移均为 confirmed 变更:等待服务端确认,成功后
+ *   失效 settings.profiles 键以服务端真值回填(替代原手工 load());expectedVersion
+ *   CAS;主档案不允许清 PIN、不能停用最后一个可用档案、现任主档案须先转移
+ *   (错误以服务端稳定文案呈现);
+ * - 主档案转移:目标须为「可用 + 成人 + 已设 PIN」;三项 CAS 来自打开模块时的
+ *   服务端现值(refetch 取新),当次密码确认;成功后关闭设置进入切档验证(不静默
+ *   激活目标),该变更声明零失效集合 —— 全部设置授予已在服务端撤销,不再读取设置主体;
+ * - 409 VERSION_CONFLICT 提示冲突并按失效重读现值,不静默覆盖;
+ * - 403 SETTINGS_ACCESS_* 经 handleAccessLost 立即隐藏;重新解锁后解锁门卸载本页、
+ *   重挂硬请求,等价原 reloadEpoch 重读(FR-041)。
  */
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
-import { Button, Form, TextField, Label, Input } from '@heroui/react';
-import { LoadingSpinner, RetryableAlert } from '../../shared/ui';
+import { AlertDialog, Button, Form, TextField, Label, Input } from '@heroui/react';
+import { LoadingSpinner, RetryableAlert, useAppToast } from '../../shared/ui';
+import { useAppMutation, useAppQuery } from '../../shared/query/hooks';
+import { queryKeys } from '../../shared/query/keys';
+import { formatApiError } from '../../shared/query/error';
+import { privateFetch } from '../../shared/fetch';
 import { POST_IDENTITY_CHANGE_NOTICE, classifySettingsWriteError } from './shared/access-expiry';
-import { errorTextOf, settingsApi, type HouseholdSettings, type ProfileSummary } from './shared/settings-api';
+import type { HouseholdSettings, ProfileSummary } from './shared/settings-api';
 import { PasswordConfirmModal } from './shared/password-confirm-modal';
 import { useSettingsAccess } from './settings-access-provider';
 import { useSettingsPageMeta } from './settings-modules';
 
-type LoadState =
-  | { phase: 'loading' }
-  | { phase: 'ok'; profiles: ProfileSummary[] }
-  | { phase: 'error'; message: string };
+/** 档案管理域合并读取:列表 + 家庭设置(mainProfileVersion 供转移 CAS) */
+interface ProfilesPageData {
+  profiles: ProfileSummary[];
+  household: HouseholdSettings;
+}
 
 export function SettingsProfilesPage(): ReactNode {
   const access = useSettingsAccess();
   const { title } = useSettingsPageMeta();
-  const [state, setState] = useState<LoadState>({ phase: 'loading' });
-  const [attempt, setAttempt] = useState(0);
+  const navigate = useNavigate();
+  const toast = useAppToast();
   const [editing, setEditing] = useState<ProfileSummary | null>(null);
   const [creating, setCreating] = useState(false);
   const [transferring, setTransferring] = useState<{ profiles: ProfileSummary[]; household: HouseholdSettings } | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** T015:主档案转移完成提示(替代原 window.alert)以组件状态承载 */
+  const [identityNoticeOpen, setIdentityNoticeOpen] = useState(false);
 
-  const load = useCallback((): void => {
-    void (async () => {
-      try {
-        const [profiles, household] = await Promise.all([settingsApi.listProfiles(), settingsApi.getHousehold()]);
-        setState({ phase: 'ok', profiles });
-        setTransferring((current) => (current === null ? null : { profiles, household }));
-        setPageError(null);
-      } catch (error) {
-        if (classifySettingsWriteError(error) === 'access-lost') {
-          access.handleAccessLost();
-          return;
-        }
-        setState({ phase: 'error', message: errorTextOf(error) });
-      }
-    })();
-  }, [access]);
+  const profilesQuery = useAppQuery<ProfilesPageData>({
+    domain: 'settings',
+    queryKey: queryKeys.settings.profiles(),
+    queryFn: ({ signal }) =>
+      Promise.all([
+        privateFetch<ProfileSummary[]>('/settings/profiles', { signal }),
+        privateFetch<HouseholdSettings>('/settings/household', { signal }),
+      ]).then(([profiles, household]) => ({ profiles, household })),
+  });
 
+  // 管理主体读取得到 403 SETTINGS_ACCESS_*:立即回到锁定态(解锁门随之隐藏本页)
   useEffect(() => {
-    load();
-  }, [load, access.reloadEpoch, attempt]);
+    if (profilesQuery.isError && classifySettingsWriteError(profilesQuery.error) === 'access-lost') {
+      access.handleAccessLost();
+    }
+  }, [profilesQuery.isError, profilesQuery.error, access]);
 
-  const refreshAfterMutation = useCallback(
-    (cause: unknown): void => {
-      const kind = classifySettingsWriteError(cause);
-      if (kind === 'access-lost') {
-        access.handleAccessLost();
-        return;
-      }
-      setPageError(errorTextOf(cause));
-    },
-    [access],
-  );
+  /**
+   * T015 UX 选择说明:原 window.alert 弹窗(POST_IDENTITY_CHANGE_NOTICE.mainProfile)是
+   * 纯信息提示(浏览器 alert 仅一个「好」按钮,无确认/取消语义),故等价改为
+   * 单一「知道了」确认动作的 AlertDialog(阻断式:Backdrop 默认不可点外关闭、
+   * Esc 关闭禁用,必须显式确认)。结果反馈改经 Toast(轻反馈,文案与弹层一致,
+   * AppToastRegion 挂应用根部,页面卸载后仍可见);确认后仍先 access.lock() 同步
+   * 客户端失效态再回首页(原为 alert 关闭后 navigate('/'))。
+   * 顺序调整原因:lock() 会翻转解锁门(unlocked→locked)并卸载本页,弹层必须
+   * 在 lock 之前存续,故把 lock 从「转移成功即触发」移到「确认后触发」。
+   */
+  const confirmIdentityNotice = (): void => {
+    setIdentityNoticeOpen(false);
+    toast.success(POST_IDENTITY_CHANGE_NOTICE.mainProfile);
+    void access.lock().finally(() => {
+      void navigate('/');
+    });
+  };
+
+  /** 变更后服务端错误 → 页面级处置(403 授权丢失立即隐藏;其余呈现稳定文案) */
+  const refreshAfterMutation = (cause: unknown): void => {
+    const kind = classifySettingsWriteError(cause);
+    if (kind === 'access-lost') {
+      access.handleAccessLost();
+      return;
+    }
+    setPageError(formatApiError(cause));
+  };
+
+  const profiles = profilesQuery.data?.profiles ?? null;
 
   return (
     <section aria-label={`设置 · ${title}`} className="flex flex-1 flex-col gap-4 py-2">
       <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-      {state.phase === 'loading' ? <LoadingSpinner label="正在读取档案…" /> : null}
-      {state.phase === 'error' ? (
-        <RetryableAlert title="读取失败" description={state.message} onRetry={() => setAttempt((n) => n + 1)} />
+      {profilesQuery.isPending ? <LoadingSpinner label="正在读取档案…" /> : null}
+      {profilesQuery.isError ? (
+        <RetryableAlert
+          title="读取失败"
+          description={formatApiError(profilesQuery.error)}
+          onRetry={() => void profilesQuery.refetch()}
+        />
       ) : null}
       {pageError !== null ? <p role="alert" className="text-sm text-danger">{pageError}</p> : null}
       {notice !== null ? <p role="status" className="text-sm text-success" data-testid="profiles-notice">{notice}</p> : null}
-      {state.phase === 'ok' ? (
+      {profiles !== null ? (
         <>
           <div className="flex justify-end">
             <Button
@@ -91,13 +122,13 @@ export function SettingsProfilesPage(): ReactNode {
             </Button>
           </div>
           <ul className="flex flex-col gap-2" data-testid="profile-list">
-            {state.profiles.map((profile) => (
+            {profiles.map((profile) => (
               <ProfileRow
                 key={profile.id}
                 profile={profile}
                 onEdited={(message) => {
                   setNotice(message);
-                  load();
+                  // 列表回填由变更的 invalidate(settings.profiles)统一驱动
                 }}
                 onError={refreshAfterMutation}
                 onEdit={() => {
@@ -106,14 +137,12 @@ export function SettingsProfilesPage(): ReactNode {
                 }}
                 onTransferMain={() => {
                   setPageError(null);
-                  void (async () => {
-                    try {
-                      const [profiles, household] = await Promise.all([settingsApi.listProfiles(), settingsApi.getHousehold()]);
-                      setTransferring({ profiles, household });
-                    } catch (error) {
-                      refreshAfterMutation(error);
+                  // 转移 CAS 三版本必须来自打开模块时的服务端现值:显式 refetch 取新后入模
+                  void profilesQuery.refetch().then((fresh) => {
+                    if (fresh.data) {
+                      setTransferring({ profiles: fresh.data.profiles, household: fresh.data.household });
                     }
-                  })();
+                  });
                 }}
               />
             ))}
@@ -129,7 +158,6 @@ export function SettingsProfilesPage(): ReactNode {
           onDone={(message) => {
             setCreating(false);
             setNotice(message);
-            load();
           }}
           onCancel={() => setCreating(false)}
           onError={refreshAfterMutation}
@@ -142,24 +170,45 @@ export function SettingsProfilesPage(): ReactNode {
           onDone={(message) => {
             setEditing(null);
             setNotice(message);
-            load();
           }}
           onCancel={() => setEditing(null)}
-          onConflict={(latest) => {
-            // 409:重读现值并提示,不静默覆盖(用户仍可基于现值显式重试)
+          onConflict={() => {
+            // 409:提示冲突;失效已触发按服务端现值重读,不静默覆盖(用户可基于现值显式重试)
             setEditing(null);
             setPageError('保存被拒绝(版本冲突):档案已被其他操作修改,列表已按服务端现值刷新,请基于现值重新编辑。');
-            if (latest) {
-              load();
-            }
           }}
           onError={refreshAfterMutation}
         />
       ) : null}
 
       {transferring !== null ? (
-        <TransferMainModal data={transferring} onClose={() => setTransferring(null)} />
+        <TransferMainModal
+          data={transferring}
+          onClose={() => setTransferring(null)}
+          onTransferred={() => setIdentityNoticeOpen(true)}
+        />
       ) : null}
+
+      {/* T015:主档案转移完成提示(替代原 window.alert)——文案不变,单一确认动作 */}
+      <AlertDialog.Root isOpen={identityNoticeOpen}>
+        <AlertDialog.Backdrop>
+          <AlertDialog.Container placement="center" size="sm">
+            <AlertDialog.Dialog aria-label="主档案转移完成">
+              <AlertDialog.Header>
+                <AlertDialog.Heading className="text-base font-semibold">主档案转移已完成</AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p data-testid="identity-notice-text">{POST_IDENTITY_CHANGE_NOTICE.mainProfile}</p>
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button variant="primary" size="sm" onPress={confirmIdentityNotice} data-testid="identity-notice-confirm">
+                  知道了
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
     </section>
   );
 }
@@ -189,6 +238,18 @@ function ProfileRow({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [action, setAction] = useState<'disable' | 'clearPin' | null>(null);
 
+  // 停用/清 PIN:confirmed 变更 + CAS;成功后失效档案列表以服务端真值回填
+  const patchProfile = useAppMutation({
+    domain: 'settings',
+    feedback: 'confirmed',
+    mutationFn: (vars: { expectedVersion: number; ownerPassword: string; status?: 'disabled'; clearPin: boolean }) =>
+      privateFetch<ProfileSummary>(`/settings/profiles/${profile.id}`, {
+        method: 'PATCH',
+        body: vars,
+      }),
+    invalidate: [queryKeys.settings.profiles()],
+  });
+
   const runAction = (ownerPassword: string): Promise<void> => {
     if (action === null) {
       return Promise.reject(new Error('no action'));
@@ -197,12 +258,8 @@ function ProfileRow({
       action === 'disable'
         ? { status: 'disabled' as const, clearPin: false }
         : { clearPin: true };
-    return settingsApi
-      .patchProfile(profile.id, {
-        expectedVersion: profile.version,
-        ownerPassword,
-        ...input,
-      })
+    return patchProfile
+      .mutateAsync({ expectedVersion: profile.version, ownerPassword, ...input })
       .then(() => {
         onEdited(action === 'disable' ? `档案「${profile.name}」已停用` : `档案「${profile.name}」已清除 PIN`);
       })
@@ -293,17 +350,29 @@ function CreateProfileForm({
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 创建档案:confirmed 变更(当次密码);成功后失效档案列表回填
+  const createProfile = useAppMutation({
+    domain: 'settings',
+    feedback: 'confirmed',
+    mutationFn: (vars: { ownerPassword: string }) =>
+      privateFetch<ProfileSummary>('/settings/profiles', {
+        method: 'POST',
+        body: {
+          ownerPassword: vars.ownerPassword,
+          name: name.trim(),
+          type,
+          isDefault,
+          ...(pin !== '' ? { pin } : {}),
+        },
+      }),
+    invalidate: [queryKeys.settings.profiles()],
+  });
+
   const submit = (ownerPassword: string): Promise<void> =>
-    settingsApi
-      .createProfile({
-        name: name.trim(),
-        type,
-        isDefault,
-        ...(pin !== '' ? { pin } : {}),
-        ownerPassword,
-      })
-      .then(() => {
-        onDone(`档案「${name.trim()}」已创建`);
+    createProfile
+      .mutateAsync({ ownerPassword })
+      .then((created) => {
+        onDone(`档案「${created.name}」已创建`);
       })
       .catch((cause: unknown) => {
         const kind = classifySettingsWriteError(cause);
@@ -382,14 +451,15 @@ function EditProfileForm({
   onDone,
   onCancel,
   onConflict,
-  onError,
+  onError: _onError,
 }: {
   profile: ProfileSummary;
   onDone: (message: string) => void;
   onCancel: () => void;
-  onConflict: (shouldReload: boolean) => void;
+  onConflict: () => void;
   onError: (cause: unknown) => void;
 }): ReactNode {
+  const access = useSettingsAccess();
   const [name, setName] = useState(profile.name);
   const [pin, setPin] = useState('');
   const [isDefault, setIsDefault] = useState(profile.isDefault);
@@ -399,32 +469,43 @@ function EditProfileForm({
   const dirty =
     name !== profile.name || pin !== '' || isDefault !== profile.isDefault;
 
+  // 保存档案修改:confirmed 变更 + CAS;成功后失效档案列表回填
+  const patchProfile = useAppMutation({
+    domain: 'settings',
+    feedback: 'confirmed',
+    mutationFn: (vars: { ownerPassword: string }) =>
+      privateFetch<ProfileSummary>(`/settings/profiles/${profile.id}`, {
+        method: 'PATCH',
+        body: {
+          ownerPassword: vars.ownerPassword,
+          expectedVersion: profile.version,
+          ...(name !== profile.name ? { name } : {}),
+          ...(isDefault !== profile.isDefault ? { isDefault } : {}),
+          ...(pin !== '' ? { pin } : {}),
+          clearPin: false,
+        },
+      }),
+    invalidate: [queryKeys.settings.profiles()],
+  });
+
   const submit = (ownerPassword: string): Promise<void> =>
-    settingsApi
-      .patchProfile(profile.id, {
-        expectedVersion: profile.version,
-        ownerPassword,
-        ...(name !== profile.name ? { name } : {}),
-        ...(isDefault !== profile.isDefault ? { isDefault } : {}),
-        ...(pin !== '' ? { pin } : {}),
-        clearPin: false,
-      })
+    patchProfile
+      .mutateAsync({ ownerPassword })
       .then(() => {
         onDone(`档案「${profile.name}」已保存`);
       })
       .catch((cause: unknown) => {
         const kind = classifySettingsWriteError(cause);
         if (kind === 'access-lost') {
-          accessLostHandler();
+          access.handleAccessLost(); // 授权失效:立即隐藏主体(草稿不自动提交)
           return;
         }
         if (kind === 'conflict') {
-          onConflict(true);
+          onConflict();
           return;
         }
-        throw cause;
+        throw cause; // 密码错误:弹层保持
       });
-  const accessLostHandler = (): void => onError(new Error('__access_lost__'));
 
   return (
     <Form
@@ -485,12 +566,14 @@ function EditProfileForm({
 function TransferMainModal({
   data,
   onClose,
+  onTransferred,
 }: {
   data: { profiles: ProfileSummary[]; household: HouseholdSettings };
   onClose: () => void;
+  /** T015:转移成功 → 通知页面挂载完成提示弹层(替代原 window.alert 副作用) */
+  onTransferred: () => void;
 }): ReactNode {
   const access = useSettingsAccess();
-  const navigate = useNavigate();
   const currentMain = data.profiles.find((profile) => profile.isMain) ?? null;
   const candidates = data.profiles.filter(
     (profile) => !profile.isMain && profile.status === 'active' && profile.type === 'adult' && profile.pinProtected,
@@ -501,25 +584,36 @@ function TransferMainModal({
 
   const target = candidates.find((profile) => profile.id === targetId) ?? null;
 
+  // 主档案转移:confirmed 变更 + 三项 CAS。invalidate 刻意为空:
+  // 成功后全部设置授予已在服务端撤销,客户端不得再读取任何设置主体。
+  const transferMain = useAppMutation({
+    domain: 'settings',
+    feedback: 'confirmed',
+    mutationFn: (vars: { profileId: string; ownerPassword: string }) =>
+      privateFetch<{ mainProfileId: string; mainProfileVersion: number }>('/settings/main-profile', {
+        method: 'PUT',
+        body: {
+          profileId: vars.profileId,
+          expectedVersion: data.household.mainProfileVersion,
+          expectedCurrentProfileVersion: currentMain?.version ?? 0,
+          expectedProfileVersion: data.profiles.find((profile) => profile.id === vars.profileId)?.version ?? 0,
+          ownerPassword: vars.ownerPassword,
+        },
+      }),
+  });
+
   const submit = (ownerPassword: string): Promise<void> => {
     if (currentMain === null || target === null) {
       return Promise.reject(new Error('no target'));
     }
-    return settingsApi
-      .transferMainProfile({
-        profileId: target.id,
-        expectedVersion: data.household.mainProfileVersion,
-        expectedCurrentProfileVersion: currentMain.version,
-        expectedProfileVersion: target.version,
-        ownerPassword,
-      })
+    return transferMain
+      .mutateAsync({ profileId: target.id, ownerPassword })
       .then(() => {
-        // 成功:全部设置授予已撤销 —— 关闭设置进入切档验证,不静默激活目标
+        // 成功:全部设置授予已在服务端撤销 —— 关闭转移模块并展示完成提示弹层
+        // (T015:原 window.alert 改为页面级 AlertDialog + Toast;客户端 lock()
+        // 延后到确认动作,避免解锁门先卸载本页导致弹层无法存活)
         onClose();
-        void access.lock().finally(() => {
-          window.alert(POST_IDENTITY_CHANGE_NOTICE.mainProfile);
-          void navigate('/');
-        });
+        onTransferred();
       })
       .catch((cause: unknown) => {
         const kind = classifySettingsWriteError(cause);

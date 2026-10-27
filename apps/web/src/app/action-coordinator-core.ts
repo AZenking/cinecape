@@ -58,7 +58,7 @@ export interface PlaybackIntentState {
   /** 受控网关入口 URL(renew 成功后安装;仅服务端同源相对路径,不落 localStorage) */
   readonly playbackUrl: string | null;
   readonly ticketExpiresAt: string | null;
-  /** 探测确定的交付模式(native direct 或 hls.js 消费) */
+  /** 探测确定的交付模式(native direct 或 video.js/VHS 消费) */
   readonly delivery: string | null;
   /**
    * 服务端冻结的起播位置秒(T101,005 US4 resume):ready 状态读取;direct 交付由

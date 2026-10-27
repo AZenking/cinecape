@@ -1,15 +1,23 @@
 /**
- * 设备与会话页(T132,US8;FR-039):
- * - 设备列表(含已撤销标注);
- * - 撤销:确认 + 当次密码弹层,撤销目标设备全部会话与授予;
- * - 设备播放记录查看:当次密码再验证后按设备查询(不能用作个人历史);
- * - 每敏感操作独立弹当次密码确认,验证失败不丢已输入内容(弹层内保留)。
+ * 设备与会话页(T132,US8;FR-039;T025 数据层迁移):
+ * - 设备列表(含已撤销标注)经 useAppQuery(settings.devices 键,硬请求 + isPending
+ *   门控 / isError RetryableAlert(formatApiError + 重试)/ 成功出主体);
+ * - 撤销:confirmed 变更(确认 + 当次密码弹层),成功后失效 settings.devices 键以
+ *   服务端真值回填(替代原手工 load());撤销目标设备全部会话与授予;
+ * - 设备播放记录查看:当次密码再验证后按设备查询(POST 敏感读取:凭据不进查询
+ *   缓存,结果本页局部承载;不能用作个人历史);
+ * - 每敏感操作独立弹当次密码确认,验证失败不丢已输入内容(弹层内保留);
+ * - 403 SETTINGS_ACCESS_* 经 handleAccessLost 立即隐藏;重新解锁后重挂硬请求。
  */
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Button } from '@heroui/react';
 import { LoadingSpinner, RetryableAlert } from '../../shared/ui';
+import { useAppMutation, useAppQuery } from '../../shared/query/hooks';
+import { queryKeys } from '../../shared/query/keys';
+import { formatApiError } from '../../shared/query/error';
+import { privateFetch } from '../../shared/fetch';
 import { classifySettingsWriteError } from './shared/access-expiry';
-import { errorTextOf, settingsApi, type DeviceDto } from './shared/settings-api';
+import type { DeviceDto } from './shared/settings-api';
 import { PasswordConfirmModal } from './shared/password-confirm-modal';
 import { useSettingsAccess } from './settings-access-provider';
 import { useSettingsPageMeta } from './settings-modules';
@@ -27,40 +35,60 @@ interface PlaybackRecordItem {
 export function SettingsDevicesPage(): ReactNode {
   const access = useSettingsAccess();
   const { title } = useSettingsPageMeta();
-  const [devices, setDevices] = useState<DeviceDto[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
   const [revokeTarget, setRevokeTarget] = useState<DeviceDto | null>(null);
   const [recordsTarget, setRecordsTarget] = useState<DeviceDto | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [recordsPage, setRecordsPage] = useState<{ device: DeviceDto; items: PlaybackRecordItem[] } | null>(null);
 
-  const load = useCallback((): void => {
-    void (async () => {
-      try {
-        setDevices(await settingsApi.listDevices());
-        setLoadError(null);
-      } catch (error) {
-        if (classifySettingsWriteError(error) === 'access-lost') {
-          access.handleAccessLost();
-          return;
-        }
-        setLoadError(errorTextOf(error));
-      }
-    })();
-  }, [access]);
+  const devicesQuery = useAppQuery<DeviceDto[]>({
+    domain: 'settings',
+    queryKey: queryKeys.settings.devices(),
+    queryFn: ({ signal }) => privateFetch<DeviceDto[]>('/settings/devices', { signal }),
+  });
 
+  // 管理主体读取得到 403 SETTINGS_ACCESS_*:立即回到锁定态(解锁门随之隐藏本页)
   useEffect(() => {
-    load();
-  }, [load, access.reloadEpoch, attempt]);
+    if (devicesQuery.isError && classifySettingsWriteError(devicesQuery.error) === 'access-lost') {
+      access.handleAccessLost();
+    }
+  }, [devicesQuery.isError, devicesQuery.error, access]);
+
+  // 撤销设备:confirmed 变更(当次密码);成功后失效设备列表以服务端真值回填
+  const revokeDevice = useAppMutation({
+    domain: 'settings',
+    feedback: 'confirmed',
+    mutationFn: (vars: { deviceId: string; ownerPassword: string }) =>
+      privateFetch<void>(`/settings/devices/${vars.deviceId}/revoke`, {
+        method: 'POST',
+        body: { ownerPassword: vars.ownerPassword },
+      }),
+    invalidate: [queryKeys.settings.devices()],
+  });
+
+  // 设备播放记录查询:POST 敏感读取(当次密码)——不经查询缓存保留凭据,结果局部承载
+  const queryRecords = useAppMutation({
+    domain: 'settings',
+    feedback: 'confirmed',
+    mutationFn: (vars: { deviceId: string; ownerPassword: string }) =>
+      privateFetch<{ items: Array<Record<string, unknown>>; nextCursor: string | null }>(
+        `/settings/devices/${vars.deviceId}/playback-records/query`,
+        { method: 'POST', body: { ownerPassword: vars.ownerPassword, limit: 50 } },
+      ),
+  });
+
+  const devices = devicesQuery.data ?? null;
 
   return (
     <section aria-label={`设置 · ${title}`} className="flex flex-1 flex-col gap-4 py-2">
       <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-      {devices === null && loadError === null ? <LoadingSpinner label="正在读取设备列表…" /> : null}
-      {loadError !== null ? (
-        <RetryableAlert title="读取失败" description={loadError} onRetry={() => setAttempt((n) => n + 1)} />
+      {devicesQuery.isPending ? <LoadingSpinner label="正在读取设备列表…" /> : null}
+      {devicesQuery.isError ? (
+        <RetryableAlert
+          title="读取失败"
+          description={formatApiError(devicesQuery.error)}
+          onRetry={() => void devicesQuery.refetch()}
+        />
       ) : null}
       {pageError !== null ? (
         <p role="alert" className="text-sm text-danger">{pageError}</p>
@@ -130,12 +158,12 @@ export function SettingsDevicesPage(): ReactNode {
         onSubmit={(ownerPassword: string) =>
           revokeTarget === null
             ? Promise.reject(new Error('no target'))
-            : settingsApi.revokeDevice(revokeTarget.id, ownerPassword).then(
-                () => {
+            : revokeDevice
+                .mutateAsync({ deviceId: revokeTarget.id, ownerPassword })
+                .then(() => {
                   setNotice('设备已撤销:其全部会话与授权立即失效');
-                  load();
-                },
-                (cause: unknown) => {
+                })
+                .catch((cause: unknown) => {
                   const kind = classifySettingsWriteError(cause);
                   if (kind === 'access-lost') {
                     access.handleAccessLost();
@@ -146,8 +174,7 @@ export function SettingsDevicesPage(): ReactNode {
                     return;
                   }
                   throw cause; // 密码错误:弹层保持
-                },
-              )
+                })
         }
         onClose={() => setRevokeTarget(null)}
       />
@@ -160,19 +187,19 @@ export function SettingsDevicesPage(): ReactNode {
         onSubmit={(ownerPassword: string) =>
           recordsTarget === null
             ? Promise.reject(new Error('no target'))
-            : settingsApi.queryPlaybackRecords(recordsTarget.id, { ownerPassword, limit: 50 }).then(
-                (page) => {
+            : queryRecords
+                .mutateAsync({ deviceId: recordsTarget.id, ownerPassword })
+                .then((page) => {
                   setRecordsPage({ device: recordsTarget, items: page.items as unknown as PlaybackRecordItem[] });
-                },
-                (cause: unknown) => {
+                })
+                .catch((cause: unknown) => {
                   const kind = classifySettingsWriteError(cause);
                   if (kind === 'access-lost') {
                     access.handleAccessLost();
                     return;
                   }
                   throw cause;
-                },
-              )
+                })
         }
         onClose={() => setRecordsTarget(null)}
       />

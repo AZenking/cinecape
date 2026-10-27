@@ -4,6 +4,7 @@ import type { ExperienceProgrammeDto, GuideWindowDto } from '@hmp/shared';
 import {
   PX_PER_MINUTE,
   formatTimeInZone,
+  formatWindowEndInZone,
   formatZoneLabel,
   hourTicksInWindow,
   utcToPx,
@@ -15,8 +16,8 @@ import {
  * EPG 墙视图(T117;FR-025~027、A-008、ui.md §6):
  * - 纵向为频道、横向为时间:固定频道列(sticky left)+ 时间头(sticky top),
  *   节目位置用同一 UTC 坐标轴计算(utcToPx),按家庭时区格式化(不依赖浏览器时区);
- * - 窗口为服务端响应的 [from,to](≤6 小时,真实日界派生;23/25 小时日按真实日长,
- *   DST 重复小时刻度附 GMT 偏移、缺失小时不补造);
+ * - 窗口为服务端响应的 [from,to](一次展示该日完整 24 小时,真实日界派生;
+ *   23/25 小时日按真实日长,DST 重复小时刻度附 GMT 偏移、缺失小时不补造);
  * - 节目块展示名称与起止;当前节目判定沿用 R8(start<=now<end,取 startsAt 最近、
  *   同起点按 key 升序 —— pickCurrentProgramme),块上加「正在直播」标注;
  * - 重叠节目按泳道分行布局,不遮住频道列(sticky 独立列,节目块绝不越轴);
@@ -80,7 +81,7 @@ function assignLanes(rows: readonly ExperienceProgrammeDto[]): Map<string, numbe
 
 export interface GuideWallProps {
   readonly data: GuideWindowDto;
-  /** 导航代次(>0 时把焦点定位到窗口标题,FR-044:翻页/换窗不掉到页面起点) */
+  /** 导航代次(>0 时把焦点定位到窗口标题,FR-044:翻页不掉到页面起点) */
   readonly focusSignal: number;
   readonly selectedKey: string | null;
   readonly onSelectProgramme: (ref: GuideProgrammeRef) => void;
@@ -97,7 +98,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
 
   const ticks = useMemo(() => hourTicksInWindow(fromMs, toMs, data.timezone), [fromMs, toMs, data.timezone]);
 
-  // 翻页/换窗后焦点定位到新窗口标题(初始渲染不抢焦点)
+  // 翻页后焦点定位到新窗口标题(初始渲染不抢焦点)
   useEffect(() => {
     if (focusSignal > 0) {
       titleRef.current?.focus();
@@ -109,14 +110,14 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
 
   return (
     <div className="relative" style={{ width: CHANNEL_COL_PX + spanPx }}>
-      {/* 窗口标题:翻页/换窗后的焦点锚(FR-044) */}
+      {/* 窗口标题:翻页后的焦点锚(FR-044);全天窗口终点按 EPG 惯例显示 24:00 */}
       <p
         ref={titleRef}
         id="guide-window-title"
         tabIndex={-1}
         className="hmp-tabular-nums mb-1 px-2 py-1 text-xs text-muted focus:outline-none"
       >
-        {`${data.date} ${formatTimeInZone(data.from, data.timezone)}–${formatTimeInZone(data.to, data.timezone)}(家庭时区 ${formatZoneLabel(data.timezone, data.now)})窗口`}
+        {`${data.date} ${formatTimeInZone(data.from, data.timezone)}–${formatWindowEndInZone(fromMs, toMs, data.timezone)}(家庭时区 ${formatZoneLabel(data.timezone, data.now)})全天节目单`}
       </p>
       {/* 时间头:sticky top */}
       <div className="sticky top-0 z-20 flex border-b border-border bg-surface">

@@ -2,11 +2,14 @@
  * 显式登录步骤(T041,FR-007):初始化成功或游客主动登录时展示。
  * - 错误凭据统一失败提示(不区分账号不存在/密码错误);忙时防重复提交;
  * - 成功后将 AccountSession 交回协调器(继续首建/选档意图或返回原目标);
- * - 密码仅表单内存,取消/关闭即清(formEpoch 重挂载),不写 localStorage。
+ * - 密码仅表单内存,取消/关闭即清(formEpoch 重挂载),不写 localStorage;
+ * - 数据访问(T026):经 auth-api(privateFetch 档)发起,本组件仅保留
+ *   内联错误/busy 呈现(confirmed 语义,无缓存写入)。
  */
 import { useState, type ReactNode } from 'react';
 import { Button, Form } from '@heroui/react';
-import { isFetchApiError, privateFetch } from '../../shared/fetch';
+import { isFetchApiError } from '../../shared/fetch';
+import { loginRequest } from './auth-api';
 import { FormError, FormField } from './field';
 import type { AccountSession } from '../../app/session-types';
 
@@ -31,10 +34,8 @@ export function LoginStep({ formEpoch, onSuccess, onCancel }: LoginStepProps): R
     }
     setBusy(true);
     try {
-      const session = await privateFetch<AccountSession>('/auth/login', {
-        method: 'POST',
-        body: { username: username.trim(), password, deviceType: 'web' },
-      });
+      // T026:经 auth-api 统一登录端点(privateFetch 档,Set-Cookie 同源)
+      const session = await loginRequest({ username: username.trim(), password });
       onSuccess(session);
     } catch (err) {
       // 统一失败提示:凭据相关失败不区分账号存在性

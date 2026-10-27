@@ -5,13 +5,15 @@
  * - 201 后仅通知父层进入显式登录(不自动登录);
  * - /setup/status 503(状态未知)不进入本表单 —— 由协调器呈现 setup-unavailable
  *   重试态,不误判为未初始化而开放配置;
- * - 密码仅表单内存,关闭/取消即清(formEpoch 重挂载)。
+ * - 密码仅表单内存,关闭/取消即清(formEpoch 重挂载);
+ * - 数据访问(T026):经 auth-api 发起(privateFetch 档,与现行行为逐字一致),
+ *   本组件仅保留内联错误/busy 呈现(confirmed 语义,无缓存写入)。
  */
 import { useState, type ReactNode } from 'react';
 import { Button, Form } from '@heroui/react';
-import { isFetchApiError, privateFetch } from '../../shared/fetch';
+import { isFetchApiError } from '../../shared/fetch';
+import { initializeSetup } from './auth-api';
 import { FormError, FormField } from './field';
-import type { InitializedReply } from '../../app/session-types';
 
 export interface SetupStepProps {
   /** 凭据清空信号:变化即重挂载清空内存表单 */
@@ -36,10 +38,8 @@ export function SetupStep({ formEpoch, onSuccess, onCancel }: SetupStepProps): R
     }
     setBusy(true);
     try {
-      await privateFetch<InitializedReply>('/setup/initialize', {
-        method: 'POST',
-        body: { householdName: householdName.trim(), username: username.trim(), password },
-      });
+      // T026:经 auth-api 统一初始化端点(privateFetch 档,保持现行凭据档位不变)
+      await initializeSetup({ householdName: householdName.trim(), username: username.trim(), password });
       // 201:仅建家庭与账号,进入显式登录(不自动登录,FR-007)
       onSuccess();
     } catch (err) {

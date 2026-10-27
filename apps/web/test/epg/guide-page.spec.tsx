@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { SessionProvider } from '../../src/app/session-provider';
@@ -7,18 +7,22 @@ import { ActionCoordinator } from '../../src/app/action-coordinator';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GuideWindowDto } from '@hmp/shared';
 import { GuidePage } from '../../src/features/epg/GuidePage';
+import { createQueryWrapper, createTestQueryClient } from '../helpers/query-test-utils';
 
 /**
  * EPG 节目单页组件测试(T109;FR-025/026/027、A-008、ui.md §6):
  * - 7 日期 Tab 仅「今天+6」并标注家庭时区(夹具 America/New_York,与 jsdom 时区明显不同:
- *   同一时刻显示 06:35~17:35 而非浏览器本地,证明不依赖浏览器时区);
- * - 默认今天、定位「现在前 30 分钟起 6 小时」窗口(A-008;默认请求不带 date/from/to,
- *   由服务端按其冻结 now 计算并裁剪日界;渲染窗口取响应 from/to);
+ *   同一时刻显示 00:00–24:00 全天窗口而非浏览器本地,证明不依赖浏览器时区);
+ * - 默认今天、展示该日完整 24 小时(A-008 全天视图;默认请求不带 date/from/to,
+ *   由服务端按其冻结 now 返回该日真实日界;渲染窗口取响应 from/to,终点显示 24:00);
  * - 当前时间标识与「回到现在」(清 date/from/to/channelPage 后按缺省重新请求);
  * - 空档与无节目频道显示「暂无节目」、频道不隐藏(FR-026);
  * - 频道页默认 20、可改最多 50;
  * - 409 GUIDE_DATE_EXPIRED:回今天并提示日期已更新、丢弃旧窗口响应(不渲染旧 date 数据);
- * - 422 GUIDE_WINDOW_TOO_LARGE:提示缩短窗口并保留频道页(page 参数不变)。
+ * - 422 GUIDE_WINDOW_TOO_LARGE:提示减少每页频道数并保留旧数据与频道页。
+ *
+ * T023:页面取数已迁移 shared/query(useAppQuery),render 以内存 QueryClient
+ * 包裹(retry:false 保证行为确定性;每例 renderGuidePage 新建 client,缓存不跨例泄漏)。
  */
 
 /* ---------------- 请求桩:按 URL 路由;记录全部 fetch 调用 ---------------- */
@@ -71,8 +75,8 @@ function installFetchRouter(): void {
 
 const TZ = 'America/New_York';
 const NOW_ISO = '2026-11-04T12:05:00.000Z'; // 07:05 EST
-const FROM_ISO = '2026-11-04T11:35:00.000Z'; // 06:35 EST(now-30min)
-const TO_ISO = '2026-11-04T17:35:00.000Z'; // 12:35 EST(+6h,纽约日界内无需裁剪)
+const FROM_ISO = '2026-11-04T05:00:00.000Z'; // 00:00 EST(该日真实日界起点)
+const TO_ISO = '2026-11-05T05:00:00.000Z'; // 24:00 EST(真实日界终点,终点标签显示 24:00)
 const ALLOWED_DATES = ['2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07', '2026-11-08', '2026-11-09', '2026-11-10'];
 
 function programme(key: string, title: string, startsAt: string, endsAt: string, description: string | null = null) {
@@ -129,6 +133,8 @@ function renderGuidePage(initialEntry = '/live/guide'): void {
         </SettingsAccessProvider>
       </SessionProvider>
     </MemoryRouter>,
+    // T023:useAppQuery 需要 QueryClientProvider;每例新 client(retry:false)保证确定性
+    { wrapper: createQueryWrapper(createTestQueryClient()) },
   );
 }
 
@@ -163,14 +169,15 @@ describe('EPG 节目单页(T109)', () => {
     expect(screen.getAllByText(/GMT-5/).length).toBeGreaterThan(0);
   });
 
-  it('默认今天、定位「现在前 30 分钟起 6 小时」窗口:缺省请求不带 date/from/to,渲染响应窗口', async () => {
+  it('默认今天、展示该日完整 24 小时:缺省请求不带 date/from/to,窗口标题为 00:00–24:00', async () => {
     renderGuidePage();
     await waitFor(() => expect(screen.getByText(/午间专题/).valueOf()).toBeTruthy());
     const [first] = guideCalls();
     expect(first).toBe('/api/public/guide?page=1&pageSize=20');
-    // 窗口标注取自响应 from/to(06:35–12:35,EST;非浏览器本地时间)
-    expect(screen.getByText(/06:35/)).toBeInTheDocument();
-    expect(screen.getByText(/12:35/)).toBeInTheDocument();
+    // 窗口标题取自响应 from/to(00:00–24:00,EST 全天;非浏览器本地时间)
+    const title = screen.getByText(/全天节目单/);
+    expect(title.textContent).toContain('00:00–24:00');
+    expect(title.textContent).toContain('2026-11-04');
   });
 
   it('当前时间标识可见;切日写入 URL;回到现在清空 date/from/to/channelPage 并按缺省重新请求', async () => {
@@ -187,6 +194,12 @@ describe('EPG 节目单页(T109)', () => {
     // 翻到频道第 2 页:channelPage 写 URL
     await user.click(screen.getByRole('button', { name: /下一页/ }));
     await waitFor(() => expect(guideCalls().some((url) => url.includes('page=2')).valueOf()).toBe(true));
+
+    // T023:数据层为 SWR——未过期的同键回访命中缓存即显(staleTime 60s)。
+    // 先推进 61s 使缺省键缓存过期,再断言「回到现在」按缺省重新请求。
+    await act(async () => {
+      vi.advanceTimersByTime(61_000);
+    });
 
     // 回到现在:date/from/to/channelPage 全部清除,重新按缺省请求
     await user.click(screen.getByRole('button', { name: '回到现在' }));
@@ -211,8 +224,9 @@ describe('EPG 节目单页(T109)', () => {
     renderGuidePage();
     await waitFor(() => expect(screen.getByText(/午间专题/).valueOf()).toBeTruthy());
     expect(guideCalls()[0]).toContain('pageSize=20');
-    const select = screen.getByLabelText('每页频道数') as HTMLSelectElement;
-    await user.selectOptions(select, '50');
+    // T016:原生 <select> → HeroUI Select 后改按用户可见交互断言(开弹层 → 点选项)
+    await user.click(screen.getByLabelText('每页频道数'));
+    await user.click(await screen.findByRole('option', { name: '50' }));
     await waitFor(() => expect(guideCalls().some((url) => url.includes('pageSize=50'))).toBe(true));
   });
 
@@ -253,10 +267,11 @@ describe('EPG 节目单页(T109)', () => {
     await waitFor(() => expect(screen.getByText(/午间专题/).valueOf()).toBeTruthy());
   });
 
-  it('422 GUIDE_WINDOW_TOO_LARGE:提示缩短窗口并保留频道页', async () => {
+  it('422 GUIDE_WINDOW_TOO_LARGE:提示减少每页频道数,旧数据保留、不崩溃', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     fetchRouter = (url) => {
-      if (url.searchParams.get('from') !== null) {
+      // 全天窗口 × 50 频道超出单次节目上限 → 422(模拟)
+      if (url.searchParams.get('pageSize') === '50') {
         return {
           status: 422,
           body: {
@@ -264,7 +279,7 @@ describe('EPG 节目单页(T109)', () => {
             title: 'Guide Window Too Large',
             status: 422,
             code: 'GUIDE_WINDOW_TOO_LARGE',
-            detail: '查询窗口内节目数量过多,请缩短时间范围后重试',
+            detail: '查询窗口内节目数量过多,请减少每页频道数后重试',
           },
         };
       }
@@ -274,11 +289,13 @@ describe('EPG 节目单页(T109)', () => {
     renderGuidePage('/live/guide?channelPage=2');
     await waitFor(() => expect(screen.getByText(/深夜电影/).valueOf()).toBeTruthy());
 
-    // 浏览后一窗口(写 from/to)→ 服务端 422
-    await user.click(screen.getByRole('button', { name: /后一窗口/ }));
-    await waitFor(() => expect(screen.getByText(/请缩短时间范围/)).toBeInTheDocument());
-    // 频道页保留:channelPage=2 未被清除,翻页控件仍在
-    expect(guideCalls().some((url) => url.includes('page=2'))).toBe(true);
-    expect(screen.getByRole('button', { name: /下一页/ })).toBeInTheDocument();
+    // 调大每页频道数 → 全天窗口节目超限 → 服务端 422(T016:经 Select 弹层交互)
+    await user.click(screen.getByLabelText('每页频道数'));
+    await user.click(await screen.findByRole('option', { name: '50' }));
+    await waitFor(() => expect(screen.getByText(/每页频道数.*调小|减少每页频道数/)).toBeInTheDocument());
+    // 旧数据保留(失败不清空当前频道页数据)
+    expect(screen.getByText(/深夜电影/)).toBeInTheDocument();
+    // 422 请求确实发生过(pageSize=50)
+    expect(guideCalls().some((url) => url.includes('pageSize=50'))).toBe(true);
   });
 });

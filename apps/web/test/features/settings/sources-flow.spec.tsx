@@ -4,8 +4,10 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsSourcesPage } from '../../../src/features/settings/settings-sources-page';
 import type { ReactNode } from 'react';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { SettingsAccessProvider } from '../../../src/features/settings/settings-access-provider';
 import { SettingsUnlockGate } from '../../../src/features/settings/settings-unlock-gate';
+import { queryClient as appQueryClient } from '../../../src/shared/query/client';
 
 /**
  * T123(005-US8 前端测试,先 FAIL):来源创建→导入→快照确认流程(FR-037 + FR-041)。
@@ -138,13 +140,18 @@ describe('T123 · 来源创建→导入→确认流程(FR-037)', () => {
   vi.setConfig({ testTimeout: 20000 });
   it('创建成功出现「开始导入」下一步;点击后创建导入任务并轮询状态', async () => {
     const user = userEvent.setup();
+    // T025:来源页迁移 useAppQuery/useAppMutation 后需 QueryClientProvider;
+    // 变更失效固定经应用单例(hooks.ts),观察端必须挂同一实例
+    appQueryClient.clear();
     render(
       <MemoryRouter initialEntries={['/settings/sources']}>
-        <SettingsAccessProvider>
-          <Routes>
-            <Route path="/settings/sources" element={<Page />} />
-          </Routes>
-        </SettingsAccessProvider>
+        <QueryClientProvider client={appQueryClient}>
+          <SettingsAccessProvider>
+            <Routes>
+              <Route path="/settings/sources" element={<Page />} />
+            </Routes>
+          </SettingsAccessProvider>
+        </QueryClientProvider>
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getByTestId('source-list')).toBeVisible());
@@ -196,13 +203,16 @@ describe('T123 · 来源创建→导入→确认流程(FR-037)', () => {
         return jsonResponse({});
       }),
     );
+    appQueryClient.clear();
     render(
       <MemoryRouter initialEntries={['/settings/sources']}>
-        <SettingsAccessProvider>
-          <Routes>
-            <Route path="/settings/sources" element={<Page />} />
-          </Routes>
-        </SettingsAccessProvider>
+        <QueryClientProvider client={appQueryClient}>
+          <SettingsAccessProvider>
+            <Routes>
+              <Route path="/settings/sources" element={<Page />} />
+            </Routes>
+          </SettingsAccessProvider>
+        </QueryClientProvider>
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getByTestId('source-list')).toBeVisible());

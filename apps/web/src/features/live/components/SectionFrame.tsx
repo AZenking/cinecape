@@ -14,6 +14,8 @@ export interface SectionFrameProps {
   readonly title: string;
   /** 副标(时区标注/分页说明等) */
   readonly subtitle?: string;
+  /** 标题行右侧动作(Netflix 式「查看更多」入口;与副标同行右对齐) */
+  readonly headerAction?: ReactNode;
   readonly status: 'loading' | 'ready' | 'error';
   /** 是否有已展示的旧数据(决定失败形态:整区错误 vs 后台刷新横条) */
   readonly hasStaleContent: boolean;
@@ -22,6 +24,8 @@ export interface SectionFrameProps {
   readonly emptyText: string;
   /** 加载骨架卡片数 */
   readonly skeletonCount?: number;
+  /** 骨架形态:grid=响应式网格(聚焦视图);row=横向瓦片行(概览行) */
+  readonly skeletonVariant?: 'grid' | 'row';
   /** 本区重试 */
   readonly onRetry: () => void;
   /** 分区尾部动作(查看更多/分页) */
@@ -33,11 +37,13 @@ export function SectionFrame(props: SectionFrameProps): ReactNode {
   const {
     title,
     subtitle,
+    headerAction,
     status,
     hasStaleContent,
     isEmpty,
     emptyText,
     skeletonCount = 4,
+    skeletonVariant = 'grid',
     onRetry,
     footer,
     children,
@@ -46,9 +52,12 @@ export function SectionFrame(props: SectionFrameProps): ReactNode {
     <section aria-label={title} className="min-w-0">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-        {subtitle !== undefined && subtitle !== '' ? (
-          <p className="text-xs text-muted">{subtitle}</p>
-        ) : null}
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          {subtitle !== undefined && subtitle !== '' ? (
+            <p className="text-xs text-muted">{subtitle}</p>
+          ) : null}
+          {headerAction ?? null}
+        </div>
       </div>
 
       {status === 'error' && !hasStaleContent ? (
@@ -78,15 +87,27 @@ export function SectionFrame(props: SectionFrameProps): ReactNode {
       ) : null}
 
       {status === 'loading' && !hasStaleContent ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4" aria-hidden="true">
-          {Array.from({ length: skeletonCount }, (_, index) => (
-            <div key={index} className="rounded-lg border border-border p-4">
-              <Skeleton className="mb-2 h-4 w-2/3 rounded" />
-              <Skeleton className="mb-2 h-3 w-1/2 rounded" />
-              <Skeleton className="h-3 w-1/3 rounded" />
-            </div>
-          ))}
-        </div>
+        skeletonVariant === 'row' ? (
+          <div className="flex gap-4 overflow-hidden" aria-hidden="true">
+            {Array.from({ length: skeletonCount }, (_, index) => (
+              <div key={index} className="w-60 shrink-0 rounded-xl border border-border bg-surface p-3 sm:w-64">
+                <Skeleton className="mb-3 aspect-video w-full rounded-lg" />
+                <Skeleton className="mb-2 h-3 w-2/3 rounded" />
+                <Skeleton className="h-3 w-1/2 rounded" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4" aria-hidden="true">
+            {Array.from({ length: skeletonCount }, (_, index) => (
+              <div key={index} className="rounded-lg border border-border p-4">
+                <Skeleton className="mb-2 h-4 w-2/3 rounded" />
+                <Skeleton className="mb-2 h-3 w-1/2 rounded" />
+                <Skeleton className="h-3 w-1/3 rounded" />
+              </div>
+            ))}
+          </div>
+        )
       ) : null}
 
       {status !== 'loading' || hasStaleContent ? (

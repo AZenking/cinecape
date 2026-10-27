@@ -29,7 +29,7 @@ Programme 精确字段：key,title,description,startsAt,endsAt。key 为不透�
 
 GuideWindow={date,timezone,now,allowedDates,from,to,page,pageSize,totalChannels,catalogRevision,channels:[{media,programmes:Programme[]}]}。返回起止完整 UTC 时间，UI 按窗口裁剪。重叠当前节目选 startsAt 最近、同起点按 key 升序。手动 EPG 关联失效保持 unavailable，不回退其他来源。
 
-只允许家庭今天至未来6天、单日内连续<=6小时窗口，查询 `startsAt<to && endsAt>from`。23/25小时日按 IANA 日期边界计算，不以浏览器时区或固定24小时计算。日期已过期409 GUIDE_DATE_EXPIRED，error.allowedDates 为新范围；尚未到允许未来范围400 VALIDATION_FAILED；超过2000节目或2MiB返回422 GUIDE_WINDOW_TOO_LARGE（建议缩短窗口），不能静默截断。EPG 与绑定读取同一同步快照。
+只允许家庭今天至未来6天；from/to 窗口必须落在该日真实边界内且 to>from（跨度上限即该日真实日长，普通日 24 小时），缺省 from/to 返回该日完整 24 小时全天窗口，查询 `startsAt<to && endsAt>from`。23/25小时日按 IANA 日期边界计算，不以浏览器时区或固定24小时计算。日期已过期409 GUIDE_DATE_EXPIRED，error.allowedDates 为新范围；尚未到允许未来范围400 VALIDATION_FAILED；超过2000节目或2MiB返回422 GUIDE_WINDOW_TOO_LARGE（建议减少每页频道数），不能静默截断。EPG 与绑定读取同一同步快照。
 
 ## 3. 账号、首建和最小档案入口
 

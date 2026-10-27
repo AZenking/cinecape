@@ -18,8 +18,9 @@ import { programmeKeyOf as liveProgrammeKeyOf } from '../../../src/modules/live/
  * - 当前判定 start<=now<end;重叠当前取 startsAt 最近、同起点按不透明 key 升序(复用 US5
  *   live-time 核心,经 binding-core 的 pickGuideCurrent,不建第二套判定);
  * - 跨日节目按窗口交叠归属(同一节目出现在相交的多个日历日窗口);
- * - 「from/to 必须在该日真实边界且 to>from、跨度<=6 小时」:跨日/超 6h → 422
- *   GUIDE_WINDOW_TOO_LARGE;倒置窗口 → 400 VALIDATION_FAILED;昨天 → 409 GUIDE_DATE_EXPIRED;
+ * - 「from/to 必须在该日真实边界且 to>from」:跨日 → 422 GUIDE_WINDOW_TOO_LARGE;
+ *   日内任意子窗口(含该日完整 24 小时全天窗口)均允许;倒置窗口 → 400 VALIDATION_FAILED;
+ *   昨天 → 409 GUIDE_DATE_EXPIRED;
  * - 「一次响应最多 2000 节目/2 MiB,超限 422 不静默截断」:2000 恰好通过、2050 拒绝;
  *   ≤2000 条但负载 >2 MiB 同样拒绝;
  * - 「每页最多 50 频道、默认 20」;「频道按名称及稳定标识排序」;「分页可遍历所有频道,
@@ -385,30 +386,34 @@ describe('guide-window-query:date/from/to 校验(T107)', () => {
     expect(outcome.code).toBe('GUIDE_WINDOW_TOO_LARGE');
   });
 
-  it('跨度 > 6 小时 → 422(恰好 6 小时允许)', () => {
-    const over = statusOf(() =>
-      loadGuideWindow(hh, {
-        nowMs: NOW,
-        timezone: CST,
-        date: '2026-11-04',
-        fromMs: Date.parse('2026-11-04T09:00:00.000Z'),
-        toMs: Date.parse('2026-11-04T15:30:00.000Z'), // 6.5h,日内
-        page: 1,
-        pageSize: 20,
-      }),
-    );
-    expect(over.status).toBe(422);
-    expect(over.code).toBe('GUIDE_WINDOW_TOO_LARGE');
-    const exact = loadGuideWindow(hh, {
+  it('日内 6.5 小时子窗口 → 200(全天视图下不再限 6 小时);全天窗口 → 200 且贴齐真实日界', () => {
+    const over6h = loadGuideWindow(hh, {
       nowMs: NOW,
       timezone: CST,
       date: '2026-11-04',
       fromMs: Date.parse('2026-11-04T09:00:00.000Z'),
-      toMs: Date.parse('2026-11-04T15:00:00.000Z'), // 恰 6h
+      toMs: Date.parse('2026-11-04T15:30:00.000Z'), // 6.5h,日内
       page: 1,
       pageSize: 20,
     });
-    expect(exact.from).toBe(iso(Date.parse('2026-11-04T09:00:00.000Z')));
+    expect(over6h.from).toBe(iso(Date.parse('2026-11-04T09:00:00.000Z')));
+    const fullDay = loadGuideWindow(hh, {
+      nowMs: NOW,
+      timezone: CST,
+      date: '2026-11-04',
+      fromMs: Date.parse('2026-11-03T16:00:00.000Z'), // 00:00 CST
+      toMs: Date.parse('2026-11-04T16:00:00.000Z'), // 24:00 CST
+      page: 1,
+      pageSize: 20,
+    });
+    expect(fullDay.from).toBe(iso(Date.parse('2026-11-03T16:00:00.000Z')));
+    expect(fullDay.to).toBe(iso(Date.parse('2026-11-04T16:00:00.000Z')));
+  });
+
+  it('缺省 from/to → 该日完整 24 小时全天窗口(真实日界)', () => {
+    const response = loadGuideWindow(hh, { nowMs: NOW, timezone: CST, date: '2026-11-04', page: 1, pageSize: 20 });
+    expect(response.from).toBe(iso(Date.parse('2026-11-03T16:00:00.000Z')));
+    expect(response.to).toBe(iso(Date.parse('2026-11-04T16:00:00.000Z')));
   });
 
   it('to <= from(倒置)→ 400 VALIDATION_FAILED', () => {

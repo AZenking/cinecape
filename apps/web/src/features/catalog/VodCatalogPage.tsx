@@ -3,7 +3,10 @@ import type { ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { Button, Input, Label, TextField } from '@heroui/react';
 import type { PublicMediaPageDto } from '@hmp/shared';
-import { isAbortError, publicFetch } from '../../shared/fetch';
+import { useAppQuery } from '../../shared/query/hooks';
+import { queryKeys, type CatalogFilters } from '../../shared/query/keys';
+import { formatApiError } from '../../shared/query/error';
+import { publicFetch } from '../../shared/fetch';
 import {
   EmptyCatalogState,
   LoadingSpinner,
@@ -13,12 +16,18 @@ import {
 } from '../../shared/ui';
 
 /**
- * 基础点播目录页(T028,US1;contracts/ui.md §1/§2、spec.md US1 场景4/5):
+ * 基础点播目录页(T028,US1;T023 迁移:006 统一数据层;contracts/ui.md §1/§2、
+ * spec.md US1 场景4/5):
  * - q/type/page 全部写入 URL 查询参数(FR-045):组件状态唯一来源是 URL,
  *   详情返回或登录取消后按原 URL 恢复原搜索、筛选与页码,不重置回第一页;
  * - 搜索/筛选变更翻回第一页(page 键省略即第一页);翻页保留 q/type;
+ * - 数据取数经 useAppQuery(public 域;signal 透传/缓存/后台刷新由数据层承担),
+ *   键取自 queryKeys.public.catalog 工厂——筛选条件对象置于键末位(可序列化,
+ *   同参同键、异参异键);`type` 为工厂 CatalogFilters 字段子集之外的页面级筛选,
+ *   以交叉类型并入键参数(扩工厂属契约变更,归数据层任务);
  * - 三态区分(FR-004):加载中(role=status)/成功空结果(暂无内容 vs 无匹配)/
- *   失败可重试(role=alert + 重试按钮,错误不只靠颜色);
+ *   失败可重试(role=alert + 重试按钮,文案经 formatApiError 映射链,错误不只靠颜色);
+ *   换页/换筛选时维持旧行为:整页骨架,不保留上一页内容(未启用 keepPreviousData);
  * - 数据一律 publicFetch(credentials:'omit'),公共投影与身份无关;
  * - 沿用基础目录交互:不新增推荐算法、专题、剧集编排或独立视觉方案(FR-046)。
  */
@@ -41,8 +50,6 @@ const MEDIA_TYPE_LABELS: Record<string, string> = {
   video: '视频',
 };
 
-type LoadStatus = 'loading' | 'ready' | 'error';
-
 /** 从 URL 读取的目录条件(第一页省略 page 键;空 q/type 省略键) */
 interface CatalogParams {
   q: string;
@@ -63,11 +70,6 @@ export function VodCatalogPage(): ReactNode {
   const [searchParams, setSearchParams] = useSearchParams();
   const params = parseParams(searchParams);
 
-  const [status, setStatus] = useState<LoadStatus>('loading');
-  const [pageData, setPageData] = useState<PublicMediaPageDto | null>(null);
-  const [errorText, setErrorText] = useState<string | null>(null);
-  const [reloadToken, setReloadToken] = useState(0);
-
   // 搜索输入草稿:受控于本地,提交时才写入 URL(避免每键一次请求)
   const [draft, setDraft] = useState(params.q);
   const lastUrlQ = useRef(params.q);
@@ -78,33 +80,26 @@ export function VodCatalogPage(): ReactNode {
     }
   }, [params.q]);
 
-  // 数据加载:唯一事实源是 URL 条件;条件变化即重新请求(Abort 掉旧请求)
-  useEffect(() => {
-    const controller = new AbortController();
-    setStatus('loading');
-    setErrorText(null);
-    publicFetch<PublicMediaPageDto>('/public/media', {
-      query: {
-        q: params.q || undefined,
-        type: params.type || undefined,
-        page: params.page,
-      },
-      signal: controller.signal,
-    })
-      .then((data) => {
-        setPageData(data);
-        setStatus('ready');
-      })
-      .catch((err: unknown) => {
-        if (isAbortError(err)) {
-          return;
-        }
-        setPageData(null);
-        setErrorText(err instanceof Error && err.message ? err.message : '加载失败,请稍后重试');
-        setStatus('error');
-      });
-    return () => controller.abort();
-  }, [params.q, params.type, params.page, reloadToken]);
+  // 目录查询:唯一事实源是 URL 条件;键随条件变化 → 数据层自动重取并取消在途旧请求
+  const catalogFilters: CatalogFilters = {
+    search: params.q || undefined,
+    type: params.type || undefined,
+    page: params.page,
+  };
+  const catalogQuery = useAppQuery<PublicMediaPageDto>({
+    domain: 'public',
+    queryKey: queryKeys.public.catalog(catalogFilters),
+    queryFn: ({ signal }) =>
+      publicFetch<PublicMediaPageDto>('/public/media', {
+        query: {
+          q: params.q || undefined,
+          type: params.type || undefined,
+          page: params.page,
+        },
+        signal,
+      }),
+  });
+  const { data: pageData, isPending, isError, error, refetch } = catalogQuery;
 
   /** 写 URL:保持其余键;显式给值;page<=1 省略键 */
   function updateParams(next: Partial<CatalogParams>): void {
@@ -188,24 +183,24 @@ export function VodCatalogPage(): ReactNode {
         </div>
       </header>
 
-      {status === 'loading' ? (
+      {isPending ? (
         <>
           <LoadingSpinner />
           <MediaGridSkeleton />
         </>
       ) : null}
 
-      {status === 'error' ? (
+      {isError ? (
         <RetryableAlert
           title="目录加载失败"
-          description={errorText ?? undefined}
+          description={formatApiError(error)}
           onRetry={() => {
-            setReloadToken((token) => token + 1);
+            void refetch();
           }}
         />
       ) : null}
 
-      {status === 'ready' && pageData !== null && total === 0 ? (
+      {!isPending && !isError && pageData !== undefined && total === 0 ? (
         hasFilters ? (
           <NoMatchState />
         ) : (
@@ -213,7 +208,7 @@ export function VodCatalogPage(): ReactNode {
         )
       ) : null}
 
-      {status === 'ready' && pageData !== null && total > 0 ? (
+      {!isPending && !isError && pageData !== undefined && total > 0 ? (
         <>
           <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {pageData.items.map((media) => (

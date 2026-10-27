@@ -2,10 +2,13 @@
  * 选档列表步骤(T042,FR-008):登录会话的 ProfileSummary 投影;禁用档案置灰
  * 不可选(带禁用理由);加载/失败/空三态自足实现(不依赖 shared/ui,US1 并行在建)。
  * 选择受 PIN 保护的档案交由父层进入 selectionPin 步骤;选择无 PIN 档案直接选档。
+ * 数据访问(T026):经 profiles-api(privateFetch 档,会话作用域)挂载即取;
+ * 列表不入共享查询缓存(跨身份残留风险),失败重试为本地状态机。
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Alert, AlertContent, AlertDescription, AlertTitle, Button, Spinner } from '@heroui/react';
-import { isAbortError, isFetchApiError, privateFetch } from '../../shared/fetch';
+import { isAbortError, isFetchApiError } from '../../shared/fetch';
+import { fetchSelectableProfiles } from './profiles-api';
 import type { ProfileSummary } from '../../app/session-types';
 
 export interface ProfilePickerStepProps {
@@ -23,7 +26,8 @@ export function ProfilePickerStep({ onPick, onCancel }: ProfilePickerStepProps):
     setLoading(true);
     setError(null);
     try {
-      const items = await privateFetch<ProfileSummary[]>('/profiles');
+      // T026:经 profiles-api 统一选档列表端点(privateFetch 档,会话作用域)
+      const items = await fetchSelectableProfiles();
       setProfiles(items);
     } catch (err) {
       if (isAbortError(err)) return;

@@ -437,9 +437,6 @@ test.describe('T137 · 键盘完成全部主流程(1280×768)', () => {
     await page.getByRole('button', { name: '下一页' }).focus();
     await page.keyboard.press('Enter');
     await expect(page.locator('#guide-window-title')).toBeFocused({ timeout: 10_000 });
-    await page.getByRole('button', { name: '后一窗口' }).focus();
-    await page.keyboard.press('Enter');
-    await expect(page.locator('#guide-window-title')).toBeFocused({ timeout: 10_000 });
 
     // 键盘设置:身份菜单(focus+Enter)→ 设置项 → PIN 门 → 主体可见 → 左菜单键盘导航
     await page.goto('/');

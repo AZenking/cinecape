@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChannelPageDto } from '@hmp/shared';
 import { LivePage } from '../../../src/features/live/LivePage';
 import { LIVE_REFRESH_INTERVAL_MS, useLiveRefresh } from '../../../src/features/live/hooks/use-live-refresh';
+import { createQueryWrapper, createTestQueryClient } from '../../helpers/query-test-utils';
 
 /**
  * 直播 30 秒刷新组件测试(T061/T068;FR-022「至少每 30 秒更新一次,过期节目不得永久停留」):
@@ -99,7 +100,20 @@ afterEach(() => {
 
 describe('直播刷新(T068)', () => {
   it('每 30 秒周期刷新一次:推进时钟触发全部分区重新拉取,过期节目被替换', async () => {
-    render(<MemoryRouter><SessionProvider><SettingsAccessProvider><ActionCoordinator><LivePage /></ActionCoordinator></SettingsAccessProvider></SessionProvider></MemoryRouter>);
+    render(
+      <MemoryRouter>
+        <SessionProvider>
+          <SettingsAccessProvider>
+            <ActionCoordinator>
+              <LivePage />
+            </ActionCoordinator>
+          </SettingsAccessProvider>
+        </SessionProvider>
+      </MemoryRouter>,
+      // T023:分区取数已迁移 shared/query(useAppQuery),需 QueryClientProvider
+      // (每例新内存 client,refreshKey→refetch 语义由 use-live-sections 适配层承担)
+      { wrapper: createQueryWrapper(createTestQueryClient()) },
+    );
     await waitFor(() => {
       expect(screen.getAllByText('旧节目').length).toBeGreaterThan(0);
     });
@@ -116,7 +130,20 @@ describe('直播刷新(T068)', () => {
   });
 
   it('visibilitychange 回前台立即刷新(不等 30 秒)', async () => {
-    render(<MemoryRouter><SessionProvider><SettingsAccessProvider><ActionCoordinator><LivePage /></ActionCoordinator></SettingsAccessProvider></SessionProvider></MemoryRouter>);
+    render(
+      <MemoryRouter>
+        <SessionProvider>
+          <SettingsAccessProvider>
+            <ActionCoordinator>
+              <LivePage />
+            </ActionCoordinator>
+          </SettingsAccessProvider>
+        </SessionProvider>
+      </MemoryRouter>,
+      // T023:分区取数已迁移 shared/query(useAppQuery),需 QueryClientProvider
+      // (每例新内存 client,refreshKey→refetch 语义由 use-live-sections 适配层承担)
+      { wrapper: createQueryWrapper(createTestQueryClient()) },
+    );
     await waitFor(() => {
       expect(fetchCalls.length).toBeGreaterThanOrEqual(4);
     });
@@ -133,7 +160,20 @@ describe('直播刷新(T068)', () => {
 
   it('刷新失败保留旧数据并显示可重试提示;重试仅恢复本区,其他区不重发', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    render(<MemoryRouter><SessionProvider><SettingsAccessProvider><ActionCoordinator><LivePage /></ActionCoordinator></SettingsAccessProvider></SessionProvider></MemoryRouter>);
+    render(
+      <MemoryRouter>
+        <SessionProvider>
+          <SettingsAccessProvider>
+            <ActionCoordinator>
+              <LivePage />
+            </ActionCoordinator>
+          </SettingsAccessProvider>
+        </SessionProvider>
+      </MemoryRouter>,
+      // T023:分区取数已迁移 shared/query(useAppQuery),需 QueryClientProvider
+      // (每例新内存 client,refreshKey→refetch 语义由 use-live-sections 适配层承担)
+      { wrapper: createQueryWrapper(createTestQueryClient()) },
+    );
     await waitFor(() => {
       expect(screen.getAllByText('旧节目').length).toBeGreaterThan(0);
     });

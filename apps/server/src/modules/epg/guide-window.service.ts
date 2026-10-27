@@ -21,9 +21,10 @@ import { programmeKeyOf } from './programme-key.mapper';
  *   (家庭 timezone 由 PublicContextService 的既有单查询随 scope 提供,不重复读取。)
  *
  * 「导入排期本身 UTC 保存,查询交叠条件 starts_at < to AND ends_at > from;
- *   请求 date 必须在允许范围内,from/to 必须在该日真实边界且 to>from、跨度<=6 小时」;
- * 「一次响应最多 2000 节目/2 MiB,超限 422 GUIDE_WINDOW_TOO_LARGE,返回建议缩短窗口,
- *   不静默截断」—— 节目数以 `LIMIT 2001` 有界查询探测,负载以完整响应序列化字节计量,
+ *   请求 date 必须在允许范围内,from/to 必须在该日真实边界且 to>from(跨度上限即
+ *   该日真实日长,普通日 24 小时)」;
+ * 「一次响应最多 2000 节目/2 MiB,超限 422 GUIDE_WINDOW_TOO_LARGE,返回建议减少
+ *   频道页,不静默截断」—— 节目数以 `LIMIT 2001` 有界查询探测,负载以完整响应序列化字节计量,
  *   两者超限一律抛 422,绝不返回截断数据。
  * 「每页最多 50 频道、默认 20;页面可分页遍历所有频道,包括无节目频道」——
  *   频道全集 = 家庭可用频道(不因无 EPG/关联失效隐藏),按名称+稳定标识排序后分页。
@@ -161,7 +162,7 @@ export function loadGuideWindow(householdId: string, request: GuideWindowRequest
       .limit(GUIDE_MAX_PROGRAMMES + 1)
       .all();
     if (rows.length > GUIDE_MAX_PROGRAMMES) {
-      // 超限 422:不静默截断(data-model §8;建议缩短窗口或减少频道页)
+      // 超限 422:不静默截断(data-model §8;建议减少每页频道数)
       throw new DomainError(422, 'GUIDE_WINDOW_TOO_LARGE');
     }
     const rowsByPair = new Map<string, ProgrammeRowRaw[]>();

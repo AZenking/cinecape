@@ -9,7 +9,7 @@ import { expect, test, type Page, type Locator } from '@playwright/test';
  * 覆盖:
  * - 从直播页「所有节目单」入口进入 /live/guide(US5 入口 → US6 墙);
  * - 键盘 Tab 到可见节目、焦点可见(:focus-visible outline,FR-044);
- * - 翻页/换窗后焦点定位到新窗口标题(不掉页面起点、不困于隐藏元素);
+ * - 翻页后焦点定位到新窗口标题(不掉页面起点、不困于隐藏元素);
  * - EPG 局部二维滚动:横向滚动只在墙内,不扩散为整页横向溢出;
  * - 768 窄窗/600 高与 200% 缩放(等价 CSS 视口 384×300)无整页横向溢出;
  * - 查看节目详情返回、取消播放登录后恢复原日期、频道与时间位置(FR-045)。
@@ -61,8 +61,7 @@ test.describe('EPG 节目单键盘、滚动与位置恢复(T110)', () => {
     await expect(page.getByRole('status', { name: /当前时间 20:05/ })).toBeVisible();
   });
 
-  test('键盘 Tab 到可见节目且焦点可见(:focus-visible);翻页后焦点定位到新窗口标题', async ({ page }) => {
-    await page.goto('/live/guide');
+  test('键盘 Tab 到可见节目且焦点可见(:focus-visible);翻页后焦点定位到新窗口标题', async ({ page }) => {    await page.goto('/live/guide');
     const wall = page.getByRole('region', { name: '节目墙' });
     await expect(programmeButton(page)).toBeVisible({ timeout: 30_000 });
 
@@ -102,10 +101,6 @@ test.describe('EPG 节目单键盘、滚动与位置恢复(T110)', () => {
     await expect(page.locator('#guide-window-title')).toBeFocused({ timeout: 10_000 });
     const focusAfterPaging = await page.evaluate(() => document.activeElement?.id ?? '');
     expect(focusAfterPaging).toBe('guide-window-title');
-
-    // 换窗(后一窗口):同样定位到新窗口标题
-    await page.getByRole('button', { name: '后一窗口' }).click();
-    await expect(page.locator('#guide-window-title')).toBeFocused({ timeout: 10_000 });
     // 页面焦点没有回到 body(不掉起点)
     const focusTag = await page.evaluate(() => document.activeElement?.tagName ?? '');
     expect(focusTag).not.toBe('BODY');
@@ -114,8 +109,8 @@ test.describe('EPG 节目单键盘、滚动与位置恢复(T110)', () => {
 
   test('EPG 局部二维滚动:横向滚动只在墙内,不扩散为整页横向溢出', async ({ page }) => {
     await page.setViewportSize({ width: 768, height: 600 });
-    // 显式 6 小时窗口(00:00–06:00 CST = UTC [16:00Z, 22:00Z)):墙内容宽 = 176 + 6h×2px/min = 896px,
-    // 窄窗下必然超出容器宽 → 局部横向滚动可被断言(默认窗口在锚点时刻为裁剪后的 ~4.4h,不一定溢出)
+    // 显式日内子窗口(00:00–06:00 CST = UTC [16:00Z, 22:00Z)):墙内容宽 = 176 + 6h×2px/min = 896px,
+    // 窄窗下必然超出容器宽 → 局部横向滚动可被断言(旧链接的日内子窗口仍受支持;默认全天窗口 2880px 同样溢出)
     await page.goto('/live/guide?from=2026-11-03T16%3A00%3A00.000Z&to=2026-11-03T22%3A00%3A00.000Z');
     await expect(programmeButton(page)).toBeVisible({ timeout: 30_000 });
 

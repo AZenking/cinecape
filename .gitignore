@@ -49,3 +49,6 @@ packages/shared/dist/
 # playwright 产物
 apps/web/test-results/
 apps/web/playwright-report/
+
+# server 运行时数据目录(SQLite/备份;绝不入库)
+apps/server/data/

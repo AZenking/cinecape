@@ -1,4 +1,5 @@
 import { fromAbsolute, parseDate, toCalendarDate, toZoned } from '@internationalized/date';
+import { formatTimeInZone } from '../live/live-format';
 
 /**
  * EPG 前端时间轴工具(T116/T117;data-model.md §8 同源约束):
@@ -11,16 +12,8 @@ import { fromAbsolute, parseDate, toCalendarDate, toZoned } from '@international
  *   缺失小时不补造(刻度只产生于窗口内真实存在的 UTC 整点)。
  */
 
-/** 墙面横向比例(像素/分钟;6 小时窗 = 720px 内容宽) */
+/** 墙面横向比例(像素/分钟;全天 24 小时窗 = 2880px 内容宽,DST 23/25 小时日按真实日长) */
 export const PX_PER_MINUTE = 2;
-
-/** 单个日历日在家庭时区的真实 UTC 边界 [fromMs, toMs) */
-export function guideDayBoundsMs(date: string, timezone: string): { readonly fromMs: number; readonly toMs: number } {
-  const day = parseDate(date);
-  const fromMs = toZoned(day, timezone, 'compatible').toDate().getTime();
-  const toMs = toZoned(day.add({ days: 1 }), timezone, 'compatible').toDate().getTime();
-  return { fromMs, toMs };
-}
 
 /** 'YYYY-MM-DD' + 家庭时区 → 该日 00:00 的本地日历标签(M/D) */
 export function guideDateLabel(date: string, timezone: string): string {
@@ -34,6 +27,22 @@ export function guideDateLabel(date: string, timezone: string): string {
 
 /** 时刻 HH:mm(家庭时区;复用 live-format 的服务端时区语义) */
 export { formatTimeInZone, formatRangeInZone, formatZoneLabel } from '../live/live-format';
+
+/**
+ * 窗口终点标签:止于本地午夜(全天窗口的日界终点)按 EPG 惯例显示「24:00」,
+ * 其余子窗口按普通 HH:mm 显示。
+ */
+export function formatWindowEndInZone(fromMs: number, toMs: number, timezone: string): string {
+  try {
+    const time = toZoned(fromAbsolute(toMs, timezone), timezone, 'compatible');
+    if (time.hour === 0 && time.minute === 0 && toMs > fromMs) {
+      return '24:00';
+    }
+  } catch {
+    // 解析失败回落普通格式
+  }
+  return formatTimeInZone(new Date(toMs).toISOString(), timezone);
+}
 
 /** UTC 毫秒 → 窗口内像素 x(不裁剪;调用方负责 clamp 到 [0, spanPx]) */
 export function utcToPx(ms: number, windowFromMs: number): number {

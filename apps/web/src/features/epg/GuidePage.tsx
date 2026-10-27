@@ -2,14 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 import type { ExperienceProgrammeDto } from '@hmp/shared';
-import { Alert, Button } from '@heroui/react';
+import { Alert, Button, ListBox, Select } from '@heroui/react';
+import { RetryableAlert } from '../../shared/ui';
 import { useGuideWindow } from './useGuideWindow';
 import { GuideDateTabs } from './GuideDateTabs';
 import { GuideScrollContainer } from './GuideScrollContainer';
 import { GuideWall, type GuideProgrammeRef } from './GuideWall';
 import { GuideChannelList } from './GuideChannelList';
 import { ProgrammeDetailPanel, type GuideDetailTarget } from './ProgrammeDetailPanel';
-import { formatZoneLabel, guideDayBoundsMs } from './guide-time';
+import { formatZoneLabel } from './guide-time';
 import { usePlayAction } from '../playback/use-play-action';
 
 /**
@@ -17,14 +18,17 @@ import { usePlayAction } from '../playback/use-play-action';
  * - /live/guide 公共路由(直播页「所有节目单」入口;US6 接入 routes.tsx);
  * - date/from/channelPage/pageSize/view 写 URL 查询参数作为公共浏览状态:
  *   详情返回或登录取消后恢复原日期、频道与时间位置(FR-045);date 缺省今天;
- *   from/to 缺省 = 服务端「现在前 30 分钟起 6 小时」默认窗口(裁剪日界);
- * - 公共请求 credentials omit(useGuideWindow/publicFetch);AbortController 取消
- *   过期请求(409 回今天的旧窗口响应不回写);
- * - 「回到现在」清空 date/from/to/channelPage 回今天及当前窗口;
+ *   from/to 缺省 = 服务端「该日完整 24 小时」默认窗口(真实日界;旧链接里的
+ *   日内子窗口 from/to 仍受支持并原样透传);
+ * - 公共取数经统一数据层 useAppQuery(public 域;键取自 queryKeys.public.guide
+ *   工厂;staleTime 60s EPG 慢变;signal 透传/缓存/后台刷新由数据层承担;
+ *   placeholderData keepPreviousData:切日期/频道页时旧窗口保持可见):
+ *   409 回今天的旧窗口响应不回写;失败保留旧窗口续显;
+ * - 「回到现在」清空 date/from/to/channelPage 回今天全天;
  * - 409 GUIDE_DATE_EXPIRED:回今天(按 problem.allowedDates 首日)并提示「日期已更新」,
- *   丢弃旧窗口响应;422 GUIDE_WINDOW_TOO_LARGE:提示缩短窗口、保留频道页;
- * - 时间轴浏览:前/后一窗口(≤6h)按当前窗口平移并夹取到该日真实日界
- *   (guideDayBoundsMs,与服务端同源 @internationalized/date,不加 24h);
+ *   丢弃旧窗口响应;422 GUIDE_WINDOW_TOO_LARGE:提示减少每页频道数、保留频道页;
+ * - 时间轴浏览:一次展示所选日期完整 24 小时(真实日界,与服务端同源
+ *   @internationalized/date,不加 24h;DST 23/25 小时日按真实日长);
  * - 播放统一经 US3 usePlayAction(游客先登录选档,登录前不请求媒体流)。
  */
 
@@ -74,16 +78,13 @@ export function GuidePage(): ReactNode {
   const /** 409 自动回今天只执行一次的守卫 */
     expiredHandledRef = useRef<string | null>(null);
 
-  const resource = useGuideWindow(
-    {
-      date: url.date,
-      fromMs: url.fromMs,
-      toMs: url.toMs,
-      page: url.channelPage,
-      pageSize: url.pageSize,
-    },
-    0,
-  );
+  const resource = useGuideWindow({
+    date: url.date,
+    fromMs: url.fromMs,
+    toMs: url.toMs,
+    page: url.channelPage,
+    pageSize: url.pageSize,
+  });
 
   /** URL 更新(公共浏览状态;详情返回/登录取消后经 URL 恢复) */
   const updateParams = useCallback(
@@ -143,41 +144,6 @@ export function GuidePage(): ReactNode {
       });
     },
     [data?.allowedDates, updateParams],
-  );
-
-  /** 前/后一窗口:按当前窗口跨度平移,夹取该日真实日界(23/25 小时日按真实日长) */
-  const shiftWindow = useCallback(
-    (direction: 1 | -1): void => {
-      const fromMs = url.fromMs ?? (data !== null ? Date.parse(data.from) : Number.NaN);
-      const toMs = url.toMs ?? (data !== null ? Date.parse(data.to) : Number.NaN);
-      if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) {
-        return;
-      }
-      const date = url.date ?? data?.date;
-      if (date === undefined) {
-        return;
-      }
-      const bounds = guideDayBoundsMs(date, timezone);
-      const span = toMs - fromMs;
-      let nextFrom = fromMs + direction * span;
-      let nextTo = toMs + direction * span;
-      if (nextFrom < bounds.fromMs) {
-        nextFrom = bounds.fromMs;
-        nextTo = Math.min(nextFrom + span, bounds.toMs);
-      }
-      if (nextTo > bounds.toMs) {
-        nextTo = bounds.toMs;
-        nextFrom = Math.max(nextTo - span, bounds.fromMs);
-      }
-      if (nextTo <= nextFrom) {
-        return;
-      }
-      updateParams((params) => {
-        params.set('from', new Date(nextFrom).toISOString());
-        params.set('to', new Date(nextTo).toISOString());
-      });
-    },
-    [url.fromMs, url.toMs, url.date, data, timezone, updateParams],
   );
 
   const goNow = useCallback((): void => {
@@ -248,31 +214,23 @@ export function GuidePage(): ReactNode {
         </div>
       ) : null}
 
-      {/* 422:窗口过长提示(保留频道页) */}
+      {/* 422:窗口内节目过多提示(保留频道页;全天窗口下的对策是减少每页频道数) */}
       {resource.windowTooLarge ? (
         <div role="alert">
           <Alert status="warning" className="w-full">
             <Alert.Title>窗口内节目过多</Alert.Title>
-            <Alert.Description>请缩短时间范围后重试(单次最多 6 小时);当前频道页已保留。</Alert.Description>
+            <Alert.Description>该日期全天节目数量超出单次上限,请把「每页频道数」调小后重试;当前日期与频道页已保留。</Alert.Description>
           </Alert>
         </div>
       ) : null}
 
-      {/* 加载失败(非 409/422):可重试,不提示重新登录(FR-004) */}
+      {/* 加载失败(非 409/422):可重试,不提示重新登录(FR-004;shared/ui 三态封装) */}
       {resource.status === 'error' && !resource.dateExpired && !resource.windowTooLarge ? (
-        <div role="alert">
-          <Alert status="danger" className="w-full">
-            <Alert.Content className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0">
-                <Alert.Title>节目单加载失败</Alert.Title>
-                <Alert.Description>服务暂时不可用,可以重试。</Alert.Description>
-              </div>
-              <Button size="sm" variant="outline" onPress={resource.retry}>
-                重试
-              </Button>
-            </Alert.Content>
-          </Alert>
-        </div>
+        <RetryableAlert
+          title="节目单加载失败"
+          description="服务暂时不可用,可以重试。"
+          onRetry={resource.retry}
+        />
       ) : null}
 
       {/* 日期 Tab + 工具栏(收拢换行,768 窄窗可用) */}
@@ -292,59 +250,78 @@ export function GuidePage(): ReactNode {
         <Button size="sm" variant="outline" onPress={goNow}>
           回到现在
         </Button>
-        <Button size="sm" variant="ghost" onPress={() => shiftWindow(-1)} aria-label="前一窗口">
-          ‹ 前一窗口
-        </Button>
-        <Button size="sm" variant="ghost" onPress={() => shiftWindow(1)} aria-label="后一窗口">
-          后一窗口 ›
-        </Button>
-        <label className="flex items-center gap-1 text-xs text-muted">
-          视图
-          <select
+        {/* T014:视图/每页频道数原生 select 元素 → HeroUI Select,筛选行为不变
+            (view 写/删 URL 参数;pageSize 变更同时清 channelPage)。
+            外层由 <label> 改为 <span> 说明文字:触发器是按钮,label 包裹会二次触发按压。 */}
+        <div className="flex items-center gap-1 text-xs text-muted">
+          <span>视图</span>
+          <Select
             aria-label="视图模式"
-            value={url.view}
-            onChange={(event) => {
+            selectedKey={url.view}
+            onSelectionChange={(key) => {
+              if (key === null) {
+                return;
+              }
+              const next = String(key);
               updateParams((params) => {
-                if (event.target.value === 'list') {
+                if (next === 'list') {
                   params.set('view', 'list');
                 } else {
                   params.delete('view');
                 }
               });
             }}
-            className="rounded border border-border bg-surface px-1 py-0.5 text-xs text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
           >
-            {VIEWS.map((view) => (
-              <option key={view} value={view}>
-                {view === 'wall' ? '节目墙' : '按频道列表'}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex items-center gap-1 text-xs text-muted">
-          每页频道数
-          <select
+            <Select.Trigger className="text-xs" data-testid="guide-view-select">
+              <Select.Value />
+              <Select.Indicator />
+            </Select.Trigger>
+            <Select.Popover>
+              <ListBox>
+                {VIEWS.map((view) => (
+                  <ListBox.Item key={view} id={view} textValue={view === 'wall' ? '节目墙' : '按频道列表'}>
+                    {view === 'wall' ? '节目墙' : '按频道列表'}
+                  </ListBox.Item>
+                ))}
+              </ListBox>
+            </Select.Popover>
+          </Select>
+        </div>
+        <div className="flex items-center gap-1 text-xs text-muted">
+          <span>每页频道数</span>
+          <Select
             aria-label="每页频道数"
-            value={String(url.pageSize)}
-            onChange={(event) => {
+            selectedKey={String(url.pageSize)}
+            onSelectionChange={(key) => {
+              if (key === null) {
+                return;
+              }
+              const next = String(key);
               updateParams((params) => {
-                if (event.target.value === '20') {
+                if (next === '20') {
                   params.delete('pageSize');
                 } else {
-                  params.set('pageSize', event.target.value);
+                  params.set('pageSize', next);
                 }
                 params.delete('channelPage');
               });
             }}
-            className="rounded border border-border bg-surface px-1 py-0.5 text-xs text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
           >
-            {PAGE_SIZES.map((size) => (
-              <option key={size} value={String(size)}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </label>
+            <Select.Trigger className="text-xs" data-testid="guide-page-size-select">
+              <Select.Value />
+              <Select.Indicator />
+            </Select.Trigger>
+            <Select.Popover>
+              <ListBox>
+                {PAGE_SIZES.map((size) => (
+                  <ListBox.Item key={size} id={String(size)} textValue={String(size)}>
+                    {size}
+                  </ListBox.Item>
+                ))}
+              </ListBox>
+            </Select.Popover>
+          </Select>
+        </div>
         <span className="hmp-tabular-nums text-xs text-muted">
           {data !== null ? `频道 ${channelRangeStart}–${channelRangeEnd},共 ${data.totalChannels}` : `第 ${url.channelPage} 页`}
         </span>

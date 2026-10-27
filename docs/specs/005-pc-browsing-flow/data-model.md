@@ -124,9 +124,9 @@ seek/音轨转换使用原影片逻辑秒数；direct 媒体在准备完成并�
 
 以固定 `nowMs` + Household IANA timezone 求今天，日期范围今天～today+6；7 个日历日整体区间 `[todayStart,todayPlus7Start)`。使用直接依赖 `@internationalized/date@3.12.4` 的 CalendarDate、fromAbsolute、toCalendarDate、parseDate、toZoned(date,zone,'compatible')；相邻日历日期分别转换为 UTC 日界。该版本无 startOfDay 导出，不采用此 API；禁止简单加 24 小时构造日期边界。
 
-导入排期本身 UTC 保存，查询交叠条件 `starts_at < to AND ends_at > from`；当前 start<=now<end。DST 的重复小时 UI 附 offset；缺失小时不补造。请求 date 必须在允许范围内，from/to 必须在该日真实边界且 to>from、跨度<=6 小时。家庭跨日后过期 date 返回 409 GUIDE_DATE_EXPIRED 和新的 allowedDates；UI 回到今天。
+导入排期本身 UTC 保存，查询交叠条件 `starts_at < to AND ends_at > from`；当前 start<=now<end。DST 的重复小时 UI 附 offset；缺失小时不补造。请求 date 必须在允许范围内，from/to 必须在该日真实边界且 to>from（跨度上限即该日真实日长，普通日 24 小时）；缺省 from/to 返回该日完整 24 小时全天窗口。家庭跨日后过期 date 返回 409 GUIDE_DATE_EXPIRED 和新的 allowedDates；UI 回到今天。
 
-每页最多 50 频道、默认 20；先集合计算媒体可用性及手动/自动绑定映射，再批量取 programme 窗口，不在循环调用单频道授权服务。一次响应最多 2000 节目/2 MiB，超限 422 GUIDE_WINDOW_TOO_LARGE，返回建议缩短窗口，不静默截断。页面可分页遍历所有频道，包括无节目频道。
+每页最多 50 频道、默认 20；先集合计算媒体可用性及手动/自动绑定映射，再批量取 programme 窗口，不在循环调用单频道授权服务。一次响应最多 2000 节目/2 MiB，超限 422 GUIDE_WINDOW_TOO_LARGE，返回建议减少每页频道数，不静默截断。页面可分页遍历所有频道，包括无节目频道。
 
 现有 programme 表补索引 `(household_id,source_id,xmltv_channel_id,starts_at,ends_at)`；EPG 发布/绑定修改同事务递增家庭 catalog revision，读取将 revision 与 now、timezone 一起返回。programme 公共 key 由内部 ID 经不透明映射生成，不下发源或 XMLTV ID。
 

@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { VodCatalogPage } from '../src/features/catalog/VodCatalogPage';
+import { createQueryWrapper, createTestQueryClient } from './helpers/query-test-utils';
 import type { PublicMediaPageDto } from '@hmp/shared';
 
 /**
@@ -16,6 +17,8 @@ import type { PublicMediaPageDto } from '@hmp/shared';
  *
  * fetch 以 vi.mock 替换 publicFetch(其余导出保留真实实现,FetchApiError 可实例化);
  * 路由用 MemoryRouter + 地址探针组件断言 URL 查询参数。
+ * T023:页面取数已迁移 shared/query(useAppQuery),render 以内存 QueryClient
+ * 包裹(retry 关闭保证行为确定性,每例独立 client 避免缓存跨例泄漏)。
  */
 
 const publicFetchMock = vi.fn();
@@ -77,6 +80,8 @@ function renderCatalogAt(initialUrl: string): void {
       </Routes>
       <LocationProbe />
     </MemoryRouter>,
+    // T023:useAppQuery 需要 QueryClientProvider;每例新 client(retry:false)保证确定性
+    { wrapper: createQueryWrapper(createTestQueryClient()) },
   );
 }
 
@@ -233,8 +238,11 @@ describe('VodCatalogPage:加载中/成功空结果/失败可重试三态互不�
     const alert = await screen.findByRole('alert');
     // 错误不只靠颜色:有明确文案与重试按钮
     expect(within(alert).getByText('目录加载失败')).toBeInTheDocument();
-    expect(within(alert).getByText('网络中断')).toBeInTheDocument();
     expect(within(alert).getByRole('button', { name: '重试' })).toBeInTheDocument();
+    // T023:错误文案经 formatApiError 统一映射(FR-011)——非 FetchApiError
+    // (网络失败等)落通用兜底,不暴露浏览器原始报文('网络中断' 不出现)
+    expect(within(alert).getByText('请求失败，请稍后重试')).toBeInTheDocument();
+    expect(within(alert).queryByText('网络中断')).not.toBeInTheDocument();
 
     // 重试:以同一 URL 条件重新请求(page=3 不丢失)
     publicFetchMock.mockResolvedValue(mediaPage({ page: 3 }));

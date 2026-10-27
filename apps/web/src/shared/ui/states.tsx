@@ -2,9 +2,12 @@ import { EmptyState } from '@heroui/react';
 import type { ReactNode } from 'react';
 
 /**
- * 成功空结果两态(T022 共享异步状态 UI,FR-004/ui.md §8)——
+ * 成功空结果两态(006 ui-components 契约:空态统一 EmptyState;FR-004)——
  * 「暂无内容」= 目录确无可用内容(未筛选);「无匹配结果」= 有搜索/筛选但零命中。
  * 两文案严格区分,不把故障显示成空目录(错误走 RetryableAlert)。
+ * HeroUI `EmptyState` 为单组件(Root 别名,无命名空间子组件),内容自组排版;
+ * 颜色仅用语义 token 工具类(text-foreground/text-muted,经
+ * @heroui/styles themes/shared/theme.css 的 --color-* 映射)。
  */
 export function EmptyCatalogState(): ReactNode {
   return (

@@ -9,6 +9,7 @@ import type { AccountSession } from '../src/app/session-types';
 import type { SessionContextValue } from '../src/app/session-provider';
 import { HomePage } from '../src/features/home/HomePage';
 import { useSession } from '../src/app/session-provider';
+import { createQueryWrapper, createTestQueryClient } from './helpers/query-test-utils';
 
 /**
  * T094(005 US4 前端单元测试;tasks.md 路径 test/home-personal-area.test.tsx,
@@ -103,6 +104,9 @@ function renderHome(): void {
         </SettingsAccessProvider>
       </SessionProvider>
     </MemoryRouter>,
+    // T023:HomePage 公共区取数已迁移 shared/query(useAppQuery),需 QueryClientProvider;
+    // 每例新内存 client(retry:false),公共区缓存不跨例泄漏
+    { wrapper: createQueryWrapper(createTestQueryClient()) },
   );
 }
 

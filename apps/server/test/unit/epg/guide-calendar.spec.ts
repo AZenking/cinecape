@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { parseDate } from '@internationalized/date';
 import {
   GUIDE_DATE_COUNT,
-  GUIDE_MAX_SPAN_MS,
   addCalendarDays,
   allowedGuideDates,
   allowedOverallWindowMs,
@@ -125,44 +124,30 @@ describe('guide-calendar:DST 23/25 小时日按 IANA 真实日界(T106;禁止 +2
   });
 });
 
-describe('guide-calendar:默认窗口「现在前 30 分钟起 6 小时」裁剪日界(T106/T116 A-008)', () => {
-  it('now-30min 起整整 6 小时且都在日内(16:05 CST 起)→ 直接采用不裁剪', () => {
-    const nowMs = utc('2026-11-04T08:05:00.000Z'); // 16:05 CST
+describe('guide-calendar:默认窗口 = 该日完整 24 小时真实日界(全天展示)', () => {
+  it('默认窗口恒为该日真实日界,与 now 无关(普通日 [00:00, 次日 00:00) CST)', () => {
     const day = guideDayWindowMs(parseDate('2026-11-04'), CST);
-    const win = defaultGuideWindowMs(nowMs, day);
-    expect(win.fromMs).toBe(utc('2026-11-04T07:35:00.000Z'));
-    expect(win.toMs).toBe(utc('2026-11-04T13:35:00.000Z'));
+    // 与 now 无关:任意时刻请求同一日,窗口一致
+    for (const nowMs of [utc('2026-11-04T00:10:00.000Z'), utc('2026-11-04T08:05:00.000Z'), utc('2026-11-04T15:59:00.000Z')]) {
+      const win = defaultGuideWindowMs(nowMs, day);
+      expect(win.fromMs).toBe(utc('2026-11-03T16:00:00.000Z')); // 00:00 CST
+      expect(win.toMs).toBe(utc('2026-11-04T16:00:00.000Z')); // 24:00 CST
+      expect(win.toMs - win.fromMs).toBe(24 * 3_600_000);
+    }
   });
 
-  it('now+5.5h 越过当日日界(20:05 CST)→ 终点裁剪到真实日界(from 不变)', () => {
-    const nowMs = utc('2026-11-04T12:05:00.000Z'); // 20:05 CST
-    const day = guideDayWindowMs(parseDate('2026-11-04'), CST);
-    const win = defaultGuideWindowMs(nowMs, day);
-    expect(win.fromMs).toBe(utc('2026-11-04T11:35:00.000Z'));
-    expect(win.toMs).toBe(utc('2026-11-04T16:00:00.000Z')); // 24:00 CST(裁剪)
-  });
-
-  it('now-30min 落在前一日历日(家庭时区凌晨 00:10)→ 起点裁剪到当天真实日界', () => {
-    const nowMs = utc('2026-11-04T16:10:00.000Z'); // 00:10 CST 11-05
-    const day = guideDayWindowMs(parseDate('2026-11-05'), CST);
-    const win = defaultGuideWindowMs(nowMs, day);
-    expect(win.fromMs).toBe(utc('2026-11-04T16:00:00.000Z')); // 00:00 CST(裁剪)
-    expect(win.toMs).toBe(utc('2026-11-04T21:40:00.000Z')); // 05:40 CST
-  });
-
-  it('now+5.5h 越过当日日界(20:00 CST 起 6 小时)→ 终点裁剪到真实日界', () => {
-    const nowMs = utc('2026-11-04T12:00:00.000Z'); // 20:00 CST
-    const day = guideDayWindowMs(parseDate('2026-11-04'), CST);
-    const win = defaultGuideWindowMs(nowMs, day);
-    expect(win.fromMs).toBe(utc('2026-11-04T11:30:00.000Z'));
-    expect(win.toMs).toBe(utc('2026-11-04T16:00:00.000Z')); // 24:00 CST(裁剪)
+  it('DST 23/25 小时日默认窗口按真实日长(非固定 24 小时)', () => {
+    const spring = defaultGuideWindowMs(utc('2026-03-08T10:00:00.000Z'), guideDayWindowMs(parseDate('2026-03-08'), NY));
+    expect(spring.toMs - spring.fromMs).toBe(23 * 3_600_000);
+    const autumn = defaultGuideWindowMs(utc('2026-11-01T10:00:00.000Z'), guideDayWindowMs(parseDate('2026-11-01'), NY));
+    expect(autumn.toMs - autumn.fromMs).toBe(25 * 3_600_000);
   });
 });
 
 describe('guide-calendar:resolveGuideDayWindow 纯校验(409/400/422 语义来源)', () => {
   const NOW = utc('2026-11-06T12:05:00.000Z'); // 20:05 CST,今天 = 2026-11-06
 
-  it('缺省 date+from/to → 今天 + 默认窗口(允许日期与窗口同响应)', () => {
+  it('缺省 date+from/to → 今天 + 该日完整 24 小时默认窗口(允许日期与窗口同响应)', () => {
     const result = resolveGuideDayWindow({ nowMs: NOW, timezone: CST });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -170,8 +155,8 @@ describe('guide-calendar:resolveGuideDayWindow 纯校验(409/400/422 语义来�
     expect(result.allowedDates).toHaveLength(7);
     expect(result.allowedDates[0]).toBe('2026-11-06');
     expect(result.allowedDates[6]).toBe('2026-11-12');
-    expect(result.window.fromMs).toBe(utc('2026-11-06T11:35:00.000Z'));
-    expect(result.window.toMs).toBe(utc('2026-11-06T16:00:00.000Z')); // 20:05 CST 起 6h 越日界 → 裁剪
+    expect(result.window.fromMs).toBe(utc('2026-11-05T16:00:00.000Z')); // 00:00 CST 11-06
+    expect(result.window.toMs).toBe(utc('2026-11-06T16:00:00.000Z')); // 24:00 CST 11-06
   });
 
   it('昨天(家庭时区)→ reason expired + 新 allowedDates(409 GUIDE_DATE_EXPIRED 语义)', () => {
@@ -240,17 +225,30 @@ describe('guide-calendar:resolveGuideDayWindow 纯校验(409/400/422 语义来�
     if (!result.ok) expect(result.reason).toBe('window');
   });
 
-  it('跨度 > 6 小时 → reason window(GUIDE_MAX_SPAN_MS 恒为 6h)', () => {
-    expect(GUIDE_MAX_SPAN_MS).toBe(6 * 3_600_000);
+  it('日内 6.5 小时子窗口 → ok(全天视图下任意日内子窗口均允许,不再限 6 小时)', () => {
     const result = resolveGuideDayWindow({
       nowMs: NOW,
       timezone: CST,
       date: '2026-11-08',
       fromMs: utc('2026-11-07T16:30:00.000Z'),
-      toMs: utc('2026-11-07T23:00:00.000Z'), // 6.5h
+      toMs: utc('2026-11-07T23:00:00.000Z'), // 6.5h,日内
     });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toBe('window');
+    expect(result.ok).toBe(true);
+  });
+
+  it('该日完整 24 小时窗口(贴齐真实日界)→ ok(全天展示)', () => {
+    const result = resolveGuideDayWindow({
+      nowMs: NOW,
+      timezone: CST,
+      date: '2026-11-08',
+      fromMs: utc('2026-11-07T16:00:00.000Z'),
+      toMs: utc('2026-11-08T16:00:00.000Z'),
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.window.fromMs).toBe(utc('2026-11-07T16:00:00.000Z'));
+      expect(result.window.toMs).toBe(utc('2026-11-08T16:00:00.000Z'));
+    }
   });
 
   it('to <= from(倒置窗口,非法输入)→ reason inverted(400 VALIDATION_FAILED 语义)', () => {
@@ -274,7 +272,7 @@ describe('guide-calendar:resolveGuideDayWindow 纯校验(409/400/422 语义来�
     if (!reversed.ok) expect(reversed.reason).toBe('inverted');
   });
 
-  it('恰好 6 小时且贴齐日界 → ok(边界含起不含止的窗口语义允许)', () => {
+  it('恰好 6 小时且贴齐日界起点 → ok(边界含起不含止的窗口语义允许)', () => {
     const result = resolveGuideDayWindow({
       nowMs: NOW,
       timezone: CST,
@@ -285,15 +283,15 @@ describe('guide-calendar:resolveGuideDayWindow 纯校验(409/400/422 语义来�
     expect(result.ok).toBe(true);
   });
 
-  it('DST 23 小时日(NY 2026-03-08)内 6 小时显式窗口照常有效;窗口按真实日界判定', () => {
-    const result = resolveGuideDayWindow({
+  it('DST 23 小时日(NY 2026-03-08)完整全天窗口照常有效;越真实日界仍拒绝', () => {
+    const fullDay = resolveGuideDayWindow({
       nowMs: utc('2026-03-07T10:00:00.000Z'),
       timezone: NY,
       date: '2026-03-08',
       fromMs: utc('2026-03-08T05:00:00.000Z'), // 00:00 EST(真实日界)
-      toMs: utc('2026-03-08T10:00:00.000Z'),
+      toMs: utc('2026-03-09T04:00:00.000Z'), // 24:00(23 小时日真实终点)
     });
-    expect(result.ok).toBe(true);
+    expect(fullDay.ok).toBe(true);
     const crossing = resolveGuideDayWindow({
       nowMs: utc('2026-03-07T10:00:00.000Z'),
       timezone: NY,

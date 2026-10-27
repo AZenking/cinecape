@@ -7,6 +7,7 @@ import { ActionCoordinator } from '../../../src/app/action-coordinator';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChannelPageDto, ExperienceProgrammeDto, GroupPageDto } from '@hmp/shared';
 import { LivePage } from '../../../src/features/live/LivePage';
+import { createQueryWrapper, createTestQueryClient } from '../../helpers/query-test-utils';
 
 /**
  * 直播页组件测试(T061;FR-021/022/023/024/045、ui.md §5):
@@ -160,6 +161,9 @@ function renderLivePage(): void {
         </SettingsAccessProvider>
       </SessionProvider>
     </MemoryRouter>,
+    // T023:LivePage 分区取数已迁移 shared/query(useAppQuery),需 QueryClientProvider;
+    // 每例新内存 client(retry:false)保证行为确定性
+    { wrapper: createQueryWrapper(createTestQueryClient()) },
   );
 }
 

@@ -2,13 +2,24 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { AppRoutes } from '../../../src/app/routes';
+import { queryClient as appQueryClient } from '../../../src/shared/query/client';
 import type { ReactNode as RN } from 'react';
 import { useLocation } from 'react-router';
 
 function LocationProbe(): RN {
   const { pathname } = useLocation();
   return <span data-testid="location">{pathname}</span>;
+}
+
+/**
+ * T025:设置页迁移 useAppQuery/useAppMutation 后,AppRoutes 内页面需要
+ * QueryClientProvider(与真实应用 AppProviders 同构:应用单例最外层注入)。
+ */
+function WithClient({ children }: { children: RN }): RN {
+  appQueryClient.clear();
+  return <QueryClientProvider client={appQueryClient}>{children}</QueryClientProvider>;
 }
 
 /**
@@ -121,8 +132,10 @@ describe('T123 · 设置导航与解锁门', () => {
   it('未解锁(/settings 直达):只显示 PIN 输入,管理主体(来源/设备/策略/档案)零预取', async () => {
     render(
       <MemoryRouter initialEntries={['/settings/sources']}>
-        <LocationProbe />
-        <AppRoutes />
+        <WithClient>
+          <LocationProbe />
+          <AppRoutes />
+        </WithClient>
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getByLabelText('设置 PIN(6 位数字)')).toBeVisible());
@@ -139,8 +152,10 @@ describe('T123 · 设置导航与解锁门', () => {
   it('/settings 默认到 account;解锁后子模块 URL 与菜单一致;七个模块均为真实内容', async () => {
     render(
       <MemoryRouter initialEntries={['/settings']}>
-        <LocationProbe />
-        <AppRoutes />
+        <WithClient>
+          <LocationProbe />
+          <AppRoutes />
+        </WithClient>
       </MemoryRouter>,
     );
     // 未解锁时门只渲染 PIN 输入(index 重定向位于门内 Outlet,解锁后即触发)
@@ -171,8 +186,10 @@ describe('T123 · 设置导航与解锁门', () => {
   it('菜单包含全部七个子模块(单一注册表驱动)', async () => {
     render(
       <MemoryRouter initialEntries={['/settings']}>
-        <LocationProbe />
-        <AppRoutes />
+        <WithClient>
+          <LocationProbe />
+          <AppRoutes />
+        </WithClient>
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getByLabelText('设置 PIN(6 位数字)')).toBeVisible());

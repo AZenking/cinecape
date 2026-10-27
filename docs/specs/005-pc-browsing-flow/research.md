@@ -68,9 +68,9 @@
 
 **Decision**：复用 manual 优先、manual 失效不自动回退、否则自动精确关联的既有语义，提取不包含 ProfilePolicy 的关联解析核心。来源发布同事务保留 `source_entry.group_title`，主分组取启用 present 条目按 sourceId/entryId 排序的第一个非空分组；缺失为其他，不按名称猜测。
 
-**Decision**：频道每页默认 20、最多 50；guide 时间范围单次最多 6 小时、最多返回 2000 节目，超出要求缩短窗口或减少频道页，不静默截断。客户端按选中家庭日期遍历，查询窗口与当日边界相交。当前节目的边界为 start<=now<end，重叠取 startsAt 最近者、相同开始按不透明 programme key 排序；next 取 startsAt>now 的最早项。直播每 30 秒刷新；服务端返回 now/timezone/revision，避免依赖浏览器本地时区。
+**Decision**：频道每页默认 20、最多 50；guide 时间窗口一次覆盖所选日历日（跨度上限即该日真实日长，普通日 24 小时）、最多返回 2000 节目，超出要求减少频道页，不静默截断。客户端按选中家庭日期遍历，查询窗口与当日边界相交。当前节目的边界为 start<=now<end，重叠取 startsAt 最近者、相同开始按不透明 programme key 排序；next 取 startsAt>now 的最早项。直播每 30 秒刷新；服务端返回 now/timezone/revision，避免依赖浏览器本地时区。
 
-**Rationale**：200×48×7=67,200 条排期可以本地持久保存，但不能一次渲染全部节目。分页与窗口化即可满足本轮规模，无需新增复杂 EPG 依赖；无 EPG 频道保留频道卡片和播放入口。
+**Rationale**：200×48×7=67,200 条排期可以本地持久保存，但不能一次渲染全部节目。按日分页加频道分页即可满足本轮规模（单页 20 频道 × 全天 48 档 ≈ 960 节目，低于 2000 上限），无需新增复杂 EPG 依赖；无 EPG 频道保留频道卡片和播放入口。
 
 **Alternatives considered**：逐频道请求（N+1）；一次全量节目墙（DOM/载荷无界）；引入 Planby（讨论稿仅候选，许可和运行未核验，不作为本轮依赖）。公开 programme key 使用家庭内媒体/节目生成不透明 key，不返回上游 XMLTV 标识或源 ID。
 

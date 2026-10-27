@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { ChannelPageDto } from '@hmp/shared';
 import { Button } from '@heroui/react';
-import { ProgrammeCard } from './ProgrammeCard';
+import { ChannelTile } from './ChannelTile';
 import { SectionFrame } from './SectionFrame';
 import { formatZoneLabel } from '../live-format';
 import type { LiveResource } from '../hooks/use-live-sections';
@@ -9,6 +9,8 @@ import type { LiveResource } from '../hooks/use-live-sections';
 /**
  * 聚焦分区视图(T067;FR-045「详情返回或登录取消后恢复」):
  * - URL 携带 section(必配 group/page/q)时仅渲染该区,带上一页/下一页分页;
+ * - 与概览行共用同一瓦片卡(ChannelTile),此处以自适应瓦片网格承载
+ *   「查看更多」的全量分页浏览(Netflix「查看全部」网格页的对应形态);
  * - 「返回全部分区」清除 section 参数回到总览;排序/过滤全部由服务端承担。
  */
 
@@ -26,7 +28,7 @@ export interface FocusedSectionProps {
   readonly onPageChange: (page: number) => void;
   readonly onExit: () => void;
   readonly onRetry: () => void;
-  readonly onOpenProgramme: Parameters<typeof ProgrammeCard>[0]['onOpenProgramme'];
+  readonly onOpenProgramme: Parameters<typeof ChannelTile>[0]['onOpenProgramme'];
   readonly onRequireAuth: (actionLabel: string) => void;
 }
 
@@ -88,12 +90,13 @@ export function FocusedSection({
         </div>
       }
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
         {(data?.items ?? []).map((row) => (
-          <ProgrammeCard
+          <ChannelTile
             key={row.media.id}
             row={row}
             timezone={data?.timezone ?? 'UTC'}
+            nowIso={data?.now ?? null}
             onOpenProgramme={onOpenProgramme}
             onRequireAuth={onRequireAuth}
           />

@@ -2,11 +2,14 @@
  * 主档案 PIN 恢复(T041,FR-030/ADR-0011 决议 6):受限入口 —— 当前账号密码 + 新
  * 6 位 PIN;成功后回到选档 PIN 验证(不直接打开设置、不签设置授权)。
  * 仅当目标受 PIN 保护的档案验证被锁定或用户忘记 PIN 时经「忘记 PIN?」进入。
+ * 数据访问(T026):经 auth-api(privateFetch 档)发起,confirmed 语义无缓存
+ * 写入;锁定计数在服务端,客户端仅呈现。
  */
 import { useState, type ReactNode } from 'react';
 import { Button, Form } from '@heroui/react';
-import { isFetchApiError, privateFetch } from '../../shared/fetch';
+import { isFetchApiError } from '../../shared/fetch';
 import { validatePinInput, type FieldIssue } from '../../app/action-coordinator-core';
+import { recoverMainProfilePin } from './auth-api';
 import { FormError, FormField } from './field';
 
 export interface PinRecoveryStepProps {
@@ -38,10 +41,8 @@ export function PinRecoveryStep({ formEpoch, onSuccess, onCancel }: PinRecoveryS
     setIssues(null);
     setBusy(true);
     try {
-      await privateFetch<void>('/auth/main-profile/pin-recovery', {
-        method: 'POST',
-        body: { newPin, ownerPassword },
-      });
+      // T026:经 auth-api 统一 PIN 恢复端点(204;服务端已撤销旧选档授予)
+      await recoverMainProfilePin({ newPin, ownerPassword });
       onSuccess();
     } catch (err) {
       if (isFetchApiError(err)) {

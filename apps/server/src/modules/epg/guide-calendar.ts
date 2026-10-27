@@ -18,15 +18,6 @@ import { fromAbsolute, parseDate, toCalendarDate, toZoned, type CalendarDate } f
 /** 可浏览日历日数(今天~today+6) */
 export const GUIDE_DATE_COUNT = 7;
 
-/** 默认窗口起点回看量(「现在前 30 分钟起 6 小时」,A-008) */
-export const GUIDE_LOOKBACK_MS = 30 * 60_000;
-
-/** 默认窗口跨度 = 单窗口上限(契约「单日内连续<=6小时窗口」) */
-export const GUIDE_DEFAULT_SPAN_MS = 6 * 3_600_000;
-
-/** 单窗口跨度上限(「跨度<=6 小时」) */
-export const GUIDE_MAX_SPAN_MS = 6 * 3_600_000;
-
 /** 家庭时区下的「今天」日历日(toCalendarDate(fromAbsolute(nowMs, zone))) */
 export function todayCalendarDateOf(nowMs: number, timezone: string): CalendarDate {
   return toCalendarDate(fromAbsolute(nowMs, timezone));
@@ -81,22 +72,14 @@ function isAllowedDate(date: CalendarDate, today: CalendarDate): boolean {
 }
 
 /**
- * 默认窗口:「现在前 30 分钟起 6 小时」裁剪到该日真实边界(A-008、ui.md §6「裁剪日界」)。
- * 若默认窗口与该日完全不相交(纯未来日),回落到该日前 6 小时([dayStart, min(dayStart+6h, dayEnd)])。
+ * 默认窗口 = 该日完整真实日界 [dayStart, dayEnd)(一天 24 小时全天展示;
+ * DST 23/25 小时日按 IANA 真实日长)。
  */
-export function defaultGuideWindowMs(nowMs: number, day: { readonly fromMs: number; readonly toMs: number }): {
+export function defaultGuideWindowMs(_nowMs: number, day: { readonly fromMs: number; readonly toMs: number }): {
   readonly fromMs: number;
   readonly toMs: number;
 } {
-  const rawFrom = nowMs - GUIDE_LOOKBACK_MS;
-  const rawTo = rawFrom + GUIDE_DEFAULT_SPAN_MS;
-  const fromMs = Math.max(rawFrom, day.fromMs);
-  const toMs = Math.min(rawTo, day.toMs);
-  if (fromMs < toMs) {
-    return { fromMs, toMs };
-  }
-  // 默认窗口与该日无交集:回落该日首个 6 小时(仍受真实日界与跨度上限约束)
-  return { fromMs: day.fromMs, toMs: Math.min(day.fromMs + GUIDE_DEFAULT_SPAN_MS, day.toMs) };
+  return { fromMs: day.fromMs, toMs: day.toMs };
 }
 
 /** 纯校验拒绝原因(409/400/422 语义来源;HTTP 渲染由 guide-window.service 承担) */
@@ -128,9 +111,10 @@ export interface GuideDayWindowInput {
  * 解析一次 guide 查询的日期与窗口(纯校验,不查询数据):
  * - date < 今天 → expired(409 GUIDE_DATE_EXPIRED 语义,携带新 allowedDates);
  * - date > today+6 → beyond(400 VALIDATION_FAILED 语义,「尚未到允许未来范围」);
- * - 显式 from/to:to<=from → inverted(400,非法输入);跨出该日真实边界或跨度>6h →
- *   window(422 GUIDE_WINDOW_TOO_LARGE 语义,「跨日或>6小时」);
- * - 缺省 from/to → 默认窗口(现在前 30 分钟起 6 小时,裁剪日界)。
+ * - 显式 from/to:to<=from → inverted(400,非法输入);跨出该日真实边界 →
+ *   window(422 GUIDE_WINDOW_TOO_LARGE 语义,「跨日」;跨度上限即该日真实日长,
+ *   普通日 24 小时、DST 23/25 小时日按真实日长,无需独立跨度常量);
+ * - 缺省 from/to → 默认窗口 = 该日完整 24 小时(真实日界,全天展示)。
  */
 export function resolveGuideDayWindow(input: GuideDayWindowInput): GuideWindowResolution {
   const { nowMs, timezone } = input;
@@ -154,7 +138,7 @@ export function resolveGuideDayWindow(input: GuideDayWindowInput): GuideWindowRe
     if (toMs <= fromMs) {
       return { ok: false, reason: 'inverted' };
     }
-    if (fromMs < day.fromMs || toMs > day.toMs || toMs - fromMs > GUIDE_MAX_SPAN_MS) {
+    if (fromMs < day.fromMs || toMs > day.toMs) {
       return { ok: false, reason: 'window' };
     }
     return { ok: true, date: guideDateString(requested), allowedDates, window: { fromMs, toMs } };

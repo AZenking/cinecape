@@ -2,10 +2,12 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { SettingsLayout } from '../src/layouts/SettingsLayout';
 import { SettingsAccountPage } from '../src/features/settings/settings-account-page';
 import { SettingsModulePlaceholder } from '../src/features/settings/settings-module-placeholder';
 import { SETTINGS_MODULES } from '../src/features/settings/settings-modules';
+import { queryClient as appQueryClient } from '../src/shared/query/client';
 
 /**
  * T078(005 US7 前端测试,先 FAIL):设置布局。
@@ -90,21 +92,25 @@ function accountReplyOk(): { status: number; body: unknown } {
 
 /** 与 routes.tsx /settings 子树同构的最小路由(避免拉入全部公共页面) */
 function renderSettingsAt(path: string): void {
+  // T025:设置页迁移 useAppQuery/useAppMutation 后需 QueryClientProvider(应用单例)
+  appQueryClient.clear();
   render(
     <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/settings" element={<SettingsLayout />}>
-          <Route path="account" element={<SettingsAccountPage />} />
-          <Route
-            path="profiles"
-            element={<SettingsModulePlaceholder moduleName="档案管理" scope="档案、PIN 与主档案转移" />}
-          />
-          <Route
-            path="policy"
-            element={<SettingsModulePlaceholder moduleName="内容策略" scope="目标档案、等级、未评级与名单" />}
-          />
-        </Route>
-      </Routes>
+      <QueryClientProvider client={appQueryClient}>
+        <Routes>
+          <Route path="/settings" element={<SettingsLayout />}>
+            <Route path="account" element={<SettingsAccountPage />} />
+            <Route
+              path="profiles"
+              element={<SettingsModulePlaceholder moduleName="档案管理" scope="档案、PIN 与主档案转移" />}
+            />
+            <Route
+              path="policy"
+              element={<SettingsModulePlaceholder moduleName="内容策略" scope="目标档案、等级、未评级与名单" />}
+            />
+          </Route>
+        </Routes>
+      </QueryClientProvider>
     </MemoryRouter>,
   );
 }

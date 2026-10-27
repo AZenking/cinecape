@@ -1,52 +1,65 @@
 import type { ReactNode } from 'react';
 import type { ChannelPageDto } from '@hmp/shared';
 import { Button } from '@heroui/react';
-import { ProgrammeCard } from './ProgrammeCard';
+import { ChannelTile } from './ChannelTile';
+import { MediaScroller } from './MediaScroller';
 import { SectionFrame } from './SectionFrame';
 import { formatZoneLabel } from '../live-format';
 import type { LiveResource } from '../hooks/use-live-sections';
 
 /**
  * 正在直播分区(T067;FR-021 顺序第二区、A-007 排序由服务端承担):
- * - 展示 section=now 首页(20 项)+「查看更多」进入聚焦视图(URL section=now,可分页);
- * - 每区独立加载/空/失败状态(失败仅重试本区,SectionFrame)。
+ * - Netflix 式横向瓦片行:section=now 首页(20 项)横向滚动浏览,
+ *   「查看更多」于行头右侧进入聚焦视图(URL section=now,可分页,每区仍可继续查看);
+ * - 每区独立加载/空/失败状态(失败仅重试本区,SectionFrame;骨架为瓦片行形态)。
  */
 
 export interface NowSectionProps {
   readonly resource: LiveResource<ChannelPageDto>;
   readonly onRetry: () => void;
   readonly onViewMore: () => void;
-  readonly onOpenProgramme: Parameters<typeof ProgrammeCard>[0]['onOpenProgramme'];
+  readonly onOpenProgramme: Parameters<typeof ChannelTile>[0]['onOpenProgramme'];
   readonly onRequireAuth: (actionLabel: string) => void;
 }
 
 export function NowSection({ resource, onRetry, onViewMore, onOpenProgramme, onRequireAuth }: NowSectionProps): ReactNode {
   const data = resource.data;
   const zoneLabel = data !== null ? formatZoneLabel(data.timezone, data.now) : undefined;
+  const items = data?.items ?? [];
   return (
     <SectionFrame
       title="正在直播"
       subtitle={zoneLabel !== undefined ? `时间按家庭时区 ${zoneLabel} 显示` : undefined}
       status={resource.status}
       hasStaleContent={data !== null}
-      isEmpty={data !== null && data.items.length === 0}
+      isEmpty={data !== null && items.length === 0}
       emptyText="暂无正在直播的节目"
+      skeletonVariant="row"
+      skeletonCount={5}
       onRetry={onRetry}
-      footer={
-        data !== null && data.total > data.items.length ? (
-          <div className="mt-3">
-            <Button size="sm" variant="outline" onPress={onViewMore}>
-              {`查看更多(共 ${data.total} 个频道)`}
-            </Button>
-          </div>
+      headerAction={
+        data !== null && data.total > items.length ? (
+          <Button size="sm" variant="ghost" onPress={onViewMore}>
+            {`查看更多(共 ${data.total} 个频道) ›`}
+          </Button>
         ) : null
       }
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-        {(data?.items ?? []).map((row) => (
-          <ProgrammeCard key={row.media.id} row={row} timezone={data?.timezone ?? 'UTC'} onOpenProgramme={onOpenProgramme} onRequireAuth={onRequireAuth} />
-        ))}
-      </div>
+      {items.length > 0 ? (
+        <MediaScroller label="正在直播">
+          {items.map((row) => (
+            <li key={row.media.id} className="w-60 shrink-0 snap-start sm:w-64 lg:w-72">
+              <ChannelTile
+                row={row}
+                timezone={data?.timezone ?? 'UTC'}
+                nowIso={data?.now ?? null}
+                onOpenProgramme={onOpenProgramme}
+                onRequireAuth={onRequireAuth}
+              />
+            </li>
+          ))}
+        </MediaScroller>
+      ) : null}
     </SectionFrame>
   );
 }

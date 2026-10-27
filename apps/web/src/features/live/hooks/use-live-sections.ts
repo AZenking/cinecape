@@ -1,73 +1,67 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { isAbortError } from '../../../shared/fetch';
+import { useEffect, useRef } from 'react';
+import { useAppQuery, type AppQueryOptions } from '../../../shared/query/hooks';
+import type { FetchApiError } from '../../../shared/fetch';
 
 /**
- * 直播分区资源(T067/T068;FR-004「区分加载中、成功空结果、请求失败」、FR-022):
- * - 每个分区独立挂载本资源:失败仅重试本区(retry 只递增本区代次),
- *   不拖垮其他分区;全局刷新(useLiveRefresh 的 refreshKey)驱动全部资源重新拉取;
- * - 刷新失败保留旧数据:成功过的 data 不因后续失败清空,错误单独暴露(可重试 Alert);
- * - 代次废止:refreshKey/retry/卸载变更时中止在途请求,迟到响应不得回写
- *   (AbortController + 每代次令牌比对)。
+ * 直播分区资源(T023 迁移:006 统一数据层适配层;FR-004「区分加载中、成功空结果、
+ * 请求失败」、FR-022)——原手写 useEffect + AbortController 状态机已迁入
+ * shared/query(useAppQuery:signal 透传/取消/缓存/后台刷新/错误原样上抛),本 hook:
+ * - 保留 LiveResource 形状(data/status/retry):NowSection/NextSection/GroupSections/
+ *   FocusedSection 等分区组件零改动,SectionFrame 继续按 status + hasStaleContent 呈现;
+ * - 每个分区独立一条查询(键经 queryKeys.public.live 工厂前缀派生,见 LivePage):
+ *   失败仅重试本区(retry=refetch 只作用于本区),不拖垮其他分区;
+ * - 刷新失败保留旧数据:react-query 失败不清空 data,界面以 isError + data!==null
+ *   区分「后台刷新失败(更新失败,显示的是上次内容)」与「首次加载失败」;
+ * - 30 秒周期与回前台立即刷新仍由 useLiveRefresh 的 refreshKey 驱动(FR-022 契约不变):
+ *   refreshKey 递增即对本区强制 refetch(refetch 不受 staleTime 门控,等价旧「代次」语义;
+ *   首次挂载 refreshKey=0 跳过,挂载取数由 react-query 自身承担);
+ * - enabled=false(概览/聚焦互斥)时 retry/refresh 一律不发请求,等价旧 enabled 守卫,
+ *   避免 refetch 对禁用查询的强制取数副作用。
  */
 
 export type LiveResourceStatus = 'loading' | 'ready' | 'error';
 
 export interface LiveResource<T> {
-  /** 最近一次成功的数据(失败时保留上次成功值) */
+  /** 最近一次成功的数据(失败时保留上次成功值;占位翻页时为上一键的占位数据) */
   readonly data: T | null;
   readonly status: LiveResourceStatus;
   /** 是否正在进行首次加载(旧数据存在时为后台刷新,不吞内容) */
   readonly isLoading: boolean;
-  readonly error: unknown;
-  /** 本区重试(只影响本区) */
+  readonly error: FetchApiError | null;
+  /** 本区重试(只影响本区;禁用分区不触发请求) */
   readonly retry: () => void;
 }
 
 export function useLiveSection<T>(
-  fetcher: (signal: AbortSignal) => Promise<T>,
+  options: AppQueryOptions<T>,
   refreshKey: number,
   enabled: boolean = true,
-  /** 查询输入键(URL 状态等);键变化即重新拉取(详情返回/搜索恢复语义) */
-  depsKey: string = '',
 ): LiveResource<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [status, setStatus] = useState<LiveResourceStatus>('loading');
-  const [error, setError] = useState<unknown>(null);
-  const [nonce, setNonce] = useState(0);
-  // fetcher 以 ref 持有:调用方内联箭头函数不触发重拉,数据获取只由 refreshKey/nonce 驱动
-  const fetcherRef = useRef(fetcher);
-  fetcherRef.current = fetcher;
+  const query = useAppQuery<T>({ ...options, enabled });
+  const { data, isPending, isError, error, refetch } = query;
 
+  // 周期/回前台刷新:refreshKey 递增(useLiveRefresh 的 30s 定时或 visibilitychange)
+  // 时强制重取本区;以 ref 记录已消费的代次,避免 enabled 翻转等无关重渲染误触发。
+  const seenRefreshRef = useRef(refreshKey);
   useEffect(() => {
-    if (!enabled) {
+    if (refreshKey === seenRefreshRef.current) {
       return;
     }
-    const controller = new AbortController();
-    let active = true;
-    setStatus('loading');
-    fetcherRef
-      .current(controller.signal)
-      .then((result) => {
-        if (!active) return;
-        setData(result);
-        setError(null);
-        setStatus('ready');
-      })
-      .catch((cause: unknown) => {
-        if (!active || isAbortError(cause)) return;
-        // 保留旧数据:错误不清空 data,由界面区分「后台刷新失败」与「首次加载失败」
-        setError(cause);
-        setStatus('error');
-      });
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [refreshKey, nonce, enabled, depsKey]);
+    seenRefreshRef.current = refreshKey;
+    if (enabled) {
+      void refetch();
+    }
+  }, [refreshKey, enabled, refetch]);
 
-  const retry = useCallback((): void => {
-    setNonce((value) => value + 1);
-  }, []);
-
-  return { data, status, isLoading: status === 'loading' && data === null, error, retry };
+  return {
+    data: data ?? null,
+    status: isPending ? 'loading' : isError ? 'error' : 'ready',
+    isLoading: isPending,
+    error,
+    retry: (): void => {
+      if (enabled) {
+        void refetch();
+      }
+    },
+  };
 }

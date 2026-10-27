@@ -28,11 +28,11 @@ import { cleanupRigs, expectProblemContentType, startFreshApp } from '../helpers
  * 公共 guide 契约测试(T108;005 contracts/api.md §1/§2、宪章原则一/三):
  * - 无 Cookie 匿名 GET /api/public/guide 返回 GuideWindow 完整信封
  *   {date,timezone,now,allowedDates,from,to,page,pageSize,totalChannels,catalogRevision,
- *    channels:[{media,programmes}]};默认窗口 = 现在前 30 分钟起 6 小时(裁剪日界);
+ *    channels:[{media,programmes}]};默认窗口 = 该日完整 24 小时(真实日界,全天展示);
  * - 响应 Cache-Control: no-store、无 Set-Cookie(公共浏览不建立会话);
  * - guide 限频 30 次/分钟(429 + Retry-After,契约 §1);
  * - 负向:昨天/已过期 date → 409 GUIDE_DATE_EXPIRED 且 problem.allowedDates 为新范围;
- *   尚未到允许未来范围 → 400 VALIDATION_FAILED;跨日或 >6 小时窗口 → 422
+ *   尚未到允许未来范围 → 400 VALIDATION_FAILED;跨日窗口 → 422
  *   GUIDE_WINDOW_TOO_LARGE;伪造 householdId/profileId 与未知字段(含夹带 revision)
  *   → 400 一律拒绝;pageSize>50 → 400;
  * - EPG 绑定变更后 catalogRevision 递增且不得返回旧快照(经 manual-epg-binding.service
@@ -110,7 +110,7 @@ function getGuide(query = ''): request.Test {
 }
 
 describe('GET /public/guide 匿名契约(T108 · 规模夹具)', () => {
-  it('默认窗口(现在前 30 分钟起 6 小时,裁剪日界)返回完整 GuideWindow 信封、no-store、无 Set-Cookie', async () => {
+  it('默认窗口(该日完整 24 小时,真实日界)返回完整 GuideWindow 信封、no-store、无 Set-Cookie', async () => {
     const res = await getGuide();
     expect(res.status).toBe(200);
     const body = res.body as GuideWindowDto;
@@ -120,8 +120,8 @@ describe('GET /public/guide 匿名契约(T108 · 规模夹具)', () => {
     // now/窗口自锚点起 1:1 流动(与 public-live 同口径,容许秒级漂移)
     const anchorIso = new Date(SCALE_FIXTURE_FIXED_NOW_MS).toISOString();
     expect(Math.abs(Date.parse(body.now) - Date.parse(anchorIso))).toBeLessThan(5_000);
-    expect(Math.abs(Date.parse(body.from) - Date.parse('2026-11-04T11:35:00.000Z'))).toBeLessThan(5_000);
-    // 终点越过日界裁剪到 24:00 CST(裁剪量分钟级,漂移不影响断言)
+    // 全天窗口 = 该日真实日界(确定性,精确断言):00:00–24:00 CST
+    expect(body.from).toBe('2026-11-03T16:00:00.000Z');
     expect(body.to).toBe('2026-11-04T16:00:00.000Z');
     expect(body.allowedDates).toEqual([
       '2026-11-04',
@@ -248,10 +248,14 @@ describe('guide 日期与窗口负向契约(T108 · 原则三)', () => {
     expect(res.body.code).toBe('GUIDE_WINDOW_TOO_LARGE');
   });
 
-  it('跨度 > 6 小时 → 422(恰好 6 小时允许)', async () => {
-    const over = await getGuide('?date=2026-11-05&from=2026-11-04T16:30:00.000Z&to=2026-11-04T23:00:00.000Z');
-    expect(over.status).toBe(422);
-    expect(over.body.code).toBe('GUIDE_WINDOW_TOO_LARGE');
+  it('日内 6.5 小时子窗口与该日完整全天窗口均 → 200(全天视图,不限 6 小时)', async () => {
+    const over6h = await getGuide('?date=2026-11-05&from=2026-11-04T16:30:00.000Z&to=2026-11-04T23:00:00.000Z');
+    expect(over6h.status).toBe(200);
+    const fullDay = await getGuide('?date=2026-11-05&from=2026-11-04T16:00:00.000Z&to=2026-11-05T16:00:00.000Z');
+    expect(fullDay.status).toBe(200);
+    const body = fullDay.body as GuideWindowDto;
+    expect(body.from).toBe('2026-11-04T16:00:00.000Z');
+    expect(body.to).toBe('2026-11-05T16:00:00.000Z');
     const exact = await getGuide('?date=2026-11-05&from=2026-11-04T16:30:00.000Z&to=2026-11-04T22:30:00.000Z');
     expect(exact.status).toBe(200);
   });

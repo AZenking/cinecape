@@ -1,16 +1,26 @@
 /**
- * 来源管理页(T134,US8;FR-037):
- * - IPTV/NAS 来源配置、启停、手动导入(刷新)、任务状态轮询(授权失效即终止);
+ * 来源管理页(T134,US8;FR-037;T025 数据层迁移):
+ * - 来源列表经 useAppQuery(settings.sources 键,硬请求 + isPending 门控 /
+ *   isError RetryableAlert(formatApiError + 重试)/ 成功出主体);
+ * - 创建/启停字段修改/手动导入/快照确认与丢弃均为 confirmed 变更(当次密码 +
+ *   CAS/幂等 operationKey):等待服务端确认,成功后失效 settings.sources 键以
+ *   服务端真值回填(替代原手工 load());任务状态在本页 jobs 表局部承载并经
+ *   useSettingsPolling 轮询(授权失效即终止;任务读取无键工厂归属,见报告);
  * - 创建成功明确「开始导入」下一步;快照确认(awaiting_confirmation)提供确认/丢弃;
  * - 成功发布后提供「查看内容」入口;失败提示重试并保留上次成功目录(不自动清理);
- * - 每敏感操作独立弹当次密码;409 冲突提示重读现值,不静默覆盖。
+ * - 每敏感操作独立弹当次密码;409 冲突提示重读现值,不静默覆盖(失效重读);
+ * - 403 SETTINGS_ACCESS_* 经 handleAccessLost 立即隐藏;重新解锁后重挂硬请求。
  */
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router';
-import { Button, Form, TextField, Label, Input } from '@heroui/react';
+import { Button, Form, ListBox, Select, TextField, Label, Input } from '@heroui/react';
 import { LoadingSpinner, RetryableAlert } from '../../shared/ui';
+import { useAppMutation, useAppQuery } from '../../shared/query/hooks';
+import { queryKeys } from '../../shared/query/keys';
+import { formatApiError } from '../../shared/query/error';
+import { privateFetch } from '../../shared/fetch';
 import { classifySettingsWriteError, useSettingsPolling } from './shared/access-expiry';
-import { errorTextOf, settingsApi, type RefreshDto, type RootDto, type SourceDto } from './shared/settings-api';
+import type { RefreshDto, RootDto, SourceDto, SourcePageDto } from './shared/settings-api';
 import { PasswordConfirmModal } from './shared/password-confirm-modal';
 import { useUnsavedGuard } from './shared/unsaved-guard';
 import { useSettingsAccess } from './settings-access-provider';
@@ -38,9 +48,6 @@ function isTerminal(status: RefreshDto['status']): boolean {
 export function SettingsSourcesPage(): ReactNode {
   const access = useSettingsAccess();
   const { title } = useSettingsPageMeta();
-  const [sources, setSources] = useState<SourceDto[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
   const [creating, setCreating] = useState(false);
   const [createdSource, setCreatedSource] = useState<SourceDto | null>(null); // 创建成功 → 「开始导入」下一步
   const [jobs, setJobs] = useState<Record<string, RefreshDto>>({});
@@ -51,59 +58,108 @@ export function SettingsSourcesPage(): ReactNode {
   const [pageError, setPageError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const load = useCallback((): void => {
-    void (async () => {
-      try {
-        const page = await settingsApi.listSources();
-        setSources(page.items);
-        setLoadError(null);
-        // 页面打开/刷新时,对来源上的最近任务补一次状态读取(进行中的任务随后进入轮询)
-        for (const source of page.items) {
-          if (source.lastJobId === null) {
-            continue;
-          }
-          try {
-            const job = await settingsApi.getRefresh(source.lastJobId);
-            setJobs((current) => ({ ...current, [job.id]: job }));
-          } catch (jobError) {
-            if (classifySettingsWriteError(jobError) === 'access-lost') {
-              access.handleAccessLost();
-              return;
-            }
-            // 单个任务不可见不阻塞来源列表
-          }
-        }
-      } catch (error) {
-        if (classifySettingsWriteError(error) === 'access-lost') {
-          access.handleAccessLost();
-          return;
-        }
-        setLoadError(errorTextOf(error));
-      }
-    })();
-  }, [access]);
+  const sourcesQuery = useAppQuery<SourcePageDto>({
+    domain: 'settings',
+    queryKey: queryKeys.settings.sources(),
+    queryFn: ({ signal }) => privateFetch<SourcePageDto>('/settings/sources', { signal }),
+  });
 
+  // 管理主体读取得到 403 SETTINGS_ACCESS_*:立即回到锁定态(解锁门随之隐藏本页)
   useEffect(() => {
-    load();
-  }, [load, access.reloadEpoch, attempt]);
+    if (sourcesQuery.isError && classifySettingsWriteError(sourcesQuery.error) === 'access-lost') {
+      access.handleAccessLost();
+    }
+  }, [sourcesQuery.isError, sourcesQuery.error, access]);
+
+  /** 已补读状态的任务(避免失效重读列表后对同一任务重复引导读取) */
+  const bootstrappedRef = useRef<Set<string>>(new Set());
+
+  // 页面打开/列表回填时,对来源上的最近任务补一次状态读取(进行中的任务随后进入轮询)
+  useEffect(() => {
+    const items = sourcesQuery.data?.items;
+    if (items === undefined) {
+      return;
+    }
+    for (const source of items) {
+      const jobId = source.lastJobId;
+      if (jobId === null || bootstrappedRef.current.has(jobId)) {
+        continue;
+      }
+      bootstrappedRef.current.add(jobId);
+      void privateFetch<RefreshDto>(`/settings/refreshes/${jobId}`)
+        .then((job) => {
+          setJobs((current) => ({ ...current, [job.id]: job }));
+        })
+        .catch((jobError: unknown) => {
+          bootstrappedRef.current.delete(jobId); // 允许下次列表回填重试
+          if (classifySettingsWriteError(jobError) === 'access-lost') {
+            access.handleAccessLost();
+            return;
+          }
+          // 单个任务不可见不阻塞来源列表
+        });
+    }
+  }, [sourcesQuery.data, access]);
 
   // 任务状态轮询:仅跟踪进行中/待确认任务;授权失效由 useSettingsPolling 立即终止
   const tracked = Object.values(jobs).filter((job) => !isTerminal(job.status));
   useSettingsPolling(
-    async () => {
+    useCallback(async () => {
       for (const job of tracked) {
-        const fresh = await settingsApi.getRefresh(job.id);
+        const fresh = await privateFetch<RefreshDto>(`/settings/refreshes/${job.id}`);
         setJobs((current) => ({ ...current, [fresh.id]: fresh }));
         if (fresh.status === 'succeeded' || fresh.status === 'failed') {
-          load(); // 发布成功/失败:刷新来源列表(lastSuccessAt/查看内容入口/失败提示)
+          void sourcesQuery.refetch(); // 发布成功/失败:回填来源列表(lastSuccessAt/查看内容入口/失败提示)
         }
       }
-    },
+    }, [tracked, sourcesQuery]),
     { intervalMs: 1000, enabled: tracked.length > 0 },
   );
 
   const isDirty = creating; // 创建表单打开即视为存在未保存编辑(FR-041 拦截)
   const guard = useUnsavedGuard(isDirty);
+
+  // 手动导入(含创建后「开始导入」):confirmed 变更 + 当次密码 + 幂等 operationKey
+  const startRefresh = useAppMutation({
+    domain: 'settings',
+    feedback: 'confirmed',
+    mutationFn: (vars: { sourceId: string; ownerPassword: string; expectedVersion: number; operationKey: string }) =>
+      privateFetch<RefreshDto>(`/settings/sources/${vars.sourceId}/refresh`, {
+        method: 'POST',
+        body: {
+          ownerPassword: vars.ownerPassword,
+          expectedVersion: vars.expectedVersion,
+          operationKey: vars.operationKey,
+        },
+      }),
+    invalidate: [queryKeys.settings.sources()],
+  });
+
+  // 启停/字段修改:confirmed 变更 + 当次密码 + expectedVersion CAS
+  const patchSource = useAppMutation({
+    domain: 'settings',
+    feedback: 'confirmed',
+    mutationFn: (vars: { sourceId: string; ownerPassword: string; input: Record<string, unknown> }) =>
+      privateFetch<SourceDto>(`/settings/sources/${vars.sourceId}`, {
+        method: 'PATCH',
+        body: { ownerPassword: vars.ownerPassword, ...vars.input },
+      }),
+    invalidate: [queryKeys.settings.sources()],
+  });
+
+  // 快照确认/丢弃:confirmed 变更 + 当次密码 + 任务当前版本
+  const settleRefresh = useAppMutation({
+    domain: 'settings',
+    feedback: 'confirmed',
+    mutationFn: (vars: { jobId: string; action: 'confirm' | 'discard'; ownerPassword: string; expectedVersion: number }) =>
+      privateFetch<RefreshDto>(`/settings/refreshes/${vars.jobId}/${vars.action}`, {
+        method: 'POST',
+        body: { ownerPassword: vars.ownerPassword, expectedVersion: vars.expectedVersion },
+      }),
+    invalidate: [queryKeys.settings.sources()],
+  });
+
+  const sources = sourcesQuery.data?.items ?? null;
 
   const openImport = (source: SourceDto): void => {
     setPageError(null);
@@ -114,9 +170,13 @@ export function SettingsSourcesPage(): ReactNode {
   return (
     <section aria-label={`设置 · ${title}`} className="flex flex-1 flex-col gap-4 py-2">
       <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-      {sources === null && loadError === null ? <LoadingSpinner label="正在读取来源…" /> : null}
-      {loadError !== null ? (
-        <RetryableAlert title="读取失败" description={loadError} onRetry={() => setAttempt((n) => n + 1)} />
+      {sourcesQuery.isPending ? <LoadingSpinner label="正在读取来源…" /> : null}
+      {sourcesQuery.isError ? (
+        <RetryableAlert
+          title="读取失败"
+          description={formatApiError(sourcesQuery.error)}
+          onRetry={() => void sourcesQuery.refetch()}
+        />
       ) : null}
       {pageError !== null ? <p role="alert" className="text-sm text-danger">{pageError}</p> : null}
       {notice !== null ? <p role="status" className="text-sm text-success" data-testid="sources-notice">{notice}</p> : null}
@@ -242,8 +302,7 @@ export function SettingsSourcesPage(): ReactNode {
         <CreateSourceForm
           onCreated={(source) => {
             setCreating(false); // 表单收起(脏状态解除)
-            setCreatedSource(source); // 明确「开始导入」下一步(FR-037)
-            load();
+            setCreatedSource(source); // 明确「开始导入」下一步(FR-037);列表回填由 invalidate 驱动
           }}
           onCancel={() => setCreating(false)}
         />
@@ -263,8 +322,9 @@ export function SettingsSourcesPage(): ReactNode {
           if (importTarget === null || importKey === null) {
             return Promise.reject(new Error('no source'));
           }
-          return settingsApi
-            .startRefresh(importTarget.id, {
+          return startRefresh
+            .mutateAsync({
+              sourceId: importTarget.id,
               ownerPassword,
               expectedVersion: importTarget.version,
               operationKey: importKey,
@@ -273,7 +333,6 @@ export function SettingsSourcesPage(): ReactNode {
               setJobs((current) => ({ ...current, [job.id]: job }));
               setNotice(`导入任务已创建(状态 ${job.status}),正在轮询任务状态…`);
               setCreatedSource(null); // 下一步动作已完成
-              load(); // 刷新来源列表:令 source.lastJobId → 任务面板可见
             })
             .catch((cause: unknown) => {
               const kind = classifySettingsWriteError(cause);
@@ -283,8 +342,7 @@ export function SettingsSourcesPage(): ReactNode {
               }
               if (kind === 'conflict') {
                 setPageError('来源已被其他操作修改(版本冲突):列表已按服务端现值刷新,请重试。');
-                load();
-                return;
+                return; // 列表回填由 invalidate 驱动
               }
               throw cause; // 密码错误:弹层保持
             });
@@ -304,11 +362,10 @@ export function SettingsSourcesPage(): ReactNode {
           if (confirmPatch === null) {
             return Promise.reject(new Error('no patch'));
           }
-          return settingsApi
-            .patchSource(confirmPatch.source.id, { ownerPassword, ...confirmPatch.input })
+          return patchSource
+            .mutateAsync({ sourceId: confirmPatch.source.id, ownerPassword, input: confirmPatch.input })
             .then(() => {
               setNotice('来源已保存');
-              load();
             })
             .catch((cause: unknown) => {
               const kind = classifySettingsWriteError(cause);
@@ -318,8 +375,7 @@ export function SettingsSourcesPage(): ReactNode {
               }
               if (kind === 'conflict') {
                 setPageError('来源已被其他操作修改(版本冲突):列表已按服务端现值刷新,请重试。');
-                load();
-                return;
+                return; // 列表回填由 invalidate 驱动
               }
               throw cause;
             });
@@ -343,17 +399,18 @@ export function SettingsSourcesPage(): ReactNode {
           if (confirmJob === null) {
             return Promise.reject(new Error('no job'));
           }
-          const request =
-            confirmJob.action === 'confirm'
-              ? settingsApi.confirmRefresh(confirmJob.job.id, ownerPassword, confirmJob.job.version)
-              : settingsApi.discardRefresh(confirmJob.job.id, ownerPassword, confirmJob.job.version);
-          return request.then(
-            (fresh) => {
+          return settleRefresh
+            .mutateAsync({
+              jobId: confirmJob.job.id,
+              action: confirmJob.action,
+              ownerPassword,
+              expectedVersion: confirmJob.job.version,
+            })
+            .then((fresh) => {
               setJobs((current) => ({ ...current, [fresh.id]: fresh }));
               setNotice(fresh.status === 'succeeded' ? '快照已确认发布' : '快照已丢弃,上次成功目录保留');
-              load();
-            },
-            (cause: unknown) => {
+            })
+            .catch((cause: unknown) => {
               const kind = classifySettingsWriteError(cause);
               if (kind === 'access-lost') {
                 access.handleAccessLost();
@@ -364,8 +421,7 @@ export function SettingsSourcesPage(): ReactNode {
                 return;
               }
               throw cause;
-            },
-          );
+            });
         }}
         onClose={() => setConfirmJob(null)}
       />
@@ -382,7 +438,7 @@ function CreateSourceForm({
   onCancel: () => void;
 }): ReactNode {
   const access = useSettingsAccess();
-  const [kind, setKind] = useState<'iptv' | 'nas'>('iptv');
+  const [kind, setKind] = useState<'iptv' | 'epg' | 'nas'>('iptv');
   const [name, setName] = useState('');
   const [remoteUrl, setRemoteUrl] = useState('');
   const [rootKey, setRootKey] = useState('');
@@ -391,10 +447,11 @@ function CreateSourceForm({
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // NAS 根目录读取:键工厂无对应键(shared/query/keys.ts 本任务只读),保留表单级
+  // 一次性命令式读取(NAS 表单打开时一次;偏差已记录 —— 见 T025 报告「迁移映射」)
   useEffect(() => {
     if (kind === 'nas' && roots === null) {
-      void settingsApi
-        .listRoots()
+      void privateFetch<RootDto[]>('/settings/source-roots')
         .then(setRoots)
         .catch((cause: unknown) => {
           if (classifySettingsWriteError(cause) === 'access-lost') {
@@ -406,14 +463,33 @@ function CreateSourceForm({
     }
   }, [kind, roots, access]);
 
+  // 创建来源:confirmed 变更(当次密码);成功后失效来源列表回填
+  const createSource = useAppMutation({
+    domain: 'settings',
+    feedback: 'confirmed',
+    mutationFn: (vars: { ownerPassword: string }) =>
+      privateFetch<SourceDto>('/settings/sources', {
+        method: 'POST',
+        body: {
+          ownerPassword: vars.ownerPassword,
+          kind,
+          name: name.trim(),
+          enabled: true,
+          privateAccessApproved: true,
+          ...(kind !== 'nas' ? { remoteUrl: remoteUrl.trim() } : { rootKey, relativeDirectory }),
+        },
+      }),
+    invalidate: [queryKeys.settings.sources()],
+  });
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     if (name.trim() === '') {
       setError('请填写来源名称');
       return;
     }
-    if (kind === 'iptv' && remoteUrl.trim() === '') {
-      setError('IPTV 来源必须提供 remoteUrl');
+    if (kind !== 'nas' && remoteUrl.trim() === '') {
+      setError(kind === 'epg' ? 'EPG 来源必须提供 XMLTV remoteUrl' : 'IPTV 来源必须提供 remoteUrl');
       return;
     }
     if (kind === 'nas' && (rootKey === '' || relativeDirectory === '')) {
@@ -425,16 +501,11 @@ function CreateSourceForm({
   };
 
   const submit = (ownerPassword: string): Promise<void> =>
-    settingsApi
-      .createSource({
-        ownerPassword,
-        kind,
-        name: name.trim(),
-        enabled: true,
-        privateAccessApproved: true,
-        ...(kind === 'iptv' ? { remoteUrl: remoteUrl.trim() } : { rootKey, relativeDirectory }),
+    createSource
+      .mutateAsync({ ownerPassword })
+      .then((created) => {
+        onCreated(created);
       })
-      .then(onCreated)
       .catch((cause: unknown) => {
         const kindOf = classifySettingsWriteError(cause);
         if (kindOf === 'access-lost') {
@@ -454,6 +525,10 @@ function CreateSourceForm({
           IPTV
         </label>
         <label className="flex items-center gap-1">
+          <input type="radio" name="source-kind" checked={kind === 'epg'} onChange={() => setKind('epg')} />
+          EPG(XMLTV)
+        </label>
+        <label className="flex items-center gap-1">
           <input type="radio" name="source-kind" checked={kind === 'nas'} onChange={() => setKind('nas')} />
           NAS
         </label>
@@ -462,26 +537,39 @@ function CreateSourceForm({
         <Label>来源名称</Label>
         <Input name="name" maxLength={100} />
       </TextField>
-      {kind === 'iptv' ? (
+      {kind !== 'nas' ? (
         <TextField className="w-full" value={remoteUrl} onChange={setRemoteUrl}>
-          <Label>播放列表地址(M3U URL)</Label>
-          <Input name="remoteUrl" placeholder="http://…" />
+          <Label>{kind === 'epg' ? '节目单地址(XMLTV URL)' : '播放列表地址(M3U URL)'}</Label>
+          <Input name="remoteUrl" placeholder={kind === 'epg' ? 'https://…/epg.xml' : 'http://…'} />
         </TextField>
       ) : (
         <>
           <div className="flex flex-col gap-1">
-            <label htmlFor="source-root" className="text-sm text-muted">NAS 根目录</label>
-            <select
-              id="source-root"
-              className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
-              value={rootKey}
-              onChange={(event) => setRootKey(event.target.value)}
+            {/* T013:NAS 根目录原生 select 元素 → HeroUI Select。选项(请选择… '' + roots)、
+                当前值(rootKey)与 onChange(setRootKey)语义等价;aria-label 替代 htmlFor。 */}
+            <span id="source-root-label" className="text-sm text-muted">NAS 根目录</span>
+            <Select
+              aria-labelledby="source-root-label"
+              selectedKey={rootKey}
+              onSelectionChange={(key) => {
+                if (key !== null) {
+                  setRootKey(String(key));
+                }
+              }}
             >
-              <option value="">请选择…</option>
-              {(roots ?? []).map((root) => (
-                <option key={root.rootKey} value={root.rootKey}>{root.label}</option>
-              ))}
-            </select>
+              <Select.Trigger data-testid="source-root">
+                <Select.Value />
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox>
+                  <ListBox.Item id="" textValue="请选择…">请选择…</ListBox.Item>
+                  {(roots ?? []).map((root) => (
+                    <ListBox.Item key={root.rootKey} id={root.rootKey} textValue={root.label}>{root.label}</ListBox.Item>
+                  ))}
+                </ListBox>
+              </Select.Popover>
+            </Select>
           </div>
           <TextField className="w-full" value={relativeDirectory} onChange={setRelativeDirectory}>
             <Label>相对目录</Label>

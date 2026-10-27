@@ -1,13 +1,13 @@
 /**
- * 播放器视图(T055;005 US3/T104 US4)—— 复用 004 受控网关输出与 hls.js 消费:
+ * 播放器视图(T055;005 US3/T104 US4)—— 复用 004 受控网关输出与 video.js(内置 VHS)消费:
  *
  * - 交付分派:`delivery === 'direct'` 为 NAS 文件直读入口(媒体文件本体)→ 原生
  *   `<video src>`;其余(hls_proxy/remux/audio_transcode/video_transcode)入口是同源
- *   HLS 清单 → hls.js 消费(ADR-0009:不新增转码承诺,仅消费受控网关产物);
+ *   HLS 清单 → video.js 内置 VHS 消费(ADR-0009:不新增转码承诺,仅消费受控网关产物);
  * - 安装绑定:本组件只以 props 收到当前 intentId 代次批准的会话面(协调器守卫),
  *   组件随意图面卸载,旧代次结果不可能安装到新播放器;
  * - 续播安装(US4 T101):presentationStartSeconds > 0 时首次安装即定位(direct 置
- *   currentTime;hls.js 消费经原影片逻辑时间轴同值定位),不先播放零点再跳转;
+ *   currentTime;VHS 消费经原影片逻辑时间轴同值定位),不先播放零点再跳转;
  * - 存活保持:15 秒 heartbeat(位置取自媒体元素、暂停意图随拍上报;暂停心跳照发,
  *   004 R5:paused ≠ 失联);授权/会话/上下文失效(401/403/404)→ onTerminated 稳定
  *   提示,由协调器落 unavailable 面 —— 不展示内部策略或源位置;
@@ -16,14 +16,14 @@
  *   立即、卸载携 finalProgress 停止(未确认时空 stop + 未保存提示);断网保留最后
  *   成功值并提示同步失败;换档/退出废弃在途请求;
  * - 票据续期:到期前 60 秒 renew(004 TicketReply 语义),成功经 onRenew 上报协调器
- *   换装新入口 URL:direct 保存当前位置换 src 后恢复;hls.js loadSource 续装
+ *   换装新入口 URL:direct 保存当前位置换 src 后恢复;video.js 换源续装
  *   (媒体元素不动);旧票按原有效期失效、不撤销(004);
  * - URL/票据不写入 localStorage,页面不向第三方发送 referrer(全局 no-referrer)。
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import Hls from 'hls.js';
 import { isFetchApiError, privateFetch } from '../../shared/fetch';
 import { usePlaybackProgress } from './use-playback-progress';
+import { VideoPlayer } from './video-player';
 
 /** 心跳节拍(004 lifecycle.heartbeatIntervalSeconds;前端发起) */
 const HEARTBEAT_MS = 15_000;
@@ -55,7 +55,7 @@ export function PlayerView({
   onRenew,
 }: PlayerViewProps): ReactNode {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  /** 换装(续期)时待恢复的位置(direct 换 src 后回填;hls.js 续装回填) */
+  /** 换装(续期)时待恢复的位置(direct 换 src 后回填;VHS 换源续装回填) */
   const resumeAtRef = useRef<number | null>(null);
   /** 续播安装是否已应用(仅首次安装定位;换装/续期不重复定位) */
   const presentationAppliedRef = useRef(false);
@@ -81,45 +81,8 @@ export function PlayerView({
     },
   });
 
-  // 1. 源安装(随 playbackUrl/generation 变化换装;位置保持)
-  useEffect(() => {
-    const video = videoRef.current;
-    if (video === null || playbackUrl === '') {
-      return;
-    }
-    let destroyed = false;
-    let hls: Hls | null = null;
-    resumeAtRef.current = video.currentTime > 0 ? video.currentTime : null;
-    if (delivery !== 'direct' && Hls.isSupported()) {
-      hls = new Hls({ enableWorker: false });
-      hls.loadSource(playbackUrl);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (!destroyed && data.fatal) {
-          terminatedRef.current('播放流中断,请重新发起播放。');
-        }
-      });
-    } else {
-      // direct 或环境不支持 MSE:入口即媒体文件本体,原生消费
-      video.src = playbackUrl;
-      video.load();
-      // 自动播放被策略拒绝时保持用户手势可控;环境无媒体实现(jsdom)时静默跳过
-      const playPromise = typeof video.play === 'function' ? video.play() : undefined;
-      if (playPromise !== undefined && typeof playPromise.catch === 'function') {
-        playPromise.catch(() => undefined);
-      }
-    }
-    return () => {
-      destroyed = true;
-      if (hls !== null) {
-        hls.destroy();
-      }
-      video.removeAttribute('src');
-      video.load();
-    };
-    // 稳定回调经 ref 转发;playbackUrl/generation 变化即换装
-    // 依赖面刻意收窄:稳定回调经 ref 转发;playbackUrl/generation 变化即换装
-  }, [playbackUrl, generation, delivery]);
+  // 1. 源安装与引擎生命周期由 <VideoPlayer> 承担(video.js 初始化/换源/销毁;
+  //    换装(续期)时的位置捕获在 onRenew 回调内完成,回填仍由下方 restore 监听执行)
 
   // 2. 位置恢复与续播安装(换装完成即回填,不回零;首次安装按服务端冻结位置定位)
   useEffect(() => {
@@ -132,7 +95,7 @@ export function PlayerView({
       if (resumeAt !== null && Number.isFinite(resumeAt) && resumeAt > 0) {
         video.currentTime = resumeAt;
       } else if (!presentationAppliedRef.current && Number.isFinite(presentationStartSeconds) && presentationStartSeconds > 0) {
-        // 续播安装(T101):服务端冻结位置(direct/hls.js 同一影片逻辑时间轴)
+        // 续播安装(T101):服务端冻结位置(direct/VHS 同一影片逻辑时间轴)
         video.currentTime = presentationStartSeconds;
       }
       presentationAppliedRef.current = true;
@@ -208,14 +171,13 @@ export function PlayerView({
 
   return (
     <div className="relative h-full w-full">
-      <video
-        ref={videoRef}
-        data-testid="playback-video"
-        className="h-full w-full bg-black"
-        controls
-        playsInline
-        preload="auto"
-        aria-label="播放器"
+      <VideoPlayer
+        videoRef={videoRef}
+        src={playbackUrl}
+        mimeType={delivery === 'direct' ? null : 'application/x-mpegURL'}
+        onFatalError={() => {
+          terminatedRef.current('播放流中断,请重新发起播放。');
+        }}
       />
       {/* 进度协议状态提示(未保存/同步失败;不遮挡控制条,错误不只靠颜色) */}
       {progress.syncFailed ? (

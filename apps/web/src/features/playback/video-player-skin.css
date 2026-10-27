@@ -1,0 +1,133 @@
+/**
+ * video.js 皮肤(T011 语义 token 约束下的品牌化覆写)——
+ *
+ * - 作用域:全部规则挂在 `.hmp-player`(video-player.tsx 初始化时 addClass),
+ *   不污染默认皮肤;颜色一律派生自主题语义变量(tokens.css / @heroui/styles):
+ *   品牌强调 var(--accent)(红,Netflix 式暗色基调)、遮罩 var(--overlay)、
+ *   文字 var(--foreground)、边框 var(--border)、圆角 var(--radius),
+ *   禁止出现第二套硬编码色值(ui.md §8 / delivery-constraints §2~§3);
+ * - 覆写面:大播放按钮(居中圆形)、控制条(半透明毛玻璃 + 上缘发丝线)、
+ *   进度/音量轨道(accent 填充 + 放大拖柄)、悬停/焦点态(统一焦点色)、
+ *   菜单弹层(surface 表面)。
+ */
+.hmp-player {
+  /* 大播放按钮:居中圆形(v8 无内置 centered 类,定位自实现) */
+}
+.hmp-player .vjs-big-play-button {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3.4em;
+  height: 3.4em;
+  border: 0.09em solid var(--accent);
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--overlay) 55%, transparent);
+  backdrop-filter: blur(4px);
+  line-height: 3.2em;
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+.hmp-player:hover .vjs-big-play-button,
+.hmp-player .vjs-big-play-button:focus-visible {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  transform: translate(-50%, -50%) scale(1.06);
+}
+.hmp-player .vjs-big-play-button .vjs-icon-placeholder:before {
+  font-size: 1.9em;
+  line-height: 1.68;
+  color: var(--foreground);
+}
+
+/* 控制条:底部半透明毛玻璃 + 上缘发丝线 */
+.hmp-player .vjs-control-bar {
+  height: 3.2em;
+  background: color-mix(in oklab, var(--overlay) 72%, transparent);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid var(--separator);
+}
+
+/* 按钮:前景色图标,悬停/激活跟随品牌色 */
+.hmp-player .vjs-button > .vjs-icon-placeholder:before {
+  color: var(--foreground);
+  transition: color 0.15s ease;
+}
+.hmp-player .vjs-button:hover > .vjs-icon-placeholder:before {
+  color: var(--accent);
+}
+.hmp-player .vjs-button:focus-visible {
+  outline: var(--hmp-focus-ring-width) solid var(--focus);
+  outline-offset: calc(-1 * var(--hmp-focus-ring-offset));
+  border-radius: var(--radius);
+}
+
+/* 进度条:accent 已播段 + 放大拖柄;加载段弱化 */
+.hmp-player .vjs-play-progress {
+  background-color: var(--accent);
+}
+.hmp-player .vjs-play-progress:before {
+  color: var(--accent);
+  font-size: 1.1em;
+  text-shadow: none;
+}
+.hmp-player .vjs-load-progress {
+  background: color-mix(in oklab, var(--foreground) 22%, transparent);
+}
+.hmp-player .vjs-load-progress div {
+  background: color-mix(in oklab, var(--foreground) 30%, transparent);
+}
+.hmp-player .vjs-slider {
+  background: color-mix(in oklab, var(--foreground) 18%, transparent);
+}
+
+/* 音量条:同 accent 语义 */
+.hmp-player .vjs-volume-level {
+  background-color: var(--accent);
+}
+
+/* 直播标记:accent 圆点强调 */
+.hmp-player .vjs-live-control .vjs-live-display {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+.hmp-player .vjs-live-control .vjs-live-display:before {
+  content: '';
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* 时间文字:弱化层级 */
+.hmp-player .vjs-time-control {
+  color: color-mix(in oklab, var(--foreground) 78%, transparent);
+  line-height: 3.2em;
+}
+
+/* 菜单弹层(倍速/音轨等):surface 表面 + 边框 + 圆角 */
+.hmp-player .vjs-menu {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+  overflow: hidden;
+}
+.hmp-player .vjs-menu .vjs-menu-content {
+  background: transparent;
+}
+.hmp-player .vjs-menu li {
+  color: var(--surface-foreground);
+  background: transparent;
+}
+.hmp-player .vjs-menu li:hover,
+.hmp-player .vjs-menu li.vjs-selected {
+  color: var(--accent-foreground);
+  background: var(--accent);
+}
+
+/* 错误提示面:半透明遮罩上的稳定文字 */
+.hmp-player .vjs-modal-dialog {
+  background: color-mix(in oklab, var(--overlay) 85%, transparent);
+  color: var(--foreground);
+}
