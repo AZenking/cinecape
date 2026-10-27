@@ -1,6 +1,7 @@
 # ADR-0009：会话化播放网关与受控媒体转换
 
 状态：Accepted（2026-10-25 维护者接受，依据见 plan.md T001 接受记录；实施完成——T059 六门禁全绿，Verified 条件未满足项如实列出：浏览器 Network 证据（T054/T055，US3-01～10 全部待执行）、真实 Linux 硬件加速与资源画像（T058 G1–G6）、双架构镜像实测（T057，Docker Hub 不可达），缺口清单见 evidence.md T060 FR/SC 终验核对）；关联 [004规格](../specs/004-playback-resolver/spec.md)、[计划](../specs/004-playback-resolver/plan.md)。实施授权已生效，验证完成前不标 Verified；不改变ADR-0007目录身份与ADR-0008绑定规则。
+- 005 关联标注（2026-10-27）：[ADR-0010](0010-public-browsing-playback-separation.md) 为播放会话增加 profile_context_version 上下文绑定（控制/交付/进度逐次重验）；[ADR-0012](0012-profile-resume-fresh-storage.md) 新增 resume/startMode 冻结、progress 协议与个人历史——**本 ADR 的受控网关、票据、交付、转换与 15 秒 heartbeat 语义零回退，heartbeat 不写个人历史**。
 
 ## Context
 

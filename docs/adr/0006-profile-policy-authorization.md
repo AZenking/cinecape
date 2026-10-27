@@ -3,6 +3,7 @@
 - 状态：Accepted（2026-10-23）
 - 日期：2026-10-23
 - 关联：[规格 002](../specs/002-profile-policy/spec.md)、ADR-0002/0003/0005、宪章原则二/三/五。
+- 005 关联标注（2026-10-27）：[ADR-0010](0010-public-browsing-playback-separation.md)/[ADR-0011](0011-main-profile-settings-access.md)/[ADR-0012](0012-profile-resume-fresh-storage.md) 扩展本 ADR 的授权体系（公开浏览不执行 ProfilePolicy 展示过滤但播放授权完整保留；设置 PIN 与选档 PIN 共享持久失败锁定）；**本 ADR 的逐次敏感操作账号密码验证继续有效，未被替代**。
 - 2026-10-23 维护者接受本 ADR 全部决策（含未评级默认值、名单覆盖语义、成人无 PIN 切换保护与 5 次/5 分钟锁定参数）；接受同时已同步领域模型 §6 与 002 设计文档。
 
 ## Context

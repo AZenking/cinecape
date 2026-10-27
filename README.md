@@ -4,11 +4,12 @@
 
 ## 当前状态
 
-- 阶段：阶段 1「应用脚手架与身份基础」收尾完成（2026-10-23 重新验收）；阶段 2「ProfilePolicy」已完成并验收；阶段 3「媒体目录与来源」已完成并验收（2026-10-25）；阶段 4「Playback Resolver」实现完成（T059 全仓六门禁全绿，2026-10-26；浏览器 Network / 真实硬件 / 双架构镜像验收证据待补——实现完成 ≠ 验收完成）
+- 阶段：阶段 1～4 已完成（见下方证据档案）；阶段 5「PC 公开浏览与观看操作流程全面调整」（[规格 005](docs/specs/005-pc-browsing-flow/spec.md)）**实现完成**（2026-10-27：八个用户故事 US1~US8 全部交付，server 1362 用例 / web 100 用例 / e2e 46 用例全绿，见 [005 evidence.md](docs/specs/005-pc-browsing-flow/evidence.md)）；最终 Verified 门禁待 T137～T144 多层证据（真实四浏览器矩阵与 SC-002 真人验收须人工执行——实现完成 ≠ 验收完成）
+- 005 交互变更：游客免登录浏览全部可用内容元数据（公开浏览与播放授权分离，ADR-0010）；初始化不再自动登录；主 Profile + 独立 15 分钟设置 PIN 授权（ADR-0011）；收藏/历史/跨设备续播按 Profile 隔离（ADR-0012）；管理入口统一迁入 `/api/settings/*`
 - 领域模型：V1.1 Frozen
 - 实现状态：身份闭环可用（初始化向导 / 登录 / Profile 选择与切换含 PIN / 设备管理 / 会话生命周期）；内容策略可用（等级 / 未评级 / 名单 / 频道白名单 + 家长验证）；媒体目录与来源可用（IPTV/EPG、NAS 导入、手动 EPG 匹配）；播放解析与受控播放可用（统一授权网关 `POST /playback/resolve`、direct/remux/audio/video 四路径交付、转封装与按需转码、字幕/音轨、家长设备记录）
 - 证据档案：[`docs/specs/001-scaffold-identity-foundation/evidence.md`](docs/specs/001-scaffold-identity-foundation/evidence.md)（65 测试 + 真实进程/浏览器 + 迁移恢复 + ARM64/AMD64 容器）；[`docs/specs/002-profile-policy/evidence.md`](docs/specs/002-profile-policy/evidence.md)（109 用例 + 升级/回滚/恢复演练 + 容器内策略链路）；[`docs/specs/003-media-catalog/evidence.md`](docs/specs/003-media-catalog/evidence.md)（456 用例 + runtime 205 断言 + 真实浏览器 + 双架构容器 + 迁移演练）；[`docs/specs/004-playback-resolver/evidence.md`](docs/specs/004-playback-resolver/evidence.md)（961 用例 + runtime 445 断言 + 迁移/恢复演练 + FR/SC 终验核对；浏览器/硬件/镜像缺口如实保留）
-- 最高治理依据： [项目宪章](.specify/memory/constitution.md)（1.0.1）
+- 最高治理依据： [项目宪章](.specify/memory/constitution.md)（1.2.0，含 005/代际2 限定交付例外）
 - 当前领域规范：[`homeMediaDomainModel.md`](homeMediaDomainModel.md)
 
 ## V1 目标

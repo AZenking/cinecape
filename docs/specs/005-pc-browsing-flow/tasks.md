@@ -27,7 +27,7 @@ description: "Task list for feature 005-pc-browsing-flow implementation"
 
 ## Status
 
-Generated 2026-10-26 by `$speckit-tasks`（基于 Proposed 设计产物；未执行任何实现）。任务完成时勾选 `[x]` 并按 Checkpoint 留证据。
+Generated 2026-10-26 by `$speckit-tasks`。**实现进度（2026-10-27）：T001～T136 全部完成并勾选**（T001 门禁经维护者实施指令显式接受；Wave A/B/C 多 subagent 并发执行，Lead 集成与验证；证据见 evidence.md）。Phase 11 进行中：T137/T139/T140/T141/T142 自动化证据与 verify:release 实现由收尾任务交付；**T138（真实四浏览器人工矩阵）与 T149（SC-002 真人验收）须人工执行，未完成前不标 Verified**。任务完成时勾选 `[x]` 并按 Checkpoint 留证据。
 
 ---
 
