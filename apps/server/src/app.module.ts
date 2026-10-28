@@ -17,7 +17,7 @@ import { PlaybackModule } from './modules/playback/playback.module';
 import { PublicCatalogModule } from './modules/public-catalog/public-catalog.module';
 import { LiveModule } from './modules/live/live.module';
 import { SettingsModule } from './modules/settings/settings.module';
-import { PersonalDataModule } from './contexts/personal-data/personal-data.module';
+import { PersonalDataModule } from '@contexts/personal-data/personal-data.module';
 
 @Module({
   imports: [CommonModule, HealthModule, AuthModule, HouseholdModule, ProfileModule, PolicyModule, SourcesModule, RefreshModule, CatalogModule, EpgModule, PlaybackModule, PersonalDataModule, PublicCatalogModule, LiveModule, SettingsModule],

@@ -9,8 +9,8 @@ import {
   addFavoriteChannel,
   listFavoriteChannels,
   removeFavoriteChannel,
-} from '../../../src/contexts/personal-data/application/favorites.service';
-import { decodePersonalCursor } from '../../../src/contexts/personal-data/infrastructure/signed-cursor';
+} from '@contexts/personal-data/application/favorites.service';
+import { decodePersonalCursor } from '@contexts/personal-data/infrastructure/signed-cursor';
 import { DomainError } from '../../../src/common/domain-error';
 import { getDb } from '../../../src/modules/auth/db';
 import { hashToken as hashTokenFor } from '../../../src/modules/auth/token.service';

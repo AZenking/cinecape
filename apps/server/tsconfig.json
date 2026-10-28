@@ -4,7 +4,12 @@
     "outDir": "dist",
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@contexts/*": ["src/contexts/*"],
+      "@platform/*": ["src/platform/*"]
+    }
   },
   "include": ["src", "test"]
 }

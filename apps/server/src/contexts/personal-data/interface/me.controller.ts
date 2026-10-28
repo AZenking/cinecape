@@ -12,13 +12,13 @@ import {
   listFavoriteChannels,
   removeFavoriteChannel,
   type FavoriteChannelPage,
-} from '../application/favorites.service';
+} from '@contexts/personal-data/application/favorites.service';
 import {
   getHistoryItem,
   listHistory,
   type HistoryItemDto,
   type HistoryPage,
-} from '../application/history.service';
+} from '@contexts/personal-data/application/history.service';
 
 /**
  * /me 个人边界路由(T098/T101,005 contracts/api.md §4):

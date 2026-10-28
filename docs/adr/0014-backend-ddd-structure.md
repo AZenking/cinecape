@@ -43,3 +43,15 @@
 - 一次性大迁移或按层横向迁移：回归不可定位、中间态不可审计，弃用。
 - 全量照搬 skill 字面机制（class-validator/Jest/terminus/@nestjs/config）：与行为零变化、零新增运行时依赖冲突，按宪章第 7 条优先级弃用（见偏离清单）。
 - 后果与约束：本结构落地后即成为宪章强制设施——后续新增后端代码必须按上下文四层落位并通过门禁审计；审计脚本与配置本身纳入零遗留清点范围。
+
+## 补充决策：路径别名（2026-10-28 维护者指令）
+
+**决策**：为 `apps/server` 引入路径别名基座（007-T008a，T009 起各迁移步的导入形态前提）：
+
+1. **别名映射**：`@contexts/*` → `src/contexts/*`、`@platform/*` → `src/platform/*`，声明于 `tsconfig.json` 与 `tsconfig.build.json`（`baseUrl: "."` + `paths`）。
+2. **构建链变更**：新增 devDependency `tsc-alias`（本特性唯一新增的构建期工具，零新增运行时依赖不变）；`build` 脚本改为 `tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json && cp -R src/database/migrations dist/database/`——tsc 原样输出 `@contexts`/`@platform` specifier，由 tsc-alias 在产物中改写为相对路径，保证 dist 无别名残留（已验证 `grep -rn "@contexts\|@platform" dist` 为空且 `node dist/app.module.js` 模块图可加载）。
+3. **解析矩阵**：vitest 以 `resolve.alias` 显式映射（test/** 消费别名导入）；dependency-cruiser 经 `options.tsConfig.fileName` 按 tsconfig paths 解析，规则 `to.path` 匹配的仍是解析后真实路径（规则正则零改动）；knip 原生读取 tsconfig paths（exit 0，无需补配置）；eslint `projectService` 经各包 tsconfig 自动获得同一 paths 语义。
+4. **别名约定（与审计规则 R2 的对应关系）**：`@contexts/<ctx>` 裸导入**仅允许指向该上下文发布面 `index.ts`**——裸导入 = 发布面契约；上下文内部跨层一律用 `@contexts/<ctx>/<layer>/...` 全路径；platform 用 `@platform/...`。该约定与 R2「跨上下文深导入禁令」（落点必须为目标上下文 `index.ts`）互为表里：别名让"是否指向发布面"在导入语句层面可读，R2 让其在审计层面可判定；T020 建立发布面后，裸导入即成为跨上下文协作的唯一别名形态。
+5. **旧树不回改策略**：`src/modules/**`、`src/common/**`、`src/config/**`、`src/database/**` 及指向旧树的导入保留相对路径，不提前别名化——旧树随 T009–T018 各迁移步自然消失，避免对将死代码做无用回改（含旧树中已指向 `src/contexts/**` 的相对导入，同样待各步迁移时转换）。
+
+**验证**（T008a 门禁，2026-10-28）：typecheck / lint / 全量测试 1376/1376 / `AUDIT_ENFORCE=0 audit:boundaries` 40 条（与 T008 持平，别名化未引入新违规）/ `audit:orphans` exit 0 / build 通过且 dist 无残留别名。

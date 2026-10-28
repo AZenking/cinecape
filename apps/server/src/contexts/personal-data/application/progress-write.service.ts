@@ -17,7 +17,7 @@ import {
   progressSampleDigest,
   writeRightOf,
   type StoredSampleResult,
-} from './progress-clock.service';
+} from '@contexts/personal-data/application/progress-clock.service';
 
 /**
  * 进度写入状态机(T100,005 api.md §5 progress、data-model.md §6/§7「写入状态转换」):

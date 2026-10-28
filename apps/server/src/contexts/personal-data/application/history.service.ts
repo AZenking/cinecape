@@ -5,7 +5,7 @@ import { mediaItem, profileViewingHistory, type ProfileViewingHistory } from '..
 import { loadAvailableMediaIdSet } from '../../../modules/policy/policy.batch-context';
 import { toPublicMedia } from '../../../modules/public-catalog/public-media-projection';
 import type { PublicMediaDto } from '@hmp/shared';
-import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload } from '../infrastructure/signed-cursor';
+import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload } from '@contexts/personal-data/infrastructure/signed-cursor';
 
 /**
  * 观看历史查询与续播冻结读取(T101,005 contracts/api.md §4/§5、data-model.md §7):

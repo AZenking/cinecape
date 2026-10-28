@@ -10,7 +10,7 @@ import { loadAvailableMediaIdSet } from '../../../modules/policy/policy.batch-co
 import { loadLiveChannelWindows, type LiveChannelProjection } from '../../../modules/live/live-projection.service';
 import { toPublicMedia } from '../../../modules/public-catalog/public-media-projection';
 import type { ExperienceProgrammeDto, PublicMediaDto } from '@hmp/shared';
-import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload } from '../infrastructure/signed-cursor';
+import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload } from '@contexts/personal-data/infrastructure/signed-cursor';
 
 /**
  * 收藏服务(T098,005 contracts/api.md §4、data-model.md §4):

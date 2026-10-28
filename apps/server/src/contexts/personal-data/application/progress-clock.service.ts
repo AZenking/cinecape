@@ -9,7 +9,7 @@ import {
   profileViewingHistory,
 } from '../../../database/schema';
 import { createDomainError } from '../../../common/domain-error';
-import { readResumeFreezePosition } from './history.service';
+import { readResumeFreezePosition } from '@contexts/personal-data/application/history.service';
 
 /**
  * 点播写入权时钟与 resolve 绑定(T099,005 data-model.md §5/§6、api.md §5 resolve):

@@ -13,7 +13,7 @@ import {
 import { eq } from 'drizzle-orm';
 import { stageEntries } from '../../src/modules/imports/refresh-staging.service';
 import { RefreshPublishService } from '../../src/modules/imports/refresh-publish.service';
-import { canResumeOf } from '../../src/contexts/personal-data/application/history.service';
+import { canResumeOf } from '@contexts/personal-data/application/history.service';
 
 /**
  * T147(005 US4 集成测试)—— 内容修订失效:
@@ -129,7 +129,7 @@ describe('T147 · 内容修订失效集成(导入发布 × 进度修订校验)',
       lastSampleSeq: 0, lastSampleDigest: null, lastGeneration: 1, lastResult: null,
     }).run();
     // duration 注入后先建立历史(修订 1,位置 120)
-    const { registerPersonalPlaybackFactsPort } = await import('../../src/contexts/personal-data/application/progress-clock.service');
+    const { registerPersonalPlaybackFactsPort } = await import('@contexts/personal-data/application/progress-clock.service');
     registerPersonalPlaybackFactsPort({ trustedDurationSeconds: () => 3600 });
     const started = await request(rig.app.getHttpServer())
       .post(`/api/playback/sessions/${sessionId}/progress`)
