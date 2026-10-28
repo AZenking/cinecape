@@ -17,10 +17,10 @@
 **Purpose**: 宪章门槛（规格 Accepted + ADR）与审计工具就绪；记录迁移前基线
 
 - [X] T001 依照宪章原则一/五完成开工门槛：将 `docs/specs/007-backend-ddd-restructure/spec.md` 状态流转 Proposed → Accepted，撰写并推动接受结构方案 ADR `docs/adr/0014-backend-ddd-structure.md`（内容：10 上下文划分、四层规则、跨上下文协作机制、platform 归属、规则偏离清单章节——初稿按 `nestjs-best-practices-compliance.md` 中 ⏸/🔄 条目填写）
-- [ ] T002 [P] 安装并配置审计工具：在 `apps/server` 添加 devDependencies `dependency-cruiser` 与 `knip`；新建 `apps/server/.dependency-cruiser.cjs`（规则 = data-model.md §3 依赖矩阵 + 深导入禁令 + domain/application 框架渗漏禁令，规则路径域限定 `src/contexts/**` 与 `src/platform/**`）与 `apps/server/knip.json`（入口 `src/main.ts`，忽略测试与迁移 SQL）
-- [ ] T003 [P] 接入门禁脚本：在 `apps/server/package.json` 增加 `"audit:boundaries": "depcruise src --config .dependency-cruiser.cjs"` 与 `"audit:orphans": "knip"`；在根 `package.json` 的 `verify:release` 前置链路（或等价位置）追加两脚本调用
+- [X] T002 [P] 安装并配置审计工具：在 `apps/server` 添加 devDependencies `dependency-cruiser` 与 `knip`；新建 `apps/server/.dependency-cruiser.cjs`（规则 = data-model.md §3 依赖矩阵 + 深导入禁令 + domain/application 框架渗漏禁令，规则路径域限定 `src/contexts/**` 与 `src/platform/**`）与 `apps/server/knip.json`（入口 `src/main.ts`，忽略测试与迁移 SQL）
+- [X] T003 [P] 接入门禁脚本：在 `apps/server/package.json` 增加 `"audit:boundaries": "depcruise src --config .dependency-cruiser.cjs"` 与 `"audit:orphans": "knip"`；在根 `package.json` 的 `verify:release` 前置链路（或等价位置）追加两脚本调用
 - [ ] T004 [P] 捕获迁移前基线证据：运行 `pnpm --filter @hmp/server test`、`pnpm test:runtime`、`pnpm migration:drill`，将结果（含测试数量统计）记录到 `docs/specs/007-backend-ddd-restructure/evidence/baseline.md`
-- [ ] T005 [P] 生成控制器路由清单快照：提取 `apps/server/src/modules/**` 全部 `@Controller`/方法路由与状态码语义到 `docs/specs/007-backend-ddd-restructure/evidence/routes-baseline.md`（供 US2 零变化比对）
+- [X] T005 [P] 生成控制器路由清单快照：提取 `apps/server/src/modules/**` 全部 `@Controller`/方法路由与状态码语义到 `docs/specs/007-backend-ddd-restructure/evidence/routes-baseline.md`（供 US2 零变化比对）
 
 **Checkpoint**: 门槛已过（T001）、审计可空跑（T002/T003）、基线在案（T004/T005）
 
@@ -31,7 +31,7 @@
 **Purpose**: 审计就绪验证 + 逐文件迁移映射表
 
 - [ ] T006 验证审计工具就绪：空跑 `pnpm --filter @hmp/server audit:boundaries` 与 `pnpm --filter @hmp/server audit:orphans`（当前结构下规则不应命中新路径域），结果记录到 `evidence/tooling.md`；如配置错误在此修复
-- [ ] T007 将 `data-model.md` §4 组级映射细化为逐文件映射核对表 `evidence/migration-map.md`（每行：现路径 → 目标上下文/层；「逐文件判定」项按既定标准标注判定结果——import 加密/文件系统/网络/驱动库即 infrastructure，纯函数与类型即 domain，其余编排在 application）
+- [X] T007 将 `data-model.md` §4 组级映射细化为逐文件映射核对表 `evidence/migration-map.md`（每行：现路径 → 目标上下文/层；「逐文件判定」项按既定标准标注判定结果——import 加密/文件系统/网络/驱动库即 infrastructure，纯函数与类型即 domain，其余编排在 application）
 
 **Checkpoint**: 审计可判定、映射到文件级——US1 各步可开工
 

@@ -6,6 +6,8 @@
 #   ② pnpm lint                全仓库 eslint
 #   ③ pnpm typecheck -r        全 workspace tsc --noEmit
 #   ④ pnpm build -r            全 workspace 构建(server 含迁移产物拷贝;web vite build)
+#   ④b 结构审计(规格007):server audit:boundaries(dependency-cruiser 层矩阵/
+#      深导入/框架渗漏)+ audit:orphans(knip 孤儿文件/死导出)
 #   ⑤ 全量组件/契约测试:server+web 两个 filter 的 vitest run(显式两条命令)
 #   ⑥ PC E2E 全量(Playwright,cd apps/web;--workers=1 逐文件顺序执行 ——
 #      混合并发会触发公共限频抖动,已知问题)。按「种子/无种子」分三组顺序执行,
@@ -62,6 +64,10 @@ run_step "① gen:types" pnpm gen:types
 run_step "② lint" pnpm lint
 run_step "③ typecheck(-r)" pnpm -r typecheck
 run_step "④ build(-r)" pnpm -r build
+
+# ④b 结构边界与零遗留审计(规格007 宪章技术约束6/7 门禁)
+run_step "④b audit:boundaries(007 结构门禁)" pnpm --filter @hmp/server audit:boundaries
+run_step "④b audit:orphans(007 零遗留门禁)" pnpm --filter @hmp/server audit:orphans
 
 # ⑤ 全量测试(server+web 全部 unit/contract/组件测试;显式 filter,不继承基础清单)
 run_step "⑤a server 全量 vitest(unit+contract)" pnpm --filter @hmp/server test
