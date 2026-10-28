@@ -1,11 +1,17 @@
 import { createHash } from 'node:crypto';
-import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { ExperienceProgrammeDto } from '@hmp/shared';
 import { pickCurrentNext } from '@contexts/live-tv/domain/live-time';
 import { pickMainGroupLabel, type GroupTitleSource } from '@contexts/live-tv/domain/live-grouping';
-import { getDb } from '@contexts/identity-access';
 import { loadAvailableMediaIdSet } from '@contexts/policy';
-import { epgChannel, epgProgramme, manualEpgBinding, mediaItem, mediaSource, sourceEntry } from '@platform/database/schema';
+import { liveTvStore } from '@contexts/live-tv/application/live-tv-store.port';
+import type {
+  ChannelMetaRow,
+  EpgChannelRow,
+  ManualEpgBindingRow,
+  MediaSourceRow,
+  ProgrammeRow,
+  SourceEntryRow,
+} from '@contexts/live-tv/application/live-tv-store.port';
 
 /**
  * 公共直播批量投影(T063/T065/T066;005 data-model §8、contracts/api.md §2、research R8):
@@ -30,6 +36,11 @@ import { epgChannel, epgProgramme, manualEpgBinding, mediaItem, mediaSource, sou
  *
  * 不透明 programme key:由内部 epg_programme.id 经单向 sha256 映射生成,
  * 不下发来源 ID / XMLTV 原始标识 / 路径;同起点并列的稳定性判定亦使用该公共 key。
+ *
+ * 008-repository-extraction(T008,ADR-0015 D1):SQL 构造自本文件逐字迁移至
+ * infrastructure/live-tv-store.drizzle.ts(LiveTvStore 端口 + seam 槽),
+ * 关联/分组/窗口判定逻辑原样留存;loadLiveChannelWindows 签名(无 db 参数)
+ * 不变,跨上下文消费方(personal-data favorites / epg binding-core)零适配。
  */
 
 /** 频道级投影结果(media 投影字段 + 稳定主分组 + current/next) */
@@ -45,37 +56,6 @@ export interface LiveChannelProjection {
   readonly next: ExperienceProgrammeDto | null;
 }
 
-interface SourceEntryRow {
-  sourceId: string;
-  entryId: string;
-  mediaId: string;
-  upstreamChannelId: string | null;
-  groupTitle: string | null;
-}
-
-interface MediaSourceRow {
-  id: string;
-  kind: string;
-  enabled: number;
-  epgSourceId: string | null;
-}
-
-interface EpgChannelRow {
-  sourceId: string;
-  xmltvChannelId: string;
-  conflicted: number;
-}
-
-interface ProgrammeRow {
-  id: string;
-  sourceId: string;
-  xmltvChannelId: string;
-  title: string;
-  description: string | null;
-  startsAt: string;
-  endsAt: string;
-}
-
 /** programme 公共不透明 key(内部 ID → sha256 截断;不含来源/XMLTV/路径信息) */
 export function programmeKeyOf(internalId: string): string {
   const digest = createHash('sha256').update(`hmp-programme\u0000${internalId}`, 'utf8').digest('hex');
@@ -88,34 +68,8 @@ function pairKeyOf(sourceId: string, xmltvChannelId: string): string {
   return `${sourceId}\u0000${xmltvChannelId}`;
 }
 
-function programmeRowOf(raw: {
-  id: string;
-  source_id: string;
-  xmltv_channel_id: string;
-  title: string;
-  description: string | null;
-  starts_at: string;
-  ends_at: string;
-}): ProgrammeRow {
-  return {
-    id: raw.id,
-    sourceId: raw.source_id,
-    xmltvChannelId: raw.xmltv_channel_id,
-    title: raw.title,
-    description: raw.description,
-    startsAt: raw.starts_at,
-    endsAt: raw.ends_at,
-  };
-}
-
-/** 频道元数据行(不含播放地址/来源身份;guide 墙与直播列表共用同一投影) */
-export interface ChannelMetaRow {
-  readonly id: string;
-  readonly title: string;
-  readonly description: string | null;
-  readonly posterRef: string | null;
-  readonly contentLevel: number | null;
-}
+/** 频道元数据行发布面(index.ts 既有再导出落点不变;定义自 008 起位于仓储端口) */
+export type { ChannelMetaRow };
 
 /** 关联解析核心的集合装载结果(US6 T113 起供 contexts/epg/domain/binding-core 复用) */
 export interface ChannelAssociationCore {
@@ -139,70 +93,19 @@ export interface ChannelAssociationCore {
 export function loadChannelAssociationCore(
   householdId: string,
   options: { readonly mediaIds?: readonly string[] } = {},
-): ChannelAssociationCore {  const mediaIds = options.mediaIds;
-  const db = getDb();
+): ChannelAssociationCore {
+  const mediaIds = options.mediaIds;
+  const store = liveTvStore();
 
   // 1) 频道集合 + 家庭真实可用性(集合查询:present 条目 × 启用来源 × 播放资源)
-  const channelRows: ChannelMetaRow[] = db
-    .select({
-      id: mediaItem.id,
-      title: mediaItem.title,
-      description: mediaItem.description,
-      posterRef: mediaItem.posterRef,
-      contentLevel: mediaItem.contentLevel,
-    })
-    .from(mediaItem)
-    .where(
-      mediaIds === undefined
-        ? and(eq(mediaItem.householdId, householdId), eq(mediaItem.type, 'channel'))
-        : and(eq(mediaItem.householdId, householdId), eq(mediaItem.type, 'channel'), inArray(mediaItem.id, [...mediaIds])),
-    )
-    .all();
+  const channelRows: ChannelMetaRow[] = store.listChannelRows(householdId, mediaIds);
   const availableIds = loadAvailableMediaIdSet(householdId);
 
   // 2) 启用 IPTV 来源 × present 条目(一次查询同时供主分组与关联解析)
-  const entryRows: SourceEntryRow[] = db
-    .select({
-      sourceId: sourceEntry.sourceId,
-      entryId: sourceEntry.id,
-      mediaId: sourceEntry.mediaId,
-      upstreamChannelId: sourceEntry.upstreamChannelId,
-      groupTitle: sourceEntry.groupTitle,
-    })
-    .from(sourceEntry)
-    .innerJoin(
-      mediaSource,
-      and(
-        eq(mediaSource.householdId, sourceEntry.householdId),
-        eq(mediaSource.id, sourceEntry.sourceId),
-        eq(mediaSource.kind, 'iptv'),
-        eq(mediaSource.enabled, 1),
-      ),
-    )
-    .where(
-      and(
-        eq(sourceEntry.householdId, householdId),
-        eq(sourceEntry.present, 1),
-        sql`${sourceEntry.mediaId} IS NOT NULL`,
-      ),
-    )
-    .all()
-    .filter((row): row is SourceEntryRow & { mediaId: string } => row.mediaId !== null);
-  const sourceRows: MediaSourceRow[] = db
-    .select({ id: mediaSource.id, kind: mediaSource.kind, enabled: mediaSource.enabled, epgSourceId: mediaSource.epgSourceId })
-    .from(mediaSource)
-    .where(eq(mediaSource.householdId, householdId))
-    .all();
-  const manualRows = db
-    .select({ mediaId: manualEpgBinding.mediaId, epgSourceId: manualEpgBinding.epgSourceId, xmltvChannelId: manualEpgBinding.xmltvChannelId })
-    .from(manualEpgBinding)
-    .where(and(eq(manualEpgBinding.householdId, householdId), eq(manualEpgBinding.mode, 'manual')))
-    .all();
-  const epgChannelRows: EpgChannelRow[] = db
-    .select({ sourceId: epgChannel.sourceId, xmltvChannelId: epgChannel.xmltvChannelId, conflicted: epgChannel.conflicted })
-    .from(epgChannel)
-    .where(eq(epgChannel.householdId, householdId))
-    .all();
+  const entryRows: SourceEntryRow[] = store.listPresentIptvEntryRows(householdId);
+  const sourceRows: MediaSourceRow[] = store.listMediaSourceRows(householdId);
+  const manualRows: ManualEpgBindingRow[] = store.listManualBindingRows(householdId);
+  const epgChannelRows: EpgChannelRow[] = store.listEpgChannelRows(householdId);
 
   const sourceById = new Map(sourceRows.map((row) => [row.id, row] as const));
   const epgChannelByKey = new Map(
@@ -318,62 +221,10 @@ export function loadLiveChannelWindows(
   const pairKeys = includeProgrammes ? [...neededPairs] : [];
   const rowsByPair = new Map<string, ProgrammeRow[]>();
   if (pairKeys.length > 0) {
-    const db = getDb();
-    const pairExpression = sql`(${epgProgramme.sourceId} || char(0) || ${epgProgramme.xmltvChannelId})`;
-    const pairFilter = inArray(pairExpression, pairKeys);
-    const covering = db
-      .select({
-        id: epgProgramme.id,
-        source_id: epgProgramme.sourceId,
-        xmltv_channel_id: epgProgramme.xmltvChannelId,
-        title: epgProgramme.title,
-        description: epgProgramme.description,
-        starts_at: epgProgramme.startsAt,
-        ends_at: epgProgramme.endsAt,
-      })
-      .from(epgProgramme)
-      .where(
-        and(
-          eq(epgProgramme.householdId, householdId),
-          sql`${epgProgramme.startsAt} <= ${nowIso}`,
-          sql`${epgProgramme.endsAt} > ${nowIso}`,
-          pairFilter,
-        ),
-      )
-      .all()
-      .map(programmeRowOf);
+    const store = liveTvStore();
+    const covering = store.listCoveringProgrammeRows(householdId, nowIso, pairKeys);
     // 最早未来行:每关联对 MIN(starts_at>now) 的全部并列行(同起点并列由 key 升序决胜)
-    const nextEarliest = db
-      .select({
-        id: epgProgramme.id,
-        source_id: epgProgramme.sourceId,
-        xmltv_channel_id: epgProgramme.xmltvChannelId,
-        title: epgProgramme.title,
-        description: epgProgramme.description,
-        starts_at: epgProgramme.startsAt,
-        ends_at: epgProgramme.endsAt,
-      })
-      .from(epgProgramme)
-      .innerJoin(
-        db
-          .select({
-            sourceId: epgProgramme.sourceId,
-            xmltvChannelId: epgProgramme.xmltvChannelId,
-            minStart: sql<string>`MIN(${epgProgramme.startsAt})`.as('min_start'),
-          })
-          .from(epgProgramme)
-          .where(and(eq(epgProgramme.householdId, householdId), sql`${epgProgramme.startsAt} > ${nowIso}`, pairFilter))
-          .groupBy(epgProgramme.sourceId, epgProgramme.xmltvChannelId)
-          .as('m'),
-        and(
-          eq(epgProgramme.sourceId, sql`m.source_id`),
-          eq(epgProgramme.xmltvChannelId, sql`m.xmltv_channel_id`),
-          eq(epgProgramme.startsAt, sql`m.min_start`),
-        ),
-      )
-      .where(eq(epgProgramme.householdId, householdId))
-      .all()
-      .map(programmeRowOf);
+    const nextEarliest = store.listNextEarliestProgrammeRows(householdId, nowIso, pairKeys);
     for (const row of [...covering, ...nextEarliest]) {
       const key = pairKeyOf(row.sourceId, row.xmltvChannelId);
       const list = rowsByPair.get(key);

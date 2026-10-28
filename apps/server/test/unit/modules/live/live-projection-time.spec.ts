@@ -11,6 +11,8 @@ import {
   type LiveProgrammeInput,
 } from '@contexts/live-tv/domain/live-time';
 import { loadLiveChannelWindows } from '@contexts/live-tv/application/live-projection.service';
+import { bindLiveTvStore } from '@contexts/live-tv/application/live-tv-store.port';
+import { drizzleLiveTvStore } from '@contexts/live-tv/infrastructure/live-tv-store.drizzle';
 
 /**
  * 直播投影时间边界单元测试(T057;005 data-model §8「当前 start<=now<end」、
@@ -84,6 +86,9 @@ function bootstrapRig(): void {
       Database.db.prepare('INSERT INTO _migrations (name, applied_at) VALUES (?, ?)').run(name, iso(Date.now()));
     })();
   }
+  // 008-repository-extraction:rig 绑定 live-tv 仓储 seam(惰性 getDb,单例重开安全;
+  // 与 setup.vitest.ts 的 policy 工作进程级绑定互补,本 spec 不经 Nest 装配)
+  bindLiveTvStore(drizzleLiveTvStore());
 }
 
 afterEach(() => {

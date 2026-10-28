@@ -1,12 +1,14 @@
 import { Module } from '@nestjs/common';
 import { HttpCommonModule } from '@platform/http-common/http-common.module';
 import { LivePublicController } from '@contexts/live-tv/interface/live.controller';
-import { LIVE_TV_LIVE_PROJECTION_PORT } from '@contexts/live-tv/live-tv.tokens';
+import { LIVE_TV_LIVE_PROJECTION_PORT, LIVE_TV_STORE } from '@contexts/live-tv/live-tv.tokens';
 import {
   loadChannelAssociationCore,
   loadLiveChannelWindows,
   programmeKeyOf,
 } from '@contexts/live-tv/application/live-projection.service';
+import { bindLiveTvStore } from '@contexts/live-tv/application/live-tv-store.port';
+import { drizzleLiveTvStore } from '@contexts/live-tv/infrastructure/live-tv-store.drizzle';
 import type { ILiveProjectionService } from '@contexts/live-tv/live-tv.ports';
 
 /**
@@ -26,11 +28,19 @@ import type { ILiveProjectionService } from '@contexts/live-tv/live-tv.ports';
  * 发布(纯函数模块经 useValue 函数束 + satisfies 对齐 ports 接口,零行为变化;
  * 头注释「纯函数服务不经 providers 注入」自本步起对发布面例外:provider 仅为令牌束,
  * 无实例/状态);exports 仅发布令牌,消费方迁移属 T022。
+ *
+ * 008-repository-extraction(T008,ADR-0015 D1):装配期绑定仓储 seam ——
+ * LIVE_TV_STORE provider 实例化时经 bindLiveTvStore 注入 Drizzle 实现
+ * (惰性 getDb 解析,Database 单例重开安全);不经 HTTP 暴露,不导出。
  */
 @Module({
   imports: [HttpCommonModule],
   controllers: [LivePublicController],
   providers: [
+    {
+      provide: LIVE_TV_STORE,
+      useFactory: () => bindLiveTvStore(drizzleLiveTvStore()),
+    },
     {
       provide: LIVE_TV_LIVE_PROJECTION_PORT,
       useValue: { loadChannelAssociationCore, loadLiveChannelWindows, programmeKeyOf } satisfies ILiveProjectionService,
