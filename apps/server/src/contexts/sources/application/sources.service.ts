@@ -17,13 +17,10 @@ import {
   sourceRefresh,
   type MediaSource,
 } from '@platform/database/schema';
-import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
-import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
-import {
-  toRefreshDtoCounts,
-  type RefreshExecutorService,
-  type RefreshJobView,
-} from '@contexts/sources/application/refresh-executor.service';
+import { getDb, verifyParentPassword, type Db } from '@contexts/identity-access';
+import { toRefreshDtoCounts, type RefreshJobView } from '@contexts/sources/application/refresh-executor.service';
+// 007-T022a:executor 参数改用发布面接口(结构同源,实现类 implements;纯类型收窄,行为零变化)
+import type { IRefreshExecutorService } from './ports';
 import { findNasTargetDenial, findRemoteTargetDenial } from '@contexts/sources/domain/source-target.validation';
 
 /**
@@ -383,7 +380,7 @@ export function toRefreshDto(view: RefreshJobView): RefreshDto {
  * 同来源 queued/running/awaiting 409 SOURCE_BUSY → 全局排队满 429 IMPORT_QUEUE_FULL(Retry-After: 5)。
  */
 export async function requestSourceRefresh(
-  executor: RefreshExecutorService,
+  executor: IRefreshExecutorService,
   context: SessionContext,
   sourceId: string,
   input: RequestRefreshBody,
@@ -403,7 +400,7 @@ export async function requestSourceRefresh(
 
 /** GET /refreshes/{refreshId}:懒执行过期使超时任务以 expired 终态可见;未知/跨家庭 404 同形 */
 export function getSourceRefresh(
-  executor: RefreshExecutorService,
+  executor: IRefreshExecutorService,
   context: SessionContext,
   refreshId: string,
 ): RefreshDto {
@@ -417,7 +414,7 @@ export function getSourceRefresh(
 
 /** POST /refreshes/{refreshId}/confirm:确认待确认快照(发布前执行器重验会话/来源/基线/摘要) */
 export async function confirmSourceRefresh(
-  executor: RefreshExecutorService,
+  executor: IRefreshExecutorService,
   context: SessionContext,
   refreshId: string,
   input: JobActionBody,
@@ -435,7 +432,7 @@ export async function confirmSourceRefresh(
 
 /** POST /refreshes/{refreshId}/discard:丢弃待确认快照(成功释放来源锁;终态 immutable) */
 export async function discardSourceRefresh(
-  executor: RefreshExecutorService,
+  executor: IRefreshExecutorService,
   context: SessionContext,
   refreshId: string,
   input: JobActionBody,

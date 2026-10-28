@@ -4,12 +4,9 @@ import type { Profile } from '@platform/database/schema';
 import { account, deviceSession, profile } from '@platform/database/schema';
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
-import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
-import { requireManagementRole } from '@contexts/identity-access/application/bootstrap.service';
+import { getDb, hashPassword, requireManagementRole, type Db } from '@contexts/identity-access';
 import { verifyOwnerPassword } from '@contexts/settings/application/settings-owner-password';
-import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
-import { revokeUnlockGrantsForProfile } from '@contexts/profile/application/pin.service';
+import { clearDeviceSessionsProfile, revokeUnlockGrantsForProfile } from '@contexts/profile';
 import { revokeSettingsGrantsForAccountTx } from '@contexts/settings/application/settings-access-revocation';
 import { requireValidSettingsGrantTx } from '@contexts/settings/application/settings-access-grant.service';
 

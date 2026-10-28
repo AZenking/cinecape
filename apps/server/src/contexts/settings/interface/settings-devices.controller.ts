@@ -9,7 +9,7 @@ import { SessionGuard } from '@platform/http-common/session.guard';
 import { SettingsAccessGuard } from '@platform/http-common/settings-access/settings-access.guard';
 import { StrictBodyPipe } from '@platform/http-common/strict-input/strict-pipes';
 import { strictObject } from '@platform/http-common/strict-input/strict-schema';
-import { parseBody } from '@contexts/identity-access/interface/validation';
+import { parseBody } from '@contexts/identity-access';
 import { listDevices, queryDevicePlaybackRecords, revokeDevice } from '@contexts/settings/application/settings-devices.service';
 
 /**

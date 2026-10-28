@@ -5,7 +5,7 @@ import { ProblemCode } from '@hmp/shared';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { DomainError } from '@platform/http-common/domain-error';
 import { mediaItem, playbackFailureEvent, playbackSource, profile, sourceEntry } from '@platform/database/schema';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@contexts/identity-access';
 
 /**
  * 播放审计服务(T043,spec 004,US2b)—— resolve 拒绝写 playback_failure_event:

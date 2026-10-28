@@ -13,7 +13,7 @@ import { SessionGuard } from '@platform/http-common/session.guard';
 import { SettingsAccessGuard } from '@platform/http-common/settings-access/settings-access.guard';
 import { StrictBodyPipe } from '@platform/http-common/strict-input/strict-pipes';
 import { strictObject } from '@platform/http-common/strict-input/strict-schema';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@contexts/identity-access';
 import { changeAccountPassword } from '@contexts/settings/application/settings-account.service';
 import { requireValidSettingsGrant } from '@contexts/settings/application/settings-access-grant.service';
 

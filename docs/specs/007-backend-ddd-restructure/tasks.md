@@ -79,7 +79,7 @@
 
 - [X] T020 [US2] 建立发布面：为 `apps/server/src/contexts/` 下 10 个上下文各创建 `index.ts` 与 `<context>.tokens.ts`（导出白名单 = contracts/internal-context-contracts.md：应用服务接口 + 注入令牌 + 跨上下文类型；禁止导出实现类/repository/DTO/controller）
 - [X] T021 [US2] Nest module exports 对齐：各上下文 `<context>.module.ts` 仅 `exports` 发布的应用服务提供者（令牌绑定经 `useClass`/`useFactory` 指向 infrastructure 实现）；`app.module.ts` 相应更新；端口绑定不落在 domain/application 文件中
-- [ ] T022 [US2] 深导入改造：按 `audit:boundaries` 报告将全部跨上下文深导入改为经发布接口或 `@hmp/shared` 契约；确需反转的环按 research.md D3 处理并在 ADR 补记
+- [X] T022 [US2] 深导入改造：按 `audit:boundaries` 报告将全部跨上下文深导入改为经发布接口或 `@hmp/shared` 契约；确需反转的环按 research.md D3 处理并在 ADR 补记（**T022a 已完成（2026-10-28，机械收口）**：57 文件 122 条跨上下文深导入全部改经裸别名 `@contexts/<ctx>`（R2 119→0，跨上下文非 index 边=0），index.ts 补面 6 符号（identity-access: buildAccountSession；profile: requireOwnedProfile；personal-data/sources: Nest 装配入口 Module 类）；应用/领域/基础设施对其他上下文的 R1a/R1b/R1c 矩阵❌边（现均指向发布面 index，合并后 62 条）属端口化架构裁决，留待 T022b/T023；R4 platform 两条留待专项；七项门禁全绿，测试 1376/1376）
 - [ ] T023 [US2] 框架渗漏清零：将 `@nestjs/*`、`drizzle-orm`、`better-sqlite3`、`express` 导入移出全部 `contexts/*/domain` 与 `contexts/*/application` 文件（端口移至 infrastructure，令牌绑定移至装配处）
 - [ ] T024 [US2] 边界审计归零留档：`audit:boundaries` 全规则 0 违规，输出存 `evidence/boundary-audit.md`
 - [ ] T025 [US2] 行为零变化证据：重新生成路由清单与 `evidence/routes-baseline.md` 比对（0 diff）；运行全量 `test` 与 `test:runtime`；对全部控制器路由做迁移前后响应快照抽查（抽样口径：每控制器 ≥1 路由，含公开浏览、播放拒绝、设置访问负向各 1）；结果存 `evidence/behavior-parity.md`

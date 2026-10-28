@@ -15,22 +15,23 @@ import { SameOriginGuard } from '@platform/http-common/same-origin/same-origin.g
 import { SessionGuard } from '@platform/http-common/session.guard';
 import { SettingsAccessGuard } from '@platform/http-common/settings-access/settings-access.guard';
 import { StrictBodyPipe } from '@platform/http-common/strict-input/strict-pipes';
-import { type RefreshExecutorService } from '@contexts/sources/application/refresh-executor.service';
 // 007-T021:SourcesModule exports 已对齐令牌,注入改经发布令牌(裸导入 = 发布面契约)
-import { REFRESH_EXECUTOR_PORT } from '@contexts/sources';
-import { parseBody } from '@contexts/identity-access/interface/validation';
-import { isParsableRemoteUrl } from '@contexts/sources/domain/source-target.validation';
+// 007-T022a:跨上下文消费统一改经发布面 index.ts(裸导入),实现文件零改动
 import {
+  REFRESH_EXECUTOR_PORT,
   confirmSourceRefresh,
   createSource,
   discardSourceRefresh,
   getSourceRefresh,
+  isParsableRemoteUrl,
   listSourceRoots,
   listSources,
   requestSourceRefresh,
   updateSource,
-} from '@contexts/sources/application/sources.service';
-import { patchMediaMetadata, queryCandidates } from '@contexts/media-catalog/application/catalog-admin.service';
+  type IRefreshExecutorService,
+} from '@contexts/sources';
+import { parseBody } from '@contexts/identity-access';
+import { patchMediaMetadata, queryCandidates } from '@contexts/media-catalog';
 
 /**
  * 媒体来源与目录管理契约路由(T128,005 contracts/api.md §6;api.md §8「新 settings
@@ -147,7 +148,7 @@ const patchMediaRequestSchema = z
 export class SettingsSourcesController {
   // 显式 @Inject 令牌:不依赖 emitDecoratorMetadata(契约测试经 vitest/esbuild 转译,无该元数据);
   // 007-T021 起注入发布令牌(useExisting 别名,与原类 provider 同一实例)
-  constructor(@Inject(REFRESH_EXECUTOR_PORT) private readonly refreshExecutor: RefreshExecutorService) {}
+  constructor(@Inject(REFRESH_EXECUTOR_PORT) private readonly refreshExecutor: IRefreshExecutorService) {}
 
   /** GET /settings/sources:分页脱敏概览(Settings 边界) */
   @Get('sources')

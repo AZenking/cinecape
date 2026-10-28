@@ -1,13 +1,18 @@
 import { and, desc, eq, lt, or, type SQL } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import type { PlaybackDelivery, PlaybackSessionState } from '@contexts/playback/domain/playback.types';
+import type { PlaybackDelivery, PlaybackSessionState } from '@contexts/playback';
 import { device, deviceSession, playbackFailureEvent, playbackSession } from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
-import { requireManagementRole } from '@contexts/identity-access/application/bootstrap.service';
-import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
-import { listHouseholdDevices, revokeHouseholdDevice, type DeviceDtoBody } from '@contexts/identity-access/application/device.service';
+import {
+  getDb,
+  requireManagementRole,
+  verifyParentPassword,
+  listHouseholdDevices,
+  revokeHouseholdDevice,
+  type Db,
+  type DeviceDtoBody,
+} from '@contexts/identity-access';
 import { requireValidSettingsGrantTx } from '@contexts/settings/application/settings-access-grant.service';
 
 /**

@@ -4,15 +4,22 @@ import type { Profile } from '@platform/database/schema';
 import { deviceSession, household, profile, profilePolicy } from '@platform/database/schema';
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
-import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
-import { requireManagementRole } from '@contexts/identity-access/application/bootstrap.service';
+import {
+  getDb,
+  hashPassword,
+  requireManagementRole,
+  toProfileSummary,
+  type Db,
+  type ProfileSummaryBody,
+} from '@contexts/identity-access';
 import { verifyOwnerPassword } from '@contexts/settings/application/settings-owner-password';
-import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
-import { revokeUnlockGrantsForProfile } from '@contexts/profile/application/pin.service';
-import { defaultPolicyValues } from '@contexts/policy/domain/policy.rules';
-import { assertNotLastActiveProfile, swapDefault } from '@contexts/profile/application/profile.service';
-import { toProfileSummary, type ProfileSummaryBody } from '@contexts/identity-access/interface/account-session.dto';
+import {
+  clearDeviceSessionsProfile,
+  revokeUnlockGrantsForProfile,
+  assertNotLastActiveProfile,
+  swapDefault,
+} from '@contexts/profile';
+import { defaultPolicyValues } from '@contexts/policy';
 import { revokeAllSettingsGrantsForHouseholdTx, revokeSettingsGrantsForProfileTx } from '@contexts/settings/application/settings-access-revocation';
 import { requireValidSettingsGrantTx } from '@contexts/settings/application/settings-access-grant.service';
 

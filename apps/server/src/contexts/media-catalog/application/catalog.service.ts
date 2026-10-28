@@ -1,10 +1,8 @@
 import { ProblemCode, type MediaDto, type MediaPageDto } from '@hmp/shared';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { DomainError } from '@platform/http-common/domain-error';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
-import type { CatalogCandidateRow } from '@contexts/policy/application/policy.batch-context';
-import { loadBatchCatalogContext } from '@contexts/policy/application/policy.batch-context';
-import type { MediaType } from '@contexts/policy/domain/policy.rules';
+import { getDb } from '@contexts/identity-access';
+import { loadBatchCatalogContext, type CatalogCandidateRow, type MediaType } from '@contexts/policy';
 
 /**
  * 观看目录服务(T035;US2):

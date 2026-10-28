@@ -24,4 +24,5 @@ export { getDb, type Db } from './infrastructure/db';
 export { hashPassword, verifyPassword } from './infrastructure/password.service';
 export { generateToken, hashToken } from './infrastructure/token.service';
 export { parseBody } from './interface/validation';
-export { toProfileSummary, type AccountSessionBody, type ProfileSummaryBody } from './interface/account-session.dto';
+// T022a 补面：profile/settings 经发布面消费的会话构造纯函数（实现零改动）
+export { buildAccountSession, toProfileSummary, type AccountSessionBody, type ProfileSummaryBody } from './interface/account-session.dto';

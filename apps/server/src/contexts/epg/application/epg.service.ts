@@ -13,13 +13,13 @@ import {
   profile,
   sourceEntry,
 } from '@platform/database/schema';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { type MediaType } from '@contexts/policy/domain/policy.rules';
+import { getDb } from '@contexts/identity-access';
 import {
   loadAvailableMediaIdSet,
   loadBatchCatalogContext,
+  type MediaType,
   type CatalogCandidateRow,
-} from '@contexts/policy/application/policy.batch-context';
+} from '@contexts/policy';
 
 /**
  * EPG 节目指南服务(T042;US4,只读;T071 增手动绑定优先):

@@ -2,7 +2,7 @@ import { Injectable, type OnApplicationBootstrap } from '@nestjs/common';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { deviceSession, settingsAccessGrant } from '@platform/database/schema';
 import { Database } from '@platform/database/database';
-import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
+import { getDb, type Db } from '@contexts/identity-access';
 
 /**
  * 设置授予生命周期撤销(T085,005 data-model §3「显式撤销 + 启动撤销」、ADR-0011 决议 3/6)。

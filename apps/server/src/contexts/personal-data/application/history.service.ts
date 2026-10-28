@@ -1,9 +1,9 @@
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { createDomainError } from '@platform/http-common/domain-error';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@contexts/identity-access';
 import { mediaItem, profileViewingHistory, type ProfileViewingHistory } from '@platform/database/schema';
-import { loadAvailableMediaIdSet } from '@contexts/policy/application/policy.batch-context';
-import { toPublicMedia } from '@contexts/media-catalog/domain/public-media-projection';
+import { loadAvailableMediaIdSet } from '@contexts/policy';
+import { toPublicMedia } from '@contexts/media-catalog';
 import type { PublicMediaDto } from '@hmp/shared';
 import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload } from '@contexts/personal-data/infrastructure/signed-cursor';
 

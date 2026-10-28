@@ -6,12 +6,7 @@ import { SameOriginGuard } from '@platform/http-common/same-origin/same-origin.g
 import { SessionGuard } from '@platform/http-common/session.guard';
 import { SettingsAccessGuard } from '@platform/http-common/settings-access/settings-access.guard';
 import { StrictBodyPipe } from '@platform/http-common/strict-input/strict-pipes';
-import {
-  getPolicy,
-  replacePolicyLists,
-  updatePolicy,
-  type PolicyDtoBody,
-} from '@contexts/policy/application/policy.service';
+import { getPolicy, replacePolicyLists, updatePolicy, type PolicyDtoBody } from '@contexts/policy';
 /**
  * 内容权限契约路由(T127,005 contracts/api.md §6「GET/PUT /settings/profiles/{profileId}/policy
  * 与 policy/lists」;继承 002 字段):

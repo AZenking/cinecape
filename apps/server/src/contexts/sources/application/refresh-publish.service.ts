@@ -8,7 +8,7 @@ import {
   loadStagedEntries,
   type LoadedStagedEntry,
 } from '@contexts/sources/infrastructure/refresh-staging.service';
-import { parseStoredList } from '@contexts/policy/domain/policy.rules';
+import { parseStoredList } from '@contexts/policy';
 import type { XMLTVChannel, XMLTVProgramme } from '@contexts/sources/infrastructure/xmltv.parser';
 import { Database } from '@platform/database/database';
 

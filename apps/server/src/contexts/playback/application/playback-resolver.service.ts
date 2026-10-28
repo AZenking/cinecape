@@ -2,11 +2,11 @@ import { eq } from 'drizzle-orm';
 import { createDomainError, type DomainError } from '@platform/http-common/domain-error';
 import type { PlaybackBudgets } from '@platform/config/playback-budgets';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@contexts/identity-access';
 import { deviceSession, playbackSession } from '@platform/database/schema';
 import type { PlaybackAuthorizationService, PlaybackResourceCandidate } from '@contexts/playback/application/playback-authorization.service';
 import type { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
-import type { PlaybackProgressBindPort, PlaybackResumePositionPort } from '@contexts/personal-data/application/progress-clock.service';
+import type { PlaybackProgressBindPort, PlaybackResumePositionPort } from '@contexts/personal-data';
 import type {
   MarkPlayingInput,
   PlaybackDelivery,

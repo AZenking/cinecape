@@ -2,7 +2,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { ExperienceProgrammeDto, GuideWindowDto } from '@hmp/shared';
 import { ProblemCode } from '@hmp/shared';
 import { DomainError } from '@platform/http-common/domain-error';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@contexts/identity-access';
 import { epgProgramme } from '@platform/database/schema';
 import { resolveGuideDayWindow } from '@contexts/epg/domain/guide-calendar';
 import { GuideDateExpiredProblem } from '@contexts/epg/domain/guide-problems';

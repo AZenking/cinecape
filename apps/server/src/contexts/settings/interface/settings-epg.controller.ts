@@ -16,16 +16,14 @@ import { SettingsAccessGuard } from '@platform/http-common/settings-access/setti
 import { StrictBodyPipe } from '@platform/http-common/strict-input/strict-pipes';
 import { deviceSession, mediaItem } from '@platform/database/schema';
 import { Database } from '@platform/database/database';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
-import { parseBody } from '@contexts/identity-access/interface/validation';
+import { getDb, verifyParentPassword, parseBody } from '@contexts/identity-access';
 import {
   getBindingState,
   listEpgCandidates,
   saveBinding,
   unbindBinding,
   type ManualEpgBindingState,
-} from '@contexts/epg/application/manual-epg-binding.service';
+} from '@contexts/epg';
 
 /**
  * 节目单管理契约路由(T129,005 contracts/api.md §6「epg-binding 三组」;FR-038):

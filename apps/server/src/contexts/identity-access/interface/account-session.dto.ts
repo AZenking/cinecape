@@ -3,7 +3,7 @@ import type { Profile } from '@platform/database/schema';
 import { deviceSession, profile } from '@platform/database/schema';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
+import { clearDeviceSessionsProfile } from '@contexts/profile';
 
 /**
  * 统一会话 DTO(T039,005 data-model §9「AccountSession」+ contracts/api.md §3):

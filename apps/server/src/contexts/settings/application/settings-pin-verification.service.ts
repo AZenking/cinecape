@@ -4,10 +4,8 @@ import { account, deviceSession, household, profile } from '@platform/database/s
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { env } from '@platform/config/env';
-import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
-import { verifyPassword } from '@contexts/identity-access/infrastructure/password.service';
-import { requireManagementRole } from '@contexts/identity-access/application/bootstrap.service';
-import { PIN_STATE_CLEARED, isPinLocked, registerPinFailure } from '@contexts/profile/application/pin.service';
+import { getDb, verifyPassword, requireManagementRole, type Db } from '@contexts/identity-access';
+import { PIN_STATE_CLEARED, isPinLocked, registerPinFailure } from '@contexts/profile';
 import {
   issueSettingsGrantTx,
   type IssuedSettingsGrant,

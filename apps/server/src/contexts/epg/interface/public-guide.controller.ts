@@ -8,7 +8,7 @@ import { RateLimit } from '@platform/http-common/rate-limit/rate-limit.decorator
 import { RateLimitGuard } from '@platform/http-common/rate-limit/rate-limit.guard';
 import { StrictQueryPipe } from '@platform/http-common/strict-input/strict-pipes';
 import { PublicContextService } from '@platform/http-common/public-context/public-context.service';
-import { liveNowMs } from '@contexts/live-tv/domain/live-clock';
+import { liveNowMs } from '@contexts/live-tv';
 import { allowedGuideDates, guideDateString, guideDayWindowMs, todayCalendarDateOf } from '@contexts/epg/domain/guide-calendar';
 import { loadGuideWindow } from '@contexts/epg/application/guide-window.service';
 

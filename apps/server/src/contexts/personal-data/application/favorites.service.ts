@@ -1,14 +1,14 @@
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@contexts/identity-access';
 import {
   mediaItem,
   profileChannelFavorite,
   type ProfileChannelFavorite,
 } from '@platform/database/schema';
-import { loadAvailableMediaIdSet } from '@contexts/policy/application/policy.batch-context';
-import { loadLiveChannelWindows, type LiveChannelProjection } from '@contexts/live-tv/application/live-projection.service';
-import { toPublicMedia } from '@contexts/media-catalog/domain/public-media-projection';
+import { loadAvailableMediaIdSet } from '@contexts/policy';
+import { loadLiveChannelWindows, type LiveChannelProjection } from '@contexts/live-tv';
+import { toPublicMedia } from '@contexts/media-catalog';
 import type { ExperienceProgrammeDto, PublicMediaDto } from '@hmp/shared';
 import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload } from '@contexts/personal-data/infrastructure/signed-cursor';
 

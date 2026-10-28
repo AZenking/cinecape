@@ -4,9 +4,8 @@ import type { ProfilePolicy } from '@platform/database/schema';
 import { deviceSession, mediaItem, profile, profilePolicy } from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
-import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
-import { requireOwnedProfile } from '@contexts/profile/application/profile.service';
+import { getDb, verifyParentPassword, type Db } from '@contexts/identity-access';
+import { requireOwnedProfile } from '@contexts/profile';
 import {
   assertPolicyRowInvariant,
   evaluatePolicy,

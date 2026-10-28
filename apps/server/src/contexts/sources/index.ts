@@ -27,3 +27,7 @@ export {
 // —— 跨上下文必需的领域/基础设施面再导出 ——
 export { findNasTargetDenial, isParsableRemoteUrl } from './domain/source-target.validation';
 export type { SupportedMediaExtension } from './infrastructure/nas-scanner';
+
+// T022a 补面：Nest 装配入口（settings.module `imports:` 消费；contracts 允许经
+// 「Nest module 的 exports 提供者」装配；属装配面而非 application/infrastructure 实现类）
+export { SourcesModule } from './sources.module';

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@contexts/identity-access';
 import {
   mediaItem,
   playbackProgressState,

@@ -7,7 +7,7 @@ import {
   profileViewingHistory,
   settingsAccessGrant,
 } from '@platform/database/schema';
-import type { Db } from '@contexts/identity-access/infrastructure/db';
+import type { Db } from '@contexts/identity-access';
 
 /**
  * 身份变化事务挂钩(T038/T039,005 data-model §2 device_session/profile):

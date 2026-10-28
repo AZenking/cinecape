@@ -3,12 +3,11 @@ import { ProblemCode } from '@hmp/shared';
 import { account, deviceSession, profile, profilePolicy, profileProgressClock } from '@platform/database/schema';
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { defaultPolicyValues } from '@contexts/policy/domain/policy.rules';
+import { defaultPolicyValues } from '@contexts/policy';
 import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
 import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
-import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
-import { revokeUnlockGrantsForProfile } from '@contexts/profile/application/pin.service';
+import { clearDeviceSessionsProfile, revokeUnlockGrantsForProfile } from '@contexts/profile';
 import { toProfileSummary, type ProfileSummaryBody } from '@contexts/identity-access/interface/account-session.dto';
 
 /**

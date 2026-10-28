@@ -326,7 +326,7 @@ export function unbindBinding(db: DbHandle, input: UnbindManualBindingInput): Ma
 import { and, eq, gt, inArray } from 'drizzle-orm';
 import type { EpgCandidatePageDto, EpgCandidateQueryRequest, ProgrammeDto } from '@hmp/shared';
 import { epgChannel, epgProgramme, mediaSource } from '@platform/database/schema';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@contexts/identity-access';
 
 interface CandidateRow {
   xmltvChannelId: string;

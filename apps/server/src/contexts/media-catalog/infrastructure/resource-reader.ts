@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { mediaItem } from '@platform/database/schema';
-import type { Db } from '@contexts/identity-access/infrastructure/db';
+import type { Db } from '@contexts/identity-access';
 
 /**
  * 真实资源读取器(T034;data-model.md「media_item 可用性」节):

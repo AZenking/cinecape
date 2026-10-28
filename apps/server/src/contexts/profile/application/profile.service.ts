@@ -5,10 +5,10 @@ import type { Profile } from '@platform/database/schema';
 import { deviceSession, profile, profilePolicy } from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
+import { getDb, type Db } from '@contexts/identity-access';
 import { revokeUnlockGrantsForProfile } from '@contexts/profile/application/pin.service';
 import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
-import { defaultPolicyValues } from '@contexts/policy/domain/policy.rules';
+import { defaultPolicyValues } from '@contexts/policy';
 
 /**
  * Profile 聚合(US2:T025 创建/编辑/停用、T026 select、T028 停用级联)。

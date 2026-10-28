@@ -6,7 +6,7 @@ import { Injectable } from '@nestjs/common';
 import type DatabaseConstructor from 'better-sqlite3';
 import type { MediaRoots } from '@platform/config/env.schema';
 import type { PlaybackBudgets } from '@platform/config/playback-budgets';
-import { findNasTargetDenial } from '@contexts/sources/domain/source-target.validation';
+import { findNasTargetDenial } from '@contexts/sources';
 import type { PlaybackResourceCandidate } from '@contexts/playback/application/playback-authorization.service';
 import { PlaybackPlanService } from '@contexts/playback/application/playback-plan.service';
 import type {

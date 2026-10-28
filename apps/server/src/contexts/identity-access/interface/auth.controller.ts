@@ -12,7 +12,7 @@ import { CurrentSession } from '@platform/http-common/current-session.decorator'
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { StrictBodyPipe } from '@platform/http-common/strict-input/strict-pipes';
 import { strictObject } from '@platform/http-common/strict-input/strict-schema';
-import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
+import { clearDeviceSessionsProfile } from '@contexts/profile';
 import { registerDevice, type DeviceType } from '@contexts/identity-access/application/device.service';
 import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import {

@@ -1,10 +1,10 @@
 import type { ExperienceProgrammeDto } from '@hmp/shared';
 import {
   loadChannelAssociationCore,
+  pickCurrentNext,
   type ChannelAssociationCore,
   type ChannelMetaRow,
-} from '@contexts/live-tv/application/live-projection.service';
-import { pickCurrentNext } from '@contexts/live-tv/domain/live-time';
+} from '@contexts/live-tv';
 
 /**
  * EPG 关联核心复用层(T113;US6 guide 窗口查询的唯一关联入口):

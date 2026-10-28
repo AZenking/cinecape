@@ -5,7 +5,7 @@ import type { Device, NewDevice } from '@platform/database/schema';
 import { device, deviceSession } from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
+import { clearDeviceSessionsProfile } from '@contexts/profile';
 
 /**
  * 设备注册(T019/FR-009):设备身份由服务端记录,不依赖客户端上报的浏览器特征。

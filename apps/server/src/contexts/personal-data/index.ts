@@ -13,3 +13,7 @@ export type {
 } from './application/progress-clock.service';
 export { registerPersonalPlaybackFactsPort } from './application/progress-clock.service';
 export type { ProgressSampleReply } from './application/progress-write.service';
+
+// T022a 补面：Nest 装配入口（playback.module `imports:` 消费；contracts 允许经
+// 「Nest module 的 exports 提供者」装配；属装配面而非 application/infrastructure 实现类）
+export { PersonalDataModule } from './personal-data.module';

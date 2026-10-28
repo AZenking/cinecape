@@ -3,8 +3,7 @@ import { ProblemCode } from '@hmp/shared';
 import { household } from '@platform/database/schema';
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
-import { requireManagementRole } from '@contexts/identity-access/application/bootstrap.service';
+import { getDb, requireManagementRole, type Db } from '@contexts/identity-access';
 import { verifyOwnerPassword } from '@contexts/settings/application/settings-owner-password';
 import { requireValidSettingsGrantTx } from '@contexts/settings/application/settings-access-grant.service';
 

@@ -3,8 +3,8 @@ import { ProblemCode, type PublicContextDto, type PublicMediaDto, type PublicMed
 import { Database } from '@platform/database/database';
 import { PublicContextService } from '@platform/http-common/public-context/public-context.service';
 import { DomainError } from '@platform/http-common/domain-error';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { loadAvailableMediaIdSet } from '@contexts/policy/application/policy.batch-context';
+import { getDb } from '@contexts/identity-access';
+import { loadAvailableMediaIdSet } from '@contexts/policy';
 import { toPublicMedia, type PublicMediaRow } from '@contexts/media-catalog/domain/public-media-projection';
 
 /**

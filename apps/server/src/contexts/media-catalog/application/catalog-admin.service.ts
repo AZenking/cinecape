@@ -3,11 +3,9 @@ import { ProblemCode, type CandidateDto, type CandidatePageDto, type MediaDto } 
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { DomainError } from '@platform/http-common/domain-error';
 import { catalogState, deviceSession, mediaItem } from '@platform/database/schema';
-import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
-import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
+import { getDb, verifyParentPassword, type Db } from '@contexts/identity-access';
 import { loadMediaAvailabilityFacts } from '@contexts/media-catalog/infrastructure/resource-reader';
-import type { CatalogCandidateRow } from '@contexts/policy/application/policy.batch-context';
-import type { MediaType } from '@contexts/policy/domain/policy.rules';
+import type { CatalogCandidateRow, MediaType } from '@contexts/policy';
 
 /**
  * 家长候选与人工修正服务(T050;US3):

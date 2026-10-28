@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { SourcesModule } from '@contexts/sources/sources.module';
+import { SourcesModule } from '@contexts/sources';
 import { SettingsAccessController } from '@contexts/settings/interface/settings-access.controller';
 import { SettingsAccountController } from '@contexts/settings/interface/settings-account.controller';
 import { SettingsHouseholdController } from '@contexts/settings/interface/settings-household.controller';

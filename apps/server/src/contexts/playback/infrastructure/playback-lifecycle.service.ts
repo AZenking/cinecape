@@ -5,9 +5,9 @@ import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import type { PlaybackBudgets } from '@platform/config/playback-budgets';
 import { playbackConversion, playbackSession } from '@platform/database/schema';
 import { Database } from '@platform/database/database';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@contexts/identity-access';
 import { DomainError } from '@platform/http-common/domain-error';
-import type { ProgressSampleReply } from '@contexts/personal-data/application/progress-write.service';
+import type { ProgressSampleReply } from '@contexts/personal-data';
 import type { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
 import {
   PLAYBACK_ACTIVE_SESSION_STATES,

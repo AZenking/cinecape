@@ -14,4 +14,5 @@ export {
   revokeUnlockGrantsForProfile,
   type PinFailureState,
 } from './application/pin.service';
-export { assertNotLastActiveProfile, swapDefault } from './application/profile.service';
+// T022a 补面：policy.service 经发布面消费的属主校验纯函数（实现零改动）
+export { assertNotLastActiveProfile, requireOwnedProfile, swapDefault } from './application/profile.service';

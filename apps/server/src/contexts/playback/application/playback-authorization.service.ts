@@ -14,10 +14,13 @@ import {
 } from '@platform/database/schema';
 import { createDomainError, DomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { authorizeCurrentProfile, type AuthorizationReason } from '@contexts/policy/application/policy.service';
-import { defaultPolicyValues } from '@contexts/policy/domain/policy.rules';
-import type { MediaPolicyFacts } from '@contexts/policy/domain/policy.rules';
+import { getDb } from '@contexts/identity-access';
+import {
+  authorizeCurrentProfile,
+  defaultPolicyValues,
+  type AuthorizationReason,
+  type MediaPolicyFacts,
+} from '@contexts/policy';
 import { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
 import type { PlaybackDelivery } from '@contexts/playback/domain/playback.types';
 

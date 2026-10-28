@@ -10,7 +10,7 @@ import { getConfig } from '@platform/config/env';
 import type { MediaRoots } from '@platform/config/env.schema';
 import { Database } from '@platform/database/database';
 import { playbackConversion, playbackSession } from '@platform/database/schema';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@contexts/identity-access';
 import { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
 import { PlaybackAuthorizationService } from '@contexts/playback/application/playback-authorization.service';
 import { NasReaderService } from '@contexts/playback/infrastructure/nas-reader';
@@ -50,11 +50,16 @@ import { PlaybackAuditService } from '@contexts/playback/application/playback-au
 import { PlaybackRetentionService } from '@contexts/playback/application/playback-retention.service';
 import { PlaybackController } from '@contexts/playback/interface/playback.controller';
 import { PlaybackStreamController } from '@contexts/playback/interface/playback-stream.controller';
-import { PersonalDataModule } from '@contexts/personal-data/personal-data.module';
-import { registerPersonalPlaybackFactsPort } from '@contexts/personal-data/application/progress-clock.service';
-import { PROGRESS_CLOCK_PORT, PROGRESS_WRITE_PORT } from '@contexts/personal-data';
-import type { ProgressClockService } from '@contexts/personal-data/application/progress-clock.service';
-import type { ProgressWriteService } from '@contexts/personal-data/application/progress-write.service';
+// 007-T022a:跨上下文消费统一改经发布面 index.ts(裸导入);
+// ProgressClock/ProgressWrite 注入值经 PROGRESS_*_PORT 令牌(T021),类型注解改用发布面接口
+import {
+  PersonalDataModule,
+  PROGRESS_CLOCK_PORT,
+  PROGRESS_WRITE_PORT,
+  registerPersonalPlaybackFactsPort,
+  type IProgressClockService,
+  type IProgressWriteService,
+} from '@contexts/personal-data';
 import type { PlaybackFinalProgressPort } from '@contexts/playback/infrastructure/playback-lifecycle.service';
 import { HttpCommonModule } from '@platform/http-common/http-common.module';
 import {
@@ -819,7 +824,7 @@ class PlaybackBootstrapper implements OnModuleInit {
         probePort: unknown,
         conversionLaunch: unknown,
         sessionSource: unknown,
-        progressClock: ProgressClockService,
+        progressClock: IProgressClockService,
       ) =>
         new PlaybackResolverService(repository, authorization, probePort as never, createPlaybackBudgets(getConfig()), {
           conversionLaunch: conversionLaunch as PlaybackConversionLaunchPort,
@@ -891,7 +896,7 @@ class PlaybackBootstrapper implements OnModuleInit {
         storage: ConversionStorageService,
         assets: PlaybackAssetsService,
         ledger: PlaybackTaskDirectoryLedger,
-        progressWrite: ProgressWriteService,
+        progressWrite: IProgressWriteService,
       ) =>
         new PlaybackLifecycleService({
           repository,
