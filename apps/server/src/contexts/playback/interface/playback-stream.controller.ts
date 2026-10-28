@@ -1,29 +1,29 @@
 import { Controller, Get, Head, Inject, Param, Query, Res, UseGuards } from '@nestjs/common';
-import { PlaybackReadinessGuard } from './playback-readiness.guard';
+import { PlaybackReadinessGuard } from '@contexts/playback/interface/playback-readiness.guard';
 import type { Request, Response } from 'express';
 import { eq } from 'drizzle-orm';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import type { Readable } from 'node:stream';
 import { ProblemCode } from '@hmp/shared';
-import { CurrentSession, type SessionContext } from '../../common/current-session.decorator';
-import { SessionGuard } from '../../common/session.guard';
-import { createDomainError, DomainError } from '../../common/domain-error';
+import { CurrentSession, type SessionContext } from '../../../common/current-session.decorator';
+import { SessionGuard } from '../../../common/session.guard';
+import { createDomainError, DomainError } from '../../../common/domain-error';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { playbackSession } from '../../database/schema';
-import { getConfig } from '../../config/env';
-import { createPlaybackBudgets } from '../../config/playback-budgets';
-import { PlaybackRepository } from './playback.repository';
-import { PlaybackAuthorizationService } from './playback-authorization.service';
-import { PlaybackTicketService } from './playback-ticket.service';
-import { PlaybackAssetsService, ENTRY_ASSET_ID, type LocalAssetKind } from './playback-assets.service';
-import { HlsProxyService, type HlsAssetKind } from './hls-proxy.service';
-import { NasReaderService, parseByteRange, type NasReadFailure } from './nas-reader';
-import { PlaybackSourceLocationReader } from './media-probe.service';
-import { PlaybackSubtitlesService } from './playback-subtitles.service';
-import { PlaybackLifecycleService } from './playback-lifecycle.service';
-import { PlaybackResolverService } from './playback-resolver.service';
-import { isPlaybackStableErrorCode, type PlaybackErrorCode, type PlaybackSessionView } from './playback.types';
+import { playbackSession } from '../../../database/schema';
+import { getConfig } from '../../../config/env';
+import { createPlaybackBudgets } from '../../../config/playback-budgets';
+import { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
+import { PlaybackAuthorizationService } from '@contexts/playback/application/playback-authorization.service';
+import { PlaybackTicketService } from '@contexts/playback/application/playback-ticket.service';
+import { PlaybackAssetsService, ENTRY_ASSET_ID, type LocalAssetKind } from '@contexts/playback/application/playback-assets.service';
+import { HlsProxyService, type HlsAssetKind } from '@contexts/playback/infrastructure/hls-proxy.service';
+import { NasReaderService, parseByteRange, type NasReadFailure } from '@contexts/playback/infrastructure/nas-reader';
+import { PlaybackSourceLocationReader } from '@contexts/playback/infrastructure/media-probe.service';
+import { PlaybackSubtitlesService } from '@contexts/playback/infrastructure/playback-subtitles.service';
+import { PlaybackLifecycleService } from '@contexts/playback/infrastructure/playback-lifecycle.service';
+import { PlaybackResolverService } from '@contexts/playback/application/playback-resolver.service';
+import { isPlaybackStableErrorCode, type PlaybackErrorCode, type PlaybackSessionView } from '@contexts/playback/domain/playback.types';
 
 /**
  * 播放媒体流网关(T031/T015,spec 004)—— GET/HEAD

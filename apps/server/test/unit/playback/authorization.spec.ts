@@ -29,13 +29,13 @@ import {
 } from '../../../src/database/schema';
 import { DomainError } from '../../../src/common/domain-error';
 import type { SessionContext } from '../../../src/common/current-session.decorator';
-import { PlaybackRepository } from '../../../src/modules/playback/playback.repository';
+import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
 import {
   PlaybackAuthorizationService,
   comparePlaybackCandidates,
   playbackDeliveryCost,
   type PlaybackResourceCandidate,
-} from '../../../src/modules/playback/playback-authorization.service';
+} from '../../../src/contexts/playback/application/playback-authorization.service';
 import { createProfile } from '@contexts/profile/application/profile.service';
 import { writePolicyLists } from '@contexts/policy/application/policy.service';
 import {

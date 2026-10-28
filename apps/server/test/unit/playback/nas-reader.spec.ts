@@ -10,7 +10,7 @@ import {
   nasContentType,
   parseByteRange,
   type NasReadFailure,
-} from '../../../src/modules/playback/nas-reader';
+} from '../../../src/contexts/playback/infrastructure/nas-reader';
 
 /**
  * NAS 只读安全文件读取器单测(T020,spec 004)—— 先实现前编写(RED → GREEN)。

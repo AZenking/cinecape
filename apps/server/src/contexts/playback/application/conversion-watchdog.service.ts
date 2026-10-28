@@ -1,5 +1,5 @@
-import type { PlaybackBudgets } from '../../config/playback-budgets';
-import type { PlaybackErrorCode } from './playback.types';
+import type { PlaybackBudgets } from '../../../config/playback-budgets';
+import type { PlaybackErrorCode } from '@contexts/playback/domain/playback.types';
 
 /**
  * 转换看门狗(T027,spec 004)—— 硬超时与转码速度裁决,权威数值全部来自 budgets.watchdog:

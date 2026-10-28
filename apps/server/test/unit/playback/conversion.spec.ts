@@ -11,7 +11,7 @@ import { Database } from '../../../src/database/database';
 import { setEnvOverride } from '../../../src/config/env';
 import { loadEnv } from '../../../src/config/env.schema';
 import { createPlaybackBudgets, type PlaybackBudgets } from '../../../src/config/playback-budgets';
-import { PlaybackRepository } from '../../../src/modules/playback/playback.repository';
+import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
 import {
   PLAYBACK_CONVERSION_TRANSITIONS,
   PLAYBACK_STABLE_ERROR_CODES,
@@ -21,7 +21,7 @@ import {
   type PlaybackErrorCode,
   type PlaybackOk,
   type PlaybackResult,
-} from '../../../src/modules/playback/playback.types';
+} from '../../../src/contexts/playback/domain/playback.types';
 
 /**
  * T016(spec 004,US1)—— 转换域失败矩阵单元测试(TDD 先行:只写失败测试,不实现)。
@@ -66,13 +66,18 @@ import {
 /* 未来模块装载器(TDD RED 通道)                                        */
 /* ------------------------------------------------------------------ */
 
-const PLAYBACK_MODULE_DIR = '../../../src/modules/playback';
+/** 007-T017:模块按四层落位,动态装载路径按各文件所在层解析 */
+function playbackModuleDir(moduleName: string): string {
+  return moduleName === 'playback-plan.service' || moduleName === 'conversion-watchdog.service'
+    ? '../../../src/contexts/playback/application'
+    : '../../../src/contexts/playback/infrastructure';
+}
 
 async function loadFutureModule(moduleName: string, task: string, exportName: string): Promise<unknown> {
   let mod: unknown;
   try {
     // 刻意使用模板字符串拼接:tsc 无法静态解析,缺失模块在运行时才拒绝 → 逐用例 RED。
-    mod = await import(`${PLAYBACK_MODULE_DIR}/${moduleName}`);
+    mod = await import(`${playbackModuleDir(moduleName)}/${moduleName}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`[${task}] src/modules/playback/${moduleName}.ts 尚未实现 —— T016 先行失败测试(RED 属预期,实现后本用例自动转绿): ${message}`);

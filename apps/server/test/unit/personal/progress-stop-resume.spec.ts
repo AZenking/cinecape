@@ -15,8 +15,8 @@ import {
   type LifecycleStoragePort,
   type LifecycleSupervisorPort,
   type PlaybackRevalidatePort,
-} from '../../../src/modules/playback/playback-lifecycle.service';
-import { PlaybackRepository } from '../../../src/modules/playback/playback.repository';
+} from '../../../src/contexts/playback/infrastructure/playback-lifecycle.service';
+import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
 import { createPlaybackBudgets } from '../../../src/config/playback-budgets';
 import { getConfig } from '../../../src/config/env';
 import { switchDeviceSessionProfile } from '@contexts/profile/application/identity-transition';

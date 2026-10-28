@@ -21,10 +21,10 @@ import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { account, deviceSession, playbackSession, profilePolicy } from '../../../src/database/schema';
 import { DomainError } from '../../../src/common/domain-error';
 import type { SessionContext } from '../../../src/common/current-session.decorator';
-import { PlaybackRepository } from '../../../src/modules/playback/playback.repository';
-import { PlaybackAuthorizationService } from '../../../src/modules/playback/playback-authorization.service';
-import { PlaybackTicketService } from '../../../src/modules/playback/playback-ticket.service';
-import type { PlaybackProbeFacts } from '../../../src/modules/playback/playback-resolver.service';
+import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
+import { PlaybackAuthorizationService } from '../../../src/contexts/playback/application/playback-authorization.service';
+import { PlaybackTicketService } from '../../../src/contexts/playback/application/playback-ticket.service';
+import type { PlaybackProbeFacts } from '../../../src/contexts/playback/application/playback-resolver.service';
 import {
   computeSeekTimeline,
   PlaybackSelectionService,
@@ -32,7 +32,7 @@ import {
   type PlaybackSubtitleCatalogPort,
   type PlaybackTrackFactsPort,
   type SelectionOutcome,
-} from '../../../src/modules/playback/playback-selection.service';
+} from '../../../src/contexts/playback/application/playback-selection.service';
 
 /**
  * 播放选择/定位服务单元测试(T029,spec 004;playback-selection.service.ts 的被测底层)。

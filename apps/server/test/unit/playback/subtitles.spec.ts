@@ -21,18 +21,18 @@ import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { account, device, deviceSession, profilePolicy } from '../../../src/database/schema';
 import { DomainError } from '../../../src/common/domain-error';
 import type { SessionContext } from '../../../src/common/current-session.decorator';
-import { PlaybackRepository } from '../../../src/modules/playback/playback.repository';
-import { PlaybackAuthorizationService } from '../../../src/modules/playback/playback-authorization.service';
-import { NasReaderService } from '../../../src/modules/playback/nas-reader';
-import type { PlaybackProbeFacts } from '../../../src/modules/playback/playback-resolver.service';
-import type { PlaybackTrackFactsPort } from '../../../src/modules/playback/playback-selection.service';
+import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
+import { PlaybackAuthorizationService } from '../../../src/contexts/playback/application/playback-authorization.service';
+import { NasReaderService } from '../../../src/contexts/playback/infrastructure/nas-reader';
+import type { PlaybackProbeFacts } from '../../../src/contexts/playback/application/playback-resolver.service';
+import type { PlaybackTrackFactsPort } from '../../../src/contexts/playback/application/playback-selection.service';
 import {
   escapeSubtitleTextLine,
   PlaybackSubtitlesService,
   subRipToWebVtt,
   type EmbeddedSubtitlePort,
   type SubtitleSourceLocator,
-} from '../../../src/modules/playback/playback-subtitles.service';
+} from '../../../src/contexts/playback/infrastructure/playback-subtitles.service';
 import type { MediaRoots } from '../../../src/config/env.schema';
 
 /**

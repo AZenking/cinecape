@@ -1,9 +1,9 @@
 import { inArray, lt, lte } from 'drizzle-orm';
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
-import type { PlaybackBudgets } from '../../config/playback-budgets';
-import { playbackFailureEvent, playbackSession, playbackTicket } from '../../database/schema';
+import type { PlaybackBudgets } from '../../../config/playback-budgets';
+import { playbackFailureEvent, playbackSession, playbackTicket } from '../../../database/schema';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { PLAYBACK_ACTIVE_SESSION_STATES } from './playback.types';
+import { PLAYBACK_ACTIVE_SESSION_STATES } from '@contexts/playback/domain/playback.types';
 
 /**
  * 播放保留清理服务(T045,spec 004,US2b)—— 每日清理审计与过期票:

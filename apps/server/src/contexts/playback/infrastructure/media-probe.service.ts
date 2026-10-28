@@ -4,18 +4,18 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { Injectable } from '@nestjs/common';
 import type DatabaseConstructor from 'better-sqlite3';
-import type { MediaRoots } from '../../config/env.schema';
-import type { PlaybackBudgets } from '../../config/playback-budgets';
+import type { MediaRoots } from '../../../config/env.schema';
+import type { PlaybackBudgets } from '../../../config/playback-budgets';
 import { findNasTargetDenial } from '@contexts/sources/domain/source-target.validation';
-import type { PlaybackResourceCandidate } from './playback-authorization.service';
-import { PlaybackPlanService } from './playback-plan.service';
+import type { PlaybackResourceCandidate } from '@contexts/playback/application/playback-authorization.service';
+import { PlaybackPlanService } from '@contexts/playback/application/playback-plan.service';
 import type {
   PlaybackProbeFailureKind,
   PlaybackProbeFacts,
   PlaybackProbeOutcome,
   PlaybackProbePort,
-} from './playback-resolver.service';
-import { playbackErr, playbackOk, type PlaybackErrorCode, type PlaybackResult } from './playback.types';
+} from '@contexts/playback/application/playback-resolver.service';
+import { playbackErr, playbackOk, type PlaybackErrorCode, type PlaybackResult } from '@contexts/playback/domain/playback.types';
 
 /**
  * 媒体探测服务(T023,spec 004)—— ffprobe 受限子进程与可信事实提取。

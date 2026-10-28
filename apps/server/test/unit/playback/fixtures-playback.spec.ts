@@ -2,8 +2,8 @@ import 'reflect-metadata';
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Database } from '../../../src/database/database';
-import { PlaybackRepository } from '../../../src/modules/playback/playback.repository';
-import { PlaybackModule } from '../../../src/modules/playback/playback.module';
+import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
+import { PlaybackModule } from '../../../src/contexts/playback/playback.module';
 import { cleanupRigs, startFreshApp } from '../../helpers';
 import { seedPlaybackSession, seedPlaybackWorld } from '../../fixtures/playback';
 

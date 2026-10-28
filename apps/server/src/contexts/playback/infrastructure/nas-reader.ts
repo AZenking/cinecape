@@ -5,10 +5,10 @@ import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { Injectable } from '@nestjs/common';
-import type { MediaRoots } from '../../config/env.schema';
+import type { MediaRoots } from '../../../config/env.schema';
 import { findNasTargetDenial } from '@contexts/sources/domain/source-target.validation';
 import type { SupportedMediaExtension } from '@contexts/sources/infrastructure/nas-scanner';
-import type { PlaybackErrorCode } from './playback.types';
+import type { PlaybackErrorCode } from '@contexts/playback/domain/playback.types';
 
 /**
  * NAS 只读安全文件读取器(T020,spec 004)—— direct 交付的源端安全边界。

@@ -1,6 +1,6 @@
 import { and, desc, eq, lt, or, type SQL } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import type { PlaybackDelivery, PlaybackSessionState } from '../../../modules/playback/playback.types';
+import type { PlaybackDelivery, PlaybackSessionState } from '@contexts/playback/domain/playback.types';
 import { device, deviceSession, playbackFailureEvent, playbackSession } from '../../../database/schema';
 import { DomainError } from '../../../common/domain-error';
 import type { SessionContext } from '../../../common/current-session.decorator';

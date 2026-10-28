@@ -9,10 +9,10 @@ import { Database } from '../../../src/database/database';
 import { setEnvOverride } from '../../../src/config/env';
 import { loadEnv } from '../../../src/config/env.schema';
 import { createPlaybackBudgets, type PlaybackBudgets } from '../../../src/config/playback-budgets';
-import { PlaybackRepository } from '../../../src/modules/playback/playback.repository';
-import { ConversionStorageService } from '../../../src/modules/playback/conversion-storage.service';
-import type { PlaybackErrorCode, PlaybackOk, PlaybackResult } from '../../../src/modules/playback/playback.types';
-import { PlaybackLifecycleService } from '../../../src/modules/playback/playback-lifecycle.service';
+import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
+import { ConversionStorageService } from '../../../src/contexts/playback/infrastructure/conversion-storage.service';
+import type { PlaybackErrorCode, PlaybackOk, PlaybackResult } from '../../../src/contexts/playback/domain/playback.types';
+import { PlaybackLifecycleService } from '../../../src/contexts/playback/infrastructure/playback-lifecycle.service';
 
 /**
  * 播放生命周期单元测试(T028,spec 004,US1)—— 心跳/失联/权限复核/终止/启动恢复/退出清理:

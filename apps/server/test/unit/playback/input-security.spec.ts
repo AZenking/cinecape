@@ -29,11 +29,11 @@ import { DomainError } from '../../../src/common/domain-error';
 import { ProblemJsonFilter } from '../../../src/common/problem-json.filter';
 import { redactQueryTicket, redactSourcePaths, summarizeFfmpegStderr } from '../../../src/common/log-redaction.util';
 import type { SessionContext } from '../../../src/common/current-session.decorator';
-import { PlaybackRepository } from '../../../src/modules/playback/playback.repository';
-import { PlaybackAuthorizationService } from '../../../src/modules/playback/playback-authorization.service';
-import { HlsProxyService, validateUpstreamHop } from '../../../src/modules/playback/hls-proxy.service';
-import { PlaybackAssetsService } from '../../../src/modules/playback/playback-assets.service';
-import { NasReaderService } from '../../../src/modules/playback/nas-reader';
+import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
+import { PlaybackAuthorizationService } from '../../../src/contexts/playback/application/playback-authorization.service';
+import { HlsProxyService, validateUpstreamHop } from '../../../src/contexts/playback/infrastructure/hls-proxy.service';
+import { PlaybackAssetsService } from '../../../src/contexts/playback/application/playback-assets.service';
+import { NasReaderService } from '../../../src/contexts/playback/infrastructure/nas-reader';
 import {
   MediaProbeService,
   resolveNasMediaLocation,
@@ -41,13 +41,13 @@ import {
   type MediaProbeSpawn,
   type ProbeProcessHandle,
   type ProbeSpawnRequest,
-} from '../../../src/modules/playback/media-probe.service';
-import { PlaybackSelectionService } from '../../../src/modules/playback/playback-selection.service';
-import type { PlaybackProbeFacts } from '../../../src/modules/playback/playback-resolver.service';
+} from '../../../src/contexts/playback/infrastructure/media-probe.service';
+import { PlaybackSelectionService } from '../../../src/contexts/playback/application/playback-selection.service';
+import type { PlaybackProbeFacts } from '../../../src/contexts/playback/application/playback-resolver.service';
 import {
   PlaybackSubtitlesService,
   type SubtitleSourceLocator,
-} from '../../../src/modules/playback/playback-subtitles.service';
+} from '../../../src/contexts/playback/infrastructure/playback-subtitles.service';
 
 /**
  * 输入安全聚合单测(T036,spec 004 US2)—— 跨服务组合攻击面 / 凭据泄漏 / header 后脱敏 / 伪造输入。

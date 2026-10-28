@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type DatabaseConstructor from 'better-sqlite3';
-import type { PlaybackBudgets } from '../../config/playback-budgets';
-import * as schema from '../../database/schema';
+import type { PlaybackBudgets } from '../../../config/playback-budgets';
+import * as schema from '../../../database/schema';
 import {
   playbackConversion,
   playbackFailureEvent,
@@ -12,7 +12,7 @@ import {
   type PlaybackConversion,
   type PlaybackSession,
   type PlaybackTicket,
-} from '../../database/schema';
+} from '../../../database/schema';
 import {
   PLAYBACK_ACTIVE_SESSION_STATES,
   PLAYBACK_CONVERSION_ACTIVE_STATES,
@@ -50,7 +50,7 @@ import {
   type ReleaseOnExitInput,
   type ReserveConversionInput,
   type SubtitleSwitchInput,
-} from './playback.types';
+} from '@contexts/playback/domain/playback.types';
 
 /**
  * 播放仓储(T011,spec 004)—— better-sqlite3 同步驱动的短事务实现:

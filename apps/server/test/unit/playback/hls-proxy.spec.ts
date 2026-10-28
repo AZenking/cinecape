@@ -8,9 +8,9 @@ import {
   createPlaybackBudgets,
   type PlaybackBudgets,
 } from '../../../src/config/playback-budgets';
-import type { PlaybackErrorCode } from '../../../src/modules/playback/playback.types';
-import { HlsProxyService, validateUpstreamHop } from '../../../src/modules/playback/hls-proxy.service';
-import { PlaybackAssetsService } from '../../../src/modules/playback/playback-assets.service';
+import type { PlaybackErrorCode } from '../../../src/contexts/playback/domain/playback.types';
+import { HlsProxyService, validateUpstreamHop } from '../../../src/contexts/playback/infrastructure/hls-proxy.service';
+import { PlaybackAssetsService } from '../../../src/contexts/playback/application/playback-assets.service';
 
 /**
  * HLS 代理与清单重写单测(T015,spec 004)—— 先于 T020/T021/T022/T031 的 TDD 失败测试。

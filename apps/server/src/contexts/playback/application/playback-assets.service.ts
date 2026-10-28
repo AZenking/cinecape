@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { Injectable } from '@nestjs/common';
-import type { PlaybackBudgets } from '../../config/playback-budgets';
-import type { PlaybackErrorCode } from './playback.types';
+import type { PlaybackBudgets } from '../../../config/playback-budgets';
+import type { PlaybackErrorCode } from '@contexts/playback/domain/playback.types';
 
 /**
  * 播放资产映射与清单重写(T022,spec 004)—— (household,session,generation,assetId)

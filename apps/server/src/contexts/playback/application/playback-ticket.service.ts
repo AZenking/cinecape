@@ -1,14 +1,14 @@
 import { eq } from 'drizzle-orm';
-import { createDomainError, type DomainError } from '../../common/domain-error';
-import type { PlaybackBudgets } from '../../config/playback-budgets';
-import type { SessionContext } from '../../common/current-session.decorator';
+import { createDomainError, type DomainError } from '../../../common/domain-error';
+import type { PlaybackBudgets } from '../../../config/playback-budgets';
+import type { SessionContext } from '../../../common/current-session.decorator';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { generateToken, hashToken } from '@contexts/identity-access/infrastructure/token.service';
-import { deviceSession, playbackSession, playbackTicket } from '../../database/schema';
-import { isPlaybackTerminalSessionState } from './playback.types';
-import type { PlaybackAuthorizationService } from './playback-authorization.service';
-import type { PlaybackRepository } from './playback.repository';
-import type { PlaybackErr, PlaybackTicketView } from './playback.types';
+import { deviceSession, playbackSession, playbackTicket } from '../../../database/schema';
+import { isPlaybackTerminalSessionState } from '@contexts/playback/domain/playback.types';
+import type { PlaybackAuthorizationService } from '@contexts/playback/application/playback-authorization.service';
+import type { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
+import type { PlaybackErr, PlaybackTicketView } from '@contexts/playback/domain/playback.types';
 
 /**
  * 播放票据服务(T018,spec 004)—— 256-bit opaque 票的签发与续期:

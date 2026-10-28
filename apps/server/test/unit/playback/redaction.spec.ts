@@ -7,7 +7,7 @@ import {
   PLAYBACK_STABLE_ERROR_CODES as SHARED_PLAYBACK_CODES,
   ProblemCode,
 } from '@hmp/shared';
-import { PLAYBACK_STABLE_ERROR_CODES as T011_PLAYBACK_CODES } from '../../../src/modules/playback/playback.types';
+import { PLAYBACK_STABLE_ERROR_CODES as T011_PLAYBACK_CODES } from '../../../src/contexts/playback/domain/playback.types';
 import {
   createDomainError,
   DOMAIN_PROBLEM_REGISTRY,
@@ -33,7 +33,7 @@ import {
  *   不能在字节流内注入 JSON;「稳定错误」节:逐码 status;「异步失败与兼容」:日志过滤 query ticket;
  * - docs/specs/004-playback-resolver/research.md R6:日志不记录原路径、URL、query ticket
  *   或 FFmpeg 原始 stderr,只保留稳定码/脱敏技术摘要;
- * - T011 词表:apps/server/src/modules/playback/playback.types.ts 的 17 个 PLAYBACK_* 码。
+ * - T011 词表:apps/server/src/contexts/playback/domain/playback.types.ts 的 17 个 PLAYBACK_* 码。
  *
  * 脱敏设计口径(本文件即契约):失败分类与脱敏分离 —— summarizeFfmpegStderr 不推断稳定码,
  * 稳定码由调用方(转换监管 T016+)按失败矩阵判定后传入,本函数只做"脱敏 + 单行压缩"。

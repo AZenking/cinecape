@@ -1,15 +1,15 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import { createDomainError, DomainError } from '../../common/domain-error';
+import { createDomainError, DomainError } from '../../../common/domain-error';
 import { ProblemCode } from '@hmp/shared';
-import type { PlaybackBudgets } from '../../config/playback-budgets';
-import type { MediaRoots } from '../../config/env.schema';
-import type { SessionContext } from '../../common/current-session.decorator';
-import type { PlaybackAuthorizationService } from './playback-authorization.service';
-import { resolveNasMediaLocation } from './media-probe.service';
-import type { NasReaderService } from './nas-reader';
-import type { PlaybackProbeFacts } from './playback-resolver.service';
-import type { PlaybackTrackFactsPort } from './playback-selection.service';
+import type { PlaybackBudgets } from '../../../config/playback-budgets';
+import type { MediaRoots } from '../../../config/env.schema';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import type { PlaybackAuthorizationService } from '@contexts/playback/application/playback-authorization.service';
+import { resolveNasMediaLocation } from '@contexts/playback/infrastructure/media-probe.service';
+import type { NasReaderService } from '@contexts/playback/infrastructure/nas-reader';
+import type { PlaybackProbeFacts } from '@contexts/playback/application/playback-resolver.service';
+import type { PlaybackTrackFactsPort } from '@contexts/playback/application/playback-selection.service';
 
 /**
  * 播放字幕服务(T030,spec 004)—— 内嵌/旁车字幕的目录、安全读取与 SRT→VTT 文本交付。

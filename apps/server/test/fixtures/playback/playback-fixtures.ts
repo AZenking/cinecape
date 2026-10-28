@@ -22,7 +22,7 @@ import {
   type PlaybackDelivery,
   type PlaybackErrorCode,
   type PlaybackSessionState,
-} from '../../../src/modules/playback/playback.types';
+} from '../../../src/contexts/playback/domain/playback.types';
 import type { TestRig } from '../../helpers';
 
 /**

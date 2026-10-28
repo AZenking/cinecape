@@ -1,9 +1,9 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { PlaybackBudgets } from '../../config/playback-budgets';
-import type { PlaybackRepository } from './playback.repository';
-import { playbackErr, playbackOk, type PlaybackConversionMode, type PlaybackErrorCode, type PlaybackResult } from './playback.types';
+import type { PlaybackBudgets } from '../../../config/playback-budgets';
+import type { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
+import { playbackErr, playbackOk, type PlaybackConversionMode, type PlaybackErrorCode, type PlaybackResult } from '@contexts/playback/domain/playback.types';
 
 const execFile = promisify(execFileCallback);
 

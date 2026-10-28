@@ -14,8 +14,8 @@ import {
   type PlaybackOk,
   type PlaybackResult,
   type PlaybackSessionView,
-} from '../../../src/modules/playback/playback.types';
-import { PlaybackRepository } from '../../../src/modules/playback/playback.repository';
+} from '../../../src/contexts/playback/domain/playback.types';
+import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
 
 /**
  * 播放仓储单元测试(T011;data-model.md「## playback_session」「## playback_ticket」

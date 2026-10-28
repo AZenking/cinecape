@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import type { PlaybackBudgets } from '../../config/playback-budgets';
-import { playbackErr, playbackOk, type PlaybackConversionMode, type PlaybackResult } from './playback.types';
+import type { PlaybackBudgets } from '../../../config/playback-budgets';
+import { playbackErr, playbackOk, type PlaybackConversionMode, type PlaybackResult } from '@contexts/playback/domain/playback.types';
 
 /**
  * 播放格式计划服务(T024,spec 004)—— direct→remux→audio_transcode→video_transcode。

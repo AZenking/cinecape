@@ -1,9 +1,9 @@
 import { spawn as spawnNodeProcess } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import type { PlaybackBudgets } from '../../config/playback-budgets';
-import type { MediaRoots } from '../../config/env.schema';
-import { resolveNasMediaLocation } from './media-probe.service';
-import type { EmbeddedSubtitlePort } from './playback-subtitles.service';
+import type { PlaybackBudgets } from '../../../config/playback-budgets';
+import type { MediaRoots } from '../../../config/env.schema';
+import { resolveNasMediaLocation } from '@contexts/playback/infrastructure/media-probe.service';
+import type { EmbeddedSubtitlePort } from '@contexts/playback/infrastructure/playback-subtitles.service';
 
 /**
  * 内嵌字幕受限 demux 提取(T031 装配,spec 004)—— EmbeddedSubtitlePort 的真实实现:

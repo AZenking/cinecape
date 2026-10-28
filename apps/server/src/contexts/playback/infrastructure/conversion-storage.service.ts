@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import type { PlaybackBudgets } from '../../config/playback-budgets';
-import { playbackErr, playbackOk, type PlaybackResult } from './playback.types';
+import type { PlaybackBudgets } from '../../../config/playback-budgets';
+import { playbackErr, playbackOk, type PlaybackResult } from '@contexts/playback/domain/playback.types';
 
 /**
  * 转换私有存储(T026,spec 004)—— household/session/generation 三级私有滚动 HLS 窗口:

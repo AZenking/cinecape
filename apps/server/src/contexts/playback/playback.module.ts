@@ -11,11 +11,11 @@ import type { MediaRoots } from '../../config/env.schema';
 import { Database } from '../../database/database';
 import { playbackConversion, playbackSession } from '../../database/schema';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { PlaybackRepository } from './playback.repository';
-import { PlaybackAuthorizationService } from './playback-authorization.service';
-import { NasReaderService } from './nas-reader';
-import { HlsProxyService } from './hls-proxy.service';
-import { PlaybackAssetsService } from './playback-assets.service';
+import { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
+import { PlaybackAuthorizationService } from '@contexts/playback/application/playback-authorization.service';
+import { NasReaderService } from '@contexts/playback/infrastructure/nas-reader';
+import { HlsProxyService } from '@contexts/playback/infrastructure/hls-proxy.service';
+import { PlaybackAssetsService } from '@contexts/playback/application/playback-assets.service';
 import {
   MediaProbeService,
   MediaProbePlaybackProbePort,
@@ -23,40 +23,40 @@ import {
   PlaybackSourceLocationReader,
   resolveNasMediaLocation,
   systemMediaProbeClock,
-} from './media-probe.service';
-import { PlaybackPlanService } from './playback-plan.service';
-import { PlaybackResolverService, type PlaybackConversionLaunchPort, type PlaybackProbeFacts, type PlaybackSessionSourcePort } from './playback-resolver.service';
-import { PlaybackTicketService } from './playback-ticket.service';
+} from '@contexts/playback/infrastructure/media-probe.service';
+import { PlaybackPlanService } from '@contexts/playback/application/playback-plan.service';
+import { PlaybackResolverService, type PlaybackConversionLaunchPort, type PlaybackProbeFacts, type PlaybackSessionSourcePort } from '@contexts/playback/application/playback-resolver.service';
+import { PlaybackTicketService } from '@contexts/playback/application/playback-ticket.service';
 import {
   PlaybackSelectionService,
   type PlaybackRebuildCoordinator,
   type PlaybackSubtitleCatalogPort,
   type PlaybackTrackFactsPort,
-} from './playback-selection.service';
-import { PlaybackSubtitlesService, type SubtitleSourceLocator } from './playback-subtitles.service';
-import { FfmpegSubtitleExtractService } from './ffmpeg-subtitle-extract';
-import { PlaybackRateLimitService } from './playback-rate-limit.service';
+} from '@contexts/playback/application/playback-selection.service';
+import { PlaybackSubtitlesService, type SubtitleSourceLocator } from '@contexts/playback/infrastructure/playback-subtitles.service';
+import { FfmpegSubtitleExtractService } from '@contexts/playback/infrastructure/ffmpeg-subtitle-extract';
+import { PlaybackRateLimitService } from '@contexts/playback/application/playback-rate-limit.service';
 import {
   ConversionSupervisorService,
   type ConversionProcessHandle,
   type ConversionSpawnRequest,
   type ConversionStartInput,
   type SupervisorClock,
-} from './conversion-supervisor.service';
-import { ConversionStorageService, type StorageTaskRef } from './conversion-storage.service';
-import { ConversionWatchdogService } from './conversion-watchdog.service';
-import { PlaybackLifecycleService, type LifecycleStoragePort } from './playback-lifecycle.service';
-import { PlaybackAuditService } from './playback-audit.service';
-import { PlaybackRetentionService } from './playback-retention.service';
-import { PlaybackController } from './playback.controller';
-import { PlaybackStreamController } from './playback-stream.controller';
-import { PersonalDataModule } from '../../contexts/personal-data/personal-data.module';
+} from '@contexts/playback/infrastructure/conversion-supervisor.service';
+import { ConversionStorageService, type StorageTaskRef } from '@contexts/playback/infrastructure/conversion-storage.service';
+import { ConversionWatchdogService } from '@contexts/playback/application/conversion-watchdog.service';
+import { PlaybackLifecycleService, type LifecycleStoragePort } from '@contexts/playback/infrastructure/playback-lifecycle.service';
+import { PlaybackAuditService } from '@contexts/playback/application/playback-audit.service';
+import { PlaybackRetentionService } from '@contexts/playback/application/playback-retention.service';
+import { PlaybackController } from '@contexts/playback/interface/playback.controller';
+import { PlaybackStreamController } from '@contexts/playback/interface/playback-stream.controller';
+import { PersonalDataModule } from '@contexts/personal-data/personal-data.module';
 import {
   ProgressClockService,
   registerPersonalPlaybackFactsPort,
-} from '../../contexts/personal-data/application/progress-clock.service';
-import { ProgressWriteService } from '../../contexts/personal-data/application/progress-write.service';
-import type { PlaybackFinalProgressPort } from './playback-lifecycle.service';
+} from '@contexts/personal-data/application/progress-clock.service';
+import { ProgressWriteService } from '@contexts/personal-data/application/progress-write.service';
+import type { PlaybackFinalProgressPort } from '@contexts/playback/infrastructure/playback-lifecycle.service';
 import { CommonModule } from '../../common/common.module';
 import {
   PLAYBACK_CONVERSION_ACTIVE_STATES,
@@ -65,7 +65,7 @@ import {
   playbackOk,
   type PlaybackErrorCode,
   type PlaybackResult,
-} from './playback.types';
+} from '@contexts/playback/domain/playback.types';
 
 /**
  * 播放模块(T013 装配底座;T031 总装配,spec 004)—— 控制器接线 + 全部播放服务入组:

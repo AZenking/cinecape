@@ -1,12 +1,12 @@
 import { eq } from 'drizzle-orm';
-import { createDomainError, type DomainError } from '../../common/domain-error';
-import type { PlaybackBudgets } from '../../config/playback-budgets';
-import type { SessionContext } from '../../common/current-session.decorator';
+import { createDomainError, type DomainError } from '../../../common/domain-error';
+import type { PlaybackBudgets } from '../../../config/playback-budgets';
+import type { SessionContext } from '../../../common/current-session.decorator';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { deviceSession, playbackSession } from '../../database/schema';
-import type { PlaybackAuthorizationService, PlaybackResourceCandidate } from './playback-authorization.service';
-import type { PlaybackRepository } from './playback.repository';
-import type { PlaybackProgressBindPort, PlaybackResumePositionPort } from '../../contexts/personal-data/application/progress-clock.service';
+import { deviceSession, playbackSession } from '../../../database/schema';
+import type { PlaybackAuthorizationService, PlaybackResourceCandidate } from '@contexts/playback/application/playback-authorization.service';
+import type { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
+import type { PlaybackProgressBindPort, PlaybackResumePositionPort } from '@contexts/personal-data/application/progress-clock.service';
 import type {
   MarkPlayingInput,
   PlaybackDelivery,
@@ -15,8 +15,8 @@ import type {
   PlaybackSessionState,
   PlaybackSessionView,
   PlaybackResult,
-} from './playback.types';
-import type { PlaybackConversionMode } from './playback.types';
+} from '@contexts/playback/domain/playback.types';
+import type { PlaybackConversionMode } from '@contexts/playback/domain/playback.types';
 
 /**
  * 播放解析服务(T019,spec 004)—— 可用资源稳定选择与 preparing 会话:

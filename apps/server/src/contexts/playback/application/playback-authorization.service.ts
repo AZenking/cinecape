@@ -11,15 +11,15 @@ import {
   profile,
   profilePolicy,
   sourceEntry,
-} from '../../database/schema';
-import { createDomainError, DomainError } from '../../common/domain-error';
-import type { SessionContext } from '../../common/current-session.decorator';
+} from '../../../database/schema';
+import { createDomainError, DomainError } from '../../../common/domain-error';
+import type { SessionContext } from '../../../common/current-session.decorator';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { authorizeCurrentProfile, type AuthorizationReason } from '@contexts/policy/application/policy.service';
 import { defaultPolicyValues } from '@contexts/policy/domain/policy.rules';
 import type { MediaPolicyFacts } from '@contexts/policy/domain/policy.rules';
-import { PlaybackRepository } from './playback.repository';
-import type { PlaybackDelivery } from './playback.types';
+import { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
+import type { PlaybackDelivery } from '@contexts/playback/domain/playback.types';
 
 /**
  * 播放内部授权管线(T017,spec 004)—— resolve/控制/提交前重验共用的单一信任源:

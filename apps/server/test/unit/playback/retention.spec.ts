@@ -8,7 +8,7 @@ import { Database } from '../../../src/database/database';
 import { setEnvOverride } from '../../../src/config/env';
 import { loadEnv } from '../../../src/config/env.schema';
 import { createPlaybackBudgets, type PlaybackBudgets } from '../../../src/config/playback-budgets';
-import { PlaybackRetentionService } from '../../../src/modules/playback/playback-retention.service';
+import { PlaybackRetentionService } from '../../../src/contexts/playback/application/playback-retention.service';
 
 /**
  * 播放保留清理单元测试(T045,spec 004,US2b —— TDD 先行 RED 证据):

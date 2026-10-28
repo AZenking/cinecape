@@ -1,19 +1,19 @@
 import { eq } from 'drizzle-orm';
-import { createDomainError, DomainError } from '../../common/domain-error';
-import type { SessionContext } from '../../common/current-session.decorator';
-import type { PlaybackBudgets } from '../../config/playback-budgets';
+import { createDomainError, DomainError } from '../../../common/domain-error';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import type { PlaybackBudgets } from '../../../config/playback-budgets';
 import { ProblemCode } from '@hmp/shared';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { playbackTicket } from '../../database/schema';
-import type { PlaybackAuthorizationService } from './playback-authorization.service';
-import type { PlaybackDto, PlaybackProbeFacts } from './playback-resolver.service';
-import type { PlaybackRepository } from './playback.repository';
+import { playbackTicket } from '../../../database/schema';
+import type { PlaybackAuthorizationService } from '@contexts/playback/application/playback-authorization.service';
+import type { PlaybackDto, PlaybackProbeFacts } from '@contexts/playback/application/playback-resolver.service';
+import type { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
 import {
   terminalGuardCode,
   type PlaybackDelivery,
   type PlaybackErr,
   type PlaybackSessionView,
-} from './playback.types';
+} from '@contexts/playback/domain/playback.types';
 
 /**
  * 播放选择/定位服务(T029,spec 004)—— selection/seek 的版本 CAS、单槽串行 generation 替换

@@ -29,19 +29,19 @@ import {
 import { DomainError } from '../../../src/common/domain-error';
 import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import type { SessionContext } from '../../../src/common/current-session.decorator';
-import { PlaybackRepository } from '../../../src/modules/playback/playback.repository';
+import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
 import {
   PlaybackAuthorizationService,
   comparePlaybackCandidates,
   type PlaybackResourceCandidate,
-} from '../../../src/modules/playback/playback-authorization.service';
+} from '../../../src/contexts/playback/application/playback-authorization.service';
 import {
   PlaybackResolverService,
   type PlaybackProbeFacts,
   type PlaybackProbeOutcome,
   type PlaybackProbePort,
-} from '../../../src/modules/playback/playback-resolver.service';
-import { PlaybackTicketService } from '../../../src/modules/playback/playback-ticket.service';
+} from '../../../src/contexts/playback/application/playback-resolver.service';
+import { PlaybackTicketService } from '../../../src/contexts/playback/application/playback-ticket.service';
 
 /**
  * 资源选择与 preparing 会话单元测试(T019,spec 004;playback-resolver.service.ts 的被测底层)。

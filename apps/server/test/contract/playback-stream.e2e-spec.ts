@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { SESSION_COOKIE } from '@hmp/shared';
 import { Database } from '../../src/database/database';
 import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
-import { isPlaybackStableErrorCode } from '../../src/modules/playback/playback.types';
+import { isPlaybackStableErrorCode } from '../../src/contexts/playback/domain/playback.types';
 import {
   cleanupRigs,
   expectProblemContentType,

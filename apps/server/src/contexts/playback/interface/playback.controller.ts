@@ -1,26 +1,26 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put, Res, UseGuards } from '@nestjs/common';
-import { PlaybackReadinessGuard } from './playback-readiness.guard';
+import { PlaybackReadinessGuard } from '@contexts/playback/interface/playback-readiness.guard';
 import { Injectable, type CanActivate, type ExecutionContext } from '@nestjs/common';
 import type { Response, Request } from 'express';
 import { z } from 'zod';
 import { ProblemCode } from '@hmp/shared';
-import { CurrentSession, type SessionContext } from '../../common/current-session.decorator';
-import { SessionGuard } from '../../common/session.guard';
-import { createDomainError, DomainError } from '../../common/domain-error';
-import { RateLimit } from '../../common/rate-limit/rate-limit.decorator';
-import { RateLimitGuard } from '../../common/rate-limit/rate-limit.guard';
+import { CurrentSession, type SessionContext } from '../../../common/current-session.decorator';
+import { SessionGuard } from '../../../common/session.guard';
+import { createDomainError, DomainError } from '../../../common/domain-error';
+import { RateLimit } from '../../../common/rate-limit/rate-limit.decorator';
+import { RateLimitGuard } from '../../../common/rate-limit/rate-limit.guard';
 import { parseBody } from '@contexts/identity-access/interface/validation';
-import { getConfig } from '../../config/env';
-import { createPlaybackBudgets } from '../../config/playback-budgets';
-import { PlaybackRepository } from './playback.repository';
-import { PlaybackAuthorizationService } from './playback-authorization.service';
-import { PlaybackTicketService, type TicketReply } from './playback-ticket.service';
-import { PlaybackResolverService, type PlaybackDto } from './playback-resolver.service';
-import { PlaybackSelectionService } from './playback-selection.service';
-import { PlaybackLifecycleService } from './playback-lifecycle.service';
-import { PlaybackRateLimitService, type PlaybackRateLimitBucket } from './playback-rate-limit.service';
-import { PlaybackAuditService } from './playback-audit.service';
-import { ProgressWriteService, type ProgressSampleReply } from '../../contexts/personal-data/application/progress-write.service';
+import { getConfig } from '../../../config/env';
+import { createPlaybackBudgets } from '../../../config/playback-budgets';
+import { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
+import { PlaybackAuthorizationService } from '@contexts/playback/application/playback-authorization.service';
+import { PlaybackTicketService, type TicketReply } from '@contexts/playback/application/playback-ticket.service';
+import { PlaybackResolverService, type PlaybackDto } from '@contexts/playback/application/playback-resolver.service';
+import { PlaybackSelectionService } from '@contexts/playback/application/playback-selection.service';
+import { PlaybackLifecycleService } from '@contexts/playback/infrastructure/playback-lifecycle.service';
+import { PlaybackRateLimitService, type PlaybackRateLimitBucket } from '@contexts/playback/application/playback-rate-limit.service';
+import { PlaybackAuditService } from '@contexts/playback/application/playback-audit.service';
+import { ProgressWriteService, type ProgressSampleReply } from '@contexts/personal-data/application/progress-write.service';
 
 /**
  * 播放控制端点(T031,spec 004)—— resolve/GET session/renew/heartbeat/stop/selection/seek。

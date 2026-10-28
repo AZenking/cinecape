@@ -27,13 +27,13 @@ import {
 } from '../../../src/database/schema';
 import { DomainError } from '../../../src/common/domain-error';
 import type { SessionContext } from '../../../src/common/current-session.decorator';
-import { PlaybackRepository } from '../../../src/modules/playback/playback.repository';
-import { PlaybackAuthorizationService } from '../../../src/modules/playback/playback-authorization.service';
+import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
+import { PlaybackAuthorizationService } from '../../../src/contexts/playback/application/playback-authorization.service';
 import {
   PLAYBACK_RENEW_LEAD_SECONDS,
   PlaybackTicketService,
   type TicketReply,
-} from '../../../src/modules/playback/playback-ticket.service';
+} from '../../../src/contexts/playback/application/playback-ticket.service';
 
 /**
  * 播放票据服务单元测试(T018,spec 004;playback-ticket.service.ts 的被测底层)。

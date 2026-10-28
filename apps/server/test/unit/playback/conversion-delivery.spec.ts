@@ -19,13 +19,13 @@ import { createPlaybackBudgets, type PlaybackBudgets } from '../../../src/config
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { account, deviceSession, playbackSource, profilePolicy } from '../../../src/database/schema';
 import type { SessionContext } from '../../../src/common/current-session.decorator';
-import { PlaybackRepository } from '../../../src/modules/playback/playback.repository';
-import { PlaybackAuthorizationService } from '../../../src/modules/playback/playback-authorization.service';
-import { PlaybackLifecycleService, type LifecycleStoragePort } from '../../../src/modules/playback/playback-lifecycle.service';
-import { ConversionStorageService } from '../../../src/modules/playback/conversion-storage.service';
-import { ConversionSupervisorService, type ConversionProcessHandle, type ConversionSpawnRequest } from '../../../src/modules/playback/conversion-supervisor.service';
-import { PlaybackAssetsService } from '../../../src/modules/playback/playback-assets.service';
-import { PlaybackSourceLocationReader, resolveNasMediaLocation } from '../../../src/modules/playback/media-probe.service';
+import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
+import { PlaybackAuthorizationService } from '../../../src/contexts/playback/application/playback-authorization.service';
+import { PlaybackLifecycleService, type LifecycleStoragePort } from '../../../src/contexts/playback/infrastructure/playback-lifecycle.service';
+import { ConversionStorageService } from '../../../src/contexts/playback/infrastructure/conversion-storage.service';
+import { ConversionSupervisorService, type ConversionProcessHandle, type ConversionSpawnRequest } from '../../../src/contexts/playback/infrastructure/conversion-supervisor.service';
+import { PlaybackAssetsService } from '../../../src/contexts/playback/application/playback-assets.service';
+import { PlaybackSourceLocationReader, resolveNasMediaLocation } from '../../../src/contexts/playback/infrastructure/media-probe.service';
 import {
   PlaybackResolverService,
   conversionPlanForDelivery,
@@ -36,10 +36,10 @@ import {
   type PlaybackProbeOutcome,
   type PlaybackProbePort,
   type PlaybackSessionSourcePort,
-} from '../../../src/modules/playback/playback-resolver.service';
-import { PlaybackSelectionService, type PlaybackTrackFactsPort } from '../../../src/modules/playback/playback-selection.service';
-import { PlaybackTaskDirectoryLedger, PlaybackConversionBridge } from '../../../src/modules/playback/playback.module';
-import type { PlaybackErrorCode, PlaybackResult } from '../../../src/modules/playback/playback.types';
+} from '../../../src/contexts/playback/application/playback-resolver.service';
+import { PlaybackSelectionService, type PlaybackTrackFactsPort } from '../../../src/contexts/playback/application/playback-selection.service';
+import { PlaybackTaskDirectoryLedger, PlaybackConversionBridge } from '../../../src/contexts/playback/playback.module';
+import type { PlaybackErrorCode, PlaybackResult } from '../../../src/contexts/playback/domain/playback.types';
 
 /**
  * 转码交付接线单测(T033 缺口1/缺口2 修复;spec 004 US1 SC-007 四路径 HTTP 交付):

@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { Injectable } from '@nestjs/common';
 import { ProblemCode } from '@hmp/shared';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { DomainError } from '../../common/domain-error';
-import { mediaItem, playbackFailureEvent, playbackSource, profile, sourceEntry } from '../../database/schema';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { DomainError } from '../../../common/domain-error';
+import { mediaItem, playbackFailureEvent, playbackSource, profile, sourceEntry } from '../../../database/schema';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 
 /**

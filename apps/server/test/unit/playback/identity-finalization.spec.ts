@@ -25,12 +25,12 @@ import {
   clearDeviceSessionsProfile,
   switchDeviceSessionProfile,
 } from '@contexts/profile/application/identity-transition';
-import { PlaybackRepository } from '../../../src/modules/playback/playback.repository';
-import { PlaybackAuthorizationService } from '../../../src/modules/playback/playback-authorization.service';
+import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
+import { PlaybackAuthorizationService } from '../../../src/contexts/playback/application/playback-authorization.service';
 import {
   PlaybackResolverService,
   type PlaybackProbeOutcome,
-} from '../../../src/modules/playback/playback-resolver.service';
+} from '../../../src/contexts/playback/application/playback-resolver.service';
 import type { SessionContext } from '../../../src/common/current-session.decorator';
 
 /**
