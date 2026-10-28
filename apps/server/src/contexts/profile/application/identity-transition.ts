@@ -28,24 +28,12 @@ import {
  * 同一物理事务,各消费方的仓储化属其后续任务(008 FR-001 逐上下文独立抽取)。
  */
 
-/**
- * 终态化指定设备会话在给定身份上下文下的活动播放,并撤销其对应票据。
- * (householdId, deviceSessionId, profileId) 定位旧上下文;已终态行零副作用。
+/*
+ * 细粒度钩子 finalizePlaybackForIdentityChange / revokeSettingsGrantsForSessions
+ * 自 T006 起仅为 ProfileTxStore 端口方法(组合方法 switchDeviceSessionsProfile /
+ * clearDeviceSessionsProfile 在仓储实现内同事务调用,行为不变);application 层
+ * 无独立消费方,按 008 SC-003 零遗留不再导出薄委托(消费方出现时经端口重建)。
  */
-export function finalizePlaybackForIdentityChange(
-  tx: Db,
-  input: IdentityChangePlaybackInput,
-): void {
-  profileStore().txStore(tx).finalizePlaybackForIdentityChange(input);
-}
-
-/** 撤销指定设备会话的设置授予(失效后不再恢复;保留行与撤销时间供审计) */
-export function revokeSettingsGrantsForSessions(
-  tx: Db,
-  input: RevokeSettingsGrantsInput,
-): void {
-  profileStore().txStore(tx).revokeSettingsGrantsForSessions(input);
-}
 
 /**
  * 实际换档(调用方须保证 fromProfileId ≠ toProfileId):同事务
