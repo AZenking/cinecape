@@ -15,17 +15,19 @@
 
 ## 2. 规则清单（apps/server/.dependency-cruiser.cjs）
 
-配置含 **7 条规则，全部 `severity: "error"`**；路径域刻意限定 `src/contexts/**` 与 `src/platform/**`（迁移前两目录不存在 → 全部规则空转通过）。
+配置含 **7 条规则**；severity 由 `AUDIT_ENFORCE` 门禁开关统一切换（默认 enforce = `error` 违规即非零退出；`AUDIT_ENFORCE=0` 全部降级 `info` 报告模式，007 编排修正 2026-10-28 引入，T024 起强制归零）；路径域刻意限定 `src/contexts/**` 与 `src/platform/**`（迁移前两目录不存在 → 全部规则空转通过）。
+
+> **2026-10-28 T024 同步**：下表「规则名 / 语义」两列已按 `.dependency-cruiser.cjs` 当前实现更新（T006 原表为迁移前快照）。变动：R3 更名 `r3-no-framework-leakage-into-domain-and-application` → `r3-no-framework-leakage-into-domain` 并收窄 from 为 domain 层 only（裁决修正⑤）；R1a–R1d 语义列补入 2026-10-28 编排裁决修正（ADR-0014 修正案①–⑥）与 T024 归零修正案（D-①②③）的放行项。逐条裁决对应关系见规则文件头「编排裁决修正」与「T024 审计强制归零」小节。
 
 | 编号 | 规则名 | 语义（一句话） | 对应 data-model.md §3 条目 |
 | --- | --- | --- | --- |
-| R1a | `r1-domain-only-own-domain-and-shared` | domain 只能 import 自身上下文的 `domain/**` 与 `@hmp/shared`（仅类型契约），其余一律违规 | §3 依赖矩阵「domain」行 |
-| R1b | `r1-application-only-own-domain-application-and-shared` | application 只能 import 自身 `domain/**`、自身 `application/**` 与 `@hmp/shared`（仅类型契约） | §3 依赖矩阵「application」行 |
-| R1c | `r1-infrastructure-own-layers-platform-and-shared-only` | infrastructure 只能 import 自身三层（domain/application/infrastructure）、`src/platform/**` 与 `@hmp/shared`，不得触及其他上下文或任何 `interface/**` | §3 依赖矩阵「infrastructure」行 |
-| R1d | `r1-interface-own-context-published-index-platform-shared-only` | interface 只能 import 自身上下文全部层、其他上下文的发布入口 `index.ts`、`src/platform/**` 与 `@hmp/shared` | §3 依赖矩阵「interface」行 |
+| R1a | `r1-domain-only-own-domain-and-shared` | domain 只能 import 自身上下文 `domain/**`、`@hmp/shared`（仅类型契约）与他上下文发布面 `index.ts`（裁决修正①）；T024 归零按 ADR-0014 修正案 D-①②③ 追加三项确定性放行（node 内建标准库集合 / `platform/http-common/domain-error.ts` 错误契约 / `@internationalized/date` 纯值库），其余一律违规 | §3 依赖矩阵「domain」行 |
+| R1b | `r1-application-only-own-domain-application-and-shared` | application 只能 import 自身 `domain/**`、`application/**`、`infrastructure/**`（修正②(d)）、发布面 `index.ts`（修正②(a)）、`src/platform/**`（修正②(b)）、`@hmp/shared`，以及 node 内建与框架包 node_modules 形态（修正②(c)：drizzle-orm/better-sqlite3/rxjs/@nestjs/express 含 @types/express） | §3 依赖矩阵「application」行 |
+| R1c | `r1-infrastructure-own-layers-platform-and-shared-only` | infrastructure 只能 import 自身三层（domain/application/infrastructure）、发布面 `index.ts`（修正③）、`src/platform/**`、`@hmp/shared`，以及外部包与 node 内建（修正③偏差留痕：外部包不属矩阵管辖）；不得触及其他上下文或任何 `interface/**` | §3 依赖矩阵「infrastructure」行 |
+| R1d | `r1-interface-own-context-published-index-platform-shared-only` | interface 只能 import 自身上下文全部层、发布入口 `index.ts`、`src/platform/**`、`@hmp/shared`，以及外部包与 node 内建（修正④偏差留痕，理由同修正③）；不得 import 其他上下文的非 index 文件 | §3 依赖矩阵「interface」行 |
 | R2 | `r2-cross-context-deep-import-ban` | 跨上下文 import 的落点必须是目标上下文 `index.ts`（发布入口），任何非 index 文件即违规 | §3 补充规则 (a)（另见 contracts/internal-context-contracts.md「审计映射」第 1 条） |
-| R3 | `r3-no-framework-leakage-into-domain-and-application` | domain 与 application 必须保持纯 TS，禁止 import `@nestjs/*`、drizzle-orm、better-sqlite3、express、rxjs | §3 矩阵 domain/application 行「框架列 ❌」（另见 contracts「审计映射」第 3 条 + rxjs） |
-| R4 | `r4-platform-must-not-depend-on-contexts` | `src/platform/**` 被所有上下文依赖，自身不得反向依赖任何业务上下文 | data-model.md §1 依赖方向不变量（§3 矩阵无 platform 行，属补充约束） |
+| R3 | `r3-no-framework-leakage-into-domain` | domain 必须保持纯 TS，禁止 import `@nestjs/*`、drizzle-orm、better-sqlite3、express、rxjs（含 @types/express）；2026-10-28 裁决修正⑤自 `…-and-application` 更名并收窄 from 为 domain 层 only（application 层框架使用由 R1b 合法面 (c) 覆盖） | §3 矩阵 domain 行「框架列 ❌」（另见 contracts「审计映射」第 3 条 + rxjs） |
+| R4 | `r4-platform-must-not-depend-on-contexts` | `src/platform/**` 被所有上下文依赖，自身不得反向依赖任何业务上下文（裁决修正⑥保持全禁；既有 2 条反向边经组合根端口反转真修消失） | data-model.md §1 依赖方向不变量（§3 矩阵无 platform 行，属补充约束） |
 
 配置其余要点：`doNotFollow: ^(node_modules|\.\./)`（不深入 node_modules 与仓库其他包）、`tsPreCompilationDeps: true`；`@hmp/shared` 与框架包的匹配正则已平铺 pnpm `.pnpm` 硬链接形态以规避 safe-regex 嵌套量词禁令。
 

@@ -8,7 +8,9 @@ import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
 import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
 import { clearDeviceSessionsProfile, revokeUnlockGrantsForProfile } from '@contexts/profile';
-import { toProfileSummary, type ProfileSummaryBody } from '@contexts/identity-access/interface/account-session.dto';
+// T024 类型上提：ProfileSummaryBody/toProfileSummary 实体落位本层
+// profile-summary.dto.ts（application→interface 为审计禁边），实现零改动。
+import { toProfileSummary, type ProfileSummaryBody } from '@contexts/identity-access/application/profile-summary.dto';
 
 /**
  * 首建与 PIN 恢复(T037,005 FR-030 + ADR-0011 决议 2/6 + research R2/R5):

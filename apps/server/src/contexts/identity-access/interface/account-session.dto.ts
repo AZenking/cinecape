@@ -4,6 +4,12 @@ import { deviceSession, profile } from '@platform/database/schema';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { clearDeviceSessionsProfile } from '@contexts/profile';
+// T024 类型上提：ProfileSummaryBody / toProfileSummary 实体落位 application 层
+// （profile-summary.dto.ts，application→interface 为审计禁边故上提；实现零改动），
+// 此处再导出保持既有消费方（auth/bootstrap.controller、发布面 index）零破坏。
+import { toProfileSummary, type ProfileSummaryBody } from '@contexts/identity-access/application/profile-summary.dto';
+
+export { toProfileSummary, type ProfileSummaryBody };
 
 /**
  * 统一会话 DTO(T039,005 data-model §9「AccountSession」+ contracts/api.md §3):
@@ -18,20 +24,6 @@ import { clearDeviceSessionsProfile } from '@contexts/profile';
  *   递增 profile_context_version 并撤销设置授予,DTO 返回 activeProfile=null。
  */
 
-/** ProfileSummary 响应体(契约 B001ProfileDto;选档/首建/会话共用) */
-export interface ProfileSummaryBody {
-  id: string;
-  name: string;
-  avatar: string | null;
-  type: 'adult' | 'child';
-  isDefault: boolean;
-  isMain: boolean;
-  pinProtected: boolean;
-  status: 'active' | 'disabled';
-  createdAt: string;
-  version: number;
-}
-
 /** AccountSession 响应体(契约 B001SessionDto;sessionToken 仅登录响应携带) */
 export interface AccountSessionBody {
   sessionId: string;
@@ -41,22 +33,6 @@ export interface AccountSessionBody {
   householdId: string;
   bootstrapRequired: boolean;
   profileContextVersion: number;
-}
-
-/** Profile 行 → ProfileSummary 白名单投影(pin_hash/failed_pin_count 等永不进入 DTO) */
-export function toProfileSummary(row: Profile): ProfileSummaryBody {
-  return {
-    id: row.id,
-    name: row.name,
-    avatar: row.avatar,
-    type: row.type as ProfileSummaryBody['type'],
-    isDefault: row.isDefault === 1,
-    isMain: row.isMain === 1,
-    pinProtected: row.pinHash !== null,
-    status: row.status as ProfileSummaryBody['status'],
-    createdAt: row.createdAt,
-    version: row.version,
-  };
 }
 
 /** 当前 activeProfile 的有效档案行(不存在/停用/归属不符均视为无有效身份) */

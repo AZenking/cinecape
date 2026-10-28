@@ -70,6 +70,25 @@
  *   better-sqlite3/express/rxjs（含 @types/express）禁止。代码侧唯一 domain 渗漏点
  *   （epg guide-problems 的 HttpException）已随本裁决纯化。
  * ⑥ R4：**保持** platform→contexts 全禁 —— 端口反转后 2 条边消失即为验证。
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 2026-10-28 T024 审计强制归零（ADR-0014 修正案 D 条目；行为零变化，SC-001）
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 修正①留痕的 domain 纯度强制残留 4 条按修正案 D-①②③ 合法化（R1a to.pathNot
+ * 追加，每项在规则处有裁决注释）；另 1 条 application→own interface（identity-
+ * access bootstrap.service → account-session.dto）经类型上提真修（ProfileSummary
+ * Body / toProfileSummary 上提至 application/profile-summary.dto，规则不放松）。
+ * 本步后软/硬审计双模式 0 违规（SC-001 达成）。逐条修改：
+ * ⑦ R1a（D-① 内建标准库）：DOMAIN_BUILTINS —— net/crypto/path/fs/fs/promises/
+ *    url/util/events/stream/buffer/timers 裸名精确集合（depcruise 剥离 node:
+ *    前缀后的落点形态，T022b 实测确认）；仅此确定性集合，不复用全量
+ *    BUILTIN_MODULES、不开放通配。放行：sources domain→net、live-tv domain→crypto。
+ * ⑧ R1a（D-② 错误契约）：^src/platform/http-common/domain-error\.ts$ ——
+ *    DomainError/createDomainError 为宪章定义的跨上下文错误契约（plain TS
+ *    class），豁免逻辑与 @hmp/shared 类型契约同理。放行：policy domain→domain-error。
+ * ⑨ R1a（D-③ 纯值库）：PURE_VALUE_PACKAGES —— @internationalized/date 的
+ *    node_modules 落点（pnpm 两分支平铺；无 I/O 副作用的纯日期值运算库）。
+ *    放行：epg domain→@internationalized/date。
  */
 
 /** @hmp/shared（类型契约包）的解析落点：workspace 源码或 node_modules 内。
@@ -106,6 +125,23 @@ const BUILTIN_MODULES =
  *  R1c/R1d 据此显式放行，消除白名单对 node_modules 的历史工件拦截。 */
 const NODE_MODULES_PACKAGES = "^(?:\\.\\./)*node_modules/";
 
+/** 2026-10-28 T024 归零（ADR-0014 修正案 D-①，见文件头⑦）：domain 放行的 node
+ *  内建标准库确定性集合。depcruise 对 `node:` 前缀剥离后的落点为裸模块名
+ *  （T022b 实测确认），本表全名精确匹配（$ 收尾，子路径内建 fs/promises 以
+ *  全名列举）；仅此列举集合，不复用 R1b/R1c 的全量 BUILTIN_MODULES、不开放
+ *  通配 —— domain 纯度其余维度不放松。 */
+const DOMAIN_BUILTINS = "^(?:net|crypto|path|fs|fs/promises|url|util|events|stream|buffer|timers)$";
+
+/** 2026-10-28 T024 归零（ADR-0014 修正案 D-③，见文件头⑨）：纯值库
+ *  @internationalized/date 的 node_modules 落点（无 I/O 副作用的纯日期值运算库）。
+ *  pnpm 形态写法同 SHARED_PACKAGE/FRAMEWORK_PACKAGES：常规 symlink 与 .pnpm
+ *  硬链接两分支平铺（safe-regex 禁嵌套量词）；实测落点为仓库根 hoist
+ *  （../../node_modules/.pnpm/@internationalized+date@…），(?:\.\./)* 前缀
+ *  兼容两级 node_modules，(?:/|$) 收尾杜绝前缀误吞。 */
+const PURE_VALUE_PACKAGES =
+	"^(?:\\.\\./)*(?:node_modules/@internationalized/date" +
+	"|node_modules/\\.pnpm/[^/]+/node_modules/@internationalized/date)(?:/|$)";
+
 /** 门禁强度开关（007 编排修正 2026-10-28）：
  *  - 默认 enforce（severity:"error"，违规即非零退出）——T024 起与 verify:release ④b 使用默认值；
  *  - US1 迁移步（T008–T019）以 `AUDIT_ENFORCE=0` 运行 → 全部规则降级为 info（报告模式，exit 0）：
@@ -127,7 +163,9 @@ module.exports = {
 		// 的 domain/** 与 @hmp/shared（仅类型契约），以及他上下文发布面 index.ts
 		// （2026-10-28 裁决修正①，ADR-0014 修正案裁决 1：发布面对所有层合法；
 		// 深导入仍由 R2 禁止）。其余一律违规（含本上下文其他层、platform、
-		// 一切框架/内建/外部包）—— domain 纯度不放松，残留见文件头修正①。
+		// 一切框架/内建/外部包）—— domain 纯度不放松；T024 归零按 ADR-0014
+		// 修正案 D-①②③ 追加三项确定性放行（内建标准库集合 / 错误契约 / 纯值库，
+		// 见下方注释与文件头「T024 审计强制归零」），其余维度仍不放松。
 		{
 			name: "r1-domain-only-own-domain-and-shared",
 			severity: RULE_SEVERITY,
@@ -139,6 +177,19 @@ module.exports = {
 					// 裁决修正①：他上下文发布面（自身 index 亦无害）——如 epg domain
 					// binding-core/programme-key.mapper 对 live-tv 发布面的复用。
 					"^src/contexts/[^/]+/index\\.ts$",
+					// T024 归零（ADR-0014 修正案 D-①）：node 内建标准库确定性集合
+					// （裸名形态，T022b 实测落点；全名精确匹配、不开放通配）——
+					// 放行 sources domain→net、live-tv domain→crypto 既有边。
+					DOMAIN_BUILTINS,
+					// T024 归零（ADR-0014 修正案 D-②）：跨上下文错误契约 ——
+					// DomainError/createDomainError 为宪章定义的跨上下文错误契约
+					// （plain TS class，无框架依赖），豁免逻辑与 @hmp/shared 类型
+					// 契约同理 —— 放行 policy domain→domain-error 既有边。
+					"^src/platform/http-common/domain-error\\.ts$",
+					// T024 归零（ADR-0014 修正案 D-③）：纯值库 @internationalized/
+					// date（pnpm 两分支平铺落点，无 I/O 副作用）——放行 epg domain
+					// →@internationalized/date 既有边。
+					PURE_VALUE_PACKAGES,
 				],
 			},
 		},
