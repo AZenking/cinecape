@@ -5,7 +5,7 @@ import {
   OTHER_GROUP_LABEL,
   pickMainGroupLabel,
   type GroupTitleSource,
-} from '../../../../src/modules/live/live-grouping';
+} from '@contexts/live-tv/domain/live-grouping';
 
 /**
  * 来源主分组解析单元测试(T058;005 data-model §2 逐字语义):

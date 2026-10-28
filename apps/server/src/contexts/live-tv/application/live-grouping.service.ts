@@ -1,6 +1,6 @@
 import type { GroupDto } from '@hmp/shared';
-import { groupKeyOf, OTHER_GROUP_LABEL } from './live-grouping';
-import { loadLiveChannelWindows } from './live-projection.service';
+import { groupKeyOf, OTHER_GROUP_LABEL } from '@contexts/live-tv/domain/live-grouping';
+import { loadLiveChannelWindows } from '@contexts/live-tv/application/live-projection.service';
 
 /**
  * 直播分组列表(T064;005 data-model §2、contracts/api.md §2):

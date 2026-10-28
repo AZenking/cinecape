@@ -5,7 +5,7 @@ import {
   paginate,
   sortChannelRows,
   type SectionSortableRow,
-} from '../../../../src/modules/live/live-sections';
+} from '@contexts/live-tv/domain/live-sections';
 
 /**
  * 直播分区排序与分页单元测试(T059;A-007 原文):

@@ -2,18 +2,18 @@ import { Controller, Get, Inject, Param, Query, UseGuards } from '@nestjs/common
 import { z } from 'zod';
 import type { ChannelPageDto, ChannelRowDto, ExperienceProgrammesDto, GroupPageDto, PublicMediaDto } from '@hmp/shared';
 import { ProblemCode } from '@hmp/shared';
-import { DomainError } from '../../common/domain-error';
-import { RateLimit } from '../../common/rate-limit/rate-limit.decorator';
-import { RateLimitGuard } from '../../common/rate-limit/rate-limit.guard';
-import { StrictQueryPipe } from '../../common/strict-input/strict-pipes';
-import { PublicContextService } from '../../common/public-context/public-context.service';
-import { Database } from '../../database/database';
+import { DomainError } from '../../../common/domain-error';
+import { RateLimit } from '../../../common/rate-limit/rate-limit.decorator';
+import { RateLimitGuard } from '../../../common/rate-limit/rate-limit.guard';
+import { StrictQueryPipe } from '../../../common/strict-input/strict-pipes';
+import { PublicContextService } from '../../../common/public-context/public-context.service';
+import { Database } from '../../../database/database';
 import { readCatalogRevision } from '@contexts/epg/infrastructure/catalog-revision.service';
-import { liveNowMs } from './live-clock';
-import { groupKeyOf, OTHER_GROUP_LABEL } from './live-grouping';
-import { loadLiveGroups } from './live-grouping.service';
-import { loadLiveChannelWindows } from './live-projection.service';
-import { DEFAULT_PAGE_SIZE, paginate, sortChannelRows, type LiveSectionName, type SectionSortableRow } from './live-sections';
+import { liveNowMs } from '@contexts/live-tv/domain/live-clock';
+import { groupKeyOf, OTHER_GROUP_LABEL } from '@contexts/live-tv/domain/live-grouping';
+import { loadLiveGroups } from '@contexts/live-tv/application/live-grouping.service';
+import { loadLiveChannelWindows } from '@contexts/live-tv/application/live-projection.service';
+import { DEFAULT_PAGE_SIZE, paginate, sortChannelRows, type LiveSectionName, type SectionSortableRow } from '@contexts/live-tv/domain/live-sections';
 
 /**
  * 公共直播契约路由(T064/T065/T066;005 contracts/api.md §2 公共浏览):

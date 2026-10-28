@@ -7,7 +7,7 @@ import {
   type ProfileChannelFavorite,
 } from '../../../database/schema';
 import { loadAvailableMediaIdSet } from '@contexts/policy/application/policy.batch-context';
-import { loadLiveChannelWindows, type LiveChannelProjection } from '../../../modules/live/live-projection.service';
+import { loadLiveChannelWindows, type LiveChannelProjection } from '@contexts/live-tv/application/live-projection.service';
 import { toPublicMedia } from '../../../modules/public-catalog/public-media-projection';
 import type { ExperienceProgrammeDto, PublicMediaDto } from '@hmp/shared';
 import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload } from '@contexts/personal-data/infrastructure/signed-cursor';

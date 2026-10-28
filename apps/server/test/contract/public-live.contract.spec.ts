@@ -9,7 +9,7 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { ChannelPageDto, GroupPageDto, ExperienceProgrammesDto } from '@hmp/shared';
 import { AppModule } from '../../src/app.module';
-import { LiveModule } from '../../src/modules/live/live.module';
+import { LiveTvModule } from '@contexts/live-tv/live-tv.module';
 import { Database } from '../../src/database/database';
 import { setEnvOverride } from '../../src/config/env';
 import { loadEnv } from '../../src/config/env.schema';
@@ -38,7 +38,7 @@ let app: INestApplication;
 let dataDir: string;
 
 async function bootComposedApp(): Promise<INestApplication> {
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule, LiveModule] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule, LiveTvModule] }).compile();
   const composed = moduleRef.createNestApplication({ logger: ['warn', 'error'] });
   composed.setGlobalPrefix('api');
   await composed.init();

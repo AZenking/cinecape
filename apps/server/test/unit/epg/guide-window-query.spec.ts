@@ -10,7 +10,7 @@ import { setEnvOverride } from '../../../src/config/env';
 import { loadGuideWindow } from '@contexts/epg/application/guide-window.service';
 import { pickGuideCurrent } from '@contexts/epg/domain/binding-core';
 import { programmeKeyOf } from '@contexts/epg/domain/programme-key.mapper';
-import { programmeKeyOf as liveProgrammeKeyOf } from '../../../src/modules/live/live-projection.service';
+import { programmeKeyOf as liveProgrammeKeyOf } from '@contexts/live-tv/application/live-projection.service';
 
 /**
  * EPG 窗口查询单元测试(T107;data-model.md §8、research R8 逐字):

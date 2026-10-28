@@ -9,8 +9,8 @@ import { loadEnv } from '../../../../src/config/env.schema';
 import {
   pickCurrentNext,
   type LiveProgrammeInput,
-} from '../../../../src/modules/live/live-time';
-import { loadLiveChannelWindows } from '../../../../src/modules/live/live-projection.service';
+} from '@contexts/live-tv/domain/live-time';
+import { loadLiveChannelWindows } from '@contexts/live-tv/application/live-projection.service';
 
 /**
  * 直播投影时间边界单元测试(T057;005 data-model §8「当前 start<=now<end」、

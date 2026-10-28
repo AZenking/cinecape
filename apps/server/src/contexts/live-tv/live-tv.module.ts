@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CommonModule } from '../../common/common.module';
-import { LivePublicController } from './live.controller';
+import { LivePublicController } from '@contexts/live-tv/interface/live.controller';
 
 /**
  * 公共直播模块(T063;005 Phase 6 / US5):
@@ -19,4 +19,4 @@ import { LivePublicController } from './live.controller';
   imports: [CommonModule],
   controllers: [LivePublicController],
 })
-export class LiveModule {}
+export class LiveTvModule {}

@@ -16,9 +16,9 @@ import {
   type ControlledMediaServer,
 } from '../helpers';
 import { selectMainAndUnlockSettings } from '../helpers-management';
-import { groupKeyOf } from '../../src/modules/live/live-grouping';
+import { groupKeyOf } from '@contexts/live-tv/domain/live-grouping';
 import { AppModule } from '../../src/app.module';
-import { LiveModule } from '../../src/modules/live/live.module';
+import { LiveTvModule } from '@contexts/live-tv/live-tv.module';
 import { setEnvOverride } from '../../src/config/env';
 import { loadEnv } from '../../src/config/env.schema';
 import { Test } from '@nestjs/testing';
@@ -57,7 +57,7 @@ interface Rig {
 
 /** 组合 AppModule + LiveModule 的契约用应用(与报告「模块注册」节的生产注册逐位一致) */
 async function bootComposedApp(): Promise<INestApplication> {
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule, LiveModule] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule, LiveTvModule] }).compile();
   const composed = moduleRef.createNestApplication({ logger: ['warn', 'error'] });
   composed.setGlobalPrefix('api');
   await composed.init();
