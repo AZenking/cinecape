@@ -7,7 +7,9 @@ import { RateLimitGuard } from '@platform/http-common/rate-limit/rate-limit.guar
 import { RateLimitService } from '@platform/http-common/rate-limit/rate-limit.service';
 import { PublicCatalogService } from '@contexts/media-catalog/application/public-catalog.service';
 import { patchMediaMetadata, queryCandidates } from '@contexts/media-catalog/application/catalog-admin.service';
-import { MEDIA_CATALOG_CATALOG_ADMIN_PORT } from '@contexts/media-catalog/media-catalog.tokens';
+import { bindMediaCatalogStore } from '@contexts/media-catalog/application/media-catalog-store.port';
+import { drizzleMediaCatalogStore } from '@contexts/media-catalog/infrastructure/media-catalog-store.drizzle';
+import { MEDIA_CATALOG_CATALOG_ADMIN_PORT, MEDIA_CATALOG_STORE } from '@contexts/media-catalog/media-catalog.tokens';
 import type { ICatalogAdminService } from '@contexts/media-catalog/media-catalog.ports';
 import { CatalogController } from '@contexts/media-catalog/interface/catalog.controller';
 import { PublicCatalogController } from '@contexts/media-catalog/interface/public-catalog.controller';
@@ -46,12 +48,21 @@ Reflect.defineMetadata(PARAMTYPES_METADATA, [RateLimitService, Reflector], RateL
  * 发布(纯函数模块经 useValue 函数束 + satisfies 对齐 ports 接口,零行为变化);
  * PublicCatalogService 仍被本上下文控制器类引用注入,原 provider 保留(并存惯例);
  * exports 仅发布令牌,消费方迁移属 T022。
+ *
+ * 008-repository-extraction(ADR-0015 D1,T010):装配期绑定仓储 seam ——
+ * MEDIA_CATALOG_STORE provider 实例化时经 bindMediaCatalogStore 注入 Drizzle 实现
+ * (惰性 getDb / Database.db 解析,SQLite 单例重开安全);不经 HTTP 暴露,不导出,
+ * 不入发布面(FR-006)。
  */
 @Module({
   imports: [HttpCommonModule],
   controllers: [CatalogController, PublicCatalogController],
   providers: [
     PublicCatalogService,
+    {
+      provide: MEDIA_CATALOG_STORE,
+      useFactory: () => bindMediaCatalogStore(drizzleMediaCatalogStore()),
+    },
     {
       provide: MEDIA_CATALOG_CATALOG_ADMIN_PORT,
       useValue: { patchMediaMetadata, queryCandidates } satisfies ICatalogAdminService,

@@ -1,9 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ProblemCode, type PublicContextDto, type PublicMediaDto, type PublicMediaPageDto } from '@hmp/shared';
-import { Database } from '@platform/database/database';
 import { PublicContextService } from '@platform/http-common/public-context/public-context.service';
 import { DomainError } from '@platform/http-common/domain-error';
 import { loadAvailableMediaIdSet } from '@contexts/policy';
+import { mediaCatalogStore } from '@contexts/media-catalog/application/media-catalog-store.port';
 import { toPublicMedia, type PublicMediaRow } from '@contexts/media-catalog/domain/public-media-projection';
 
 /**
@@ -16,6 +16,10 @@ import { toPublicMedia, type PublicMediaRow } from '@contexts/media-catalog/doma
  * - 未执行 ProfilePolicy ≠ 授权下放:公共投影无 canPlay/策略结果字段,浏览 ≠ 可播放;
  * - 排序与既有观看目录同语义:UTF-8 字节序 title 升序、同题按 id 升序(稳定);
  * - DTO 一律经 public-media-projection 白名单出口,绝无源地址/来源凭据/播放票据。
+ *
+ * 008-repository-extraction(T010,ADR-0015 D1):Database.db.prepare 原生查询逐字
+ * 移入仓储实现(infrastructure/media-catalog-store.drizzle.ts),本服务经
+ * media-catalog 仓储端口访问,调用形态与返回形态均不变。
  */
 
 /** 未初始化部署的默认展示值(与初始化向导 InitializeRequest 缺省一致,data-model §9) */
@@ -23,13 +27,6 @@ const UNINITIALIZED_DISPLAY = {
   language: 'zh-CN',
   timezone: 'Asia/Shanghai',
 } as const;
-
-/** 目录修订单查(无行视为初版 1;catalog_state 行由发布/来源配置事务维护) */
-const CATALOG_REVISION_SQL = 'SELECT revision FROM catalog_state WHERE household_id = ?';
-
-/** 家庭媒体白名单来源列单查(poster_ref 仅为白名单投影输入;不查播放/来源身份列) */
-const MEDIA_ROWS_SQL =
-  'SELECT id, type, title, description, poster_ref AS posterRef, content_level AS contentLevel FROM media_item WHERE household_id = ?';
 
 /** 稳定排序(与 catalog.service.compareTitleBinaryThenId 同语义):UTF-8 字节序 title,同题 id */
 function compareTitleBinaryThenId(a: PublicMediaRow, b: PublicMediaRow): number {
@@ -67,9 +64,7 @@ export class PublicCatalogService {
       };
     }
     const { household } = scope;
-    const revisionRow = Database.db.prepare(CATALOG_REVISION_SQL).get(household.householdId) as
-      | { revision: number }
-      | undefined;
+    const revisionRow = mediaCatalogStore().findCatalogRevision(household.householdId);
     return {
       initialized: true,
       displayName: household.displayName,
@@ -92,7 +87,7 @@ export class PublicCatalogService {
       return { items: [], page: query.page, pageSize: query.pageSize, total: 0 };
     }
     const availableIds = loadAvailableMediaIdSet(scope.household.householdId);
-    const rows = Database.db.prepare(MEDIA_ROWS_SQL).all(scope.household.householdId) as PublicMediaRow[];
+    const rows = mediaCatalogStore().listPublicMediaRows(scope.household.householdId);
     const availableRows: PublicMediaRow[] = [];
     for (const row of rows) {
       if (!availableIds.has(row.id)) {
@@ -133,9 +128,7 @@ export class PublicCatalogService {
     if (!availableIds.has(mediaId)) {
       throw notFound();
     }
-    const row = Database.db.prepare(`${MEDIA_ROWS_SQL} AND id = ?`).get(scope.household.householdId, mediaId) as
-      | PublicMediaRow
-      | undefined;
+    const row = mediaCatalogStore().findPublicMediaRowById(scope.household.householdId, mediaId);
     if (row === undefined) {
       throw notFound();
     }

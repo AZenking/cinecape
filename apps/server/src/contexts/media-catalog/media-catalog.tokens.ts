@@ -8,5 +8,12 @@
  * 令牌面）；令牌绑定经 useValue 函数束（T021，`satisfies` 对齐对应接口）。
  * domain/public-media-projection 的 toPublicMedia 为跨上下文必需的领域纯函数，
  * 经 index.ts 再导出（非令牌面）。
+ *
+ * 008-repository-extraction（T010，ADR-0015 D1）：MEDIA_CATALOG_STORE 为装配期
+ * 仓储 seam 绑定令牌（useFactory → bindMediaCatalogStore(drizzleMediaCatalogStore())），
+ * 仅供 media-catalog.module.ts 内部装配使用，不入发布面（FR-006）。
  */
 export const MEDIA_CATALOG_CATALOG_ADMIN_PORT = Symbol('MEDIA_CATALOG_CATALOG_ADMIN_PORT');
+
+/** 装配期仓储 seam 绑定令牌（008-repository-extraction；不导出实现类，不入 index.ts） */
+export const MEDIA_CATALOG_STORE = Symbol('MEDIA_CATALOG_STORE');
