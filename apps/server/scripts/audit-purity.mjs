@@ -45,31 +45,49 @@ const files = [];
 const layerRe = /\/(application|domain)\//;
 const violations = [];
 
+/**
+ * 语句级扫描（T014 前置修复，sources agent 发现的盲区）：在全文上匹配跨多行的
+ * import/export … from 语句（'s' 标志跨行），再按语句起始行号报告。逐语句判定：
+ * - `import type` / `export type` 前缀 → 整句放行（type-only，审计不产生边）；
+ * - 混合形态 `import { type A, B }` → 按 B 为值引用判定（B 命中禁符即违规）；
+ * - 命中禁用模块说明符（drizzle-orm 等）时，除非整句 type-only，否则违规。
+ */
+const STATEMENT_RE = /(?:^|\n)[ \t]*(import|export)[ \t]+(type[ \t]+)?([\s\S]*?)from[ \t]*['"]([^'"]+)['"]/g;
+
 for (const file of files) {
   const rel = file.slice(join(process.cwd(), 'src/contexts').length + 1);
   if (!layerRe.test(rel)) continue;
   const text = readFileSync(file, 'utf8');
-  const lines = text.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  const lineStarts = [0];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\n') lineStarts.push(i + 1);
+  }
+  const lineOf = (offset) => {
+    let lo = 0, hi = lineStarts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (lineStarts[mid] <= offset) lo = mid; else hi = mid - 1;
+    }
+    return lo + 1;
+  };
+  for (const m of text.matchAll(STATEMENT_RE)) {
+    const stmtStart = m.index + (m[0][0] === '\n' ? 1 : 0);
+    const [, kind, typePrefix, clause, specifier] = m;
     // import type ... / export type ... 一律放行
-    if (/^\s*(import|export)\s+type\b/.test(line)) continue;
-    const m = line.match(/^\s*import\s+([^'"]*)from\s+['"]([^'"]+)['"]/);
-    if (!m) continue;
-    const [, clause, specifier] = m;
-    const stripped = clause.replace(/^type\s+/, '').replace(/,\s*type\s+/g, ', ').replace(/\btype\s+/g, '');
+    if (typePrefix) continue;
+    const stripped = clause.replace(/,\s*type\s+/g, ', ').replace(/(^|\s)type\s+/g, '$1').replace(/[{}]/g, ' ');
     const symbols = stripped
-      .replace(/[{}]/g, ' ')
-      .split(',')
+      .split(/[\n,]/)
       .map((s) => s.trim().split(/\s+as\s+/)[0].trim())
       .filter(Boolean);
     const moduleHit = FORBIDDEN_MODULE_PATTERNS.some((p) => p.test(specifier));
     const symbolHits = symbols.filter((s) => FORBIDDEN_SYMBOLS.has(s));
     if (moduleHit || symbolHits.length > 0) {
+      const stmtText = m[0].slice(m[0][0] === '\n' ? 1 : 0).replace(/\s+/g, ' ').trim();
       violations.push({
         file: `src/contexts/${rel}`,
-        line: i + 1,
-        text: line.trim(),
+        line: lineOf(stmtStart),
+        text: stmtText,
         reason: moduleHit ? `值导入禁用模块 ${specifier}` : `值引用禁用符号 ${symbolHits.join('/')}`,
       });
     }

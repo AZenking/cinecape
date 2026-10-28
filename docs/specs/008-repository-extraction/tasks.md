@@ -14,12 +14,12 @@
 ## Phase 1: 逐上下文抽取（每任务独立提交，模式见 ADR-0015 D1/D2）
 
 - [X] T004 试点 policy（policy.service + policy.batch-context；`loadAvailableMediaIdSet(db,h)`/`loadBatchCatalogContext(db,…)` 签名收敛 + 4 个消费上下文机械适配 + 相关测试 rig 绑定）——验证模式与门禁后作为后续模板
-- [ ] T005 personal-data（favorites/history/progress-write/progress-clock + signed-cursor 消费边）
-- [ ] T006 profile（profile/profile-selection/pin/identity-transition；requireOwnedProfile 签名联动）
-- [ ] T007 epg（epg.service/manual-epg-binding/guide-window；catalog-revision 消费边）
-- [ ] T008 live-tv（live-projection）
-- [ ] T009 sources（sources.service/refresh-executor/refresh-publish；`Database` 类引用收敛）
-- [ ] T010 media-catalog（catalog/catalog-admin/public-catalog；resource-reader 为 infrastructure 原生，仅消费边核对）
+- [X] T005 personal-data（favorites/history/progress-write/progress-clock + signed-cursor 消费边）
+- [X] T006 profile（profile/profile-selection/pin/identity-transition；requireOwnedProfile 签名联动）
+- [X] T007 epg（epg.service/manual-epg-binding/guide-window；catalog-revision 消费边）
+- [X] T008 live-tv（live-projection）
+- [X] T009 sources（sources.service/refresh-executor/refresh-publish；`Database` 类引用收敛）
+- [X] T010 media-catalog（catalog/catalog-admin/public-catalog；resource-reader 为 infrastructure 原生，仅消费边核对）
 - [ ] T011 identity-access（household/session/device/setup/bootstrap/parent-verification；`getDb` 发布面保留，application 内部消费清零）
 - [ ] T012 settings（7 个 settings-* 服务 + access-revocation `Database` 引用；interface 层 getDb 消费仅做端口联动适配）
 - [ ] T013 playback（authorization/audit/resolver/selection/ticket/retention/rate-limit 等 6+ 文件，最大者殿后；playback.module 内 getDb 属装配区保留）
