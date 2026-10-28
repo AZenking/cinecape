@@ -75,3 +75,7 @@
 **追认**：R1c/R1d 外部包放行（矩阵各行列本无外部包禁令单元；框架治理由 R3(domain)+R1b(application) 编码）；FRAMEWORK_PKGS 增补 @types/express（类型工件）；R3 更名 r3-no-framework-leakage-into-domain。
 
 **终态**：2026-10-28 T024 达成**双模式审计归零**（软/强制均 `✔ no dependency violations`，exit 0；负向探针对照证明强制有效），204 modules / 1074 deps。全链趋势：40→77→95→136→159→214→259→381→572→745→602→431→5→**0**。登记 5 的偏离清单由 US3 合规清单（nestjs-best-practices-compliance.md）按"已记录偏离（ADR-0014 登记 5）"逐条挂接，补救由规格 008 承接。
+
+## 登记 5 补救状态注记（2026-10-29，规格 008）
+
+登记 5 的「应用层直接数据访问」偏离已由 [规格 008](../specs/008-repository-extraction/spec.md)（[ADR-0015](0015-repository-extraction.md)）按补救路径完成：10 个上下文 application 层全部抽取仓储端口（35 文件 / 126 处 getDb / 68 条导入边 → 0），本 ADR 修正 2/3 中对应放宽项已收回（R1b 收紧 + 符号级 purity 门禁，负向探针四项验证）。登记 5 自此转为「已补救」留档；历史裁决文本不作改动。

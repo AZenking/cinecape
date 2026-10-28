@@ -42,3 +42,9 @@ ADR-0014 治理裁决将 application 层直接数据访问登记为偏离（登�
 - **整体搬迁服务文件至 infrastructure**：用例编排（事务边界、错误语义）属 application 职责（宪法约束 6 明文），搬迁即换一种违宪；弃用。
 - **维持 ADR-0014 登记 5 偏离不动**：治理债留存，审计规则与目标架构长期不一致；维护者已否决。
 - **后果**：seam 为模块级可变槽，属受控服务定位器——以「装配期绑定 + 显式未绑定错误 + purity 门禁禁止绕过」约束其风险；换取 126 处调用点零签名震荡与行为零变化。测试 rig 需增加绑定步骤（测试不受层规则约束，属可接受机械适配）。
+
+## 实施修正留痕（2026-10-29，随 T004/T014 落地）
+
+1. **句柄归属上提（D1 修正）**：drizzle 句柄实现自 identity-access/infrastructure/db.ts 原样上提 `@platform/database/drizzle`（平台横切本位）。动因：仓储实现经发布面取 getDb 会令测试 setup 预加载 identity-access 面依赖图，破坏 `vi.mock` 竞态门闩（settings 两份密码/PIN spec 实测回归后定位）；infrastructure→platform 为 R1c 合法边且不经任何发布面。原 db.ts 兼容再导出随 T011 应用层消费清零收口删除（face 的 getDb/Db 改自 platform 再导出，发布面白名单不变）。
+2. **D3 事实修正——type-only 边**：本项目 depcruise `tsPreCompilationDeps: true` 令 `import type` 同样产生依赖边（T004「无边」探针结论实为「有边但当时合法」）。收紧设计据此定为双轨：R1b 对 `@platform/database/(schema|drizzle)` 仅保留两文件**类型锚点**（行类型单一事实源），值/类型之别由 `audit:purity` 符号级裁决；drizzle-orm/better-sqlite3 的 node_modules 落点与 platform/database 其余文件全禁。负向探针四项（drizzle 值导入双拦 / 发布面 getDb 走私 purity 独拦 / Database 类值导入双拦 / schema type-only 双放行）验证分工有效。
+3. **purity 脚本盲区修复（T014 前置）**：逐行匹配改语句级跨行扫描（多行 import 曾隐藏 3 处真实违规，已随 T012/T013 清除；负向探针复验）。

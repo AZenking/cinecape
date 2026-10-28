@@ -27,8 +27,8 @@
 ## Phase 2: 审计收紧与收口
 
 - [X] T014 R1b 收紧：`.dependency-cruiser.cjs` application 行恢复 `@platform/database`/drizzle-orm/better-sqlite3 落点禁止（ADR-0014 修正 3 对应项收回，规则处留裁决注释互链 ADR-0015）；`audit:purity` 切 enforce；双门禁 0 违规 + 负向探针（注入式验证两类走私均被拦截），证据存 `evidence/audit-tightening.md`
-- [ ] T015 行为零变化证据：路由清单 0 diff、全量测试 + `test:runtime` 全绿（计数对照 T003 基线）、每控制器 ≥1 路由响应快照抽查，存 `evidence/behavior-parity.md`
-- [ ] T016 零遗留清点 + 文档原子同步：TODO/垫片清零检索；ADR-0014 登记 5 追加「已由规格 008 补救」注记；007 合规清单 arch-use-repository-pattern 挂接更新；本规格状态流转；同批提交
+- [X] T015 行为零变化证据：路由清单 0 diff、全量测试 + `test:runtime` 全绿（计数对照 T003 基线）、每控制器 ≥1 路由响应快照抽查，存 `evidence/behavior-parity.md`
+- [X] T016 零遗留清点 + 文档原子同步：TODO/垫片清零检索；ADR-0014 登记 5 追加「已由规格 008 补救」注记；007 合规清单 arch-use-repository-pattern 挂接更新；本规格状态流转；同批提交
 
 ## Dependencies & Execution Order
 

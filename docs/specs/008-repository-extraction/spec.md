@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-28
 
-**Status**: Accepted（2026-10-28 维护者指令显式接受：审阅 ADR-0014 登记 5「应用层直接数据访问」已记录偏离后，指令「处理下」并选定「真正仓储化」补救路径，授权本规格立项并实施。Proposed → Accepted 于同次会话完成，依据宪章原则一。）
+**Status**: Verified（2026-10-29：Accepted 后同夜完成实施与多层证据验收——10 上下文仓储化全量落地（purity 98→0）、双门禁收紧归零（R1b 收窄 + purity enforce，负向探针四项）、路由 0 diff、全量 1376/1376 + runtime 465 断言 PASS、零遗留清点（db.ts 兼容层收口删除、knip 归零）；证据见 [evidence/](./evidence/)：baseline / purity-baseline / audit-tightening / behavior-parity / completion。Proposed → Accepted（2026-10-28 维护者指令）→ Implementing → Verified（2026-10-29）。）
 
 **Governance**: Follow `.specify/memory/constitution.md`（v1.4.0）。状态流转 Proposed → Accepted → Implementing → Verified。
 

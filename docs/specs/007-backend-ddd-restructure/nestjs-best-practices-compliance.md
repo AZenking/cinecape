@@ -14,7 +14,7 @@
 | arch-feature-modules | ✅ | 10 上下文 module 化（plan.md 结构树） | compliance-cat-1-5.md §1.2 —— `src/contexts/` 恰 10 上下文四层落位，顶层无技术层组织，组合根逐一导入 |
 | arch-module-sharing | ✅ | 发布面唯一出口 index.ts（contracts/internal-context-contracts.md） | compliance-cat-1-5.md §1.3 —— R2 深导入禁令审计 0 violations（204 modules/1074 deps）；跨 module 重复提供 0；@Global 仅 1 处 |
 | arch-single-responsibility | ✅ | 四层拆分后服务职责单一化映射 | compliance-cat-1-5.md §1.4 —— playback/identity-access 服务按单一聚合域分立；「And」式复合命名全仓 0 |
-| arch-use-repository-pattern | 🔄 | 仓储抽象照做，机制为 Drizzle（非 TypeORM 示例）；playback 已有 repository 先例 | compliance-cat-1-5.md §1.5 —— 适配成立：repository 注入先例在案；登记 5 实测数字（getDb 35/drizzle-orm 34/better-sqlite3 10）与 ADR 逐项一致 |
+| arch-use-repository-pattern | ✅ | 仓储抽象全量落地（10 上下文 application 层，规格 008/ADR-0015：端口 + seam + Drizzle 实现 + 装配绑定，SQL 逐字迁移行为零变化） | 008 evidence/audit-tightening.md（双门禁归零 + 负向探针）+ evidence/behavior-parity.md（1376 测试 + runtime 465 断言）；登记 5 已补救（ADR-0014 注记） |
 | arch-use-events | 🔄 | 本次不新增事件总线；仅当审计发现必须反转的环时按 D3 化解并补记 | compliance-cat-1-5.md §1.6 —— 适配成立：EventEmitter2/@OnEvent 全仓 0；无必须反转的环，未触发事件化条件 |
 
 ## 2. Dependency Injection（CRITICAL）
