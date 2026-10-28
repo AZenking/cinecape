@@ -11,7 +11,7 @@ import {
   replacePolicyLists,
   updatePolicy,
   type PolicyDtoBody,
-} from '../policy/policy.service';
+} from '@contexts/policy/application/policy.service';
 /**
  * 内容权限契约路由(T127,005 contracts/api.md §6「GET/PUT /settings/profiles/{profileId}/policy
  * 与 policy/lists」;继承 002 字段):

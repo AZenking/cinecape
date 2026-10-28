@@ -14,12 +14,12 @@ import {
   sourceEntry,
 } from '../../database/schema';
 import { getDb } from '../auth/db';
-import { type MediaType } from '../policy/policy.rules';
+import { type MediaType } from '@contexts/policy/domain/policy.rules';
 import {
   loadAvailableMediaIdSet,
   loadBatchCatalogContext,
   type CatalogCandidateRow,
-} from '../policy/policy.batch-context';
+} from '@contexts/policy/application/policy.batch-context';
 
 /**
  * EPG 节目指南服务(T042;US4,只读;T071 增手动绑定优先):

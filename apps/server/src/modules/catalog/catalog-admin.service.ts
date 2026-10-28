@@ -6,8 +6,8 @@ import { catalogState, deviceSession, mediaItem } from '../../database/schema';
 import { getDb, type Db } from '../auth/db';
 import { verifyParentPassword } from '../auth/parent-verification.service';
 import { loadMediaAvailabilityFacts } from './resource-reader';
-import type { CatalogCandidateRow } from '../policy/policy.batch-context';
-import type { MediaType } from '../policy/policy.rules';
+import type { CatalogCandidateRow } from '@contexts/policy/application/policy.batch-context';
+import type { MediaType } from '@contexts/policy/domain/policy.rules';
 
 /**
  * 家长候选与人工修正服务(T050;US3):

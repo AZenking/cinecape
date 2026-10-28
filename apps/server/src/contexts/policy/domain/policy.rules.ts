@@ -5,7 +5,7 @@
  * 判定核心 evaluatePolicy 见同文件下半部分(US2/T017)。
  */
 
-import { DomainError } from '../../common/domain-error';
+import { DomainError } from '../../../common/domain-error';
 import { ProblemCode } from '@hmp/shared';
 
 export type ProfileType = 'adult' | 'child';

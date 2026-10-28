@@ -387,7 +387,7 @@ describe('T018 授权集成(提交前重验,拒绝则不签票)', () => {
     await t.service.issueOrRenew(seeded.sessionId, 1, t.context);
     expect(ticketRows(seeded.sessionId)).toHaveLength(1);
     // 策略收紧:媒体进黑名单(异步授权窗口变更模拟)
-    const { writePolicyLists } = await import('../../../src/modules/policy/policy.service');
+    const { writePolicyLists } = await import('@contexts/policy/application/policy.service');
     writePolicyLists(t.world.householdId, t.world.profileId, { blockedMediaIds: [t.world.iptv.mediaId] });
     await expectDomainError(
       t.service.issueOrRenew(seeded.sessionId, 1, t.context),

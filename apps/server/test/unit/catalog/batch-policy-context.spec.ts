@@ -15,10 +15,10 @@ import {
   loadBatchCatalogContext,
   type BatchCatalogContext,
   type CatalogCandidateRow,
-} from '../../../src/modules/policy/policy.batch-context';
+} from '@contexts/policy/application/policy.batch-context';
 import { buildMediaPage, type ListMediaQuery } from '../../../src/modules/catalog/catalog.service';
 import { isMediaAvailable, loadMediaAvailabilityFacts } from '../../../src/modules/catalog/resource-reader';
-import type { MediaType, PolicyJudgment } from '../../../src/modules/policy/policy.rules';
+import type { MediaType, PolicyJudgment } from '@contexts/policy/domain/policy.rules';
 
 /**
  * T033(US2 单元):批量目录上下文与目录管线(research R7):

@@ -10,7 +10,7 @@ import { requireManagementRole } from '../auth/bootstrap.service';
 import { verifyOwnerPassword } from './settings-owner-password';
 import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
 import { revokeUnlockGrantsForProfile } from '@contexts/profile/application/pin.service';
-import { defaultPolicyValues } from '../policy/policy.rules';
+import { defaultPolicyValues } from '@contexts/policy/domain/policy.rules';
 import { assertNotLastActiveProfile, swapDefault } from '@contexts/profile/application/profile.service';
 import { toProfileSummary, type ProfileSummaryBody } from '../auth/account-session.dto';
 import { revokeAllSettingsGrantsForHouseholdTx, revokeSettingsGrantsForProfileTx } from './settings-access-revocation';

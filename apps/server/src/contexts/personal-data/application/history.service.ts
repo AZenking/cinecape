@@ -2,7 +2,7 @@ import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { createDomainError } from '../../../common/domain-error';
 import { getDb } from '../../../modules/auth/db';
 import { mediaItem, profileViewingHistory, type ProfileViewingHistory } from '../../../database/schema';
-import { loadAvailableMediaIdSet } from '../../../modules/policy/policy.batch-context';
+import { loadAvailableMediaIdSet } from '@contexts/policy/application/policy.batch-context';
 import { toPublicMedia } from '../../../modules/public-catalog/public-media-projection';
 import type { PublicMediaDto } from '@hmp/shared';
 import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload } from '@contexts/personal-data/infrastructure/signed-cursor';

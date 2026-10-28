@@ -1,11 +1,11 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import type { ProfilePolicy } from '../../database/schema';
-import { deviceSession, mediaItem, profile, profilePolicy } from '../../database/schema';
-import { DomainError } from '../../common/domain-error';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { getDb, type Db } from '../auth/db';
-import { verifyParentPassword } from '../auth/parent-verification.service';
+import type { ProfilePolicy } from '../../../database/schema';
+import { deviceSession, mediaItem, profile, profilePolicy } from '../../../database/schema';
+import { DomainError } from '../../../common/domain-error';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { getDb, type Db } from '../../../modules/auth/db';
+import { verifyParentPassword } from '../../../modules/auth/parent-verification.service';
 import { requireOwnedProfile } from '@contexts/profile/application/profile.service';
 import {
   assertPolicyRowInvariant,
@@ -16,7 +16,7 @@ import {
   type PolicyDecisionReason,
   type PolicyListTriple,
   normalizeMediaIdList,
-} from './policy.rules';
+} from '@contexts/policy/domain/policy.rules';
 
 /**
  * ProfilePolicy 服务(阶段 2,T011):策略查询/整体保存/名单持久化 + 服务端授权入口(T018)。

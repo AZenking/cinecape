@@ -8,7 +8,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { HouseholdModule } from './modules/household/household.module';
 import { ProfileModule } from '@contexts/profile/profile.module';
-import { PolicyModule } from './modules/policy/policy.module';
+import { PolicyModule } from '@contexts/policy/policy.module';
 import { SourcesModule } from './modules/sources/sources.module';
 import { RefreshModule } from './modules/imports/refresh.module';
 import { CatalogModule } from './modules/catalog/catalog.module';

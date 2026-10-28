@@ -3,7 +3,7 @@ import { ProblemCode } from '@hmp/shared';
 import { account, deviceSession, profile, profilePolicy, profileProgressClock } from '../../database/schema';
 import { DomainError, createDomainError } from '../../common/domain-error';
 import type { SessionContext } from '../../common/current-session.decorator';
-import { defaultPolicyValues } from '../policy/policy.rules';
+import { defaultPolicyValues } from '@contexts/policy/domain/policy.rules';
 import { getDb, type Db } from './db';
 import { hashPassword } from './password.service';
 import { verifyParentPassword } from './parent-verification.service';

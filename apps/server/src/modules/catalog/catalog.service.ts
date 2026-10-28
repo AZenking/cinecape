@@ -2,9 +2,9 @@ import { ProblemCode, type MediaDto, type MediaPageDto } from '@hmp/shared';
 import type { SessionContext } from '../../common/current-session.decorator';
 import { DomainError } from '../../common/domain-error';
 import { getDb } from '../auth/db';
-import type { CatalogCandidateRow } from '../policy/policy.batch-context';
-import { loadBatchCatalogContext } from '../policy/policy.batch-context';
-import type { MediaType } from '../policy/policy.rules';
+import type { CatalogCandidateRow } from '@contexts/policy/application/policy.batch-context';
+import { loadBatchCatalogContext } from '@contexts/policy/application/policy.batch-context';
+import type { MediaType } from '@contexts/policy/domain/policy.rules';
 
 /**
  * 观看目录服务(T035;US2):

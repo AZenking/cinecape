@@ -4,7 +4,7 @@ import type { ExperienceProgrammeDto } from '@hmp/shared';
 import { pickCurrentNext } from './live-time';
 import { normalizeGroupTitle, pickMainGroupLabel, type GroupTitleSource } from './live-grouping';
 import { getDb } from '../auth/db';
-import { loadAvailableMediaIdSet } from '../policy/policy.batch-context';
+import { loadAvailableMediaIdSet } from '@contexts/policy/application/policy.batch-context';
 import { epgChannel, epgProgramme, manualEpgBinding, mediaItem, mediaSource, sourceEntry } from '../../database/schema';
 
 /**

@@ -8,7 +8,7 @@ import type { SessionContext } from '../../../common/current-session.decorator';
 import { getDb, type Db } from '../../../modules/auth/db';
 import { revokeUnlockGrantsForProfile } from '@contexts/profile/application/pin.service';
 import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
-import { defaultPolicyValues } from '../../../modules/policy/policy.rules';
+import { defaultPolicyValues } from '@contexts/policy/domain/policy.rules';
 
 /**
  * Profile 聚合(US2:T025 创建/编辑/停用、T026 select、T028 停用级联)。

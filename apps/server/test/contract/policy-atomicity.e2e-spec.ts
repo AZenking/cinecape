@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ProblemCode } from '@hmp/shared';
 import type { INestApplication } from '@nestjs/common';
 import { Database } from '../../src/database/database';
-import { writePolicyLists } from '../../src/modules/policy/policy.service';
+import { writePolicyLists } from '@contexts/policy/application/policy.service';
 import {
   INITIALIZE_BODY,
   cleanupRigs,
@@ -212,7 +212,7 @@ describe('US1 创建原子性/重启持久化/名单读写(契约 e2e)', () => {
     const tooMany = JSON.stringify(Array.from({ length: 1001 }, (_, i) => `m-${i}`));
     Database.db.prepare('UPDATE profile_policy SET allowed_media_ids = ? WHERE profile_id = ?').run(tooMany, oversized);
     // 读取路径(loadPolicyForRead)对损坏行抛 503 POLICY_UNAVAILABLE
-    const { loadPolicyForRead } = await import('../../src/modules/policy/policy.service');
+    const { loadPolicyForRead } = await import('@contexts/policy/application/policy.service');
     expect(() => loadPolicyForRead(householdId, oversized)).toThrowError(
       expect.objectContaining({ status: 503, code: ProblemCode.POLICY_UNAVAILABLE }),
     );

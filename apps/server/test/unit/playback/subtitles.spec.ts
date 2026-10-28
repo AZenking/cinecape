@@ -521,7 +521,7 @@ describe('T030 loadSubtitleContent(逐请求授权 + 文本交付)', () => {
     const baseline = await t.service.loadSubtitleContent(t.sessionId, 1, 'sub-sidecar-1', t.context);
     expect(baseline.vtt).toContain('Hello world');
 
-    const { writePolicyLists } = await import('../../../src/modules/policy/policy.service');
+    const { writePolicyLists } = await import('@contexts/policy/application/policy.service');
     writePolicyLists(t.world.householdId, t.world.profileId, { blockedMediaIds: [t.world.iptv.mediaId] });
 
     await expectDomainError(

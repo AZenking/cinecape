@@ -55,8 +55,8 @@
   6. 治理留痕：在 `docs/adr/0014-backend-ddd-structure.md` 追加「补充决策：路径别名」小节（记录 tsc-alias 构建链变更、别名约定、以及"裸导入=发布面"与 R2 的对应关系）；
   7. 门禁同 T008（typecheck / lint / 全量测试 / `AUDIT_ENFORCE=0 audit:boundaries` 报告 / `audit:orphans`），**另须** `pnpm --filter @hmp/server build` 通过，并验证 dist 产物无残留 `@contexts`/`@platform` specifier（如 `grep -rn "@contexts\|@platform" apps/server/dist` 为空，或等效 node 加载冒烟）；
   8. 独立提交：`refactor(server): 007-T008a path alias foundation (@contexts/*, @platform/*)`
-- [ ] T009 [US1] 迁移 ② profile：`modules/profile/**` → `contexts/profile/`（profile.controller→interface；profile/profile-selection/pin.service、identity-transition→application，PIN 加密实现→infrastructure；`ProfileModule`）
-- [ ] T010 [US1] 迁移 ③ policy：`modules/policy/**` → `contexts/policy/`（policy.rules 纯规则函数→domain；policy.service/batch-context→application；`PolicyModule`）
+- [X] T009 [US1] 迁移 ② profile：`modules/profile/**` → `contexts/profile/`（profile.controller→interface；profile/profile-selection/pin.service、identity-transition→application，PIN 加密实现→infrastructure；`ProfileModule`）
+- [X] T010 [US1] 迁移 ③ policy：`modules/policy/**` → `contexts/policy/`（policy.rules 纯规则函数→domain；policy.service/batch-context→application；`PolicyModule`）
 - [ ] T011 [US1] 迁移 ④ epg：`modules/epg/**` → `contexts/epg/`（binding-core/guide-calendar/programme-key.mapper/guide-problems→domain；epg/manual-epg-binding/catalog-revision/guide-window.service→application；public-guide.controller→interface；`EpgModule`）
 - [ ] T012 [US1] 迁移 ⑤ live-tv：`modules/live/**` → `contexts/live-tv/`（live-grouping/live-sections/live-time/live-grouping 纯投影函数→domain；两个 *.service→application；live.controller→interface；`LiveTvModule`）
 - [ ] T013 [US1] 迁移 ⑥ sources（合并 sources+imports）：`modules/sources/**` 与 `modules/imports/**` → `contexts/sources/`（m3u/xmltv.parser、catalog-diff、nas-scanner、safe-http-reader、refresh-staging→infrastructure；refresh-executor/refresh-publish/sources.service→application；source-target.validation→interface；`SourcesModule`）

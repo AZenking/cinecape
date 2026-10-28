@@ -15,9 +15,9 @@ import {
 import { createDomainError, DomainError } from '../../common/domain-error';
 import type { SessionContext } from '../../common/current-session.decorator';
 import { getDb } from '../auth/db';
-import { authorizeCurrentProfile, type AuthorizationReason } from '../policy/policy.service';
-import { defaultPolicyValues } from '../policy/policy.rules';
-import type { MediaPolicyFacts } from '../policy/policy.rules';
+import { authorizeCurrentProfile, type AuthorizationReason } from '@contexts/policy/application/policy.service';
+import { defaultPolicyValues } from '@contexts/policy/domain/policy.rules';
+import type { MediaPolicyFacts } from '@contexts/policy/domain/policy.rules';
 import { PlaybackRepository } from './playback.repository';
 import type { PlaybackDelivery } from './playback.types';
 

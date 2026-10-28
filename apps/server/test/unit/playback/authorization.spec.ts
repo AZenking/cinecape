@@ -37,7 +37,7 @@ import {
   type PlaybackResourceCandidate,
 } from '../../../src/modules/playback/playback-authorization.service';
 import { createProfile } from '@contexts/profile/application/profile.service';
-import { writePolicyLists } from '../../../src/modules/policy/policy.service';
+import { writePolicyLists } from '@contexts/policy/application/policy.service';
 import {
   consumeUnlockGrant,
   grantUnlock,

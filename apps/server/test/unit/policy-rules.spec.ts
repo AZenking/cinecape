@@ -3,7 +3,7 @@ import {
   evaluatePolicy,
   type MediaPolicyFacts,
   type PolicyJudgment,
-} from '../../src/modules/policy/policy.rules';
+} from '@contexts/policy/domain/policy.rules';
 
 /**
  * T015(US2 单元):纯判定核心 evaluatePolicy —— spec「策略判定表」全分支 + 边缘组合。

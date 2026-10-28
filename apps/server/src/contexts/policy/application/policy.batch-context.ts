@@ -1,8 +1,8 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { device, deviceSession, mediaItem, profile, profilePolicy } from '../../database/schema';
-import { DomainError } from '../../common/domain-error';
-import type { Db } from '../auth/db';
+import { device, deviceSession, mediaItem, profile, profilePolicy } from '../../../database/schema';
+import { DomainError } from '../../../common/domain-error';
+import type { Db } from '../../../modules/auth/db';
 import {
   assertPolicyRowInvariant,
   evaluatePolicy,
@@ -11,7 +11,7 @@ import {
   type MediaType,
   type PolicyJudgment,
   type ProfileType,
-} from './policy.rules';
+} from '@contexts/policy/domain/policy.rules';
 
 /**
  * 批量目录读取上下文(T036;research R7):

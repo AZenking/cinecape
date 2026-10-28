@@ -4,7 +4,7 @@ import { Database } from '../../database/database';
 import { PublicContextService } from '../../common/public-context/public-context.service';
 import { DomainError } from '../../common/domain-error';
 import { getDb } from '../auth/db';
-import { loadAvailableMediaIdSet } from '../policy/policy.batch-context';
+import { loadAvailableMediaIdSet } from '@contexts/policy/application/policy.batch-context';
 import { toPublicMedia, type PublicMediaRow } from './public-media-projection';
 
 /**

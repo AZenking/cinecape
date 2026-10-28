@@ -1332,7 +1332,7 @@ describe('T036 符号链接字幕 × 授权收紧(组合:伪造 trackId 与策�
     const baseline = await legitRig.service.loadSubtitleContent(legitRig.sessionId, 1, 'sub-sidecar-1', legitRig.context);
     expect(baseline.vtt).toContain('Hello world');
 
-    const { writePolicyLists } = await import('../../../src/modules/policy/policy.service');
+    const { writePolicyLists } = await import('@contexts/policy/application/policy.service');
     writePolicyLists(legitRig.world.householdId, legitRig.world.profileId, { blockedMediaIds: [legitRig.world.iptv.mediaId] });
 
     thrown = undefined;

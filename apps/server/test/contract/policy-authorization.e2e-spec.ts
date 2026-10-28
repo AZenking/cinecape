@@ -3,8 +3,8 @@ import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { Database } from '../../src/database/database';
-import { authorizeCurrentProfile, type TrustedResourceReader } from '../../src/modules/policy/policy.service';
-import type { MediaPolicyFacts } from '../../src/modules/policy/policy.rules';
+import { authorizeCurrentProfile, type TrustedResourceReader } from '@contexts/policy/application/policy.service';
+import type { MediaPolicyFacts } from '@contexts/policy/domain/policy.rules';
 import type { SessionContext } from '../../src/common/current-session.decorator';
 import {
   INITIALIZE_BODY,

@@ -21,7 +21,7 @@ import {
   patchManagedProfile,
   transferMainProfile,
 } from '../../../src/modules/settings/settings-profiles.service';
-import { updatePolicy } from '../../../src/modules/policy/policy.service';
+import { updatePolicy } from '@contexts/policy/application/policy.service';
 
 /**
  * T121(005-US8 单元测试,先 FAIL):设置管理写路径的 expectedVersion CAS。

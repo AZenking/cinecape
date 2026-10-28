@@ -6,7 +6,7 @@ import {
   profileChannelFavorite,
   type ProfileChannelFavorite,
 } from '../../../database/schema';
-import { loadAvailableMediaIdSet } from '../../../modules/policy/policy.batch-context';
+import { loadAvailableMediaIdSet } from '@contexts/policy/application/policy.batch-context';
 import { loadLiveChannelWindows, type LiveChannelProjection } from '../../../modules/live/live-projection.service';
 import { toPublicMedia } from '../../../modules/public-catalog/public-media-projection';
 import type { ExperienceProgrammeDto, PublicMediaDto } from '@hmp/shared';
