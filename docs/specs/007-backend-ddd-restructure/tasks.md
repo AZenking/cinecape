@@ -98,7 +98,7 @@
 - [ ] T027 [P] [US3] 核验类别 3–5（error-×3、security-×5、perf-×4 共 12 条）：含 🔄 适配项（argon2+会话对照 security-auth-jwt、zod strict-input 对照 security-validate-all-input）的意图达成核验；⏸ 条目（缓存/懒加载）核对 ADR 登记在案
 - [ ] T028 [P] [US3] 核验类别 6–7（test-×3、db-×3 共 6 条）：@nestjs/testing/Vitest 适配、事务边界收口在 application、N+1 迁移步审计记录、migration:drill 证据引用
 - [ ] T029 [P] [US3] 核验类别 8–10（api-×4、micro-×3、devops-×3 共 10 条）：含 ⏸ 候选偏离（api-versioning、micro-use-patterns、micro-use-queues）与 🔄 适配（DTO 序列化、health-checks、config-module）核验
-- [ ] T030 [US3] 偏离终版登记与结论：将全部 ⏸/最终判定为偏离的条目整理进 `docs/adr/0014-backend-ddd-structure.md`「规则偏离清单」章节；填写清单末尾「统计与结论栏」（覆盖率 40/40、SC-005 结论）（依赖 T026–T029）
+- [x] T030 [US3] 偏离终版登记与结论：将全部 ⏸/最终判定为偏离的条目整理进 `docs/adr/0014-backend-ddd-structure.md`「规则偏离清单」章节；填写清单末尾「统计与结论栏」（覆盖率 40/40、SC-005 结论）（依赖 T026–T029）
 
 **Checkpoint**: US3 完成 = 清单全结论 + ADR 偏离登记完毕
 
