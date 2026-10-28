@@ -7,6 +7,8 @@ import { Database } from '@platform/database/database';
 import { setEnvOverride } from '@platform/config/env';
 import { loadEnv } from '@platform/config/env.schema';
 import { listEpgCandidates } from '@contexts/epg/application/manual-epg-binding.service';
+import { bindEpgStore } from '@contexts/epg/application/epg-store.port';
+import { drizzleEpgStore } from '@contexts/epg/infrastructure/epg-store.drizzle';
 
 /** 候选排序(US5 反馈优化):当前/未来有节目的候选排前面,同组内 id 升序;无节目数据行由前端打「暂无节目数据」标 */
 const rigs: string[] = [];
@@ -28,6 +30,8 @@ function bootstrap(): { householdId: string; epgSourceId: string } {
   Database.db.prepare('INSERT INTO household (id, name, default_language, timezone, created_at) VALUES (?, ?, ?, ?, ?)').run(householdId, '排序测试家庭', 'zh-CN', 'Asia/Shanghai', new Date().toISOString());
   const epgSourceId = randomUUID();
   Database.db.prepare("INSERT INTO media_source (id, household_id, kind, name, remote_url, enabled, version, epg_generation, last_success_at, created_at, updated_at) VALUES (?, ?, 'epg', '排序EPG', 'http://lan.test/guide.xml', 1, 1, 1, ?, ?, ?)").run(epgSourceId, householdId, new Date().toISOString(), new Date().toISOString(), new Date().toISOString());
+  // 008-T007(ADR-0015 D1):rig 绑定 epg 仓储 seam(惰性 getDb,单例重开安全,每次 rig 重建幂等覆盖)
+  bindEpgStore(drizzleEpgStore());
   return { householdId, epgSourceId };
 }
 

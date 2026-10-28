@@ -7,18 +7,17 @@ import type { SessionContext } from '@platform/http-common/current-session.decor
 import type { EpgCandidatePageDto, EpgCandidateQueryRequest, ProgrammesDto } from '@hmp/shared';
 import type {
   BindingStateQuery,
-  DbHandle,
   ManualEpgBindingState,
   SaveManualBindingInput,
   UnbindManualBindingInput,
 } from './application/manual-epg-binding.service';
 
-/** manual-epg-binding.service 发布面（消费方：settings EPG 绑定契约路由） */
+/** manual-epg-binding.service 发布面（消费方：settings EPG 绑定契约路由；008-T007 起无 db 参数，ADR-0015 D2） */
 export interface IEpgManualBindingService {
-  getBindingState(db: DbHandle, query: BindingStateQuery): ManualEpgBindingState;
+  getBindingState(query: BindingStateQuery): ManualEpgBindingState;
   listEpgCandidates(householdId: string, input: EpgCandidateQueryRequest): EpgCandidatePageDto;
-  saveBinding(db: DbHandle, input: SaveManualBindingInput): ManualEpgBindingState;
-  unbindBinding(db: DbHandle, input: UnbindManualBindingInput): ManualEpgBindingState;
+  saveBinding(input: SaveManualBindingInput): ManualEpgBindingState;
+  unbindBinding(input: UnbindManualBindingInput): ManualEpgBindingState;
 }
 
 /** epg.service 发布面（消费方：media-catalog 详情页节目单） */

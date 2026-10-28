@@ -7,6 +7,8 @@ import { Database } from '@platform/database/database';
 import { setEnvOverride } from '@platform/config/env';
 import { loadEnv } from '@platform/config/env.schema';
 import { DomainError } from '@platform/http-common/domain-error';
+import { bindEpgStore } from '@contexts/epg/application/epg-store.port';
+import { drizzleEpgStore } from '@contexts/epg/infrastructure/epg-store.drizzle';
 import {
   getBindingState,
   saveBinding,
@@ -82,6 +84,9 @@ function bootstrapRig(extraEnv: Record<string, string> = {}): void {
       Database.db.prepare('INSERT INTO _migrations (name, applied_at) VALUES (?, ?)').run(name, new Date().toISOString());
     })();
   }
+  // 008-T007(ADR-0015 D1/D2):rig 绑定 epg 仓储 seam(惰性 getDb,单例重开安全;
+  // 绑定函数已无 db 参数,每次 rig 重建幂等覆盖)
+  bindEpgStore(drizzleEpgStore());
   rigs.push({ dataDir });
 }
 
@@ -298,8 +303,8 @@ function sceneWithManual(): Scene {
   return { household, iptvSourceId, epgA, epgB, epgOff, mediaId };
 }
 
-function saveManual(scene: Scene, overrides: Partial<Parameters<typeof saveBinding>[1]> = {}): ManualEpgBindingState {
-  return saveBinding(Database.db, {
+function saveManual(scene: Scene, overrides: Partial<Parameters<typeof saveBinding>[0]> = {}): ManualEpgBindingState {
+  return saveBinding({
     householdId: scene.household.householdId,
     mediaId: scene.mediaId,
     epgSourceId: scene.epgB,
@@ -312,8 +317,8 @@ function saveManual(scene: Scene, overrides: Partial<Parameters<typeof saveBindi
   });
 }
 
-function unbind(scene: Scene, overrides: Partial<Parameters<typeof unbindBinding>[1]> = {}): ManualEpgBindingState {
-  return unbindBinding(Database.db, {
+function unbind(scene: Scene, overrides: Partial<Parameters<typeof unbindBinding>[0]> = {}): ManualEpgBindingState {
+  return unbindBinding({
     householdId: scene.household.householdId,
     mediaId: scene.mediaId,
     expectedVersion: 0,
@@ -331,7 +336,7 @@ describe('getBindingState:管理读取与派生状态(data-model「0004 增补�
   it('无行:mode=none、version=0、valid=true;字段白名单不泄漏候选/源位置', () => {
     bootstrapRig();
     const scene = sceneWithManual();
-    const state = getBindingState(Database.db, { householdId: scene.household.householdId, mediaId: scene.mediaId });
+    const state = getBindingState({ householdId: scene.household.householdId, mediaId: scene.mediaId });
     expect(state).toEqual({
       mediaId: scene.mediaId,
       mode: 'none',
@@ -352,7 +357,7 @@ describe('getBindingState:管理读取与派生状态(data-model「0004 增补�
     bootstrapRig();
     const scene = sceneWithManual();
     saveManual(scene, { epgSourceId: scene.epgA, xmltvChannelId: 'cctv-1', candidateEpgGeneration: 5 });
-    const manual = getBindingState(Database.db, { householdId: scene.household.householdId, mediaId: scene.mediaId });
+    const manual = getBindingState({ householdId: scene.household.householdId, mediaId: scene.mediaId });
     expect(manual.mode).toBe('manual');
     expect(manual.version).toBe(1);
     expect(manual.valid).toBe(true);
@@ -362,7 +367,7 @@ describe('getBindingState:管理读取与派生状态(data-model「0004 增补�
     expect(manual.updatedAt).not.toBeNull();
 
     unbind(scene, { expectedVersion: 1 });
-    const tombstone = getBindingState(Database.db, { householdId: scene.household.householdId, mediaId: scene.mediaId });
+    const tombstone = getBindingState({ householdId: scene.household.householdId, mediaId: scene.mediaId });
     expect(tombstone.mode).toBe('auto');
     expect(tombstone.version).toBe(2);
     expect(tombstone.epgSourceId).toBeNull();
@@ -379,14 +384,14 @@ describe('getBindingState:管理读取与派生状态(data-model「0004 增补�
     const scene = sceneWithManual();
     saveManual(scene, { epgSourceId: scene.epgA, xmltvChannelId: 'cctv-1', candidateEpgGeneration: 5 });
     Database.db.prepare('UPDATE media_source SET enabled = 0 WHERE id = ?').run(scene.epgA);
-    const disabled = getBindingState(Database.db, { householdId: scene.household.householdId, mediaId: scene.mediaId });
+    const disabled = getBindingState({ householdId: scene.household.householdId, mediaId: scene.mediaId });
     expect(disabled.valid).toBe(false);
     expect(disabled.invalidReason).toBe('source_disabled');
     expect(disabled.mode).toBe('manual');
     expect(disabled.version).toBe(1);
 
     Database.db.prepare('UPDATE media_source SET enabled = 1 WHERE id = ?').run(scene.epgA);
-    const recovered = getBindingState(Database.db, { householdId: scene.household.householdId, mediaId: scene.mediaId });
+    const recovered = getBindingState({ householdId: scene.household.householdId, mediaId: scene.mediaId });
     expect(recovered.valid).toBe(true);
     expect(recovered.invalidReason).toBeNull();
     expect(recovered.version).toBe(1);
@@ -401,7 +406,7 @@ describe('getBindingState:管理读取与派生状态(data-model「0004 增补�
       scene.epgA,
       'cctv-1',
     );
-    const state = getBindingState(Database.db, { householdId: scene.household.householdId, mediaId: scene.mediaId });
+    const state = getBindingState({ householdId: scene.household.householdId, mediaId: scene.mediaId });
     expect(state.valid).toBe(false);
     expect(state.invalidReason).toBe('channel_missing');
   });
@@ -421,7 +426,7 @@ describe('getBindingState:管理读取与派生状态(data-model「0004 增补�
     Database.db
       .prepare('UPDATE epg_channel SET conflicted = 1 WHERE household_id = ? AND source_id = ? AND xmltv_channel_id = ?')
       .run(scene.household.householdId, scene.epgA, 'cctv-1');
-    const state = getBindingState(Database.db, { householdId: scene.household.householdId, mediaId: scene.mediaId });
+    const state = getBindingState({ householdId: scene.household.householdId, mediaId: scene.mediaId });
     expect(state.valid).toBe(false);
     expect(state.invalidReason).toBe('channel_conflict');
   });
@@ -432,7 +437,7 @@ describe('getBindingState:管理读取与派生状态(data-model「0004 增补�
     saveManual(scene, { epgSourceId: scene.epgA, xmltvChannelId: 'cctv-1', candidateEpgGeneration: 5 });
     const programmeCount = Database.db.prepare('SELECT COUNT(*) AS n FROM epg_programme').get() as { n: number };
     expect(programmeCount.n).toBe(0); // 前置:全库无任何节目行
-    const state = getBindingState(Database.db, { householdId: scene.household.householdId, mediaId: scene.mediaId });
+    const state = getBindingState({ householdId: scene.household.householdId, mediaId: scene.mediaId });
     expect(state.valid).toBe(true);
     expect(state.invalidReason).toBeNull();
   });
@@ -449,7 +454,7 @@ describe('saveBinding/unbindBinding:版本生命周期(quickstart H4)', () => {
     // 目标为非默认 EPG(epgB,generation 2):手动绑定可选同家庭任一启用 EPG
     expect(saveManual(scene).version).toBe(1);
     expect(bindingCount()).toBe(1);
-    expect(getBindingState(Database.db, { householdId: scene.household.householdId, mediaId: scene.mediaId }).mode).toBe('manual');
+    expect(getBindingState({ householdId: scene.household.householdId, mediaId: scene.mediaId }).mode).toBe('manual');
 
     expect(unbind(scene, { expectedVersion: 1 }).version).toBe(2);
     expect(bindingCount()).toBe(1);
@@ -466,7 +471,7 @@ describe('saveBinding/unbindBinding:版本生命周期(quickstart H4)', () => {
     bootstrapRig();
     const scene = sceneWithManual();
     unbind(scene, { expectedVersion: 0 }); // 无行解除 → v1 auto 墓碑
-    expect(getBindingState(Database.db, { householdId: scene.household.householdId, mediaId: scene.mediaId }).version).toBe(1);
+    expect(getBindingState({ householdId: scene.household.householdId, mediaId: scene.mediaId }).version).toBe(1);
     const again = unbind(scene, { expectedVersion: 1 }); // auto 再解除 → v2
     expect(again.mode).toBe('auto');
     expect(again.version).toBe(2);
@@ -522,7 +527,7 @@ describe('saveBinding:媒体/目标/候选校验矩阵', () => {
     const movieId = seedNonChannelMedia(household.householdId, iptv);
     const error = domainErrorOf(
       () =>
-        saveBinding(Database.db, {
+        saveBinding({
           householdId: household.householdId,
           mediaId: movieId,
           epgSourceId: epg,
@@ -545,7 +550,7 @@ describe('saveBinding:媒体/目标/候选校验矩阵', () => {
     const bareChannelId = seedBareChannel(household.householdId);
     const error = domainErrorOf(
       () =>
-        saveBinding(Database.db, {
+        saveBinding({
           householdId: household.householdId,
           mediaId: bareChannelId,
           epgSourceId: epg,
@@ -728,7 +733,7 @@ describe('EPG 发布与 epg_generation(T070 最小修改)', () => {
     const mediaId = seedChannelMedia(household.householdId, iptv, 'cctv-1');
     seedEpgChannel(household.householdId, epgSourceId, 'cctv-1');
     server.setRoute('/guide.xml', { kind: 'xmltv', content: initialXml });
-    saveBinding(Database.db, {
+    saveBinding({
       householdId: household.householdId,
       mediaId,
       epgSourceId,
@@ -781,7 +786,7 @@ describe('EPG 发布与 epg_generation(T070 最小修改)', () => {
     expect(generationOf(scene.epgSourceId)).toBe(2);
     expect(bindingRow(scene.household.householdId, scene.mediaId)).toEqual(bindingBefore);
     // 目标频道随窗口替换消失:绑定行保留(无 FK 到 epg_channel),派生动态失效
-    const state = getBindingState(Database.db, { householdId: scene.household.householdId, mediaId: scene.mediaId });
+    const state = getBindingState({ householdId: scene.household.householdId, mediaId: scene.mediaId });
     expect(state.mode).toBe('manual');
     expect(state.valid).toBe(false);
     expect(state.invalidReason).toBe('channel_missing');

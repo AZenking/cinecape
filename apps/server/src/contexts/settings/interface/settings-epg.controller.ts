@@ -15,7 +15,6 @@ import { SessionGuard } from '@platform/http-common/session.guard';
 import { SettingsAccessGuard } from '@platform/http-common/settings-access/settings-access.guard';
 import { StrictBodyPipe } from '@platform/http-common/strict-input/strict-pipes';
 import { deviceSession, mediaItem } from '@platform/database/schema';
-import { Database } from '@platform/database/database';
 import { getDb, verifyParentPassword, parseBody } from '@contexts/identity-access';
 import {
   getBindingState,
@@ -154,7 +153,7 @@ export class SettingsEpgBindingController {
     const input = parseBody(bindingQuerySchema, body);
     await requireParentVerification(context, input.ownerPassword);
     requireChannelOfHousehold(context.session.householdId, mediaId);
-    const state = getBindingState(Database.db, { householdId: context.session.householdId, mediaId });
+    const state = getBindingState({ householdId: context.session.householdId, mediaId });
     res.setHeader('Cache-Control', 'no-store');
     return toEpgBindingDto(state);
   }
@@ -200,7 +199,7 @@ export class SettingsEpgBindingController {
       if (input.epgSourceId === undefined || input.xmltvChannelId === undefined || input.expectedEpgGeneration === undefined) {
         throw new DomainError(400, ProblemCode.VALIDATION_FAILED, 'manual 绑定必须提供目标来源/频道/候选 generation');
       }
-      state = saveBinding(Database.db, {
+      state = saveBinding({
         householdId,
         mediaId,
         epgSourceId: input.epgSourceId,
@@ -210,7 +209,7 @@ export class SettingsEpgBindingController {
         ...writer,
       });
     } else {
-      state = unbindBinding(Database.db, { householdId, mediaId, expectedVersion: input.expectedVersion, ...writer });
+      state = unbindBinding({ householdId, mediaId, expectedVersion: input.expectedVersion, ...writer });
     }
     res.setHeader('Cache-Control', 'no-store');
     return toEpgBindingDto(state);

@@ -8,9 +8,13 @@ import { Database } from '@platform/database/database';
 import { loadEnv } from '@platform/config/env.schema';
 import { setEnvOverride } from '@platform/config/env';
 import { loadGuideWindow } from '@contexts/epg/application/guide-window.service';
+import { bindEpgStore } from '@contexts/epg/application/epg-store.port';
+import { drizzleEpgStore } from '@contexts/epg/infrastructure/epg-store.drizzle';
 import { pickGuideCurrent } from '@contexts/epg/domain/binding-core';
 import { programmeKeyOf } from '@contexts/epg/domain/programme-key.mapper';
 import { programmeKeyOf as liveProgrammeKeyOf } from '@contexts/live-tv/application/live-projection.service';
+import { bindLiveTvStore } from '@contexts/live-tv/application/live-tv-store.port';
+import { drizzleLiveTvStore } from '@contexts/live-tv/infrastructure/live-tv-store.drizzle';
 
 /**
  * EPG 窗口查询单元测试(T107;data-model.md §8、research R8 逐字):
@@ -58,6 +62,11 @@ beforeAll(() => {
     Database.db.exec(fs.readFileSync(path.join(migrationsDir, name, 'up.sql'), 'utf8'));
     Database.db.prepare('INSERT INTO _migrations (name, applied_at) VALUES (?, ?)').run(name, '2026-01-01T00:00:00.000Z');
   }
+  // 008-repository-extraction:rig 绑定 live-tv 仓储 seam(惰性 getDb,单例重开安全;
+  // loadGuideWindow 经 binding-core 复用 loadChannelAssociationCore,不经 Nest 装配)
+  bindLiveTvStore(drizzleLiveTvStore());
+  // 008-T007:rig 绑定 epg 仓储 seam(批量节目窗口查询;同一惰性 getDb 语义)
+  bindEpgStore(drizzleEpgStore());
 });
 
 afterAll(async () => {

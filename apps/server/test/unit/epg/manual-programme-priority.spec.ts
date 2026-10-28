@@ -7,6 +7,8 @@ import { Database } from '@platform/database/database';
 import { setEnvOverride } from '@platform/config/env';
 import { loadEnv } from '@platform/config/env.schema';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
+import { bindEpgStore } from '@contexts/epg/application/epg-store.port';
+import { drizzleEpgStore } from '@contexts/epg/infrastructure/epg-store.drizzle';
 import { getMediaProgrammes } from '@contexts/epg/application/epg.service';
 import { saveBinding, unbindBinding } from '@contexts/epg/application/manual-epg-binding.service';
 
@@ -57,6 +59,9 @@ function bootstrapRig(): void {
       Database.db.prepare('INSERT INTO _migrations (name, applied_at) VALUES (?, ?)').run(name, new Date().toISOString());
     })();
   }
+  // 008-T007(ADR-0015 D1/D2):rig 绑定 epg 仓储 seam(惰性 getDb,单例重开安全;
+  // 绑定函数已无 db 参数,每次 rig 重建幂等覆盖)
+  bindEpgStore(drizzleEpgStore());
   rigs.push({ dataDir });
 }
 
@@ -182,8 +187,8 @@ function sessionContextOf(scene: Scene): SessionContext {
   };
 }
 
-function saveManual(scene: Scene, overrides: Partial<Parameters<typeof saveBinding>[1]> = {}): void {
-  saveBinding(Database.db, {
+function saveManual(scene: Scene, overrides: Partial<Parameters<typeof saveBinding>[0]> = {}): void {
+  saveBinding({
     householdId: scene.householdId,
     mediaId: scene.mediaId,
     epgSourceId: scene.epgA,
@@ -256,7 +261,7 @@ describe('getMediaProgrammes 手动优先(T071;manual 唯一优先/invalid 不�
 
     // manual → 解除(auto 墓碑):恢复自动
     saveManual(scene);
-    unbindBinding(Database.db, {
+    unbindBinding({
       householdId: scene.householdId,
       mediaId: scene.mediaId,
       expectedVersion: 1,

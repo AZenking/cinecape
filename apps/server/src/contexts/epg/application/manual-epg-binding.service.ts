@@ -1,7 +1,6 @@
-import type DatabaseConstructor from 'better-sqlite3';
 import { ProblemCode } from '@hmp/shared';
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
-import { incrementCatalogRevision } from '@contexts/epg/infrastructure/catalog-revision.service';
+import { epgStore, type EpgTxStore } from './epg-store.port';
 
 /**
  * 手动 EPG 绑定服务(T070;US5/ADR-0008,data-model「## 0004 增补」为权威):
@@ -20,12 +19,9 @@ import { incrementCatalogRevision } from '@contexts/epg/infrastructure/catalog-r
  * - 跨家庭 EPG 源/媒体 → 404 NOT_FOUND 同形:NOT_FOUND 不在 createDomainError 注册表
  *   (注册表仅登记 003 新增契约码),按既有服务(catalog/sources)的 404 同形惯例直接构造,
  *   不给跨家庭目标回 400 以免泄漏归属;kind≠epg 等形态错误用 400 VALIDATION_FAILED。
- * - db 句柄传递惯例与 refresh-staging/catalog-diff 一致:传入 better-sqlite3 连接
- *   (与 Database.db 同型,列名与 schema.ts 一一对应),不内部取单例,便于测试与事务复用。
+ * - 008-T007(ADR-0015 D1/D2):db 句柄参数收敛为仓储端口 seam(epgStore),
+ *   查询/事务逐字平移至 infrastructure/epg-store.drizzle.ts,行为零变化。
  */
-
-/** 单个 better-sqlite3 连接句柄(Database.db 同型;refresh-staging 同惯例) */
-export type DbHandle = DatabaseConstructor.Database;
 
 /** 绑定模式:none=无行,manual=家长锁定,auto=解除后的版本墓碑 */
 export type ManualBindingMode = 'none' | 'manual' | 'auto';
@@ -74,14 +70,6 @@ export interface UnbindManualBindingInput {
   sessionId: string;
 }
 
-interface BindingRow {
-  mode: string;
-  epg_source_id: string | null;
-  xmltv_channel_id: string | null;
-  version: number;
-  updated_at: string;
-}
-
 /** XMLTV 频道 ID 长度按字符数计(与 SQLite length() 文本语义一致),1~255、大小写敏感 */
 function xmltvChannelIdLength(value: string): number {
   return [...value].length;
@@ -100,15 +88,9 @@ function validationFailed(detail: string): DomainError {
  * 写入前置:当次会话/设备与账号重验(data-model「家长验证后重验 session/device/account/Household」)。
  * 会话必须存在且归属同家庭、未撤销、未过期且设备未撤销(401);账号必须存在且归属同家庭(403)。
  */
-function reassertWriter(db: DbHandle, input: { householdId: string; accountId: string; sessionId: string }): void {
+function reassertWriter(input: { householdId: string; accountId: string; sessionId: string }): void {
   const nowMs = Date.now();
-  const session = db
-    .prepare(
-      'SELECT s.revoked_at AS session_revoked_at, s.expires_at AS expires_at, d.revoked_at AS device_revoked_at FROM device_session s JOIN device d ON d.id = s.device_id WHERE s.id = ? AND s.household_id = ?',
-    )
-    .get(input.sessionId, input.householdId) as
-    | { session_revoked_at: string | null; expires_at: string; device_revoked_at: string | null }
-    | undefined;
+  const session = epgStore().findWriterSessionRow(input.sessionId, input.householdId);
   if (
     session === undefined ||
     session.session_revoked_at !== null ||
@@ -117,9 +99,7 @@ function reassertWriter(db: DbHandle, input: { householdId: string; accountId: s
   ) {
     throw new DomainError(401, ProblemCode.SESSION_INVALID, '会话无效或已撤销');
   }
-  const account = db
-    .prepare('SELECT id FROM account WHERE id = ? AND household_id = ?')
-    .get(input.accountId, input.householdId);
+  const account = epgStore().findAccountRow(input.accountId, input.householdId);
   if (account === undefined) {
     throw new DomainError(403, ProblemCode.FORBIDDEN);
   }
@@ -129,31 +109,22 @@ function reassertWriter(db: DbHandle, input: { householdId: string; accountId: s
  * 媒体侧校验(保存/解除共用):存在且同家庭(404 同形)→ type=channel(400)→
  * 存在 IPTV 来源条目(400;条目允许暂时 missing,present 不参与判定)。
  */
-function requireBindableChannel(db: DbHandle, householdId: string, mediaId: string): void {
-  const media = db.prepare('SELECT type FROM media_item WHERE id = ? AND household_id = ?').get(mediaId, householdId) as
-    | { type: string }
-    | undefined;
+function requireBindableChannel(householdId: string, mediaId: string): void {
+  const media = epgStore().findMediaItemTypeRow(mediaId, householdId);
   if (media === undefined) {
     throw notFound();
   }
   if (media.type !== 'channel') {
     throw validationFailed('仅频道条目支持手动 EPG 绑定');
   }
-  const iptvEntry = db
-    .prepare(
-      "SELECT 1 FROM source_entry se JOIN media_source ms ON ms.household_id = se.household_id AND ms.id = se.source_id AND ms.kind = 'iptv' WHERE se.household_id = ? AND se.media_id = ? LIMIT 1",
-    )
-    .get(householdId, mediaId);
-  if (iptvEntry === undefined) {
+  if (!epgStore().hasIptvSourceEntry(householdId, mediaId)) {
     throw validationFailed('频道需存在 IPTV 来源条目(允许暂时缺失)');
   }
 }
 
 /** 当前行版本(无行=0);供版本冲突判定 */
-function currentBindingVersion(db: DbHandle, householdId: string, mediaId: string): number {
-  const row = db
-    .prepare('SELECT version FROM manual_epg_binding WHERE household_id = ? AND media_id = ?')
-    .get(householdId, mediaId) as { version: number } | undefined;
+function currentBindingVersion(householdId: string, mediaId: string): number {
+  const row = epgStore().findBindingVersionRow(householdId, mediaId);
   return row?.version ?? 0;
 }
 
@@ -161,10 +132,10 @@ function currentBindingVersion(db: DbHandle, householdId: string, mediaId: strin
  * 事务内写入(保存与解除共用):upsert 当前行(manual 锁定 / auto 墓碑,不删行防 ABA)+
  * version+1 + catalog_state.revision+1,同一事务原子提交;
  * catalog_state 缺失按「创建后应为 2」补建(与 catalog-admin.service 的 bump 惯例一致,行 CHECK ≥1)。
- * better-sqlite3 事务回调不注入句柄:语句统一走传入的 db 连接(refresh-publish 同惯例)。
+ * 008-T007:句柄经仓储端口事务句柄(tx)表达,SQL 与事务位置不变。
  */
 function upsertBinding(
-  db: DbHandle,
+  tx: EpgTxStore,
   householdId: string,
   mediaId: string,
   mode: 'manual' | 'auto',
@@ -172,28 +143,18 @@ function upsertBinding(
   nextVersion: number,
   nowIso: string,
 ): void {
-  db.prepare(
-    `INSERT INTO manual_epg_binding (household_id, media_id, mode, epg_source_id, xmltv_channel_id, version, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(household_id, media_id) DO UPDATE SET
-       mode = excluded.mode,
-       epg_source_id = excluded.epg_source_id,
-       xmltv_channel_id = excluded.xmltv_channel_id,
-       version = excluded.version,
-       updated_at = excluded.updated_at`,
-  ).run(householdId, mediaId, mode, target.epgSourceId, target.xmltvChannelId, nextVersion, nowIso);
-  // catalog_state.revision+1 平移至 catalog-revision.service 唯一实现(US6 T114;SQL 与事务位置不变)
-  incrementCatalogRevision(db, householdId);
+  tx.upsertManualBinding(householdId, mediaId, mode, target, nextVersion, nowIso);
+  // catalog_state.revision+1 唯一写入实现(US6 T114;SQL 与事务位置不变,现位于仓储事务端口)
+  tx.incrementCatalogRevision(householdId);
 }
 
 /**
  * 管理读取:一次同步快照内完成绑定行读取与 manual 派生判定
  * (better-sqlite3 同步执行,三次查询之间无并发写穿插;节目匹配语义不在本读取内)。
  */
-export function getBindingState(db: DbHandle, query: BindingStateQuery): ManualEpgBindingState {
-  const row = db
-    .prepare('SELECT mode, epg_source_id, xmltv_channel_id, version, updated_at FROM manual_epg_binding WHERE household_id = ? AND media_id = ?')
-    .get(query.householdId, query.mediaId) as BindingRow | undefined;
+export function getBindingState(query: BindingStateQuery): ManualEpgBindingState {
+  const store = epgStore();
+  const row = store.findManualBindingRow(query.householdId, query.mediaId);
   if (row === undefined) {
     // 无行:自动语义(FR-007)由节目查询负责,绑定层无失效可派生
     return {
@@ -223,17 +184,12 @@ export function getBindingState(db: DbHandle, query: BindingStateQuery): ManualE
   // manual 派生(动态,不落库):禁用 → 缺失 → 冲突;无节目不参与判定
   const epgSourceId = row.epg_source_id as string;
   const xmltvChannelId = row.xmltv_channel_id as string;
-  const source = db.prepare('SELECT enabled FROM media_source WHERE id = ? AND household_id = ?').get(
-    epgSourceId,
-    query.householdId,
-  ) as { enabled: number } | undefined;
+  const source = store.findSourceEnabledRowById(epgSourceId, query.householdId);
   if (source === undefined || source.enabled !== 1) {
     // 来源无硬删除,行缺失仅剩防御路径:与禁用同因(来源侧不可用)
     return { mediaId: query.mediaId, mode: 'manual', version: row.version, epgSourceId, xmltvChannelId, valid: false, invalidReason: 'source_disabled', updatedAt: row.updated_at };
   }
-  const channel = db
-    .prepare('SELECT conflicted FROM epg_channel WHERE household_id = ? AND source_id = ? AND xmltv_channel_id = ?')
-    .get(query.householdId, epgSourceId, xmltvChannelId) as { conflicted: number } | undefined;
+  const channel = store.findChannelConflictedRawRow(query.householdId, epgSourceId, xmltvChannelId);
   if (channel === undefined) {
     return { mediaId: query.mediaId, mode: 'manual', version: row.version, epgSourceId, xmltvChannelId, valid: false, invalidReason: 'channel_missing', updatedAt: row.updated_at };
   }
@@ -248,15 +204,13 @@ export function getBindingState(db: DbHandle, query: BindingStateQuery): ManualE
  * 校验次序:会话/账号 → 媒体 → 目标(存在/kind/启用/候选)→ generation → expectedVersion → 事务。
  * 任一失败整体回滚:不产生行、不推进 revision。
  */
-export function saveBinding(db: DbHandle, input: SaveManualBindingInput): ManualEpgBindingState {
-  reassertWriter(db, input);
-  requireBindableChannel(db, input.householdId, input.mediaId);
+export function saveBinding(input: SaveManualBindingInput): ManualEpgBindingState {
+  const store = epgStore();
+  reassertWriter(input);
+  requireBindableChannel(input.householdId, input.mediaId);
 
   // 目标来源:同家庭(404 同形)→ kind=epg(400)→ 当前启用(422;ADR-0008「已启用成功导入」)
-  const source = db.prepare('SELECT kind, enabled, epg_generation FROM media_source WHERE id = ? AND household_id = ?').get(
-    input.epgSourceId,
-    input.householdId,
-  ) as { kind: string; enabled: number; epg_generation: number } | undefined;
+  const source = store.findBindingTargetSourceRow(input.epgSourceId, input.householdId);
   if (source === undefined) {
     throw notFound();
   }
@@ -271,9 +225,7 @@ export function saveBinding(db: DbHandle, input: SaveManualBindingInput): Manual
   }
   // 候选有效性:目标频道须存在于该源当前窗口且未冲突(422 EPG_CANDIDATE_INVALID;
   // 失效候选走 422 而非 409 —— 目标不存在时重查永远无法成功,不应引导客户端循环重试)
-  const channel = db
-    .prepare('SELECT conflicted FROM epg_channel WHERE household_id = ? AND source_id = ? AND xmltv_channel_id = ?')
-    .get(input.householdId, input.epgSourceId, input.xmltvChannelId) as { conflicted: number } | undefined;
+  const channel = store.findChannelConflictedRawRow(input.householdId, input.epgSourceId, input.xmltvChannelId);
   if (channel === undefined) {
     throw createDomainError('EPG_CANDIDATE_INVALID', '候选频道在该 EPG 来源中不存在');
   }
@@ -286,16 +238,16 @@ export function saveBinding(db: DbHandle, input: SaveManualBindingInput): Manual
     throw createDomainError('EPG_CANDIDATE_STALE');
   }
   // 绑定版本:防并发/ABA(无行=0)
-  const version = currentBindingVersion(db, input.householdId, input.mediaId);
+  const version = currentBindingVersion(input.householdId, input.mediaId);
   if (version !== input.expectedVersion) {
     throw createDomainError('EPG_BINDING_VERSION_CONFLICT');
   }
 
   const nowIso = new Date().toISOString();
-  db.transaction(() => {
-    upsertBinding(db, input.householdId, input.mediaId, 'manual', { epgSourceId: input.epgSourceId, xmltvChannelId: input.xmltvChannelId }, version + 1, nowIso);
-  })();
-  return getBindingState(db, { householdId: input.householdId, mediaId: input.mediaId });
+  store.withTransaction((tx) => {
+    upsertBinding(tx, input.householdId, input.mediaId, 'manual', { epgSourceId: input.epgSourceId, xmltvChannelId: input.xmltvChannelId }, version + 1, nowIso);
+  });
+  return getBindingState({ householdId: input.householdId, mediaId: input.mediaId });
 }
 
 /**
@@ -303,42 +255,40 @@ export function saveBinding(db: DbHandle, input: SaveManualBindingInput): Manual
  * 不需要目标/候选校验;无行且 expectedVersion=0 亦创建 version=1 墓碑
  * (契约「解除无行且 expectedVersion=0 创建 version=1 auto 墓碑」);版本保护与保存一致。
  */
-export function unbindBinding(db: DbHandle, input: UnbindManualBindingInput): ManualEpgBindingState {
-  reassertWriter(db, input);
-  requireBindableChannel(db, input.householdId, input.mediaId);
+export function unbindBinding(input: UnbindManualBindingInput): ManualEpgBindingState {
+  reassertWriter(input);
+  requireBindableChannel(input.householdId, input.mediaId);
 
-  const version = currentBindingVersion(db, input.householdId, input.mediaId);
+  const version = currentBindingVersion(input.householdId, input.mediaId);
   if (version !== input.expectedVersion) {
     throw createDomainError('EPG_BINDING_VERSION_CONFLICT');
   }
 
   const nowIso = new Date().toISOString();
-  db.transaction(() => {
-    upsertBinding(db, input.householdId, input.mediaId, 'auto', { epgSourceId: null, xmltvChannelId: null }, version + 1, nowIso);
-  })();
-  return getBindingState(db, { householdId: input.householdId, mediaId: input.mediaId });
+  epgStore().withTransaction((tx) => {
+    upsertBinding(tx, input.householdId, input.mediaId, 'auto', { epgSourceId: null, xmltvChannelId: null }, version + 1, nowIso);
+  });
+  return getBindingState({ householdId: input.householdId, mediaId: input.mediaId });
 }
 
 /* ------------------------------------------------------------------ */
 /* 候选查询(US8 T129 自 manual-epg-binding.controller 收编;查询语义零改动)   */
 /* ------------------------------------------------------------------ */
 
-import { and, eq, gt, inArray } from 'drizzle-orm';
 import type { EpgCandidatePageDto, EpgCandidateQueryRequest, ProgrammeDto } from '@hmp/shared';
-import { epgChannel, epgProgramme, mediaSource } from '@platform/database/schema';
-import { getDb } from '@contexts/identity-access';
+import type { EpgProgrammeRow } from './epg-store.port';
 
 interface CandidateRow {
   xmltvChannelId: string;
   displayName: string;
 }
 
-function toProgrammeDto(row: Pick<typeof epgProgramme.$inferSelect, 'title' | 'description' | 'startsAt' | 'endsAt'>): ProgrammeDto {
+function toProgrammeDto(row: Pick<EpgProgrammeRow, 'title' | 'description' | 'startsAt' | 'endsAt'>): ProgrammeDto {
   return { title: row.title, description: row.description, startsAt: row.startsAt, endsAt: row.endsAt };
 }
 
 /** 窗口判定与 epg.service 同语义:current 起点 含/终点 不含,next 为未来最早一条(与 current 互斥) */
-function programmeWindowOf(rows: typeof epgProgramme.$inferSelect[]): { current: ProgrammeDto | null; next: ProgrammeDto | null } {
+function programmeWindowOf(rows: EpgProgrammeRow[]): { current: ProgrammeDto | null; next: ProgrammeDto | null } {
   const now = Date.now();
   let current: ProgrammeDto | null = null;
   let next: ProgrammeDto | null = null;
@@ -358,19 +308,15 @@ function programmeWindowOf(rows: typeof epgProgramme.$inferSelect[]): { current:
 }
 
 /**
- * 候选分页查询(只读;drizzle 直查,与旧控制器实现逐字同语义):
+ * 候选分页查询(只读;经仓储端口直查,与旧控制器实现逐字同语义):
  * 同家庭指定来源(404 同形)→ kind=epg 且启用且已成功导入(否则 422 EPG_SOURCE_NOT_READY)→
  * 非 conflicted 频道 → q 大小写不敏感子串过滤 → 排序=当前/未来有节目优先,同组内
  * xmltv_channel_id 升序稳定分页;仅当页频道查节目窗口;epgGeneration=来源当前值,
  * 保存须回传该值(不等 → 409 EPG_CANDIDATE_STALE)。候选不含源地址/路径/凭据。
  */
 export function listEpgCandidates(householdId: string, input: EpgCandidateQueryRequest): EpgCandidatePageDto {
-  const db = getDb();
-  const source = db
-    .select()
-    .from(mediaSource)
-    .where(and(eq(mediaSource.householdId, householdId), eq(mediaSource.id, input.epgSourceId)))
-    .get();
+  const store = epgStore();
+  const source = store.findMediaSourceRow(householdId, input.epgSourceId);
   if (source === undefined) {
     // 不存在/跨家庭来源统一 404 同形,不泄漏归属
     throw notFound();
@@ -378,12 +324,7 @@ export function listEpgCandidates(householdId: string, input: EpgCandidateQueryR
   if (source.kind !== 'epg' || source.enabled !== 1 || source.lastSuccessAt === null) {
     throw createDomainError('EPG_SOURCE_NOT_READY');
   }
-  const channels = db
-    .select({ xmltvChannelId: epgChannel.xmltvChannelId, displayName: epgChannel.displayName })
-    .from(epgChannel)
-    .where(and(eq(epgChannel.householdId, householdId), eq(epgChannel.sourceId, input.epgSourceId), eq(epgChannel.conflicted, 0)))
-    .orderBy(epgChannel.xmltvChannelId)
-    .all();
+  const channels = store.listNonConflictedChannelRows(householdId, input.epgSourceId);
   // 大小写不敏感子串(SQLite LIKE 仅 ASCII 不敏感,这里在 JS 侧统一 Unicode 语义)
   const needle = input.q?.trim().toLowerCase() ?? '';
   const filtered: CandidateRow[] =
@@ -395,17 +336,7 @@ export function listEpgCandidates(householdId: string, input: EpgCandidateQueryR
   // 排序优化(US5 反馈):当前/未来有节目的候选排前面,便于家长挑「绑了就有节目」的目标;
   // 无节目数据(窗口内 ends_at 全部过期或无记录)的排后面——绑定仍允许,目标可能稍后有数据。
   const nowIso = new Date().toISOString();
-  const liveRows = db
-    .selectDistinct({ xmltvChannelId: epgProgramme.xmltvChannelId })
-    .from(epgProgramme)
-    .where(
-      and(
-        eq(epgProgramme.householdId, householdId),
-        eq(epgProgramme.sourceId, input.epgSourceId),
-        gt(epgProgramme.endsAt, nowIso),
-      ),
-    )
-    .all();
+  const liveRows = store.listLiveChannelIdRows(householdId, input.epgSourceId, nowIso);
   const hasLive = new Set(liveRows.map((row) => row.xmltvChannelId));
   filtered.sort((a, b) => {
     const aLive = hasLive.has(a.xmltvChannelId) ? 1 : 0;
@@ -416,22 +347,8 @@ export function listEpgCandidates(householdId: string, input: EpgCandidateQueryR
   const start = (input.page - 1) * input.pageSize;
   const pageItems = filtered.slice(start, start + input.pageSize);
   const pageIds = pageItems.map((item) => item.xmltvChannelId);
-  const programmeRows =
-    pageIds.length === 0
-      ? []
-      : db
-          .select()
-          .from(epgProgramme)
-          .where(
-            and(
-              eq(epgProgramme.householdId, householdId),
-              eq(epgProgramme.sourceId, input.epgSourceId),
-              inArray(epgProgramme.xmltvChannelId, pageIds),
-            ),
-          )
-          .orderBy(epgProgramme.xmltvChannelId, epgProgramme.startsAt)
-          .all();
-  const rowsByChannel = new Map<string, typeof epgProgramme.$inferSelect[]>();
+  const programmeRows = pageIds.length === 0 ? [] : store.listProgrammeRowsForChannels(householdId, input.epgSourceId, pageIds);
+  const rowsByChannel = new Map<string, EpgProgrammeRow[]>();
   for (const row of programmeRows) {
     const bucket = rowsByChannel.get(row.xmltvChannelId);
     if (bucket === undefined) {

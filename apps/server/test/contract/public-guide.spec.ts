@@ -290,7 +290,7 @@ describe('catalogRevision 同步快照(T108/T114)', () => {
 
     // 经 manual-epg-binding.service 的真实绑定事务(与契约「绑定修改同事务递增」同源);
     // 规模夹具会话/账号/设备齐备,可直接走生产写入路径。
-    saveBinding(Database.db, {
+    saveBinding({
       householdId: HOUSEHOLD_ID,
       mediaId: scaleChannelMediaId(2),
       epgSourceId: SCALE_FIXTURE_IDS.epgSourceId,

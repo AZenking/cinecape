@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { HttpCommonModule } from '@platform/http-common/http-common.module';
 import { PublicGuideController } from '@contexts/epg/interface/public-guide.controller';
-import { EPG_MANUAL_BINDING_PORT, EPG_SERVICE_PORT } from '@contexts/epg/epg.tokens';
+import { EPG_MANUAL_BINDING_PORT, EPG_SERVICE_PORT, EPG_STORE } from '@contexts/epg/epg.tokens';
 import {
   getBindingState,
   listEpgCandidates,
@@ -9,12 +9,14 @@ import {
   unbindBinding,
 } from '@contexts/epg/application/manual-epg-binding.service';
 import { getMediaProgrammes } from '@contexts/epg/application/epg.service';
+import { bindEpgStore } from '@contexts/epg/application/epg-store.port';
+import { drizzleEpgStore } from '@contexts/epg/infrastructure/epg-store.drizzle';
 import type { IEpgManualBindingService, IEpgService } from '@contexts/epg/epg.ports';
 
 /**
  * EPG 节目指南模块(T042/T115;005 contracts/api.md §2、data-model.md §8):
- * - epg.service 为纯函数模块(对齐 catalog/policy 惯例),数据访问经 auth/db 共享 SQLite
- *   单例,由 catalog 控制器直接消费(T044 的 GET /media/{mediaId}/programmes;
+ * - epg.service 为纯函数模块(对齐 catalog/policy 惯例),数据访问经 epg 仓储端口 seam
+ *   (008-T007 抽取,行为零变化),由 catalog 控制器直接消费(T044 的 GET /media/{mediaId}/programmes;
  *   T071 起节目解析含手动绑定优先语义;绑定管理路由迁入 settings 后本模块不再挂
  *   ManualEpgBindingController,业务规则仍在 manual-epg-binding.service);
  * - 本模块不承担 US1 发布前置职责(指南窗口发布已由 imports 的
@@ -27,6 +29,10 @@ import type { IEpgManualBindingService, IEpgService } from '@contexts/epg/epg.po
  * 007-T021:发布面令牌装配 —— 跨上下文消费的应用服务(manual-epg-binding/epg.service)
  * 以令牌 provider 发布(纯函数模块经 useValue 函数束 + satisfies 对齐 ports 接口,
  * 零行为变化);exports 仅发布令牌,消费方迁移属 T022。
+ *
+ * 008-repository-extraction(ADR-0015 D1):装配期绑定仓储 seam ——
+ * EPG_STORE provider 实例化时经 bindEpgStore 注入 Drizzle 实现
+ * (惰性 getDb 解析,Database 单例重开安全);不经 HTTP 暴露,不导出。
  */
 @Module({
   // CommonModule 提供 RateLimitGuard 的 RateLimitService(与 AuthModule 同一惯例;
@@ -34,6 +40,10 @@ import type { IEpgManualBindingService, IEpgService } from '@contexts/epg/epg.po
   imports: [HttpCommonModule],
   controllers: [PublicGuideController],
   providers: [
+    {
+      provide: EPG_STORE,
+      useFactory: () => bindEpgStore(drizzleEpgStore()),
+    },
     {
       provide: EPG_MANUAL_BINDING_PORT,
       useValue: { getBindingState, listEpgCandidates, saveBinding, unbindBinding } satisfies IEpgManualBindingService,

@@ -1,14 +1,12 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { ExperienceProgrammeDto, GuideWindowDto } from '@hmp/shared';
 import { ProblemCode } from '@hmp/shared';
 import { DomainError } from '@platform/http-common/domain-error';
-import { getDb } from '@contexts/identity-access';
-import { epgProgramme } from '@platform/database/schema';
 import { resolveGuideDayWindow } from '@contexts/epg/domain/guide-calendar';
 import { GuideDateExpiredProblem } from '@contexts/epg/domain/guide-problems';
 import { readCatalogRevision } from '@contexts/epg/infrastructure/catalog-revision.service';
 import { loadChannelAssociations, type ChannelMetaRow } from '@contexts/epg/domain/binding-core';
 import { programmeKeyOf } from '@contexts/epg/domain/programme-key.mapper';
+import { epgStore, type GuideProgrammeWindowRow } from '@contexts/epg/application/epg-store.port';
 
 /**
  * 公共 guide 窗口查询服务(T113/T115;data-model.md §8 逐字、contracts/api.md §2、research R8):
@@ -55,15 +53,7 @@ export interface GuideWindowRequest {
   readonly pageSize?: number;
 }
 
-interface ProgrammeRowRaw {
-  id: string;
-  title: string;
-  description: string | null;
-  starts_at: string;
-  ends_at: string;
-}
-
-function toProgrammeDto(row: ProgrammeRowRaw): ExperienceProgrammeDto {
+function toProgrammeDto(row: GuideProgrammeWindowRow): ExperienceProgrammeDto {
   return {
     key: programmeKeyOf(row.id),
     title: row.title,
@@ -138,34 +128,13 @@ export function loadGuideWindow(householdId: string, request: GuideWindowRequest
   }
   const pairKeys = [...new Set(pairByMedia.values())];
   if (pairKeys.length > 0) {
-    const db = getDb();
-    const pairExpression = sql`(${epgProgramme.sourceId} || char(0) || ${epgProgramme.xmltvChannelId})`;
-    const rows = db
-      .select({
-        id: epgProgramme.id,
-        source_id: epgProgramme.sourceId,
-        xmltv_channel_id: epgProgramme.xmltvChannelId,
-        title: epgProgramme.title,
-        description: epgProgramme.description,
-        starts_at: epgProgramme.startsAt,
-        ends_at: epgProgramme.endsAt,
-      })
-      .from(epgProgramme)
-      .where(
-        and(
-          eq(epgProgramme.householdId, householdId),
-          sql`${epgProgramme.startsAt} < ${toIso}`,
-          sql`${epgProgramme.endsAt} > ${fromIso}`,
-          inArray(pairExpression, pairKeys),
-        ),
-      )
-      .limit(GUIDE_MAX_PROGRAMMES + 1)
-      .all();
+    // 交叠条件 + LIMIT 2001 探测经仓储端口(008-T007 逐字迁移,不静默截断)
+    const rows = epgStore().listProgrammeWindowRows(householdId, fromIso, toIso, pairKeys, GUIDE_MAX_PROGRAMMES + 1);
     if (rows.length > GUIDE_MAX_PROGRAMMES) {
       // 超限 422:不静默截断(data-model §8;建议减少每页频道数)
       throw new DomainError(422, 'GUIDE_WINDOW_TOO_LARGE');
     }
-    const rowsByPair = new Map<string, ProgrammeRowRaw[]>();
+    const rowsByPair = new Map<string, GuideProgrammeWindowRow[]>();
     for (const row of rows) {
       const key = `${row.source_id}\u0000${row.xmltv_channel_id}`;
       const list = rowsByPair.get(key);

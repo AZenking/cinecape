@@ -1,30 +1,19 @@
-import { and, eq } from 'drizzle-orm';
 import { ProblemCode, type ProgrammeDto, type ProgrammesDto } from '@hmp/shared';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { DomainError } from '@platform/http-common/domain-error';
-import {
-  device,
-  deviceSession,
-  epgChannel,
-  epgProgramme,
-  manualEpgBinding,
-  mediaItem,
-  mediaSource,
-  profile,
-  sourceEntry,
-} from '@platform/database/schema';
-import { getDb } from '@contexts/identity-access';
 import {
   loadAvailableMediaIdSet,
   loadBatchCatalogContext,
   type MediaType,
   type CatalogCandidateRow,
 } from '@contexts/policy';
+import { epgStore, type ProgrammeProjectionRow } from './epg-store.port';
 
 /**
  * EPG 节目指南服务(T042;US4,只读;T071 增手动绑定优先):
  * - GET /media/{mediaId}/programmes 的编排(T044 由 catalog 控制器消费,纯函数模块,
- *   对齐 catalog/policy 惯例;数据访问经 auth/db 共享 SQLite 单例):
+ *   对齐 catalog/policy 惯例;数据访问经 epg 仓储端口 seam,008-T007 抽取,
+ *   行为零变化):
  *   1) 授权管线与详情完全一致(loadBatchCatalogContext:会话/设备/档案 → 最新策略 →
  *      家庭真实资源 → evaluatePolicy;不复制判定规则),未命中 → 统一同形 404 NOT_FOUND
  *      (不存在/跨家庭/不可见/不可用不区分),随后要求 type=channel,否则 400 VALIDATION_FAILED;
@@ -73,7 +62,7 @@ function notFound(): DomainError {
  *   会话/设备信任源先重验(与批量上下文同一判定),失效即维持原 403,兜底不放宽信任。
  */
 function loadProgrammeReadContext(householdId: string, sessionId: string): { allowed: CatalogCandidateRow[] } {
-  const db = getDb();
+  const store = epgStore();
   try {
     return { allowed: loadBatchCatalogContext({ householdId, sessionId }).allowed };
   } catch (error) {
@@ -81,13 +70,13 @@ function loadProgrammeReadContext(householdId: string, sessionId: string): { all
       throw error;
     }
     // 家庭存在档案(未选择/失效/损坏)→ 403 语义不变
-    const anyProfile = db.select({ id: profile.id }).from(profile).where(eq(profile.householdId, householdId)).limit(1).get();
+    const anyProfile = store.findAnyProfileId(householdId);
     if (anyProfile !== undefined) {
       throw error;
     }
     // 零档案:信任源先重验,不因兜底放宽(会话撤销/过期/换家庭/设备撤销 → 维持原 403)
-    const session = db.select().from(deviceSession).where(eq(deviceSession.id, sessionId)).get();
-    const deviceRow = session === undefined ? undefined : db.select().from(device).where(eq(device.id, session.deviceId)).get();
+    const session = store.findSessionRow(sessionId);
+    const deviceRow = session === undefined ? undefined : store.findDeviceRow(session.deviceId);
     if (
       session === undefined ||
       session.revokedAt !== null ||
@@ -99,18 +88,7 @@ function loadProgrammeReadContext(householdId: string, sessionId: string): { all
       throw error;
     }
     // 无政策放行:可用性集合判定与批量上下文逐 id 等价(available=false 不放行 → 404 同形)
-    const mediaRows = db
-      .select({
-        id: mediaItem.id,
-        type: mediaItem.type,
-        title: mediaItem.title,
-        description: mediaItem.description,
-        contentLevel: mediaItem.contentLevel,
-        version: mediaItem.version,
-      })
-      .from(mediaItem)
-      .where(eq(mediaItem.householdId, householdId))
-      .all();
+    const mediaRows = store.listMediaCandidateRows(householdId);
     const availableIds = loadAvailableMediaIdSet(householdId);
     return {
       allowed: mediaRows
@@ -133,28 +111,16 @@ function loadProgrammeReadContext(householdId: string, sessionId: string): { all
  * 任一来源产出「有效(链路两端均启用)+ 精确匹配 + 不冲突」关联即胜出,否则 null。
  */
 function resolveEpgAssociation(householdId: string, mediaId: string): EpgAssociation | null {
-  const db = getDb();
-  const entries = db
-    .select({ sourceId: sourceEntry.sourceId, upstreamChannelId: sourceEntry.upstreamChannelId })
-    .from(sourceEntry)
-    .where(and(eq(sourceEntry.householdId, householdId), eq(sourceEntry.mediaId, mediaId), eq(sourceEntry.present, 1)))
-    .all();
+  const store = epgStore();
+  const entries = store.listPresentSourceEntries(householdId, mediaId);
   const sourceIds = [...new Set(entries.map((entry) => entry.sourceId))].sort();
   for (const sourceId of sourceIds) {
-    const iptv = db
-      .select()
-      .from(mediaSource)
-      .where(and(eq(mediaSource.householdId, householdId), eq(mediaSource.id, sourceId)))
-      .get();
+    const iptv = store.findMediaSourceRow(householdId, sourceId);
     // IPTV 来源须启用;禁用来源视为无关联(不可用媒体的指南不因断源泄漏)
     if (iptv === undefined || iptv.kind !== 'iptv' || iptv.enabled !== 1 || iptv.epgSourceId === null) {
       continue;
     }
-    const epg = db
-      .select()
-      .from(mediaSource)
-      .where(and(eq(mediaSource.householdId, householdId), eq(mediaSource.id, iptv.epgSourceId)))
-      .get();
+    const epg = store.findMediaSourceRow(householdId, iptv.epgSourceId);
     // EPG 目标须存在同家庭且启用(允许关联暂时禁用 EPG,但观看时无节目 → 跳过该关联)
     if (epg === undefined || epg.kind !== 'epg' || epg.enabled !== 1) {
       continue;
@@ -167,17 +133,7 @@ function resolveEpgAssociation(householdId: string, mediaId: string): EpgAssocia
       ),
     ].sort();
     for (const upstreamId of upstreamIds) {
-      const channel = db
-        .select({ conflicted: epgChannel.conflicted })
-        .from(epgChannel)
-        .where(
-          and(
-            eq(epgChannel.householdId, householdId),
-            eq(epgChannel.sourceId, iptv.epgSourceId),
-            eq(epgChannel.xmltvChannelId, upstreamId),
-          ),
-        )
-        .get();
+      const channel = store.findEpgChannelConflictedRow(householdId, iptv.epgSourceId, upstreamId);
       // 精确匹配且未冲突才胜出;冲突/无匹配跳过(不合并、不猜测)
       if (channel !== undefined && channel.conflicted === 0) {
         return { epgSourceId: iptv.epgSourceId, xmltvChannelId: upstreamId };
@@ -196,40 +152,18 @@ function resolveEpgAssociation(householdId: string, mediaId: string): EpgAssocia
  * 失效一律以 'invalid' 标记返回(具体原因属管理读取 getBindingState,普通节目响应不暴露)。
  */
 function resolveManualOverride(householdId: string, mediaId: string): EpgAssociation | 'invalid' | null {
-  const db = getDb();
-  const row = db
-    .select({
-      mode: manualEpgBinding.mode,
-      epgSourceId: manualEpgBinding.epgSourceId,
-      xmltvChannelId: manualEpgBinding.xmltvChannelId,
-    })
-    .from(manualEpgBinding)
-    .where(and(eq(manualEpgBinding.householdId, householdId), eq(manualEpgBinding.mediaId, mediaId)))
-    .get();
+  const store = epgStore();
+  const row = store.findManualBindingTarget(householdId, mediaId);
   // 无行/auto 墓碑:目标两列为 null,无手动语义可施加
   if (row === undefined || row.mode !== 'manual' || row.epgSourceId === null || row.xmltvChannelId === null) {
     return null;
   }
-  const source = db
-    .select({ enabled: mediaSource.enabled })
-    .from(mediaSource)
-    .where(and(eq(mediaSource.householdId, householdId), eq(mediaSource.id, row.epgSourceId)))
-    .get();
+  const source = store.findMediaSourceEnabledRow(householdId, row.epgSourceId);
   // 来源侧不可用(禁用;无硬删除,行缺失仅剩防御路径)→ invalid,不回退自动
   if (source === undefined || source.enabled !== 1) {
     return 'invalid';
   }
-  const channel = db
-    .select({ conflicted: epgChannel.conflicted })
-    .from(epgChannel)
-    .where(
-      and(
-        eq(epgChannel.householdId, householdId),
-        eq(epgChannel.sourceId, row.epgSourceId),
-        eq(epgChannel.xmltvChannelId, row.xmltvChannelId),
-      ),
-    )
-    .get();
+  const channel = store.findEpgChannelConflictedRow(householdId, row.epgSourceId, row.xmltvChannelId);
   // 目标频道缺失/冲突 → invalid,不回退(失效是配置事实,不是可绕过的临时状态)
   if (channel === undefined || channel.conflicted !== 0) {
     return 'invalid';
@@ -237,7 +171,7 @@ function resolveManualOverride(householdId: string, mediaId: string): EpgAssocia
   return { epgSourceId: row.epgSourceId, xmltvChannelId: row.xmltvChannelId };
 }
 
-function toProgrammeDto(row: Pick<typeof epgProgramme.$inferSelect, 'title' | 'description' | 'startsAt' | 'endsAt'>): ProgrammeDto {
+function toProgrammeDto(row: ProgrammeProjectionRow): ProgrammeDto {
   return {
     title: row.title,
     description: row.description,
@@ -273,23 +207,7 @@ export function getMediaProgrammes(context: SessionContext, mediaId: string): Pr
     return UNAVAILABLE;
   }
   // 5) 窗口判定:startsAt 升序扫描,首个命中区间即 current、首个未来开始即 next
-  const rows = getDb()
-    .select({
-      title: epgProgramme.title,
-      description: epgProgramme.description,
-      startsAt: epgProgramme.startsAt,
-      endsAt: epgProgramme.endsAt,
-    })
-    .from(epgProgramme)
-    .where(
-      and(
-        eq(epgProgramme.householdId, householdId),
-        eq(epgProgramme.sourceId, association.epgSourceId),
-        eq(epgProgramme.xmltvChannelId, association.xmltvChannelId),
-      ),
-    )
-    .orderBy(epgProgramme.startsAt)
-    .all();
+  const rows = epgStore().listProgrammeRowsByChannel(householdId, association.epgSourceId, association.xmltvChannelId);
   const now = Date.now();
   let current: ProgrammeDto | null = null;
   let next: ProgrammeDto | null = null;

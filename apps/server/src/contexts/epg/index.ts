@@ -5,14 +5,13 @@
 export type { IEpgManualBindingService, IEpgService } from './epg.ports';
 export { EPG_MANUAL_BINDING_PORT, EPG_SERVICE_PORT } from './epg.tokens';
 
-// —— 应用服务纯函数（T020 grep 实测跨上下文消费清单）——
+// —— 应用服务纯函数（T020 grep 实测跨上下文消费清单；008-T007 起无 db 参数，ADR-0015 D2）——
 export {
   getBindingState,
   listEpgCandidates,
   saveBinding,
   unbindBinding,
   type BindingStateQuery,
-  type DbHandle,
   type ManualEpgBindingState,
   type SaveManualBindingInput,
   type UnbindManualBindingInput,
