@@ -44,6 +44,15 @@ const FRAMEWORK_PACKAGES =
 	FRAMEWORK_PKGS +
 	")";
 
+/** 门禁强度开关（007 编排修正 2026-10-28）：
+ *  - 默认 enforce（severity:"error"，违规即非零退出）——T024 起与 verify:release ④b 使用默认值；
+ *  - US1 迁移步（T008–T019）以 `AUDIT_ENFORCE=0` 运行 → 全部规则降级为 info（报告模式，exit 0）：
+ *    此时已迁移上下文仍存在指向旧树（src/modules|common 等）的跨上下文边，
+ *    这些边按计划在 US2（T022）统一收口，故 US1 仅记录违规数、不阻断。
+ *  证据留档：docs/specs/007-backend-ddd-restructure/evidence/boundary-audit.md 汇总趋势。 */
+const ENFORCE = process.env.AUDIT_ENFORCE !== "0";
+const RULE_SEVERITY = ENFORCE ? "error" : "info";
+
 // CommonJS 导出为本工具配置的唯一形态;本文件经 eslint projectService 的
 // allowDefaultProject 以 JS 规则集检查,Node 全局(module)未声明。
 // eslint-disable-next-line no-undef
@@ -55,7 +64,7 @@ module.exports = {
 		// domain、本上下文其他层、platform、一切框架/外部包）。
 		{
 			name: "r1-domain-only-own-domain-and-shared",
-			severity: "error",
+			severity: RULE_SEVERITY,
 			from: { path: "^src/contexts/([^/]+)/domain/" },
 			to: {
 				pathNot: [
@@ -69,7 +78,7 @@ module.exports = {
 		// domain/**、自身 application/**、@hmp/shared（仅类型契约）。
 		{
 			name: "r1-application-only-own-domain-application-and-shared",
-			severity: "error",
+			severity: RULE_SEVERITY,
 			from: { path: "^src/contexts/([^/]+)/application/" },
 			to: {
 				pathNot: [
@@ -85,7 +94,7 @@ module.exports = {
 		// 不得 import 任何 src/contexts/*/interface/**，也不得跨上下文。
 		{
 			name: "r1-infrastructure-own-layers-platform-and-shared-only",
-			severity: "error",
+			severity: RULE_SEVERITY,
 			from: { path: "^src/contexts/([^/]+)/infrastructure/" },
 			to: {
 				pathNot: [
@@ -101,7 +110,7 @@ module.exports = {
 		// 不得 import 其他上下文的非 index 文件（内部实现）。
 		{
 			name: "r1-interface-own-context-published-index-platform-shared-only",
-			severity: "error",
+			severity: RULE_SEVERITY,
 			from: { path: "^src/contexts/([^/]+)/interface/" },
 			to: {
 				pathNot: [
@@ -117,7 +126,7 @@ module.exports = {
 		// 目标上下文的 index.ts（发布入口），落点为其他上下文任何非 index 文件即违规。
 		{
 			name: "r2-cross-context-deep-import-ban",
-			severity: "error",
+			severity: RULE_SEVERITY,
 			from: { path: "^src/contexts/([^/]+)/" },
 			to: {
 				path: "^src/contexts/(?!$1/)[^/]+/",
@@ -130,7 +139,7 @@ module.exports = {
 		// @nestjs/*、drizzle-orm、better-sqlite3、express、rxjs。
 		{
 			name: "r3-no-framework-leakage-into-domain-and-application",
-			severity: "error",
+			severity: RULE_SEVERITY,
 			from: { path: "^src/contexts/[^/]+/(domain|application)/" },
 			to: { path: FRAMEWORK_PACKAGES },
 		},
@@ -139,7 +148,7 @@ module.exports = {
 		// 自身不得依赖任何业务上下文。
 		{
 			name: "r4-platform-must-not-depend-on-contexts",
-			severity: "error",
+			severity: RULE_SEVERITY,
 			from: { path: "^src/platform/" },
 			to: { path: "^src/contexts/" },
 		},
