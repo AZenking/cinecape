@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpException, Inject, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { parseDate } from '@internationalized/date';
 import type { GuideWindowDto } from '@hmp/shared';
@@ -10,6 +10,7 @@ import { StrictQueryPipe } from '@platform/http-common/strict-input/strict-pipes
 import { PublicContextService } from '@platform/http-common/public-context/public-context.service';
 import { liveNowMs } from '@contexts/live-tv';
 import { allowedGuideDates, guideDateString, guideDayWindowMs, todayCalendarDateOf } from '@contexts/epg/domain/guide-calendar';
+import { GuideProblemError } from '@contexts/epg/domain/guide-problems';
 import { loadGuideWindow } from '@contexts/epg/application/guide-window.service';
 
 /**
@@ -99,15 +100,26 @@ export class PublicGuideController {
     if (query.from !== undefined && query.to === undefined) {
       throw new DomainError(400, ProblemCode.VALIDATION_FAILED, 'from 与 to 必须成对提供');
     }
-    return loadGuideWindow(scope.household.householdId, {
-      nowMs,
-      timezone: scope.household.timezone,
-      date: query.date,
-      fromMs,
-      toMs,
-      page: query.page,
-      pageSize: query.pageSize,
-    });
+    try {
+      return loadGuideWindow(scope.household.householdId, {
+        nowMs,
+        timezone: scope.household.timezone,
+        date: query.date,
+        fromMs,
+        toMs,
+        page: query.page,
+        pageSize: query.pageSize,
+      });
+    } catch (error) {
+      // T023 治理裁决(ADR-0014 修正案)唯一翻译点:domain 抛纯 GuideProblemError
+      // (零框架),此处翻译为 HttpException —— problem 体逐字段原样、status 不变,
+      // ProblemJsonFilter 透传,对外 HTTP 行为零变化(契约测试守护);其余错误
+      // (DomainError 等)原样上抛,渲染不变。
+      if (error instanceof GuideProblemError) {
+        throw new HttpException(error.problem, error.status);
+      }
+      throw error;
+    }
   }
 }
 

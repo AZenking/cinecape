@@ -10,6 +10,7 @@ import {
   startFreshApp,
 } from '../../helpers';
 import { validateSessionToken } from '@platform/http-common/session.guard';
+import { hashToken } from '@contexts/identity-access'; // T022b 端口反转测试适配:管线签名增加 SessionVerifierPort(行为等价)
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import {
   SETTINGS_GRANT_TTL_MS,
@@ -67,7 +68,7 @@ async function setupRig(): Promise<Rig> {
     cookie: cookiePairOf(loggedIn),
     sessionToken,
     mainProfileId,
-    context: validateSessionToken(sessionToken),
+    context: validateSessionToken(sessionToken, { hashToken }),
   };
 }
 

@@ -331,10 +331,20 @@ describe('guide-window-query:date/from/to 校验(T107)', () => {
       throw new Error('期望抛出领域错误,实际成功返回');
     } catch (error) {
       expect(error).toBeInstanceOf(Error);
-      const candidate = error as { status?: number; code?: string; getResponse?: () => unknown };
-      if (typeof candidate.getResponse === 'function') {
-        const body = candidate.getResponse() as { code?: string; allowedDates?: string[] };
-        return { status: candidate.status ?? 0, code: body.code, allowedDates: body.allowedDates };
+      // T023 领域错误纯化适配:409 由纯 GuideProblemError 携带(problem 载荷 +
+      // status 冗余别名,无 getResponse());DomainError 仍为 status/code 属性。
+      // 断言语义与原先读取 getResponse() 载荷完全等价。
+      const candidate = error as {
+        status?: number;
+        code?: string;
+        problem?: { code?: string; allowedDates?: readonly string[] };
+      };
+      if (candidate.problem !== undefined) {
+        return {
+          status: candidate.status ?? 0,
+          code: candidate.problem.code,
+          allowedDates: candidate.problem.allowedDates as string[] | undefined,
+        };
       }
       return { status: candidate.status ?? 0, code: candidate.code };
     }

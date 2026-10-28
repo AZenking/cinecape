@@ -10,6 +10,7 @@ import {
   startFreshApp,
 } from '../../helpers';
 import { validateSessionToken } from '@platform/http-common/session.guard';
+import { hashToken } from '@contexts/identity-access'; // T022b 端口反转测试适配:管线签名增加 SessionVerifierPort(行为等价)
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { verifyAndIssueSettingsAccess } from '../../../src/contexts/settings/application/settings-pin-verification.service';
 import { changeAccountPassword } from '../../../src/contexts/settings/application/settings-account.service';
@@ -96,7 +97,7 @@ async function setupRig(options: { withUnlock?: boolean } = {}): Promise<Rig> {
   expect(bootstrapped.status).toBe(201);
   const mainProfileId = (bootstrapped.body as { id: string }).id;
   await selectProfile(rig.app, cookie, mainProfileId, MAIN_PIN);
-  const context = validateSessionToken(token);
+  const context = validateSessionToken(token, { hashToken });
   if (options.withUnlock !== false) {
     const access = await verifyAndIssueSettingsAccess(context, MAIN_PIN);
     expect(access.unlocked).toBe(true);
@@ -117,7 +118,7 @@ async function loginSecondDevice(
   const cookie = cookiePairOf(res);
   const token = (res.body as { sessionToken: string }).sessionToken;
   await selectProfile(app, cookie, mainProfileId, MAIN_PIN);
-  const context = validateSessionToken(token);
+  const context = validateSessionToken(token, { hashToken });
   const access = await verifyAndIssueSettingsAccess(context, MAIN_PIN);
   expect(access.unlocked).toBe(true);
   return { cookie, token, context };

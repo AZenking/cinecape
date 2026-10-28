@@ -14,6 +14,10 @@ import { RateLimitService } from '@platform/http-common/rate-limit/rate-limit.se
  * @UseGuards 挂载,不入模块 providers。消费方在自己的模块 `imports: [HttpCommonModule]`
  * 后即可注入上述两个服务;RateLimitGuard 的构造依赖(Reflector + RateLimitService)
  * 由消费方模块注入器解析,同样要求先 import HttpCommonModule。
+ * T022b 治理裁决(ADR-0014 修正案):SessionGuard / SettingsAccessGuard 的构造依赖
+ * 为 platform.ports.ts 端口令牌(SESSION_VERIFIER_PORT / SETTINGS_GRANT_VALIDATOR_PORT),
+ * 真实实现由组合根 app.module.ts 的 @Global PlatformPortsModule 绑定 —— 两者仍不入
+ * 本模块 providers,令牌经全局模块对所有消费方注入器可见。
  */
 @Module({
   providers: [PublicContextService, RateLimitService],

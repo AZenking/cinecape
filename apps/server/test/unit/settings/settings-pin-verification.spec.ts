@@ -11,6 +11,7 @@ import {
 } from '../../helpers';
 import { restartSettingsApp } from '../../helpers-settings';
 import { validateSessionToken } from '@platform/http-common/session.guard';
+import { hashToken } from '@contexts/identity-access'; // T022b 端口反转测试适配:管线签名增加 SessionVerifierPort(行为等价)
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { verifyAndIssueSettingsAccess } from '../../../src/contexts/settings/application/settings-pin-verification.service';
 
@@ -75,7 +76,7 @@ async function setupRig(): Promise<Rig> {
   expect(bootstrapped.status).toBe(201);
   const mainProfileId = (bootstrapped.body as { id: string }).id;
   await selectMainProfile(rig.app, cookie, mainProfileId);
-  return { rig, cookie, mainProfileId, context: validateSessionToken(sessionToken) };
+  return { rig, cookie, mainProfileId, context: validateSessionToken(sessionToken, { hashToken }) };
 }
 
 async function selectMainProfile(app: FreshRig['app'], cookie: string, mainProfileId: string): Promise<void> {
@@ -244,7 +245,7 @@ describe('T074 · 设置 PIN 验证竞态与失败锁定(data-model §3)', () =>
       .send({ pin: MAIN_PIN });
     expect(selectionLocked.status).toBe(423);
     // 新会话未选档:设置验证本身分层拒绝(403 ACTIVE_PROFILE_REQUIRED,不泄露锁定细节)
-    const newContext = validateSessionToken((relogin.body as { sessionToken: string }).sessionToken);
+    const newContext = validateSessionToken((relogin.body as { sessionToken: string }).sessionToken, { hashToken });
     await expect(verifyAndIssueSettingsAccess(newContext, '000000')).rejects.toMatchObject({
       status: 403,
       code: 'ACTIVE_PROFILE_REQUIRED',

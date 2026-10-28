@@ -12,9 +12,9 @@
  * data-model.md §3 依赖矩阵（从\到）与本文件规则的对应关系：
  * | 从\到            | domain | application | infrastructure | interface | 其他上下文   | platform | @hmp/shared |
  * |------------------|--------|-------------|----------------|-----------|--------------|----------|-------------|
- * | domain           | ✅     | ❌          | ❌             | ❌        | ❌           | ❌       | 仅类型契约  |
- * | application      | ✅     | ✅          | ❌（经端口）   | ❌        | ❌           | ❌       | 仅类型契约  |
- * | infrastructure   | ✅     | ✅          | ✅             | ❌        | ❌           | ✅       | ✅          |
+ * | domain           | ✅     | ❌          | ❌             | ❌        | ❌（经发布面✅）| ❌      | 仅类型契约  |
+ * | application      | ✅     | ✅          | ✅（仅本上下文）| ❌        | ❌（经发布面✅）| ✅      | 仅类型契约  |
+ * | infrastructure   | ✅     | ✅          | ✅             | ❌        | ❌（经发布面✅）| ✅      | ✅          |
  * | interface        | ✅     | ✅          | ❌（经端口）   | ✅        | 仅发布入口   | ✅       | ✅          |
  *
  * 实现说明：
@@ -24,6 +24,52 @@
  *   （options.doNotFollow），依赖边本身仍参与规则匹配。
  * - @hmp/shared 为 workspace 包，pnpm 下 realpath 落点可能是 ../packages/shared/**
  *   或 node_modules 之下的 @hmp/shared（含 .pnpm 硬链接布局），SHARED_PACKAGE 同时兼容两种形态。
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 2026-10-28 编排裁决修正（ADR-0014 修正案；T022b/T023 执行，行为零变化）
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 裁决总纲：
+ * - 框架禁令范围 = 领域核心：domain 保持纯净（零 @nestjs/drizzle-orm/better-sqlite3/
+ *   rxjs/他上下文）；application 层的 node 内建、drizzle-orm、better-sqlite3、rxjs、
+ *   @nestjs、@platform/**（含 config/database/http-common）导入合法化；
+ * - 经发布面 `@contexts/<ctx>`（index.ts）的跨上下文访问对**所有层**合法；
+ *   深导入（R2）继续禁止；
+ * - 同上下文 application→own infrastructure 合法化（既有 29 条边）；
+ * - R4 两条 platform→contexts 反向边真修：组合根端口反转（app.module.ts
+ *   @Global PlatformPortsModule 绑定 SESSION_VERIFIER_PORT / SETTINGS_GRANT_VALIDATOR_PORT，
+ *   session.guard / settings-access.guard 改 @Inject 消费端口）——R4 规则本身不变，
+ *   以两条边消失为验证；
+ * - guide-problems 的 @nestjs HttpException 渗漏真修：领域错误纯化
+ *   （GuideProblemError 纯 Error 子类，interface 层翻译为 HttpException）。
+ *
+ * 逐条修改（与本文件各规则处注释对应）：
+ * ① R1a：to.pathNot 增加 `^src/contexts/[^/]+/index\.ts$`（裁决 1：domain 经发布面
+ *   合法，深导入仍禁）。domain 纯度其余维度**不放松**：框架/内建/platform/外部包
+ *   仍禁 —— 已知残留 4 条（sources domain→net、live-tv domain→crypto 为 node 内建；
+ *   policy domain→platform/http-common/domain-error 为 platform；epg domain→
+ *   @internationalized/date 为外部日期库），系纯度强制残留，留待 T024 归零，不在
+ *   本裁决放松范围。
+ * ② R1b：to.pathNot 增加合法面（a）发布面 index；（b）`^src/platform/`；（c）node
+ *   内建（BUILTIN_MODULES，depcruise 对 `node:` 前缀解析后落点为裸名，实测确认）与
+ *   drizzle-orm/better-sqlite3/rxjs/@nestjs/express 的 node_modules 形态（FRAMEWORK_
+ *   PACKAGES，增补 @types/express —— express 形态的类型落点，裁决 (c) 款覆盖）；
+ *   （d）`^src/contexts/$1/infrastructure/`（同上下文 own infrastructure，29 条边）。
+ * ③ R1c：to.pathNot 增加 `^src/contexts/[^/]+/index\.ts$`（发布面，裁决）；另放行
+ *   NODE_MODULES_PACKAGES + BUILTIN_MODULES（**偏差留痕**：裁决原文仅要求增加发布面；
+ *   实测核对本层 55 条软审计 info 全数为 node 内建/框架包/argon2 的白名单工件边 ——
+ *   矩阵各行列本无「外部包」禁令单元，原白名单对 node_modules 的拦截系遗漏而非禁令；
+ *   按裁决总纲「框架禁令范围 = 领域核心」与 T024 归零门禁，显式放行。框架之外的
+ *   治理仍由 R3（domain）与 R1b(c)（application）编码）。
+ * ④ R1d：跨上下文发布面本已合法（pathNot 已含 index）——裁决原文「核对无需改则不动」；
+ *   实测核对发现本层 57 条软审计 info 全数为外部包（zod/@nestjs/@types/express/
+ *   drizzle-orm/内建）白名单工件边，不改则 T024 归零不可达，故同样放行
+ *   NODE_MODULES_PACKAGES + BUILTIN_MODULES（**偏差留痕**，理由同 ③；跨上下文
+ *   深导入禁令与 R2 不变）。
+ * ⑤ R3：from 收窄为 **domain 层 only**（application 不再适用 —— 由 R1b 合法面 (c)
+ *   覆盖），规则更名 r3-no-framework-leakage-into-domain；保持 @nestjs/drizzle-orm/
+ *   better-sqlite3/express/rxjs（含 @types/express）禁止。代码侧唯一 domain 渗漏点
+ *   （epg guide-problems 的 HttpException）已随本裁决纯化。
+ * ⑥ R4：**保持** platform→contexts 全禁 —— 端口反转后 2 条边消失即为验证。
  */
 
 /** @hmp/shared（类型契约包）的解析落点：workspace 源码或 node_modules 内。
@@ -35,14 +81,30 @@ const SHARED_PACKAGE =
 /** R3 框架渗漏禁令针对的外部包（contracts 审计映射 + rxjs）在 node_modules 的落点。
  *  平铺两个分支以规避 safe-regex 的嵌套量词禁令：
  *  1) 常规/保留 symlink 形态 node_modules/<pkg>/
- *  2) pnpm 硬链接形态 node_modules/.pnpm/<pkg>@ver.../node_modules/<pkg>/ */
-const FRAMEWORK_PKGS = "(?:@nestjs/|drizzle-orm|better-sqlite3|express|rxjs)";
+ *  2) pnpm 硬链接形态 node_modules/.pnpm/<pkg>@ver.../node_modules/<pkg>/
+ *  2026-10-28 裁决修正②：增补 @types/express —— express 形态的类型落点
+ *  （如 playback application 的 Request 类型导入），属裁决 R1b(c)「express 的
+ *  node_modules 形态」覆盖面；R3（domain）现无此类边，行为不变。 */
+const FRAMEWORK_PKGS = "(?:@nestjs/|drizzle-orm|better-sqlite3|express|rxjs|@types/express)";
 const FRAMEWORK_PACKAGES =
 	"^(?:\\.\\./)*node_modules/(?:\\.pnpm/[^/]+/node_modules/" +
 	FRAMEWORK_PKGS +
 	"|" +
 	FRAMEWORK_PKGS +
 	")";
+
+/** 2026-10-28 裁决修正②(c)：node 内建模块的 depcruise 解析形态 —— 源码
+ *  `node:path`/`node:fs` 前缀在解析后被剥离，落点为裸模块名（如 "path"、
+ *  "fs/promises"；T022b 以 AUDIT_ENFORCE=0 实测报告确认）。平铺字面量分支
+ *  满足 safe-regex（无嵌套量词）；子路径内建（fs/promises）经 (?:/|$) 收尾。 */
+const BUILTIN_MODULES =
+	"^(?:assert|async_hooks|buffer|child_process|cluster|console|crypto|dgram|diagnostics_channel|dns|events|fs|http|http2|https|inspector|module|net|os|path|perf_hooks|process|punycode|querystring|readline|repl|stream|string_decoder|timers|tls|tty|url|util|v8|vm|worker_threads|zlib)(?:/|$)";
+
+/** 2026-10-28 裁决修正③④（偏差留痕，见文件头）：外部 npm 包的 node_modules 落点
+ *  （含 .pnpm 硬链接布局）。infrastructure/interface 的外部包不属依赖矩阵管辖
+ *  （矩阵各行列无「外部包」禁令单元；框架禁令范围 = 领域核心，已由 R3 收窄编码），
+ *  R1c/R1d 据此显式放行，消除白名单对 node_modules 的历史工件拦截。 */
+const NODE_MODULES_PACKAGES = "^(?:\\.\\./)*node_modules/";
 
 /** 门禁强度开关（007 编排修正 2026-10-28）：
  *  - 默认 enforce（severity:"error"，违规即非零退出）——T024 起与 verify:release ④b 使用默认值；
@@ -62,8 +124,10 @@ module.exports = {
 	forbidden: [
 		// ---------------------------------------------------------------- R1a
 		// data-model.md §3「domain」行（严格版）：domain 仅可 import 自身上下文
-		// 的 domain/** 与 @hmp/shared（仅类型契约）。其余一律违规（含其他上下文
-		// domain、本上下文其他层、platform、一切框架/外部包）。
+		// 的 domain/** 与 @hmp/shared（仅类型契约），以及他上下文发布面 index.ts
+		// （2026-10-28 裁决修正①，ADR-0014 修正案裁决 1：发布面对所有层合法；
+		// 深导入仍由 R2 禁止）。其余一律违规（含本上下文其他层、platform、
+		// 一切框架/内建/外部包）—— domain 纯度不放松，残留见文件头修正①。
 		{
 			name: "r1-domain-only-own-domain-and-shared",
 			severity: RULE_SEVERITY,
@@ -72,12 +136,19 @@ module.exports = {
 				pathNot: [
 					"^src/contexts/$1/domain/",
 					SHARED_PACKAGE,
+					// 裁决修正①：他上下文发布面（自身 index 亦无害）——如 epg domain
+					// binding-core/programme-key.mapper 对 live-tv 发布面的复用。
+					"^src/contexts/[^/]+/index\\.ts$",
 				],
 			},
 		},
 		// ---------------------------------------------------------------- R1b
-		// data-model.md §3「application」行：application 仅可 import 自身
-		// domain/**、自身 application/**、@hmp/shared（仅类型契约）。
+		// data-model.md §3「application」行：application 可 import 自身 domain/**、
+		// 自身 application/**、自身 infrastructure/**（2026-10-28 裁决修正②(d)，
+		// 既有 29 条同上下文边合法化）、他上下文发布面 index（修正②(a)）、
+		// src/platform/**（修正②(b)，含 config/database/http-common）、@hmp/shared
+		// （仅类型契约）、node 内建与 drizzle-orm/better-sqlite3/rxjs/@nestjs/express
+		// 形态（修正②(c)；zod 等其余外部包仍禁 —— 框架合法面以裁决列举为准）。
 		{
 			name: "r1-application-only-own-domain-application-and-shared",
 			severity: RULE_SEVERITY,
@@ -86,14 +157,26 @@ module.exports = {
 				pathNot: [
 					"^src/contexts/$1/domain/",
 					"^src/contexts/$1/application/",
+					// 裁决修正②(d)：同上下文 application→own infrastructure 合法化
+					//（跨上下文 infrastructure 仍禁，落点仅限发布面）。
+					"^src/contexts/$1/infrastructure/",
 					SHARED_PACKAGE,
+					// 裁决修正②(a)：他上下文发布面（自身 index 亦无害）。
+					"^src/contexts/[^/]+/index\\.ts$",
+					// 裁决修正②(b)：platform/** 全部（config/database/http-common）。
+					"^src/platform/",
+					// 裁决修正②(c)：node 内建 + 框架包 node_modules 形态（含 @types/express）。
+					BUILTIN_MODULES,
+					FRAMEWORK_PACKAGES,
 				],
 			},
 		},
 		// ---------------------------------------------------------------- R1c
 		// data-model.md §3「infrastructure」行：infrastructure 可 import 自身
-		// domain/application/infrastructure、src/platform/**、@hmp/shared；
-		// 不得 import 任何 src/contexts/*/interface/**，也不得跨上下文。
+		// domain/application/infrastructure、他上下文发布面 index.ts（2026-10-28
+		// 裁决修正③）、src/platform/**、@hmp/shared、外部包与 node 内建（修正③
+		// 偏差留痕：外部包不属矩阵管辖，见文件头；框架治理由 R3/R1b(c) 编码）；
+		// 不得 import 任何 src/contexts/*/interface/**，不得跨上下文深导入。
 		{
 			name: "r1-infrastructure-own-layers-platform-and-shared-only",
 			severity: RULE_SEVERITY,
@@ -103,13 +186,20 @@ module.exports = {
 					"^src/contexts/$1/(domain|application|infrastructure)/",
 					"^src/platform/",
 					SHARED_PACKAGE,
+					// 裁决修正③：发布面。
+					"^src/contexts/[^/]+/index\\.ts$",
+					// 裁决修正③（偏差留痕）：外部包/内建不属矩阵管辖。
+					NODE_MODULES_PACKAGES,
+					BUILTIN_MODULES,
 				],
 			},
 		},
 		// ---------------------------------------------------------------- R1d
 		// data-model.md §3「interface」行：interface 可 import 自身上下文全部层、
-		// 其他上下文的发布入口 index.ts、src/platform/**、@hmp/shared；
-		// 不得 import 其他上下文的非 index 文件（内部实现）。
+		// 其他上下文的发布入口 index.ts、src/platform/**、@hmp/shared、外部包与
+		// node 内建（2026-10-28 裁决修正④偏差留痕：裁决原文「核对无需改则不动」，
+		// 实测核对 57 条 info 全数为外部包白名单工件边，放行理由同修正③，
+		// 见文件头）；不得 import 其他上下文的非 index 文件（内部实现）。
 		{
 			name: "r1-interface-own-context-published-index-platform-shared-only",
 			severity: RULE_SEVERITY,
@@ -120,12 +210,16 @@ module.exports = {
 					"^src/contexts/[^/]+/index\\.ts$",
 					"^src/platform/",
 					SHARED_PACKAGE,
+					// 裁决修正④（偏差留痕）：外部包/内建不属矩阵管辖。
+					NODE_MODULES_PACKAGES,
+					BUILTIN_MODULES,
 				],
 			},
 		},
 		// ---------------------------------------------------------------- R2
-		// 深导入禁令（contracts「审计映射」第 1 条）：跨上下文 import 的落点必须是
-		// 目标上下文的 index.ts（发布入口），落点为其他上下文任何非 index 文件即违规。
+		// 深导入禁令（contracts「审计映射」第 1 条，2026-10-28 裁决不放松）：
+		// 跨上下文 import 的落点必须是目标上下文的 index.ts（发布入口），落点为
+		// 其他上下文任何非 index 文件即违规。
 		{
 			name: "r2-cross-context-deep-import-ban",
 			severity: RULE_SEVERITY,
@@ -136,18 +230,26 @@ module.exports = {
 			},
 		},
 		// ---------------------------------------------------------------- R3
-		// 框架渗漏禁令（contracts「审计映射」第 3 条 + rxjs）：domain 与
-		// application 必须保持纯 TS（经端口/令牌间接使用框架），不得 import
-		// @nestjs/*、drizzle-orm、better-sqlite3、express、rxjs。
+		// 框架渗漏禁令（contracts「审计映射」第 3 条 + rxjs）。2026-10-28 裁决
+		// 修正⑤：from 收窄为 **domain 层 only** —— 框架禁令范围 = 领域核心，
+		// application 的框架使用由 R1b 合法面 (c) 覆盖、不再在本规则重复；
+		// 更名 r3-no-framework-leakage-into-domain。保持 @nestjs/drizzle-orm/
+		// better-sqlite3/express/rxjs（含 @types/express）禁止；domain 唯一既有
+		// 渗漏点（epg guide-problems 的 HttpException）已随裁决纯化为
+		// GuideProblemError（纯 Error 子类，interface 层翻译）。
 		{
-			name: "r3-no-framework-leakage-into-domain-and-application",
+			name: "r3-no-framework-leakage-into-domain",
 			severity: RULE_SEVERITY,
-			from: { path: "^src/contexts/[^/]+/(domain|application)/" },
+			from: { path: "^src/contexts/[^/]+/domain/" },
 			to: { path: FRAMEWORK_PACKAGES },
 		},
 		// ---------------------------------------------------------------- R4
 		// platform 中立性（data-model.md §1）：platform 被所有上下文依赖，
-		// 自身不得依赖任何业务上下文。
+		// 自身不得依赖任何业务上下文。2026-10-28 裁决修正⑥：**保持**全禁 ——
+		// 既有 2 条反向边（session.guard→identity-access token.service、
+		// settings-access.guard→settings application）经组合根端口反转真修
+		// （app.module.ts @Global PlatformPortsModule 绑定端口，守卫 @Inject
+		// 消费），两条边消失即为验证；本规则不变。
 		{
 			name: "r4-platform-must-not-depend-on-contexts",
 			severity: RULE_SEVERITY,

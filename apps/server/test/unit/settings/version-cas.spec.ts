@@ -10,6 +10,7 @@ import {
   startFreshApp,
 } from '../../helpers';
 import { validateSessionToken } from '@platform/http-common/session.guard';
+import { hashToken } from '@contexts/identity-access'; // T022b 端口反转测试适配:管线签名增加 SessionVerifierPort(行为等价)
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { verifyAndIssueSettingsAccess } from '../../../src/contexts/settings/application/settings-pin-verification.service';
 import {
@@ -78,7 +79,7 @@ async function setupRig(): Promise<Rig> {
   expect(bootstrapped.status).toBe(201);
   const mainProfileId = (bootstrapped.body as { id: string }).id;
   await selectProfile(rig.app, cookie, mainProfileId, MAIN_PIN);
-  const context = validateSessionToken(token);
+  const context = validateSessionToken(token, { hashToken });
   const access = await verifyAndIssueSettingsAccess(context, MAIN_PIN);
   expect(access.unlocked).toBe(true);
   return { rig, cookie, context, mainProfileId };

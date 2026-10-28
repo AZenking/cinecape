@@ -1,10 +1,10 @@
-import { Injectable, type CanActivate, type ExecutionContext } from '@nestjs/common';
+import { Injectable, Inject, type CanActivate, type ExecutionContext } from '@nestjs/common';
 import type { Request } from 'express';
 import { ProblemCode as ProblemCodeConst, SESSION_COOKIE } from '@hmp/shared';
 import { attachSessionContext, type SessionContext } from '@platform/http-common/current-session.decorator';
 import { DomainError } from '@platform/http-common/domain-error';
 import { Database } from '@platform/database/database';
-import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
+import { SESSION_VERIFIER_PORT, type SessionVerifierPort } from '@platform/http-common/platform.ports';
 
 /**
  * 会话信任源 Guard(T012)—— 单一校验管线,任何一步失败一律
@@ -94,21 +94,31 @@ export function extractSessionToken(request: Request): string | null {
 
 @Injectable()
 export class SessionGuard implements CanActivate {
+  // T022b 治理裁决(ADR-0014 修正案)R4 端口反转:platform 不再深导入
+  // identity-access 基础设施,改消费组合根绑定的 SESSION_VERIFIER_PORT
+  // (真实实现 = 发布面纯函数 hashToken,HTTP 行为零变化)。
+  // @Inject 显式声明依赖(esbuild/tsx 运行时不发射 design:paramtypes,仓库既有惯例);
+  // 守卫由路由所在模块注入器在请求期延迟实例化,令牌经组合根 @Global 模块全局可见。
+  constructor(
+    @Inject(SESSION_VERIFIER_PORT) private readonly sessionVerifier: SessionVerifierPort,
+  ) {}
+
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
     const token = extractSessionToken(request);
     if (token === null) {
       throw sessionInvalid();
     }
-    attachSessionContext(request, validateSessionToken(token));
+    attachSessionContext(request, validateSessionToken(token, this.sessionVerifier));
     return true;
   }
 }
 
-/** 校验管线(T009 导出复用);通过返回上下文,失败一律 401 SESSION_INVALID */
-export function validateSessionToken(token: string): SessionContext {
+/** 校验管线(T009 导出复用);通过返回上下文,失败一律 401 SESSION_INVALID。
+ *  T022b 端口反转:令牌哈希经 SessionVerifierPort 注入(原 identity-access 深导入)。 */
+export function validateSessionToken(token: string, verifier: SessionVerifierPort): SessionContext {
   const now = Date.now();
-  const row = Database.db.prepare(SESSION_BY_TOKEN_HASH_SQL).get(hashToken(token)) as
+  const row = Database.db.prepare(SESSION_BY_TOKEN_HASH_SQL).get(verifier.hashToken(token)) as
     | SessionRow
     | undefined;
 
