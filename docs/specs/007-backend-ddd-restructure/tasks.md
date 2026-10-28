@@ -43,9 +43,18 @@
 
 **Independent Test**: 对每步迁移后的仓库运行快速门禁 + `audit:boundaries` 分层规则零违规（evidence 留档）
 
-**说明**: 以下每步 = 按 `evidence/migration-map.md` 移动文件 + 机械修正导入路径（含 `apps/server/test/**` 的导入）+ Nest module 重命名/合并 + `app.module.ts` 装配更新；步末通过快速门禁与 `audit:boundaries`（已迁移路径域零违规）后独立提交。此阶段允许暂存跨上下文深导入（US2 统一收口），但**禁止**改变任何行为语义。
+**说明**: 以下每步 = 按 `evidence/migration-map.md` 移动文件 + 机械修正导入路径（含 `apps/server/test/**` 的导入）+ Nest module 重命名/合并 + `app.module.ts` 装配更新；步末通过快速门禁（typecheck / lint / 全量测试 / `audit:orphans`）+ `AUDIT_ENFORCE=0 audit:boundaries` 报告（违规数记录留档；指向旧树的边由 US2 T022 收口，T024 起强制归零）后独立提交。此阶段允许暂存跨上下文深导入（US2 统一收口），但**禁止**改变任何行为语义。**自 T008a 起，T009–T019 各步新增/改动的导入一律采用 `@contexts/*` / `@platform/*` 别名形态（见 T008a 约定）。**
 
 - [ ] T008 [US1] 迁移 ① personal-data：`apps/server/src/modules/personal/**` → `apps/server/src/contexts/personal-data/{domain,application,infrastructure,interface}/`（me.controller→interface；favorites/history/progress-write/progress-clock.service→application；signed-cursor 按 T007 判定归位；模块更名 `PersonalDataModule`）
+- [ ] T008a [US1] 路径别名基座（**维护者 2026-10-28 指令插入**；须在 T008 完成后、T009 发车前执行）：
+  1. `apps/server/tsconfig.json` 与 `tsconfig.build.json` 增加 `"baseUrl": "."` 与 `"paths": { "@contexts/*": ["src/contexts/*"], "@platform/*": ["src/platform/*"] }`；
+  2. 新增 devDep `tsc-alias`（构建链唯一新增），`apps/server/package.json` build 脚本改为 `tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json && cp -R src/database/migrations dist/database/`；
+  3. vitest 配置增加 `resolve.alias`（`@contexts` → `src/contexts`、`@platform` → `src/platform`）；`apps/server/.dependency-cruiser.cjs` 开启 `options.tsConfig.fileName`（规则匹配解析后真实路径，规则正则本身不改）；核验 knip 与 eslint projectService 对 paths 的解析；
+  4. 回改 T008 已落地的 `src/contexts/personal-data/**`、`personal-data.module.ts`、`app.module.ts` 装配及相关测试导入为别名形态；**旧树（src/modules|common|config|database）保留相对导入，不回改**（随迁移步自然转换）；
+  5. 别名约定：`@contexts/<ctx>` 裸导入仅允许指向发布面 `index.ts`（配合 R2 深导入禁令）；上下文内部跨层用 `@contexts/<ctx>/<layer>/...`；platform 用 `@platform/...`；
+  6. 治理留痕：在 `docs/adr/0014-backend-ddd-structure.md` 追加「补充决策：路径别名」小节（记录 tsc-alias 构建链变更、别名约定、以及"裸导入=发布面"与 R2 的对应关系）；
+  7. 门禁同 T008（typecheck / lint / 全量测试 / `AUDIT_ENFORCE=0 audit:boundaries` 报告 / `audit:orphans`），**另须** `pnpm --filter @hmp/server build` 通过，并验证 dist 产物无残留 `@contexts`/`@platform` specifier（如 `grep -rn "@contexts\|@platform" apps/server/dist` 为空，或等效 node 加载冒烟）；
+  8. 独立提交：`refactor(server): 007-T008a path alias foundation (@contexts/*, @platform/*)`
 - [ ] T009 [US1] 迁移 ② profile：`modules/profile/**` → `contexts/profile/`（profile.controller→interface；profile/profile-selection/pin.service、identity-transition→application，PIN 加密实现→infrastructure；`ProfileModule`）
 - [ ] T010 [US1] 迁移 ③ policy：`modules/policy/**` → `contexts/policy/`（policy.rules 纯规则函数→domain；policy.service/batch-context→application；`PolicyModule`）
 - [ ] T011 [US1] 迁移 ④ epg：`modules/epg/**` → `contexts/epg/`（binding-core/guide-calendar/programme-key.mapper/guide-problems→domain；epg/manual-epg-binding/catalog-revision/guide-window.service→application；public-guide.controller→interface；`EpgModule`）
@@ -116,7 +125,7 @@
 
 - **Phase 1（Setup）**: 无前置，立即可开工；T001 阻塞一切实现类任务（T008 起）；T002/T003 先于 T006
 - **Phase 2（Foundational）**: 依赖 T002/T003；T007 依赖 T004 前的代码现状（须在 T008 前完成）；T006/T007 共同阻塞 US1
-- **Phase 3（US1）**: T008→T019 严格按序（D6 先叶后根，前步的导入稳定是后步前提）；每步内含门禁自检
+- **Phase 3（US1）**: T008 → T008a（别名基座，T009 的导入形态前提）→ T009→T019 严格按序（D6 先叶后根，前步的导入稳定是后步前提）；每步内含门禁自检
 - **Phase 4（US2）**: 依赖 US1 全部完成（T019）；T020/T021 可先行，T022/T023 依赖 T020/T021，T024 依赖 T022/T023，T025 依赖 T024
 - **Phase 5（US3）**: 依赖 US2（T024）——规则核验对象是收口后的结构；T030 依赖 T026–T029
 - **Phase 6（US4）**: 依赖 US3（T030）与 US2 证据（T025）；T033 依赖 T031；T034 依赖 T032/T033
