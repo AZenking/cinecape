@@ -1,11 +1,11 @@
 import { eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { env } from '../../config/env';
-import type { Profile } from '../../database/schema';
-import { profile } from '../../database/schema';
-import { DomainError } from '../../common/domain-error';
-import { getDb } from '../auth/db';
-import { verifyPassword } from '../auth/password.service';
+import { env } from '../../../config/env';
+import type { Profile } from '../../../database/schema';
+import { profile } from '../../../database/schema';
+import { DomainError } from '../../../common/domain-error';
+import { getDb } from '../../../modules/auth/db';
+import { verifyPassword } from '../../../modules/auth/password.service';
 
 /**
  * PIN 服务(T027/FR-015)。三部分:

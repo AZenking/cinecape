@@ -14,11 +14,11 @@ import {
   isPinLocked,
   registerPinFailure,
   unlockGrantKey,
-} from '../../src/modules/profile/pin.service';
+} from '@contexts/profile/application/pin.service';
 import {
   assertNotLastActiveProfile,
   swapDefault,
-} from '../../src/modules/profile/profile.service';
+} from '@contexts/profile/application/profile.service';
 
 /**
  * T024(US2 单元):profile 规则 ——

@@ -7,8 +7,8 @@ import { defaultPolicyValues } from '../policy/policy.rules';
 import { getDb, type Db } from './db';
 import { hashPassword } from './password.service';
 import { verifyParentPassword } from './parent-verification.service';
-import { clearDeviceSessionsProfile } from '../profile/identity-transition';
-import { revokeUnlockGrantsForProfile } from '../profile/pin.service';
+import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
+import { revokeUnlockGrantsForProfile } from '@contexts/profile/application/pin.service';
 import { toProfileSummary, type ProfileSummaryBody } from './account-session.dto';
 
 /**

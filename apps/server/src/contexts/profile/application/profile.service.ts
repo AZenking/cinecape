@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, ne } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import type { Profile } from '../../database/schema';
-import { deviceSession, profile, profilePolicy } from '../../database/schema';
-import { DomainError } from '../../common/domain-error';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { getDb, type Db } from '../auth/db';
-import { revokeUnlockGrantsForProfile } from './pin.service';
-import { clearDeviceSessionsProfile } from './identity-transition';
-import { defaultPolicyValues } from '../policy/policy.rules';
+import type { Profile } from '../../../database/schema';
+import { deviceSession, profile, profilePolicy } from '../../../database/schema';
+import { DomainError } from '../../../common/domain-error';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { getDb, type Db } from '../../../modules/auth/db';
+import { revokeUnlockGrantsForProfile } from '@contexts/profile/application/pin.service';
+import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
+import { defaultPolicyValues } from '../../../modules/policy/policy.rules';
 
 /**
  * Profile 聚合(US2:T025 创建/编辑/停用、T026 select、T028 停用级联)。

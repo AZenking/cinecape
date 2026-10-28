@@ -36,14 +36,14 @@ import {
   playbackDeliveryCost,
   type PlaybackResourceCandidate,
 } from '../../../src/modules/playback/playback-authorization.service';
-import { createProfile } from '../../../src/modules/profile/profile.service';
+import { createProfile } from '@contexts/profile/application/profile.service';
 import { writePolicyLists } from '../../../src/modules/policy/policy.service';
 import {
   consumeUnlockGrant,
   grantUnlock,
   hasUnlockGrant,
   unlockProfilePin,
-} from '../../../src/modules/profile/pin.service';
+} from '@contexts/profile/application/pin.service';
 
 /**
  * 播放内部授权管线单元测试(T017,spec 004;playback-authorization.service.ts 的被测底层)。

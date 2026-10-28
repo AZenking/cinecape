@@ -7,7 +7,7 @@ import { env } from '../../config/env';
 import { getDb, type Db } from '../auth/db';
 import { verifyPassword } from '../auth/password.service';
 import { requireManagementRole } from '../auth/bootstrap.service';
-import { PIN_STATE_CLEARED, isPinLocked, registerPinFailure } from '../profile/pin.service';
+import { PIN_STATE_CLEARED, isPinLocked, registerPinFailure } from '@contexts/profile/application/pin.service';
 import {
   issueSettingsGrantTx,
   type IssuedSettingsGrant,

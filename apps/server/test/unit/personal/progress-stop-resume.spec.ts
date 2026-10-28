@@ -19,7 +19,7 @@ import {
 import { PlaybackRepository } from '../../../src/modules/playback/playback.repository';
 import { createPlaybackBudgets } from '../../../src/config/playback-budgets';
 import { getConfig } from '../../../src/config/env';
-import { switchDeviceSessionProfile } from '../../../src/modules/profile/identity-transition';
+import { switchDeviceSessionProfile } from '@contexts/profile/application/identity-transition';
 import { getDb } from '../../../src/modules/auth/db';
 import { Database } from '../../../src/database/database';
 import {

@@ -1,19 +1,19 @@
 import { and, eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { deviceSession, profile } from '../../database/schema';
-import { DomainError, createDomainError } from '../../common/domain-error';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { env } from '../../config/env';
-import { getDb, type Db } from '../auth/db';
-import { verifyPassword } from '../auth/password.service';
-import { verifyParentPassword } from '../auth/parent-verification.service';
+import { deviceSession, profile } from '../../../database/schema';
+import { DomainError, createDomainError } from '../../../common/domain-error';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { env } from '../../../config/env';
+import { getDb, type Db } from '../../../modules/auth/db';
+import { verifyPassword } from '../../../modules/auth/password.service';
+import { verifyParentPassword } from '../../../modules/auth/parent-verification.service';
 import {
   buildAccountSession,
   toProfileSummary,
   type AccountSessionBody,
   type ProfileSummaryBody,
-} from '../auth/account-session.dto';
-import { switchDeviceSessionProfile } from './identity-transition';
+} from '../../../modules/auth/account-session.dto';
+import { switchDeviceSessionProfile } from '@contexts/profile/application/identity-transition';
 import {
   PIN_STATE_CLEARED,
   consumeUnlockGrant,
@@ -21,8 +21,8 @@ import {
   hasUnlockGrant,
   isPinLocked,
   registerPinFailure,
-} from './pin.service';
-import { requireOwnedProfile } from './profile.service';
+} from '@contexts/profile/application/pin.service';
+import { requireOwnedProfile } from '@contexts/profile/application/profile.service';
 
 /**
  * 最小选档接口(T038,005 contracts/api.md §3 + data-model §2):

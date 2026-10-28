@@ -1,12 +1,12 @@
 import { Body, Controller, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
-import { CurrentSession, type SessionContext } from '../../common/current-session.decorator';
-import { SessionGuard } from '../../common/session.guard';
-import { SameOriginGuard } from '../../common/same-origin/same-origin.guard';
-import { StrictBodyPipe } from '../../common/strict-input/strict-pipes';
-import { strictObject } from '../../common/strict-input/strict-schema';
-import { listSelectableProfiles, selectActiveProfile, unlockSelectionPin } from './profile-selection.service';
-import type { AccountSessionBody, ProfileSummaryBody } from '../auth/account-session.dto';
+import { CurrentSession, type SessionContext } from '../../../common/current-session.decorator';
+import { SessionGuard } from '../../../common/session.guard';
+import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
+import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
+import { strictObject } from '../../../common/strict-input/strict-schema';
+import { listSelectableProfiles, selectActiveProfile, unlockSelectionPin } from '@contexts/profile/application/profile-selection.service';
+import type { AccountSessionBody, ProfileSummaryBody } from '../../../modules/auth/account-session.dto';
 
 /**
  * Profile 选档契约路由(T038,005 contracts/api.md §3;api.md §8「/profiles 只保留

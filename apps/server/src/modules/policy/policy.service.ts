@@ -6,7 +6,7 @@ import { DomainError } from '../../common/domain-error';
 import type { SessionContext } from '../../common/current-session.decorator';
 import { getDb, type Db } from '../auth/db';
 import { verifyParentPassword } from '../auth/parent-verification.service';
-import { requireOwnedProfile } from '../profile/profile.service';
+import { requireOwnedProfile } from '@contexts/profile/application/profile.service';
 import {
   assertPolicyRowInvariant,
   evaluatePolicy,

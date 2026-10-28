@@ -24,7 +24,7 @@ import {
 import {
   clearDeviceSessionsProfile,
   switchDeviceSessionProfile,
-} from '../../../src/modules/profile/identity-transition';
+} from '@contexts/profile/application/identity-transition';
 import { PlaybackRepository } from '../../../src/modules/playback/playback.repository';
 import { PlaybackAuthorizationService } from '../../../src/modules/playback/playback-authorization.service';
 import {

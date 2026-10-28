@@ -6,8 +6,8 @@ import {
   playbackTicket,
   profileViewingHistory,
   settingsAccessGrant,
-} from '../../database/schema';
-import type { Db } from '../auth/db';
+} from '../../../database/schema';
+import type { Db } from '../../../modules/auth/db';
 
 /**
  * 身份变化事务挂钩(T038/T039,005 data-model §2 device_session/profile):

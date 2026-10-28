@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Database } from '../../src/database/database';
 import type { SessionContext } from '../../src/common/current-session.decorator';
 import { bootstrapMainProfile } from '../../src/modules/auth/bootstrap.service';
-import { unlockSelectionPin, selectActiveProfile } from '../../src/modules/profile/profile-selection.service';
+import { unlockSelectionPin, selectActiveProfile } from '@contexts/profile/application/profile-selection.service';
 import { restoreAccountSession } from '../../src/modules/auth/account-session.dto';
 import {
   INITIALIZE_BODY,

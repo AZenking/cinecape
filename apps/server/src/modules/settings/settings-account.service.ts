@@ -8,8 +8,8 @@ import { getDb, type Db } from '../auth/db';
 import { hashPassword } from '../auth/password.service';
 import { requireManagementRole } from '../auth/bootstrap.service';
 import { verifyOwnerPassword } from './settings-owner-password';
-import { clearDeviceSessionsProfile } from '../profile/identity-transition';
-import { revokeUnlockGrantsForProfile } from '../profile/pin.service';
+import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
+import { revokeUnlockGrantsForProfile } from '@contexts/profile/application/pin.service';
 import { revokeSettingsGrantsForAccountTx } from './settings-access-revocation';
 import { requireValidSettingsGrantTx } from './settings-access-grant.service';
 

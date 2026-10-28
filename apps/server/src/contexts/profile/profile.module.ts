@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ProfileController } from './profile.controller';
+import { ProfileController } from '@contexts/profile/interface/profile.controller';
 
 /**
  * Profile 模块(T025-T028):list + 创建/编辑/选择/PIN 解锁。
