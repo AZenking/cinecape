@@ -1,10 +1,9 @@
-import { eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
 import { env } from '@platform/config/env';
 import type { Profile } from '@platform/database/schema';
-import { profile } from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
-import { getDb, verifyPassword } from '@contexts/identity-access';
+import { verifyPassword } from '@contexts/identity-access';
+import { profileStore } from '@contexts/profile/application/profile-store.port';
 
 /**
  * PIN 服务(T027/FR-015)。三部分:
@@ -29,6 +28,10 @@ import { getDb, verifyPassword } from '@contexts/identity-access';
  * 3. unlockProfilePin —— 归属校验已由调用方(requireOwnedProfile)完成,此处只做
  *    PIN 状态机:未设 PIN 403 FORBIDDEN → 锁定中 423 → 验证失败 403(计数/锁定,
  *    detail 仅含剩余次数)→ 成功清零并签发授予。
+ *
+ * 008-repository-extraction(T006,ADR-0015 D1):失败计数/锁定窗口的持久化经
+ * application/profile-store.port.ts 仓储端口(updateProfilePinState);argon2
+ * 哈希比对经 identity-access 发布面消费其 infrastructure 实现(现状保持)。
  */
 
 // ---------------------------------------------------------------------------
@@ -158,13 +161,13 @@ export async function unlockProfilePin(
       env.PIN_MAX_ATTEMPTS,
       env.PIN_LOCK_MINUTES,
     );
-    getDb().update(profile).set(next).where(eq(profile.id, row.id)).run();
+    profileStore().updateProfilePinState(row.id, next);
     const remaining = Math.max(0, env.PIN_MAX_ATTEMPTS - next.failedPinCount);
     // detail 仅含剩余次数,不回显 PIN、不泄露其他信息(验收场景 5)
     throw new DomainError(403, ProblemCode.FORBIDDEN, `PIN 验证失败,剩余尝试次数:${remaining}`);
   }
 
-  getDb().update(profile).set(PIN_STATE_CLEARED).where(eq(profile.id, row.id)).run();
+  profileStore().updateProfilePinState(row.id, PIN_STATE_CLEARED);
   grantUnlock(sessionId, row.id);
   return { unlocked: true };
 }

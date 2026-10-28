@@ -1,6 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ProfileController } from '@contexts/profile/interface/profile.controller';
-import { PROFILE_IDENTITY_TRANSITION_PORT, PROFILE_PIN_PORT, PROFILE_SERVICE_PORT } from '@contexts/profile/profile.tokens';
+import {
+  PROFILE_IDENTITY_TRANSITION_PORT,
+  PROFILE_PIN_PORT,
+  PROFILE_SERVICE_PORT,
+  PROFILE_STORE,
+} from '@contexts/profile/profile.tokens';
 import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
 import {
   PIN_STATE_CLEARED,
@@ -9,6 +14,8 @@ import {
   revokeUnlockGrantsForProfile,
 } from '@contexts/profile/application/pin.service';
 import { assertNotLastActiveProfile, swapDefault } from '@contexts/profile/application/profile.service';
+import { bindProfileStore } from '@contexts/profile/application/profile-store.port';
+import { drizzleProfileStore } from '@contexts/profile/infrastructure/profile-store.drizzle';
 import type { IIdentityTransitionService, IPinService, IProfileService } from '@contexts/profile/profile.ports';
 
 /**
@@ -18,10 +25,18 @@ import type { IIdentityTransitionService, IPinService, IProfileService } from '@
  * 007-T021:发布面令牌装配 —— 跨上下文消费的应用服务以令牌 provider 发布
  * (纯函数模块经 useValue 函数束 + satisfies 对齐 ports 接口,零行为变化);
  * exports 仅发布令牌(contracts 白名单),消费方迁移属 T022。
+ *
+ * 008-repository-extraction(ADR-0015 D1):装配期绑定仓储 seam ——
+ * PROFILE_STORE provider 实例化时经 bindProfileStore 注入 Drizzle 实现
+ * (惰性 getDb 解析,Database 单例重开安全);不经 HTTP 暴露,不导出。
  */
 @Module({
   controllers: [ProfileController],
   providers: [
+    {
+      provide: PROFILE_STORE,
+      useFactory: () => bindProfileStore(drizzleProfileStore()),
+    },
     {
       provide: PROFILE_IDENTITY_TRANSITION_PORT,
       useValue: { clearDeviceSessionsProfile } satisfies IIdentityTransitionService,

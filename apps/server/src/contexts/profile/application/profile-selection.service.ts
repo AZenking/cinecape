@@ -1,20 +1,16 @@
-import { and, eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { deviceSession, profile } from '@platform/database/schema';
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { env } from '@platform/config/env';
 import {
-  getDb,
   verifyPassword,
   verifyParentPassword,
   buildAccountSession,
   toProfileSummary,
-  type Db,
   type AccountSessionBody,
   type ProfileSummaryBody,
 } from '@contexts/identity-access';
-import { switchDeviceSessionProfile } from '@contexts/profile/application/identity-transition';
+import { profileStore, type ProfileTxStore } from '@contexts/profile/application/profile-store.port';
 import {
   PIN_STATE_CLEARED,
   consumeUnlockGrant,
@@ -37,15 +33,17 @@ import { requireOwnedProfile } from '@contexts/profile/application/profile.servi
  *   device_session.profile_context_version、撤销设置授予、终态化旧上下文活动播放
  *   并撤票(identity-transition);选同一仍有效档案不递增版本、不恢复过期授予;
  *   身份只从服务端会话推导,携带身份声明字段的请求体在管道层即被 400 拒绝。
+ *
+ * 008-repository-extraction(T006,ADR-0015 D1):数据访问经 application/profile-store.port.ts
+ * 仓储端口(Drizzle 实现位于 infrastructure/profile-store.drizzle.ts);事务经
+ * withTransaction(fn, 'immediate') 端口(语义与迁移前 getDb().transaction(fn,
+ * { behavior: 'immediate' }) 逐字一致),401/404/423/409 判定与行→DTO 映射留本层。
  */
 
 /** GET /profiles:当前家庭全部档案的选档摘要(禁用状态可见) */
 export function listSelectableProfiles(householdId: string): ProfileSummaryBody[] {
-  return getDb()
-    .select()
-    .from(profile)
-    .where(eq(profile.householdId, householdId)) // 显式 household 边界(FR-006)
-    .all()
+  return profileStore()
+    .listProfilesByHousehold(householdId) // 显式 household 边界(FR-006)
     .map(toProfileSummary);
 }
 
@@ -55,16 +53,12 @@ function pinLockedError(): DomainError {
 }
 
 /** 设备会话当前身份上下文版本;会话行缺失(理论不可达)按未认证同形拒绝 */
-function contextVersionOf(db: Db, sessionId: string): number {
-  const row = db
-    .select({ profileContextVersion: deviceSession.profileContextVersion })
-    .from(deviceSession)
-    .where(eq(deviceSession.id, sessionId))
-    .get();
-  if (row === undefined) {
+function contextVersionOf(db: ProfileTxStore, sessionId: string): number {
+  const version = db.findSessionContextVersion(sessionId);
+  if (version === undefined) {
     throw new DomainError(401, ProblemCode.SESSION_INVALID, undefined);
   }
-  return row.profileContextVersion;
+  return version;
 }
 
 /**
@@ -87,27 +81,17 @@ export async function unlockSelectionPin(
     throw pinLockedError();
   }
   const expectedPinVersion = row.pinVersion;
-  const expectedContextVersion = contextVersionOf(getDb(), context.session.id);
+  const expectedContextVersion = contextVersionOf(profileStore(), context.session.id);
 
   // argon2 比对在事务外(短事务;坏哈希按失败处理,不抛底层异常)
   const pinMatches = await verifyPassword(row.pinHash, pin).catch(() => false);
 
   // 事务返回结果、提交后再抛领域错误:失败计数/锁定的写入必须随事务提交,
   // 不能因 throw 回滚而丢失(与 parent-verification.service 同模式)
-  const outcome = getDb().transaction(
+  const outcome = profileStore().withTransaction(
     (tx): { kind: 'locked' } | { kind: 'versionConflict' } | { kind: 'failed'; remaining: number } | { kind: 'ok' } => {
       // 提交前重读快照:PIN 或身份上下文在验证期间变化 → 拒绝(不签基于旧身份的授予)
-      const fresh = tx
-        .select()
-        .from(profile)
-        .where(
-          and(
-            eq(profile.id, row.id),
-            eq(profile.householdId, context.session.householdId),
-            eq(profile.accountId, context.session.accountId),
-          ),
-        )
-        .get();
+      const fresh = tx.findOwnedProfile(row.id, context.session.householdId, context.session.accountId);
       if (fresh === undefined) {
         throw new DomainError(404, ProblemCode.NOT_FOUND);
       }
@@ -124,15 +108,15 @@ export async function unlockSelectionPin(
           env.PIN_MAX_ATTEMPTS,
           env.PIN_LOCK_MINUTES,
         );
-        tx.update(profile).set(next).where(eq(profile.id, fresh.id)).run();
+        tx.updateProfilePinState(fresh.id, next);
         // detail 仅含剩余次数,不回显 PIN(与既有 profile-protection 契约一致)
         return { kind: 'failed', remaining: Math.max(0, env.PIN_MAX_ATTEMPTS - next.failedPinCount) };
       }
       // 成功:清持久失败计数与锁定窗口(选档授予在事务提交后签发)
-      tx.update(profile).set(PIN_STATE_CLEARED).where(eq(profile.id, fresh.id)).run();
+      tx.updateProfilePinState(fresh.id, PIN_STATE_CLEARED);
       return { kind: 'ok' };
     },
-    { behavior: 'immediate' },
+    'immediate',
   );
 
   if (outcome.kind === 'locked') {
@@ -180,25 +164,20 @@ export async function selectActiveProfile(
     await verifyParentPassword(context, ownerPassword);
   }
 
-  getDb().transaction(
+  profileStore().withTransaction(
     (tx) => {
       // 实际换档判定以事务内重读的服务端会话为准(上下文快照可能过期)
-      const sessionRow = tx
-        .select({ activeProfileId: deviceSession.activeProfileId })
-        .from(deviceSession)
-        .where(and(eq(deviceSession.householdId, row.householdId), eq(deviceSession.id, context.session.id)))
-        .get();
-      if (sessionRow === undefined) {
+      const from = tx.findSessionActiveProfileId(row.householdId, context.session.id);
+      if (from === undefined) {
         throw new DomainError(401, ProblemCode.SESSION_INVALID, undefined);
       }
-      const from = sessionRow.activeProfileId;
       if (from === row.id) {
         // 选同一仍有效档案:不递增版本、不恢复/不新建任何设置授予(仅消费一次性选档授予)
         consumeUnlockGrant(context.session.id, row.id);
         return;
       }
       // 实际换档:同事务递增 profile_context_version、撤销设置授予、终态化旧上下文活动播放并撤票
-      switchDeviceSessionProfile(tx, {
+      tx.switchDeviceSessionProfile({
         householdId: row.householdId,
         sessionId: context.session.id,
         fromProfileId: from,
@@ -206,7 +185,7 @@ export async function selectActiveProfile(
       });
       consumeUnlockGrant(context.session.id, row.id);
     },
-    { behavior: 'immediate' },
+    'immediate',
   );
 
   return buildAccountSession({
@@ -218,11 +197,5 @@ export async function selectActiveProfile(
 
 /** 家庭是否存在任一儿童档案(含停用;无 PIN 成人切换保护,FR-008 既有规则) */
 export function householdHasChildProfile(householdId: string): boolean {
-  const row = getDb()
-    .select({ id: profile.id })
-    .from(profile)
-    .where(and(eq(profile.householdId, householdId), eq(profile.type, 'child')))
-    .limit(1)
-    .get();
-  return row !== undefined;
+  return profileStore().householdHasChildProfile(householdId);
 }

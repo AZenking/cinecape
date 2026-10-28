@@ -1,22 +1,25 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
 import type { Profile } from '@platform/database/schema';
-import { profile, profilePolicy } from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { getDb, type Db } from '@contexts/identity-access';
 import { defaultPolicyValues } from '@contexts/policy';
+import { profileStore, type ProfileTxStore } from '@contexts/profile/application/profile-store.port';
 
 /**
  * Profile 聚合(US2:T025 创建/编辑/停用、T026 select、T028 停用级联)。
- * 全部写操作走 drizzle 事务(getDb().transaction),事务内完成:
+ * 全部写操作走仓储端口事务(profileStore().withTransaction,008 T006 抽取后语义不变:
+ * 迁移前为 getDb().transaction),事务内完成:
  * - isDefault 互换(纯函数 swapDefault 计算期望态 → 差量写库;FR-013 每家庭至多一个可用默认);
  * - 「至少一个可用」守卫(纯函数 assertNotLastActiveProfile;FR-013,409 LAST_ACTIVE_PROFILE);
  * - 停用级联(T028/FR-016):同事务清空引用该 Profile 的 device_session.active_profile_id;
  * - clearPin / PIN 变更:重置 PIN 状态机并作废未消费的解锁授予。
  * 归属判定一律以服务端会话为信任源(FR-018):household/account 取自 @CurrentSession,
  * 请求体中的任何身份字段被 zod 剥离忽略;不存在或不属于当前家庭 → 404 NOT_FOUND(不泄露存在性)。
+ *
+ * 008-repository-extraction(ADR-0015 D1):数据访问经 application/profile-store.port.ts
+ * 仓储端口(Drizzle 实现位于 infrastructure/profile-store.drizzle.ts);查询逐字迁移,
+ * 行→DTO 映射与用例编排留本层。
  */
 
 /** ProfileDto 响应体(契约 components/schemas/ProfileDto,不包含 pinHash 等凭据字段) */
@@ -78,19 +81,10 @@ export function toProfileDto(row: Profile): ProfileDtoBody {
 /**
  * 归属校验单一实现点(FR-014/FR-019):按 id + 会话 household + 会话 account 精确匹配;
  * 不存在或不属于当前家庭 → 404 NOT_FOUND,与「不存在」不可区分(不泄露跨家庭存在性)。
+ * 被 policy/settings 等跨上下文消费(经发布面),签名不得变化。
  */
 export function requireOwnedProfile(profileId: string, context: SessionContext): Profile {
-  const row = getDb()
-    .select()
-    .from(profile)
-    .where(
-      and(
-        eq(profile.id, profileId),
-        eq(profile.householdId, context.session.householdId),
-        eq(profile.accountId, context.session.accountId),
-      ),
-    )
-    .get();
+  const row = profileStore().findOwnedProfile(profileId, context.session.householdId, context.session.accountId);
   if (row === undefined) {
     throw new DomainError(404, ProblemCode.NOT_FOUND);
   }
@@ -132,12 +126,12 @@ export function createProfile(command: CreateProfileCommand): ProfileDtoBody {
     version: 1,
     createdAt: new Date().toISOString(),
   };
-  return getDb().transaction((tx) => {
+  return profileStore().withTransaction((tx) => {
     // 先互换:新行尚未插入,把既有可用默认全部清掉,避免部分唯一索引冲突
     if (row.isDefault === 1) {
       swapActiveDefaultTo(tx, command.householdId, row.id);
     }
-    tx.insert(profile).values(row).run();
+    tx.insertProfile(row);
     // 阶段 2/FR-003:档案与默认策略同事务原子创建(成人 18/true,儿童 12/false,空名单)
     insertDefaultPolicy(tx, row);
     return toProfileDto(row);
@@ -145,22 +139,19 @@ export function createProfile(command: CreateProfileCommand): ProfileDtoBody {
 }
 
 /** 同事务插入默认策略(仅创建路径;运行时缺失策略一律拒绝,不自动补建,FR-008) */
-function insertDefaultPolicy(tx: Db, row: Profile): void {
+function insertDefaultPolicy(tx: ProfileTxStore, row: Profile): void {
   const defaults = defaultPolicyValues(row.type as 'adult' | 'child');
-  tx
-    .insert(profilePolicy)
-    .values({
-      householdId: row.householdId,
-      profileId: row.id,
-      maxContentLevel: defaults.maxContentLevel,
-      allowUnrated: defaults.allowUnrated ? 1 : 0,
-      allowedMediaIds: '[]',
-      blockedMediaIds: '[]',
-      allowedChannelIds: '[]',
-      version: 1,
-      updatedAt: row.createdAt,
-    })
-    .run();
+  tx.insertProfilePolicy({
+    householdId: row.householdId,
+    profileId: row.id,
+    maxContentLevel: defaults.maxContentLevel,
+    allowUnrated: defaults.allowUnrated ? 1 : 0,
+    allowedMediaIds: '[]',
+    blockedMediaIds: '[]',
+    allowedChannelIds: '[]',
+    version: 1,
+    updatedAt: row.createdAt,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -181,19 +172,15 @@ function insertDefaultPolicy(tx: Db, row: Profile): void {
  * (目标行由调用方的 insert/patch 写入;targetProfileId 不在 active 集合时即
  * 「清空全部可用默认」语义,用于重建默认的启用场景)。
  */
-function swapActiveDefaultTo(tx: Db, householdId: string, targetProfileId: string): void {
-  const rows = tx
-    .select({ id: profile.id, isDefault: profile.isDefault })
-    .from(profile)
-    .where(and(eq(profile.householdId, householdId), eq(profile.status, 'active')))
-    .all();
+function swapActiveDefaultTo(tx: ProfileTxStore, householdId: string, targetProfileId: string): void {
+  const rows = tx.listActiveProfileDefaultFlags(householdId);
   for (const desired of swapDefault(rows, targetProfileId)) {
     if (desired.isDefault || desired.id === targetProfileId) {
       continue;
     }
     const original = rows.find((candidate) => candidate.id === desired.id);
     if (original !== undefined && original.isDefault === 1) {
-      tx.update(profile).set({ isDefault: 0 }).where(eq(profile.id, desired.id)).run();
+      tx.clearProfileDefault(desired.id);
     }
   }
 }
