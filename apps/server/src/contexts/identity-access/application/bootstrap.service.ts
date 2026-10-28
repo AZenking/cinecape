@@ -1,15 +1,15 @@
 import { and, eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { account, deviceSession, profile, profilePolicy, profileProgressClock } from '../../database/schema';
-import { DomainError, createDomainError } from '../../common/domain-error';
-import type { SessionContext } from '../../common/current-session.decorator';
+import { account, deviceSession, profile, profilePolicy, profileProgressClock } from '../../../database/schema';
+import { DomainError, createDomainError } from '../../../common/domain-error';
+import type { SessionContext } from '../../../common/current-session.decorator';
 import { defaultPolicyValues } from '@contexts/policy/domain/policy.rules';
-import { getDb, type Db } from './db';
-import { hashPassword } from './password.service';
-import { verifyParentPassword } from './parent-verification.service';
+import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
+import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
+import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
 import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
 import { revokeUnlockGrantsForProfile } from '@contexts/profile/application/pin.service';
-import { toProfileSummary, type ProfileSummaryBody } from './account-session.dto';
+import { toProfileSummary, type ProfileSummaryBody } from '@contexts/identity-access/interface/account-session.dto';
 
 /**
  * 首建与 PIN 恢复(T037,005 FR-030 + ADR-0011 决议 2/6 + research R2/R5):

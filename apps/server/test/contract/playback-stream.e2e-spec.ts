@@ -8,7 +8,7 @@ import type { Response } from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SESSION_COOKIE } from '@hmp/shared';
 import { Database } from '../../src/database/database';
-import { hashToken } from '../../src/modules/auth/token.service';
+import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import { isPlaybackStableErrorCode } from '../../src/modules/playback/playback.types';
 import {
   cleanupRigs,

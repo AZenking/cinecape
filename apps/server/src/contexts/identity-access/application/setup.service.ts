@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { ProblemCode } from '@hmp/shared';
-import type { Account, Household, NewAccount, NewHousehold } from '../../database/schema';
-import { account, household } from '../../database/schema';
-import { DomainError } from '../../common/domain-error';
-import { getDb } from './db';
+import type { Account, Household, NewAccount, NewHousehold } from '../../../database/schema';
+import { account, household } from '../../../database/schema';
+import { DomainError } from '../../../common/domain-error';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 
 /**
  * 部署初始化服务(T036,005 research R2「初始化与首档案分为两个事务流程」):

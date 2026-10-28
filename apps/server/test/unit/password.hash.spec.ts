@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hashPassword, verifyPassword } from '../../src/modules/auth/password.service';
+import { hashPassword, verifyPassword } from '@contexts/identity-access/infrastructure/password.service';
 
 /**
  * T017(US1 单元):口令哈希 —— argon2id 哈希/验证;哈希不含明文;长度合理。

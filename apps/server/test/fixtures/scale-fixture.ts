@@ -6,8 +6,8 @@ import type DatabaseConstructor from 'better-sqlite3';
 import { Database } from '../../src/database/database';
 import { loadEnv } from '../../src/config/env.schema';
 import { setEnvOverride } from '../../src/config/env';
-import { hashPassword } from '../../src/modules/auth/password.service';
-import { hashToken } from '../../src/modules/auth/token.service';
+import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
+import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import { createManualClock, type ManualClock } from './clock';
 
 /**

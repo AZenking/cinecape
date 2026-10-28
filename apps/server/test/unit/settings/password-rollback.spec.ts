@@ -37,7 +37,7 @@ const hashGate = vi.hoisted(() => ({
   entered: false,
 }));
 
-vi.mock('../../../src/modules/auth/password.service', async (importOriginal) => {
+vi.mock('@contexts/identity-access/infrastructure/password.service', async (importOriginal) => {
   const actual = await importOriginal<{
     hashPassword: (plain: string) => Promise<string>;
     verifyPassword: (digest: string, plain: string) => Promise<boolean>;

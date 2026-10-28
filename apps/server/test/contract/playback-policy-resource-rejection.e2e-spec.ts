@@ -15,10 +15,10 @@ import {
   seedPlaybackWorld,
   type PlaybackWorld,
 } from '../fixtures/playback';
-import { getDb } from '../../src/modules/auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { Database } from '../../src/database/database';
 import { mediaItem } from '../../src/database/schema';
-import { hashToken } from '../../src/modules/auth/token.service';
+import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import { selectMainAndUnlockSettings } from '../helpers-management';
 
 /**

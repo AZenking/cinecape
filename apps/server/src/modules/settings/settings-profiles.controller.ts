@@ -14,7 +14,7 @@ import {
   transferMainProfile,
   type MainProfileReplyBody,
 } from './settings-profiles.service';
-import type { ProfileSummaryBody } from '../auth/account-session.dto';
+import type { ProfileSummaryBody } from '@contexts/identity-access/interface/account-session.dto';
 
 /**
  * Profile 管理契约路由(T127,005 contracts/api.md §6;api.md §3「/profiles 只保留

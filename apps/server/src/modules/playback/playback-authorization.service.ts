@@ -14,7 +14,7 @@ import {
 } from '../../database/schema';
 import { createDomainError, DomainError } from '../../common/domain-error';
 import type { SessionContext } from '../../common/current-session.decorator';
-import { getDb } from '../auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { authorizeCurrentProfile, type AuthorizationReason } from '@contexts/policy/application/policy.service';
 import { defaultPolicyValues } from '@contexts/policy/domain/policy.rules';
 import type { MediaPolicyFacts } from '@contexts/policy/domain/policy.rules';

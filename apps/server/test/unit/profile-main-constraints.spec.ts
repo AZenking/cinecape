@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Database } from '../../src/database/database';
 import type { SessionContext } from '../../src/common/current-session.decorator';
-import { bootstrapMainProfile, recoverMainProfilePin } from '../../src/modules/auth/bootstrap.service';
+import { bootstrapMainProfile, recoverMainProfilePin } from '@contexts/identity-access/application/bootstrap.service';
 import {
   INITIALIZE_BODY,
   cleanupRigs,

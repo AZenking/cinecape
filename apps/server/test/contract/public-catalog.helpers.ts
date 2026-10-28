@@ -92,7 +92,7 @@ export async function cleanupPublicCatalogRigs(): Promise<void> {
  * (幸福之家/zh-CN/Asia/Shanghai + owner 账号,密码仅存哈希)。
  */
 export async function seedInitializedHousehold(): Promise<string> {
-  const { hashPassword } = await import('../../src/modules/auth/password.service');
+  const { hashPassword } = await import('@contexts/identity-access/infrastructure/password.service');
   const passwordHash = await hashPassword('password-123');
   const now = '2026-01-01T00:00:00.000Z';
   Database.db

@@ -4,7 +4,7 @@ import { ProblemCode as ProblemCodeConst, SESSION_COOKIE } from '@hmp/shared';
 import { attachSessionContext, type SessionContext } from './current-session.decorator';
 import { DomainError } from './domain-error';
 import { Database } from '../database/database';
-import { hashToken } from '../modules/auth/token.service';
+import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
 
 /**
  * 会话信任源 Guard(T012)—— 单一校验管线,任何一步失败一律

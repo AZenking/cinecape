@@ -10,7 +10,7 @@ import { getConfig } from '../../config/env';
 import type { MediaRoots } from '../../config/env.schema';
 import { Database } from '../../database/database';
 import { playbackConversion, playbackSession } from '../../database/schema';
-import { getDb } from '../auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { PlaybackRepository } from './playback.repository';
 import { PlaybackAuthorizationService } from './playback-authorization.service';
 import { NasReaderService } from './nas-reader';

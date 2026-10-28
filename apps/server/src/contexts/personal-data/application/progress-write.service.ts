@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { getDb, type Db } from '../../../modules/auth/db';
+import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import {
   mediaItem,
   playbackProgressState,

@@ -17,7 +17,7 @@ import { Database } from '../../../src/database/database';
 import { setEnvOverride } from '../../../src/config/env';
 import { loadEnv } from '../../../src/config/env.schema';
 import { createPlaybackBudgets, type PlaybackBudgets } from '../../../src/config/playback-budgets';
-import { getDb } from '../../../src/modules/auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import {
   account,
   device,

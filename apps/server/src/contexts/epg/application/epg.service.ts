@@ -13,7 +13,7 @@ import {
   profile,
   sourceEntry,
 } from '../../../database/schema';
-import { getDb } from '../../../modules/auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { type MediaType } from '@contexts/policy/domain/policy.rules';
 import {
   loadAvailableMediaIdSet,

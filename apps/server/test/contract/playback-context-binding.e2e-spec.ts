@@ -19,7 +19,7 @@ import {
   type PlaybackWorld,
 } from '../fixtures/playback';
 import { selectMainAndUnlockSettings } from '../helpers-management';
-import { getDb } from '../../src/modules/auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { Database } from '../../src/database/database';
 import { deviceSession } from '../../src/database/schema';
 

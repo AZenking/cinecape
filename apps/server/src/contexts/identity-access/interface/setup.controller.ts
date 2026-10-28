@@ -1,13 +1,13 @@
 import { Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
-import { PublicContextService } from '../../common/public-context/public-context.service';
-import { RateLimitGuard } from '../../common/rate-limit/rate-limit.guard';
-import { RateLimit } from '../../common/rate-limit/rate-limit.decorator';
-import { SameOriginGuard } from '../../common/same-origin/same-origin.guard';
-import { StrictBodyPipe } from '../../common/strict-input/strict-pipes';
-import { strictObject } from '../../common/strict-input/strict-schema';
-import { hashPassword } from './password.service';
-import { initializeDeployment } from './setup.service';
+import { PublicContextService } from '../../../common/public-context/public-context.service';
+import { RateLimitGuard } from '../../../common/rate-limit/rate-limit.guard';
+import { RateLimit } from '../../../common/rate-limit/rate-limit.decorator';
+import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
+import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
+import { strictObject } from '../../../common/strict-input/strict-schema';
+import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
+import { initializeDeployment } from '@contexts/identity-access/application/setup.service';
 
 /**
  * 初始化契约(T036,005 contracts/api.md §3 + research R2;FR-006/007):

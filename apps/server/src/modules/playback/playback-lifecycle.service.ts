@@ -5,7 +5,7 @@ import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import type { PlaybackBudgets } from '../../config/playback-budgets';
 import { playbackConversion, playbackSession } from '../../database/schema';
 import { Database } from '../../database/database';
-import { getDb } from '../auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { DomainError } from '../../common/domain-error';
 import type { ProgressSampleReply } from '../../contexts/personal-data/application/progress-write.service';
 import type { PlaybackRepository } from './playback.repository';

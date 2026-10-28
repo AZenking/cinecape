@@ -10,7 +10,7 @@ import type { ArgumentsHost, INestApplication } from '@nestjs/common';
 import { ProblemCode, SESSION_COOKIE } from '@hmp/shared';
 import { createDomainError } from '../../src/common/domain-error';
 import { ProblemJsonFilter } from '../../src/common/problem-json.filter';
-import { getDb } from '../../src/modules/auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { Database } from '../../src/database/database';
 import {
   deviceSession,

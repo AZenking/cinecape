@@ -9,7 +9,7 @@ import { SessionGuard } from '../../common/session.guard';
 import { createDomainError, DomainError } from '../../common/domain-error';
 import { RateLimit } from '../../common/rate-limit/rate-limit.decorator';
 import { RateLimitGuard } from '../../common/rate-limit/rate-limit.guard';
-import { parseBody } from '../auth/validation';
+import { parseBody } from '@contexts/identity-access/interface/validation';
 import { getConfig } from '../../config/env';
 import { createPlaybackBudgets } from '../../config/playback-budgets';
 import { PlaybackRepository } from './playback.repository';

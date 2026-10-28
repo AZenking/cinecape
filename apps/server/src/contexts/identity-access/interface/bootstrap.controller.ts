@@ -1,13 +1,13 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
-import { CurrentSession } from '../../common/current-session.decorator';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { SessionGuard } from '../../common/session.guard';
-import { SameOriginGuard } from '../../common/same-origin/same-origin.guard';
-import { StrictBodyPipe } from '../../common/strict-input/strict-pipes';
-import { strictObject } from '../../common/strict-input/strict-schema';
-import { bootstrapMainProfile, recoverMainProfilePin } from './bootstrap.service';
-import type { ProfileSummaryBody } from './account-session.dto';
+import { CurrentSession } from '../../../common/current-session.decorator';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { SessionGuard } from '../../../common/session.guard';
+import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
+import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
+import { strictObject } from '../../../common/strict-input/strict-schema';
+import { bootstrapMainProfile, recoverMainProfilePin } from '@contexts/identity-access/application/bootstrap.service';
+import type { ProfileSummaryBody } from '@contexts/identity-access/interface/account-session.dto';
 
 /**
  * 首建与 PIN 恢复路由(T037,005 contracts/api.md §3;ADR-0011 决议 2/6)。

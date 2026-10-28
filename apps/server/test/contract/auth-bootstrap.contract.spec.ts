@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ProblemCode } from '@hmp/shared';
 import { Database } from '../../src/database/database';
 import type { SessionContext } from '../../src/common/current-session.decorator';
-import { bootstrapMainProfile } from '../../src/modules/auth/bootstrap.service';
+import { bootstrapMainProfile } from '@contexts/identity-access/application/bootstrap.service';
 import {
   INITIALIZE_BODY,
   cleanupRigs,

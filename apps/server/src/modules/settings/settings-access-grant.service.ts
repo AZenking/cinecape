@@ -3,7 +3,7 @@ import { ProblemCode } from '@hmp/shared';
 import { device, deviceSession, household, profile, settingsAccessGrant, account } from '../../database/schema';
 import { DomainError, createDomainError } from '../../common/domain-error';
 import type { SessionContext } from '../../common/current-session.decorator';
-import { getDb, type Db } from '../auth/db';
+import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 
 /**
  * 设置访问授予服务(T081,005 data-model §3 + contracts/api.md §6/§7 + ADR-0011 决议 3)。

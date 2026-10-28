@@ -1,7 +1,7 @@
 import { ProblemCode } from '@hmp/shared';
 import { DomainError } from '../../common/domain-error';
 import type { SessionContext } from '../../common/current-session.decorator';
-import { verifyParentPassword } from '../auth/parent-verification.service';
+import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
 
 /**
  * 设置写路径的当次密码统一入口(T125~T130;ADR-0011「逐次密码不豁免」):

@@ -14,8 +14,8 @@ import {
 import { Database } from '../../../src/database/database';
 import { getConfig } from '../../../src/config/env';
 import { createPlaybackBudgets } from '../../../src/config/playback-budgets';
-import { getDb } from '../../../src/modules/auth/db';
-import { hashToken } from '../../../src/modules/auth/token.service';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import {
   account,
   device,

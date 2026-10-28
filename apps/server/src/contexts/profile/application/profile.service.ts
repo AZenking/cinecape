@@ -5,7 +5,7 @@ import type { Profile } from '../../../database/schema';
 import { deviceSession, profile, profilePolicy } from '../../../database/schema';
 import { DomainError } from '../../../common/domain-error';
 import type { SessionContext } from '../../../common/current-session.decorator';
-import { getDb, type Db } from '../../../modules/auth/db';
+import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import { revokeUnlockGrantsForProfile } from '@contexts/profile/application/pin.service';
 import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
 import { defaultPolicyValues } from '@contexts/policy/domain/policy.rules';

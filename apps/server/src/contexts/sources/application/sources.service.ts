@@ -17,8 +17,8 @@ import {
   sourceRefresh,
   type MediaSource,
 } from '../../../database/schema';
-import { getDb, type Db } from '../../../modules/auth/db';
-import { verifyParentPassword } from '../../../modules/auth/parent-verification.service';
+import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
+import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
 import {
   toRefreshDtoCounts,
   type RefreshExecutorService,

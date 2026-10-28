@@ -2,14 +2,14 @@ import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { eq } from 'drizzle-orm';
 import { ProblemCode, SESSION_COOKIE } from '@hmp/shared';
-import type { NewDeviceSession } from '../../database/schema';
-import { account, deviceSession, profile } from '../../database/schema';
-import { env } from '../../config/env';
-import { DomainError } from '../../common/domain-error';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { getDb } from './db';
-import { hashPassword, verifyPassword } from './password.service';
-import { generateToken, hashToken } from './token.service';
+import type { NewDeviceSession } from '../../../database/schema';
+import { account, deviceSession, profile } from '../../../database/schema';
+import { env } from '../../../config/env';
+import { DomainError } from '../../../common/domain-error';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { hashPassword, verifyPassword } from '@contexts/identity-access/infrastructure/password.service';
+import { generateToken, hashToken } from '@contexts/identity-access/infrastructure/token.service';
 
 /**
  * 会话签发(T019/FR-008):

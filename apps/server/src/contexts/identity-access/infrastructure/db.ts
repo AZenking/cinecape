@@ -1,7 +1,7 @@
 import type DatabaseConstructor from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { Database } from '../../database/database';
-import * as schema from '../../database/schema';
+import { Database } from '../../../database/database';
+import * as schema from '../../../database/schema';
 
 /**
  * drizzle 查询句柄 —— 复用 Database SQLite 单例与 schema.ts 表定义,

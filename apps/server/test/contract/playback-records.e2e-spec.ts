@@ -23,7 +23,7 @@ import {
   type PlaybackWorld,
   type SeedPlaybackWorldOptions,
 } from '../fixtures/playback';
-import { getDb } from '../../src/modules/auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { account, deviceSession, playbackFailureEvent, playbackSession, playbackSource } from '../../src/database/schema';
 
 /**

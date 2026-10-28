@@ -3,8 +3,8 @@ import { ProblemCode, type CandidateDto, type CandidatePageDto, type MediaDto } 
 import type { SessionContext } from '../../../common/current-session.decorator';
 import { DomainError } from '../../../common/domain-error';
 import { catalogState, deviceSession, mediaItem } from '../../../database/schema';
-import { getDb, type Db } from '../../../modules/auth/db';
-import { verifyParentPassword } from '../../../modules/auth/parent-verification.service';
+import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
+import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
 import { loadMediaAvailabilityFacts } from '@contexts/media-catalog/infrastructure/resource-reader';
 import type { CatalogCandidateRow } from '@contexts/policy/application/policy.batch-context';
 import type { MediaType } from '@contexts/policy/domain/policy.rules';

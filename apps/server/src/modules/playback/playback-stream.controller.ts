@@ -9,7 +9,7 @@ import { ProblemCode } from '@hmp/shared';
 import { CurrentSession, type SessionContext } from '../../common/current-session.decorator';
 import { SessionGuard } from '../../common/session.guard';
 import { createDomainError, DomainError } from '../../common/domain-error';
-import { getDb } from '../auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { playbackSession } from '../../database/schema';
 import { getConfig } from '../../config/env';
 import { createPlaybackBudgets } from '../../config/playback-budgets';

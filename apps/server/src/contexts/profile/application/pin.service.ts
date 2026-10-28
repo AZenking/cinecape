@@ -4,8 +4,8 @@ import { env } from '../../../config/env';
 import type { Profile } from '../../../database/schema';
 import { profile } from '../../../database/schema';
 import { DomainError } from '../../../common/domain-error';
-import { getDb } from '../../../modules/auth/db';
-import { verifyPassword } from '../../../modules/auth/password.service';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { verifyPassword } from '@contexts/identity-access/infrastructure/password.service';
 
 /**
  * PIN 服务(T027/FR-015)。三部分:

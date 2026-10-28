@@ -17,7 +17,7 @@ import {
   type PlaybackSessionFixture,
   type PlaybackWorld,
 } from '../fixtures/playback';
-import { getDb } from '../../src/modules/auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { deviceSession } from '../../src/database/schema';
 
 /**

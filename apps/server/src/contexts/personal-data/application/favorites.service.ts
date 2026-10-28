@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { DomainError, createDomainError } from '../../../common/domain-error';
-import { getDb } from '../../../modules/auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import {
   mediaItem,
   profileChannelFavorite,

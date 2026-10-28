@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { getDb } from '../../../src/modules/auth/db';
-import { hashPassword } from '../../../src/modules/auth/password.service';
-import { generateToken, hashToken } from '../../../src/modules/auth/token.service';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
+import { generateToken, hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import { createPlaybackBudgets } from '../../../src/config/playback-budgets';
 import { getConfig } from '../../../src/config/env';
 import {

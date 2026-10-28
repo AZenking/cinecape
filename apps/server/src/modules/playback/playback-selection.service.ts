@@ -3,7 +3,7 @@ import { createDomainError, DomainError } from '../../common/domain-error';
 import type { SessionContext } from '../../common/current-session.decorator';
 import type { PlaybackBudgets } from '../../config/playback-budgets';
 import { ProblemCode } from '@hmp/shared';
-import { getDb } from '../auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { playbackTicket } from '../../database/schema';
 import type { PlaybackAuthorizationService } from './playback-authorization.service';
 import type { PlaybackDto, PlaybackProbeFacts } from './playback-resolver.service';

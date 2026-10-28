@@ -21,7 +21,7 @@ import {
   type SeedPlaybackSessionOptions,
   type SeedPlaybackWorldOptions,
 } from '../fixtures/playback';
-import { getDb } from '../../src/modules/auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { playbackSession, playbackTicket } from '../../src/database/schema';
 
 /**

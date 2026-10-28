@@ -4,15 +4,15 @@ import { deviceSession, profile } from '../../../database/schema';
 import { DomainError, createDomainError } from '../../../common/domain-error';
 import type { SessionContext } from '../../../common/current-session.decorator';
 import { env } from '../../../config/env';
-import { getDb, type Db } from '../../../modules/auth/db';
-import { verifyPassword } from '../../../modules/auth/password.service';
-import { verifyParentPassword } from '../../../modules/auth/parent-verification.service';
+import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
+import { verifyPassword } from '@contexts/identity-access/infrastructure/password.service';
+import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
 import {
   buildAccountSession,
   toProfileSummary,
   type AccountSessionBody,
   type ProfileSummaryBody,
-} from '../../../modules/auth/account-session.dto';
+} from '@contexts/identity-access/interface/account-session.dto';
 import { switchDeviceSessionProfile } from '@contexts/profile/application/identity-transition';
 import {
   PIN_STATE_CLEARED,

@@ -3,7 +3,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { ExperienceProgrammeDto } from '@hmp/shared';
 import { pickCurrentNext } from '@contexts/live-tv/domain/live-time';
 import { normalizeGroupTitle, pickMainGroupLabel, type GroupTitleSource } from '@contexts/live-tv/domain/live-grouping';
-import { getDb } from '../../../modules/auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { loadAvailableMediaIdSet } from '@contexts/policy/application/policy.batch-context';
 import { epgChannel, epgProgramme, manualEpgBinding, mediaItem, mediaSource, sourceEntry } from '../../../database/schema';
 

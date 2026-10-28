@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ProblemCode } from '@hmp/shared';
 import * as schema from '../../../src/database/schema';
 import { DomainError } from '../../../src/common/domain-error';
-import type { Db } from '../../../src/modules/auth/db';
+import type { Db } from '@contexts/identity-access/infrastructure/db';
 import {
   filterAllowedCandidates,
   loadAvailableMediaIdSet,

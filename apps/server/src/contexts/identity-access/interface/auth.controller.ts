@@ -3,18 +3,18 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { and, eq } from 'drizzle-orm';
 import { SESSION_COOKIE } from '@hmp/shared';
-import { env } from '../../config/env';
-import { deviceSession } from '../../database/schema';
-import { getDb } from './db';
-import { SameOriginGuard } from '../../common/same-origin/same-origin.guard';
-import { SessionGuard } from '../../common/session.guard';
-import { CurrentSession } from '../../common/current-session.decorator';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { StrictBodyPipe } from '../../common/strict-input/strict-pipes';
-import { strictObject } from '../../common/strict-input/strict-schema';
+import { env } from '../../../config/env';
+import { deviceSession } from '../../../database/schema';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
+import { SessionGuard } from '../../../common/session.guard';
+import { CurrentSession } from '../../../common/current-session.decorator';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
+import { strictObject } from '../../../common/strict-input/strict-schema';
 import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
-import { registerDevice, type DeviceType } from './device.service';
-import { hashToken } from './token.service';
+import { registerDevice, type DeviceType } from '@contexts/identity-access/application/device.service';
+import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import {
   authenticate,
   issueSession,
@@ -22,8 +22,8 @@ import {
   resolveSessionToken,
   setSessionCookie,
   type IssuedSession,
-} from './session.service';
-import { buildAccountSession, restoreAccountSession, type AccountSessionBody } from './account-session.dto';
+} from '@contexts/identity-access/application/session.service';
+import { buildAccountSession, restoreAccountSession, type AccountSessionBody } from '@contexts/identity-access/interface/account-session.dto';
 
 /** 契约 LoginRequest(B001LoginRequest;strictObject 拒绝未知字段) */
 const loginRequestSchema = strictObject({

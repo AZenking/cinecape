@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import { getDb } from '../../../src/modules/auth/db';
-import { hashToken, generateToken } from '../../../src/modules/auth/token.service';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { hashToken, generateToken } from '@contexts/identity-access/infrastructure/token.service';
 import {
   device,
   deviceSession,

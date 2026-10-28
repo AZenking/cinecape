@@ -4,9 +4,9 @@ import { account, deviceSession, household, profile } from '../../database/schem
 import { DomainError, createDomainError } from '../../common/domain-error';
 import type { SessionContext } from '../../common/current-session.decorator';
 import { env } from '../../config/env';
-import { getDb, type Db } from '../auth/db';
-import { verifyPassword } from '../auth/password.service';
-import { requireManagementRole } from '../auth/bootstrap.service';
+import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
+import { verifyPassword } from '@contexts/identity-access/infrastructure/password.service';
+import { requireManagementRole } from '@contexts/identity-access/application/bootstrap.service';
 import { PIN_STATE_CLEARED, isPinLocked, registerPinFailure } from '@contexts/profile/application/pin.service';
 import {
   issueSettingsGrantTx,

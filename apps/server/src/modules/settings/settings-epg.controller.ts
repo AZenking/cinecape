@@ -16,9 +16,9 @@ import { SettingsAccessGuard } from '../../common/settings-access/settings-acces
 import { StrictBodyPipe } from '../../common/strict-input/strict-pipes';
 import { deviceSession, mediaItem } from '../../database/schema';
 import { Database } from '../../database/database';
-import { getDb } from '../auth/db';
-import { verifyParentPassword } from '../auth/parent-verification.service';
-import { parseBody } from '../auth/validation';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
+import { parseBody } from '@contexts/identity-access/interface/validation';
 import {
   getBindingState,
   listEpgCandidates,

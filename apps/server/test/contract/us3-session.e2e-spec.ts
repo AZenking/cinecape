@@ -22,8 +22,8 @@ import {
   selectMainAndUnlockSettings,
   mgmtSessionCookie,
 } from '../helpers-management';
-import { getDb } from '../../src/modules/auth/db';
-import { generateToken, hashToken } from '../../src/modules/auth/token.service';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { generateToken, hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import { device, deviceSession, household } from '../../src/database/schema';
 
 /**

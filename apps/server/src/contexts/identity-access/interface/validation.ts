@@ -1,6 +1,6 @@
 import type { ZodType } from 'zod';
 import { ProblemCode } from '@hmp/shared';
-import { DomainError } from '../../common/domain-error';
+import { DomainError } from '../../../common/domain-error';
 
 /**
  * zod 请求体校验小管道:safeParse 失败统一抛 400 VALIDATION_FAILED,

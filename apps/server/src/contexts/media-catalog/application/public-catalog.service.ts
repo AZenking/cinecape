@@ -3,7 +3,7 @@ import { ProblemCode, type PublicContextDto, type PublicMediaDto, type PublicMed
 import { Database } from '../../../database/database';
 import { PublicContextService } from '../../../common/public-context/public-context.service';
 import { DomainError } from '../../../common/domain-error';
-import { getDb } from '../../../modules/auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { loadAvailableMediaIdSet } from '@contexts/policy/application/policy.batch-context';
 import { toPublicMedia, type PublicMediaRow } from '@contexts/media-catalog/domain/public-media-projection';
 

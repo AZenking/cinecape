@@ -12,8 +12,8 @@ import {
 } from '@contexts/personal-data/application/favorites.service';
 import { decodePersonalCursor } from '@contexts/personal-data/infrastructure/signed-cursor';
 import { DomainError } from '../../../src/common/domain-error';
-import { getDb } from '../../../src/modules/auth/db';
-import { hashToken as hashTokenFor } from '../../../src/modules/auth/token.service';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { hashToken as hashTokenFor } from '@contexts/identity-access/infrastructure/token.service';
 import { mediaItem, playbackSource, sourceEntry } from '../../../src/database/schema';
 import { eq } from 'drizzle-orm';
 

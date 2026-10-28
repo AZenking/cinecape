@@ -6,7 +6,7 @@ import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
 import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
 import { strictObject } from '../../../common/strict-input/strict-schema';
 import { listSelectableProfiles, selectActiveProfile, unlockSelectionPin } from '@contexts/profile/application/profile-selection.service';
-import type { AccountSessionBody, ProfileSummaryBody } from '../../../modules/auth/account-session.dto';
+import type { AccountSessionBody, ProfileSummaryBody } from '@contexts/identity-access/interface/account-session.dto';
 
 /**
  * Profile 选档契约路由(T038,005 contracts/api.md §3;api.md §8「/profiles 只保留

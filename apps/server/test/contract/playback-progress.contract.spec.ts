@@ -10,7 +10,7 @@ import {
   type PersonalWorld,
 } from '../unit/personal/personal-world';
 import { registerPersonalPlaybackFactsPort } from '@contexts/personal-data/application/progress-clock.service';
-import { getDb } from '../../src/modules/auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { mediaItem, playbackProgressState, playbackSession } from '../../src/database/schema';
 import { eq } from 'drizzle-orm';
 

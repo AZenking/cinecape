@@ -20,7 +20,7 @@ import { PlaybackRepository } from '../../../src/modules/playback/playback.repos
 import { createPlaybackBudgets } from '../../../src/config/playback-budgets';
 import { getConfig } from '../../../src/config/env';
 import { switchDeviceSessionProfile } from '@contexts/profile/application/identity-transition';
-import { getDb } from '../../../src/modules/auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { Database } from '../../../src/database/database';
 import {
   mediaItem,

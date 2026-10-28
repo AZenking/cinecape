@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { createDomainError, type DomainError } from '../../common/domain-error';
 import type { PlaybackBudgets } from '../../config/playback-budgets';
 import type { SessionContext } from '../../common/current-session.decorator';
-import { getDb } from '../auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { deviceSession, playbackSession } from '../../database/schema';
 import type { PlaybackAuthorizationService, PlaybackResourceCandidate } from './playback-authorization.service';
 import type { PlaybackRepository } from './playback.repository';

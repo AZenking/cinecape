@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { MediaDto, MediaPageDto, ProgrammesDto } from '@hmp/shared';
 import { CurrentSession, type SessionContext } from '../../../common/current-session.decorator';
 import { SessionGuard } from '../../../common/session.guard';
-import { parseBody } from '../../../modules/auth/validation';
+import { parseBody } from '@contexts/identity-access/interface/validation';
 import { getMediaProgrammes } from '@contexts/epg/application/epg.service';
 import { getMedia, listMedia } from '@contexts/media-catalog/application/catalog.service';
 

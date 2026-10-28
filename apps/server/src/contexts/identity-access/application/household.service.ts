@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import type { Account, Household, NewAccount, NewHousehold } from '../../database/schema';
-import { account, household } from '../../database/schema';
-import { DomainError } from '../../common/domain-error';
-import { getDb } from '../auth/db';
+import type { Account, Household, NewAccount, NewHousehold } from '../../../database/schema';
+import { account, household } from '../../../database/schema';
+import { DomainError } from '../../../common/domain-error';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 
 /**
  * Household 聚合(T018):

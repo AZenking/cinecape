@@ -1,10 +1,10 @@
 import { and, eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { account, parentVerificationState } from '../../database/schema';
-import { DomainError } from '../../common/domain-error';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { getDb, type Db } from './db';
-import { verifyPassword } from './password.service';
+import { account, parentVerificationState } from '../../../database/schema';
+import { DomainError } from '../../../common/domain-error';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
+import { verifyPassword } from '@contexts/identity-access/infrastructure/password.service';
 
 /**
  * 家长验证服务(阶段 2,FR-004/FR-011/ADR-0006):

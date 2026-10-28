@@ -94,10 +94,10 @@ describe('T093 · SC-004 续播精度与隔离(双 Profile 双设备)', () => {
     expect(stop.status).toBe(204);
 
     // 设备 B(同档案另一设备会话)读取续播位置:误差 ≤5 秒(保存值 120,B 起播即 120)
-    const { getDb } = await import('../../src/modules/auth/db');
+    const { getDb } = await import('@contexts/identity-access/infrastructure/db');
     const { deviceSession } = await import('../../src/database/schema');
     // 为同档案添加第二台设备会话(双设备夹具;独立令牌,Progress 端点按会话归属校验)
-    const { generateToken, hashToken } = await import('../../src/modules/auth/token.service');
+    const { generateToken, hashToken } = await import('@contexts/identity-access/infrastructure/token.service');
     const tokenA2 = generateToken();
     getDb().insert(deviceSession).values({
       id: 'device-session-a2', householdId: world.householdId, accountId: world.accountId,

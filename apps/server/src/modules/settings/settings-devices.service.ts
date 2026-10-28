@@ -4,10 +4,10 @@ import type { PlaybackDelivery, PlaybackSessionState } from '../playback/playbac
 import { device, deviceSession, playbackFailureEvent, playbackSession } from '../../database/schema';
 import { DomainError } from '../../common/domain-error';
 import type { SessionContext } from '../../common/current-session.decorator';
-import { getDb, type Db } from '../auth/db';
-import { requireManagementRole } from '../auth/bootstrap.service';
-import { verifyParentPassword } from '../auth/parent-verification.service';
-import { listHouseholdDevices, revokeHouseholdDevice, type DeviceDtoBody } from '../auth/device.service';
+import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
+import { requireManagementRole } from '@contexts/identity-access/application/bootstrap.service';
+import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
+import { listHouseholdDevices, revokeHouseholdDevice, type DeviceDtoBody } from '@contexts/identity-access/application/device.service';
 import { requireValidSettingsGrantTx } from './settings-access-grant.service';
 
 /**

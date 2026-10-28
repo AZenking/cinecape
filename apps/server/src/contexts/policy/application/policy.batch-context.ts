@@ -2,7 +2,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
 import { device, deviceSession, mediaItem, profile, profilePolicy } from '../../../database/schema';
 import { DomainError } from '../../../common/domain-error';
-import type { Db } from '../../../modules/auth/db';
+import type { Db } from '@contexts/identity-access/infrastructure/db';
 import {
   assertPolicyRowInvariant,
   evaluatePolicy,

@@ -1,7 +1,7 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
-import { CurrentSession, type SessionContext } from '../../common/current-session.decorator';
-import { SessionGuard } from '../../common/session.guard';
-import { getHousehold, toHouseholdDto, type HouseholdDtoBody } from './household.service';
+import { CurrentSession, type SessionContext } from '../../../common/current-session.decorator';
+import { SessionGuard } from '../../../common/session.guard';
+import { getHousehold, toHouseholdDto, type HouseholdDtoBody } from '@contexts/identity-access/application/household.service';
 
 /**
  * GET /household(T020):家庭信息边界只从服务端会话解析(FR-018)。

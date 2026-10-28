@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { createDomainError } from '../../../common/domain-error';
-import { getDb } from '../../../modules/auth/db';
+import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { mediaItem, profileViewingHistory, type ProfileViewingHistory } from '../../../database/schema';
 import { loadAvailableMediaIdSet } from '@contexts/policy/application/policy.batch-context';
 import { toPublicMedia } from '@contexts/media-catalog/domain/public-media-projection';
