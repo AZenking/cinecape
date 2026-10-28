@@ -1,0 +1,22 @@
+{
+  // knip 配置 — 007-backend-ddd-restructure T002
+  // 入口 = 组合根（main.ts 装配、app.module.ts Nest 装配）。
+  // 注意：src/modules/**、src/common/**、src/config/**、src/database/** 与 test/**
+  // 是「旧结构/测试」，本阶段暂不纳入孤儿审计（旧代码尚未迁移，直接审计会产生海量噪音）；
+  // 待 T018 platform 迁移收口、modules 树删除后，由 T018 移除这些 ignore，
+  // audit:orphans 即对全量源码生效（对应 tasks.md US4 零遗留清点）。
+  // .sql、迁移等非 TS 资产位于被忽略的 src/database/migrations/**，knip 本身只分析 JS/TS。
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["src/main.ts", "src/app.module.ts"],
+  "ignore": [
+    "src/modules/**",
+    "src/common/**",
+    "src/config/**",
+    "src/database/**",
+    "test/**"
+  ],
+  // sax 在 src/modules/imports/xmltv.parser.ts 中以「非字面量动态导入」
+  // (import('sax' as string)，绕过 TS 对无类型包的解析) 加载，knip 静态分析
+  // 无法识别该用法；在 T013 迁移前先豁免该依赖，T013 落位后同样由本文件复核。
+  "ignoreDependencies": ["sax"]
+}

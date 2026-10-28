@@ -22,6 +22,8 @@ export default tseslint.config(
         projectService: {
           allowDefaultProject: [
             'eslint.config.mjs',
+            // 007-T002: dependency-cruiser 审计配置(CJS,不在任何 tsconfig include 内)
+            'apps/server/.dependency-cruiser.cjs',
             'apps/server/vitest.config.ts',
             'apps/web/vite.config.ts',
             'apps/web/vitest.config.ts',
