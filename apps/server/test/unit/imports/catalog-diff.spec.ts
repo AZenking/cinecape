@@ -6,14 +6,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Database } from '../../../src/database/database';
 import { setEnvOverride } from '../../../src/config/env';
 import { loadEnv } from '../../../src/config/env.schema';
-import type { LoadedStagedEntry, StageEntriesResult } from '../../../src/modules/imports/refresh-staging.service';
+import type { LoadedStagedEntry, StageEntriesResult } from '@contexts/sources/infrastructure/refresh-staging.service';
 import {
   clearStagedEntries,
   computeSnapshotDigest as computeStagedSnapshotDigest,
   loadStagedEntries,
   stageEntries,
   STAGE_WRITE_BATCH_SIZE,
-} from '../../../src/modules/imports/refresh-staging.service';
+} from '@contexts/sources/infrastructure/refresh-staging.service';
 import {
   canonicalJson,
   DELETION_RATIO_THRESHOLD,
@@ -30,7 +30,7 @@ import {
   type IptvEntryInput,
   type NasEntryInput,
   type SnapshotDigestItem,
-} from '../../../src/modules/imports/catalog-diff';
+} from '@contexts/sources/infrastructure/catalog-diff';
 
 /**
  * 目录刷新暂存/差异纯函数测试(T017;FR-005/research R5/R6,满足 T025 的纯函数部分):

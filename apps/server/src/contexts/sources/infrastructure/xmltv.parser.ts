@@ -1,7 +1,7 @@
 import { StringDecoder } from 'node:string_decoder';
 import { createGunzip, type Gunzip } from 'node:zlib';
 import type { Readable } from 'node:stream';
-import { IMPORT_BUDGETS } from '../../config/import-budgets';
+import { IMPORT_BUDGETS } from '../../../config/import-budgets';
 
 /**
  * XMLTV 流式解析器(T024,research R2/R6):

@@ -10,7 +10,7 @@ import {
   M3UParseFailure,
   parseM3U,
   type M3UErrorCode,
-} from '../../../src/modules/imports/m3u.parser';
+} from '@contexts/sources/infrastructure/m3u.parser';
 import { buildLargeM3u, buildM3u, malformedPayloads } from '../../fixtures';
 
 /**

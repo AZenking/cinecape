@@ -1,13 +1,13 @@
 import type DatabaseConstructor from 'better-sqlite3';
-import type { M3UEntry } from './m3u.parser';
-import type { NasFileEntry } from './nas-scanner';
+import type { M3UEntry } from '@contexts/sources/infrastructure/m3u.parser';
+import type { NasFileEntry } from '@contexts/sources/infrastructure/nas-scanner';
 import {
   canonicalJson,
   computeBatchEntryIdentities,
   computeSnapshotDigest as computeCanonicalSnapshotDigest,
   type EntryIdentity,
   type SnapshotDigestItem,
-} from './catalog-diff';
+} from '@contexts/sources/infrastructure/catalog-diff';
 
 /**
  * 刷新暂存持久化服务(T025;research R5/data-model「source_refresh / refresh_stage_entry」,

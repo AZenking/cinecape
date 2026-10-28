@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream';
 import { TextDecoder } from 'node:util';
-import { IMPORT_BUDGETS } from '../../config/import-budgets';
+import { IMPORT_BUDGETS } from '../../../config/import-budgets';
 
 /**
  * M3U 流式解析器(T022;对照 research R2/R6):

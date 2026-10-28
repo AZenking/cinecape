@@ -6,8 +6,8 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { Injectable } from '@nestjs/common';
 import type { MediaRoots } from '../../config/env.schema';
-import { findNasTargetDenial } from '../sources/source-target.validation';
-import type { SupportedMediaExtension } from '../imports/nas-scanner';
+import { findNasTargetDenial } from '@contexts/sources/domain/source-target.validation';
+import type { SupportedMediaExtension } from '@contexts/sources/infrastructure/nas-scanner';
 import type { PlaybackErrorCode } from './playback.types';
 
 /**

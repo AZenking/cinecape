@@ -1,6 +1,6 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import { IMPORT_BUDGETS } from '../../config/import-budgets';
+import { IMPORT_BUDGETS } from '../../../config/import-budgets';
 
 /**
  * NAS 只读扫描器(T023;FR-014/research R4,满足 T015):

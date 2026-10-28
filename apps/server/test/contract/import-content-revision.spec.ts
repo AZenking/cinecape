@@ -11,8 +11,8 @@ import {
   sourceEntry,
 } from '../../src/database/schema';
 import { eq } from 'drizzle-orm';
-import { stageEntries } from '../../src/modules/imports/refresh-staging.service';
-import { RefreshPublishService } from '../../src/modules/imports/refresh-publish.service';
+import { stageEntries } from '@contexts/sources/infrastructure/refresh-staging.service';
+import { RefreshPublishService } from '@contexts/sources/application/refresh-publish.service';
 import { canResumeOf } from '@contexts/personal-data/application/history.service';
 
 /**

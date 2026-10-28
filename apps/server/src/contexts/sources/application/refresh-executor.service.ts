@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ProblemCode } from '@hmp/shared';
-import { DomainError, createDomainError } from '../../common/domain-error';
-import { getConfig } from '../../config/env';
-import { IMPORT_BUDGETS } from '../../config/import-budgets';
-import { Database } from '../../database/database';
+import { DomainError, createDomainError } from '../../../common/domain-error';
+import { getConfig } from '../../../config/env';
+import { IMPORT_BUDGETS } from '../../../config/import-budgets';
+import { Database } from '../../../database/database';
 import {
   CatalogDiffFailure,
   canonicalJson,
@@ -15,18 +15,18 @@ import {
   evaluateExceptions,
   type DiffCounts,
   type RefreshExceptionReason,
-} from './catalog-diff';
+} from '@contexts/sources/infrastructure/catalog-diff';
 import {
   clearStagedEntries,
   computeSnapshotDigest as stagedSnapshotDigest,
   loadStagedEntries,
   stageEntries,
-} from './refresh-staging.service';
-import { M3UParseFailure, parseM3U } from './m3u.parser';
-import { NasScanFailure, scanNasRoot } from './nas-scanner';
-import { XMLTVParseFailure, parseXMLTV, type XMLTVParseResult } from './xmltv.parser';
-import { RemoteReadFailure, openRemoteSource } from './safe-http-reader';
-import { RefreshPublishService, isPolicyCorruptionError } from './refresh-publish.service';
+} from '@contexts/sources/infrastructure/refresh-staging.service';
+import { M3UParseFailure, parseM3U } from '@contexts/sources/infrastructure/m3u.parser';
+import { NasScanFailure, scanNasRoot } from '@contexts/sources/infrastructure/nas-scanner';
+import { XMLTVParseFailure, parseXMLTV, type XMLTVParseResult } from '@contexts/sources/infrastructure/xmltv.parser';
+import { RemoteReadFailure, openRemoteSource } from '@contexts/sources/infrastructure/safe-http-reader';
+import { RefreshPublishService, isPolicyCorruptionError } from '@contexts/sources/application/refresh-publish.service';
 
 /**
  * 刷新执行器服务(T026;research R5/data-model「状态流转」「发布事务」,contracts/api.md 刷新与待确认):

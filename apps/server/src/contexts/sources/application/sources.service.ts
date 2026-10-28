@@ -7,24 +7,24 @@ import {
   type SourceDto,
   type SourcePageDto,
 } from '@hmp/shared';
-import { DomainError, createDomainError } from '../../common/domain-error';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { getConfig } from '../../config/env';
+import { DomainError, createDomainError } from '../../../common/domain-error';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { getConfig } from '../../../config/env';
 import {
   catalogState,
   deviceSession,
   mediaSource,
   sourceRefresh,
   type MediaSource,
-} from '../../database/schema';
-import { getDb, type Db } from '../auth/db';
-import { verifyParentPassword } from '../auth/parent-verification.service';
+} from '../../../database/schema';
+import { getDb, type Db } from '../../../modules/auth/db';
+import { verifyParentPassword } from '../../../modules/auth/parent-verification.service';
 import {
   toRefreshDtoCounts,
   type RefreshExecutorService,
   type RefreshJobView,
-} from '../imports/refresh-executor.service';
-import { findNasTargetDenial, findRemoteTargetDenial } from './source-target.validation';
+} from '@contexts/sources/application/refresh-executor.service';
+import { findNasTargetDenial, findRemoteTargetDenial } from '@contexts/sources/domain/source-target.validation';
 
 /**
  * 来源管理服务(T020;US1 来源三端点 + source-roots):

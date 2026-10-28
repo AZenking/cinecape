@@ -1,16 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import type DatabaseConstructor from 'better-sqlite3';
-import { canonicalJson, type DiffCounts } from './catalog-diff';
+import { canonicalJson, type DiffCounts } from '@contexts/sources/infrastructure/catalog-diff';
 import {
   clearStagedEntries,
   computeSnapshotDigest as stagedSnapshotDigest,
   loadStagedEntries,
   type LoadedStagedEntry,
-} from './refresh-staging.service';
+} from '@contexts/sources/infrastructure/refresh-staging.service';
 import { parseStoredList } from '@contexts/policy/domain/policy.rules';
-import type { XMLTVChannel, XMLTVProgramme } from './xmltv.parser';
-import { Database } from '../../database/database';
+import type { XMLTVChannel, XMLTVProgramme } from '@contexts/sources/infrastructure/xmltv.parser';
+import { Database } from '../../../database/database';
 
 /**
  * 刷新发布事务(T026/T027;data-model「发布事务」/research R5,FR-022/SC-009):

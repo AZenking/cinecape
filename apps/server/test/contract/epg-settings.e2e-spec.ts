@@ -5,7 +5,7 @@ import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { ProblemCode } from '@hmp/shared';
 import type { INestApplication } from '@nestjs/common';
 import { Database } from '../../src/database/database';
-import { XMLTV_ERROR } from '../../src/modules/imports/xmltv.parser';
+import { XMLTV_ERROR } from '@contexts/sources/infrastructure/xmltv.parser';
 import {
   INITIALIZE_BODY,
   buildM3u,

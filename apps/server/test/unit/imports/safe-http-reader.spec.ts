@@ -22,7 +22,7 @@ import {
   TARGET_DENIED,
   openRemoteSource,
   type RemoteDnsResolver,
-} from '../../../src/modules/imports/safe-http-reader';
+} from '@contexts/sources/infrastructure/safe-http-reader';
 
 /**
  * T014:SSRF 安全受控 HTTP 读取器(research R3 权威语义):

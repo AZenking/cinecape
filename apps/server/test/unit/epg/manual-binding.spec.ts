@@ -16,8 +16,8 @@ import {
 import {
   RefreshExecutorService,
   type RefreshJobView,
-} from '../../../src/modules/imports/refresh-executor.service';
-import { RefreshPublishService } from '../../../src/modules/imports/refresh-publish.service';
+} from '@contexts/sources/application/refresh-executor.service';
+import { RefreshPublishService } from '@contexts/sources/application/refresh-publish.service';
 import {
   buildXmltv,
   createControlledMediaServer,

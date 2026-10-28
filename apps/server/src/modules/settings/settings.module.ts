@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { RefreshModule } from '../imports/refresh.module';
+import { SourcesModule } from '@contexts/sources/sources.module';
 import { SettingsAccessController } from './settings-access.controller';
 import { SettingsAccountController } from './settings-account.controller';
 import { SettingsHouseholdController } from './settings-household.controller';
@@ -33,7 +33,7 @@ import { SettingsGrantStartupRevocation } from './settings-access-revocation';
  * - SettingsAccessGuard 居 common/(T009 扩展点),经具名导入直接 @UseGuards 挂载。
  */
 @Module({
-  imports: [RefreshModule],
+  imports: [SourcesModule],
   controllers: [
     SettingsAccessController,
     SettingsAccountController,

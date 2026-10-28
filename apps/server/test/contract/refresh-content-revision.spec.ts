@@ -5,8 +5,8 @@ import { Database } from '../../src/database/database';
 import { getDb } from '../../src/modules/auth/db';
 import { sourceEntry } from '../../src/database/schema';
 import { eq } from 'drizzle-orm';
-import { stageEntries } from '../../src/modules/imports/refresh-staging.service';
-import { RefreshPublishService } from '../../src/modules/imports/refresh-publish.service';
+import { stageEntries } from '@contexts/sources/infrastructure/refresh-staging.service';
+import { RefreshPublishService } from '@contexts/sources/application/refresh-publish.service';
 
 /**
  * T148(005 US4)—— refresh-publish 可信 NAS 内容变化分支:

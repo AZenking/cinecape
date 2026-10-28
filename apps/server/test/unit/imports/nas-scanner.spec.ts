@@ -12,7 +12,7 @@ import {
   scanNasRootWithBudgets,
   type NasFileEntry,
   type NasScanErrorCode,
-} from '../../../src/modules/imports/nas-scanner';
+} from '@contexts/sources/infrastructure/nas-scanner';
 import { createNasRootFixture, type NasRootFixture } from '../../helpers';
 
 /**

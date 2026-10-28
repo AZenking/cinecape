@@ -15,9 +15,9 @@ import { SameOriginGuard } from '../../common/same-origin/same-origin.guard';
 import { SessionGuard } from '../../common/session.guard';
 import { SettingsAccessGuard } from '../../common/settings-access/settings-access.guard';
 import { StrictBodyPipe } from '../../common/strict-input/strict-pipes';
-import { RefreshExecutorService } from '../imports/refresh-executor.service';
+import { RefreshExecutorService } from '@contexts/sources/application/refresh-executor.service';
 import { parseBody } from '../auth/validation';
-import { isParsableRemoteUrl } from '../sources/source-target.validation';
+import { isParsableRemoteUrl } from '@contexts/sources/domain/source-target.validation';
 import {
   confirmSourceRefresh,
   createSource,
@@ -27,7 +27,7 @@ import {
   listSources,
   requestSourceRefresh,
   updateSource,
-} from '../sources/sources.service';
+} from '@contexts/sources/application/sources.service';
 import { patchMediaMetadata, queryCandidates } from '../catalog/catalog-admin.service';
 
 /**

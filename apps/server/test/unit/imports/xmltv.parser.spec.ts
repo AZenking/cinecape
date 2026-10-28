@@ -6,7 +6,7 @@ import {
   parseXMLTV,
   XMLTV_ERROR,
   XMLTVParseFailure,
-} from '../../../src/modules/imports/xmltv.parser';
+} from '@contexts/sources/infrastructure/xmltv.parser';
 import { buildXmltv, malformedPayloads } from '../../fixtures/controlled-media-server';
 
 /**

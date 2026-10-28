@@ -10,20 +10,20 @@ import {
   M3U_ENTRY_MISSING_URL,
   M3U_FORMAT_INVALID,
   parseM3U,
-} from '../../src/modules/imports/m3u.parser';
-import { DOCTYPE_DENIED, parseXMLTV } from '../../src/modules/imports/xmltv.parser';
-import type { XMLTVParseFailure } from '../../src/modules/imports/xmltv.parser';
-import type { M3UParseFailure } from '../../src/modules/imports/m3u.parser';
-import type { RemoteReadFailure } from '../../src/modules/imports/safe-http-reader';
-import { scanNasRoot } from '../../src/modules/imports/nas-scanner';
-import type { NasScanFailure } from '../../src/modules/imports/nas-scanner';
+} from '@contexts/sources/infrastructure/m3u.parser';
+import { DOCTYPE_DENIED, parseXMLTV } from '@contexts/sources/infrastructure/xmltv.parser';
+import type { XMLTVParseFailure } from '@contexts/sources/infrastructure/xmltv.parser';
+import type { M3UParseFailure } from '@contexts/sources/infrastructure/m3u.parser';
+import type { RemoteReadFailure } from '@contexts/sources/infrastructure/safe-http-reader';
+import { scanNasRoot } from '@contexts/sources/infrastructure/nas-scanner';
+import type { NasScanFailure } from '@contexts/sources/infrastructure/nas-scanner';
 import {
 
   TARGET_DENIED,
   openRemoteSource,
-} from '../../src/modules/imports/safe-http-reader';
-import type { RefreshJobView } from '../../src/modules/imports/refresh-executor.service';
-import { toRefreshDto } from '../../src/modules/sources/sources.service';
+} from '@contexts/sources/infrastructure/safe-http-reader';
+import type { RefreshJobView } from '@contexts/sources/application/refresh-executor.service';
+import { toRefreshDto } from '@contexts/sources/application/sources.service';
 
 describe('log redaction(T041/FR-007)', () => {
   it('命中敏感键(password/pin/token/secret/authorization/cookie)一律替换', () => {
