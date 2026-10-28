@@ -65,7 +65,7 @@
 - [X] T016 [US1] 迁移 ⑨ settings：`modules/settings/**` → `contexts/settings/`（settings-* controller→interface；access-grant/pin-verification/account/profiles/household/devices.service→application；owner-password/access-revocation 按映射归 application 或 infrastructure；`SettingsModule`）
 - [X] T017 [US1] 迁移 ⑩ playback：`modules/playback/**` → `contexts/playback/`（playback.repository/nas-reader/conversion-storage/media-probe/ffmpeg-subtitle-extract→infrastructure；playback.types→domain；playback-authorization/plan/selection/resolver/ticket/lifecycle/assets/subtitles/rate-limit/conversion-supervisor/conversion-watchdog/retention/audit.service→application（涉 ffmpeg/存储者按映射归 infrastructure）；playback/playback-stream.controller、playback-readiness.guard→interface；`PlaybackModule`）
 - [X] T018 [US1] 迁移 ⑪ platform（收口横切）：`src/common/**`→`src/platform/http-common/**`（rate-limit.service/policies 随横切件就近归位并在 ADR 记录归属；domain-error/log-redaction→http-common）；`src/config/**`→`platform/config/`；`src/database/**`→`platform/database/`（**文件内容零修改**，`package.json` 迁移脚本路径核对不变）；`modules/health/**`→`platform/health/`；`common/common.module.ts` 拆分后删除；`HealthModule` 等归入 `PlatformModule` 体系
-- [ ] T019 [US1] 迁移 ⑫ 组合根收尾：`apps/server/src/main.ts` 与 `app.module.ts` 仅保留装配（导入全部走 `contexts/*` 与 `platform/*`）；确认 `apps/server/src/modules/` 目录已空并删除；全量门禁 + `audit:boundaries`（分层与框架渗漏规则对 `src/contexts|platform` 全量生效）
+- [X] T019 [US1] 迁移 ⑫ 组合根收尾：`apps/server/src/main.ts` 与 `app.module.ts` 仅保留装配（导入全部走 `contexts/*` 与 `platform/*`）；确认 `apps/server/src/modules/` 目录已空并删除；全量门禁 + `audit:boundaries`（分层与框架渗漏规则对 `src/contexts|platform` 全量生效）
 
 **Checkpoint**: US1 完成 = 全部源码落位四层 + modules 树消失；`typecheck/lint/test/audit:boundaries` 全绿
 
