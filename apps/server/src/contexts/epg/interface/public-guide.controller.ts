@@ -3,14 +3,14 @@ import { z } from 'zod';
 import { parseDate } from '@internationalized/date';
 import type { GuideWindowDto } from '@hmp/shared';
 import { ProblemCode } from '@hmp/shared';
-import { DomainError } from '../../common/domain-error';
-import { RateLimit } from '../../common/rate-limit/rate-limit.decorator';
-import { RateLimitGuard } from '../../common/rate-limit/rate-limit.guard';
-import { StrictQueryPipe } from '../../common/strict-input/strict-pipes';
-import { PublicContextService } from '../../common/public-context/public-context.service';
-import { liveNowMs } from '../live/live-clock';
-import { allowedGuideDates, guideDateString, guideDayWindowMs, todayCalendarDateOf } from './guide-calendar';
-import { loadGuideWindow } from './guide-window.service';
+import { DomainError } from '../../../common/domain-error';
+import { RateLimit } from '../../../common/rate-limit/rate-limit.decorator';
+import { RateLimitGuard } from '../../../common/rate-limit/rate-limit.guard';
+import { StrictQueryPipe } from '../../../common/strict-input/strict-pipes';
+import { PublicContextService } from '../../../common/public-context/public-context.service';
+import { liveNowMs } from '../../../modules/live/live-clock';
+import { allowedGuideDates, guideDateString, guideDayWindowMs, todayCalendarDateOf } from '@contexts/epg/domain/guide-calendar';
+import { loadGuideWindow } from '@contexts/epg/application/guide-window.service';
 
 /**
  * 公共 guide 契约路由(T115;005 contracts/api.md §2):

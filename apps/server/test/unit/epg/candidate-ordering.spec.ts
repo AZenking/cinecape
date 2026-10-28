@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Database } from '../../../src/database/database';
 import { setEnvOverride } from '../../../src/config/env';
 import { loadEnv } from '../../../src/config/env.schema';
-import { listEpgCandidates } from '../../../src/modules/epg/manual-epg-binding.service';
+import { listEpgCandidates } from '@contexts/epg/application/manual-epg-binding.service';
 
 /** 候选排序(US5 反馈优化):当前/未来有节目的候选排前面,同组内 id 升序;无节目数据行由前端打「暂无节目数据」标 */
 const rigs: string[] = [];

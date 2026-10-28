@@ -7,9 +7,9 @@ import type { ExperienceProgrammeDto, GuideWindowDto } from '@hmp/shared';
 import { Database } from '../../../src/database/database';
 import { loadEnv } from '../../../src/config/env.schema';
 import { setEnvOverride } from '../../../src/config/env';
-import { loadGuideWindow } from '../../../src/modules/epg/guide-window.service';
-import { pickGuideCurrent } from '../../../src/modules/epg/binding-core';
-import { programmeKeyOf } from '../../../src/modules/epg/programme-key.mapper';
+import { loadGuideWindow } from '@contexts/epg/application/guide-window.service';
+import { pickGuideCurrent } from '@contexts/epg/domain/binding-core';
+import { programmeKeyOf } from '@contexts/epg/domain/programme-key.mapper';
 import { programmeKeyOf as liveProgrammeKeyOf } from '../../../src/modules/live/live-projection.service';
 
 /**

@@ -10,7 +10,7 @@ import {
   guideDayWindowMs,
   resolveGuideDayWindow,
   todayCalendarDateOf,
-} from '../../../src/modules/epg/guide-calendar';
+} from '@contexts/epg/domain/guide-calendar';
 
 /**
  * EPG 日历日转换核心单元测试(T106;data-model.md §8 逐字):

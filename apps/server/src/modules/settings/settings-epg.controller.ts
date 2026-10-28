@@ -25,7 +25,7 @@ import {
   saveBinding,
   unbindBinding,
   type ManualEpgBindingState,
-} from '../epg/manual-epg-binding.service';
+} from '@contexts/epg/application/manual-epg-binding.service';
 
 /**
  * 节目单管理契约路由(T129,005 contracts/api.md §6「epg-binding 三组」;FR-038):

@@ -7,8 +7,8 @@ import { Database } from '../../../src/database/database';
 import { setEnvOverride } from '../../../src/config/env';
 import { loadEnv } from '../../../src/config/env.schema';
 import type { SessionContext } from '../../../src/common/current-session.decorator';
-import { getMediaProgrammes } from '../../../src/modules/epg/epg.service';
-import { saveBinding, unbindBinding } from '../../../src/modules/epg/manual-epg-binding.service';
+import { getMediaProgrammes } from '@contexts/epg/application/epg.service';
+import { saveBinding, unbindBinding } from '@contexts/epg/application/manual-epg-binding.service';
 
 /**
  * 普通节目查询手动优先语义单元测试(T071;data-model「0004 增补」/FR-023~025):

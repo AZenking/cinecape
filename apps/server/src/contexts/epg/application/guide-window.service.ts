@@ -1,14 +1,14 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { ExperienceProgrammeDto, GuideWindowDto } from '@hmp/shared';
 import { ProblemCode } from '@hmp/shared';
-import { DomainError } from '../../common/domain-error';
-import { getDb } from '../auth/db';
-import { epgProgramme } from '../../database/schema';
-import { resolveGuideDayWindow } from './guide-calendar';
-import { GuideDateExpiredProblem } from './guide-problems';
-import { readCatalogRevision } from './catalog-revision.service';
-import { loadChannelAssociations, type ChannelMetaRow } from './binding-core';
-import { programmeKeyOf } from './programme-key.mapper';
+import { DomainError } from '../../../common/domain-error';
+import { getDb } from '../../../modules/auth/db';
+import { epgProgramme } from '../../../database/schema';
+import { resolveGuideDayWindow } from '@contexts/epg/domain/guide-calendar';
+import { GuideDateExpiredProblem } from '@contexts/epg/domain/guide-problems';
+import { readCatalogRevision } from '@contexts/epg/infrastructure/catalog-revision.service';
+import { loadChannelAssociations, type ChannelMetaRow } from '@contexts/epg/domain/binding-core';
+import { programmeKeyOf } from '@contexts/epg/domain/programme-key.mapper';
 
 /**
  * 公共 guide 窗口查询服务(T113/T115;data-model.md §8 逐字、contracts/api.md §2、research R8):

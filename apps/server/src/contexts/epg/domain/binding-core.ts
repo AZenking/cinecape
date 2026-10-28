@@ -3,8 +3,8 @@ import {
   loadChannelAssociationCore,
   type ChannelAssociationCore,
   type ChannelMetaRow,
-} from '../live/live-projection.service';
-import { pickCurrentNext } from '../live/live-time';
+} from '../../../modules/live/live-projection.service';
+import { pickCurrentNext } from '../../../modules/live/live-time';
 
 /**
  * EPG 关联核心复用层(T113;US6 guide 窗口查询的唯一关联入口):

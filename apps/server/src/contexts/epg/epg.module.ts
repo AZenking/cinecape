@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CommonModule } from '../../common/common.module';
-import { PublicGuideController } from './public-guide.controller';
+import { PublicGuideController } from '@contexts/epg/interface/public-guide.controller';
 
 /**
  * EPG 节目指南模块(T042/T115;005 contracts/api.md §2、data-model.md §8):

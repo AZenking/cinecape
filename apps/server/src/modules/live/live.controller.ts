@@ -8,7 +8,7 @@ import { RateLimitGuard } from '../../common/rate-limit/rate-limit.guard';
 import { StrictQueryPipe } from '../../common/strict-input/strict-pipes';
 import { PublicContextService } from '../../common/public-context/public-context.service';
 import { Database } from '../../database/database';
-import { readCatalogRevision } from '../epg/catalog-revision.service';
+import { readCatalogRevision } from '@contexts/epg/infrastructure/catalog-revision.service';
 import { liveNowMs } from './live-clock';
 import { groupKeyOf, OTHER_GROUP_LABEL } from './live-grouping';
 import { loadLiveGroups } from './live-grouping.service';

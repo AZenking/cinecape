@@ -12,7 +12,7 @@ import { Database } from '../../src/database/database';
 import { setEnvOverride } from '../../src/config/env';
 import { loadEnv } from '../../src/config/env.schema';
 import { sharedRateLimitService } from '../../src/common/rate-limit/rate-limit.service';
-import { saveBinding } from '../../src/modules/epg/manual-epg-binding.service';
+import { saveBinding } from '@contexts/epg/application/manual-epg-binding.service';
 import {
   SCALE_FIXTURE_CREDENTIALS,
   SCALE_FIXTURE_FIXED_NOW_MS,

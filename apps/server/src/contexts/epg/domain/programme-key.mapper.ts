@@ -1,4 +1,4 @@
-export { programmeKeyOf } from '../live/live-projection.service';
+export { programmeKeyOf } from '../../../modules/live/live-projection.service';
 
 /**
  * programme 公共不透明 key 映射(T114;005 data-model.md §8):

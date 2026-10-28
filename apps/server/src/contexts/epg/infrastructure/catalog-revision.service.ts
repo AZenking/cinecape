@@ -1,5 +1,5 @@
 import type DatabaseConstructor from 'better-sqlite3';
-import { Database } from '../../database/database';
+import { Database } from '../../../database/database';
 
 /**
  * 家庭目录修订(T114;005 data-model.md §8):

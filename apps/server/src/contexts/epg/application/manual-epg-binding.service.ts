@@ -1,7 +1,7 @@
 import type DatabaseConstructor from 'better-sqlite3';
 import { ProblemCode } from '@hmp/shared';
-import { DomainError, createDomainError } from '../../common/domain-error';
-import { incrementCatalogRevision } from './catalog-revision.service';
+import { DomainError, createDomainError } from '../../../common/domain-error';
+import { incrementCatalogRevision } from '@contexts/epg/infrastructure/catalog-revision.service';
 
 /**
  * 手动 EPG 绑定服务(T070;US5/ADR-0008,data-model「## 0004 增补」为权威):
@@ -325,8 +325,8 @@ export function unbindBinding(db: DbHandle, input: UnbindManualBindingInput): Ma
 
 import { and, eq, gt, inArray } from 'drizzle-orm';
 import type { EpgCandidatePageDto, EpgCandidateQueryRequest, ProgrammeDto } from '@hmp/shared';
-import { epgChannel, epgProgramme, mediaSource } from '../../database/schema';
-import { getDb } from '../auth/db';
+import { epgChannel, epgProgramme, mediaSource } from '../../../database/schema';
+import { getDb } from '../../../modules/auth/db';
 
 interface CandidateRow {
   xmltvChannelId: string;

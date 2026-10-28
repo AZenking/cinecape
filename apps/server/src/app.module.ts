@@ -12,7 +12,7 @@ import { PolicyModule } from '@contexts/policy/policy.module';
 import { SourcesModule } from './modules/sources/sources.module';
 import { RefreshModule } from './modules/imports/refresh.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
-import { EpgModule } from './modules/epg/epg.module';
+import { EpgModule } from '@contexts/epg/epg.module';
 import { PlaybackModule } from './modules/playback/playback.module';
 import { PublicCatalogModule } from './modules/public-catalog/public-catalog.module';
 import { LiveModule } from './modules/live/live.module';

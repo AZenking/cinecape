@@ -4,7 +4,7 @@ import type { MediaDto, MediaPageDto, ProgrammesDto } from '@hmp/shared';
 import { CurrentSession, type SessionContext } from '../../common/current-session.decorator';
 import { SessionGuard } from '../../common/session.guard';
 import { parseBody } from '../auth/validation';
-import { getMediaProgrammes } from '../epg/epg.service';
+import { getMediaProgrammes } from '@contexts/epg/application/epg.service';
 import { getMedia, listMedia } from './catalog.service';
 
 /**

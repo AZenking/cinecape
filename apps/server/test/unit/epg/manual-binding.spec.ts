@@ -12,7 +12,7 @@ import {
   saveBinding,
   unbindBinding,
   type ManualEpgBindingState,
-} from '../../../src/modules/epg/manual-epg-binding.service';
+} from '@contexts/epg/application/manual-epg-binding.service';
 import {
   RefreshExecutorService,
   type RefreshJobView,
