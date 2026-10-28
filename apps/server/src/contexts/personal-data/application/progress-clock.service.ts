@@ -1,14 +1,7 @@
 import { createHash } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
-import { getDb } from '@contexts/identity-access';
-import {
-  mediaItem,
-  playbackProgressState,
-  playbackSession,
-  profileProgressClock,
-} from '@platform/database/schema';
 import { createDomainError } from '@platform/http-common/domain-error';
 import { readResumeFreezePosition } from '@contexts/personal-data/application/history.service';
+import { personalDataStore } from '@contexts/personal-data/application/personal-data-store.port';
 import type { IProgressClockService } from '@contexts/personal-data/application/ports';
 
 /**
@@ -21,6 +14,10 @@ import type { IProgressClockService } from '@contexts/personal-data/application/
  *   profile_context_version),不写可见历史 —— 历史仅首次有效 started 后产生;
  * - 状态机与样本写入规则见 progress-write.service.ts;本文件只承担「分配 + 绑定」
  *   与 playbook 侧共享的只读判定。
+ *
+ * 008-repository-extraction(T005):数据访问经 PersonalDataStore 端口(ADR-0015 D1,
+ * 查询逐字迁移至 infrastructure/personal-data-store.drizzle.ts;epoch 短事务经
+ * withTransaction 端口原样保留「分配 + 绑定」原子性)。
  */
 
 /** 规范化载荷摘要(同 seq 同载荷重试幂等、异载荷 409 的判定基准) */
@@ -133,69 +130,41 @@ export class ProgressClockService implements PlaybackProgressBindPort, PlaybackR
     readonly playbackSessionId: string;
     readonly profileContextVersion: number;
   }): void {
-    const db = getDb();
-    db.transaction((tx) => {
+    personalDataStore().withTransaction((tx) => {
       // 媒体修订(同家庭权威事实;授权已放行,行必在 —— 防御分支仍 fail-closed)
-      const media = tx
-        .select({ contentRevision: mediaItem.contentRevision })
-        .from(mediaItem)
-        .where(and(eq(mediaItem.householdId, input.householdId), eq(mediaItem.id, input.mediaId)))
-        .get();
-      if (media === undefined) {
+      const mediaRevision = tx.findMediaContentRevision(input.householdId, input.mediaId);
+      if (mediaRevision === undefined) {
         throw createDomainError('MEDIA_NOT_FOUND');
       }
       // epoch 短分配(同一事务,保证「分配 + 绑定」原子;clock 行随 Profile 长期存在)
-      const clock = tx
-        .select({ nextEpoch: profileProgressClock.nextEpoch })
-        .from(profileProgressClock)
-        .where(and(eq(profileProgressClock.householdId, input.householdId), eq(profileProgressClock.profileId, input.profileId)))
-        .get();
+      const nextEpoch = tx.findProgressClockNextEpoch(input.householdId, input.profileId);
       let allocated: number;
-      if (clock === undefined) {
+      if (nextEpoch === undefined) {
         allocated = 1;
-        tx.insert(profileProgressClock)
-          .values({ householdId: input.householdId, profileId: input.profileId, nextEpoch: allocated + 1 })
-          .run();
+        tx.insertProgressClockRow(input.householdId, input.profileId, allocated + 1);
       } else {
-        allocated = clock.nextEpoch;
-        tx.update(profileProgressClock)
-          .set({ nextEpoch: sql`${profileProgressClock.nextEpoch} + 1` })
-          .where(
-            and(
-              eq(profileProgressClock.householdId, input.householdId),
-              eq(profileProgressClock.profileId, input.profileId),
-            ),
-          )
-          .run();
+        allocated = nextEpoch;
+        tx.bumpProgressClockNextEpoch(input.householdId, input.profileId);
       }
       // 会话代次(resolve 时刻 generation=1;防御读取,行缺失按绑定失败回滚)
-      const session = tx
-        .select({ generation: playbackSession.generation })
-        .from(playbackSession)
-        .where(
-          and(eq(playbackSession.householdId, input.householdId), eq(playbackSession.id, input.playbackSessionId)),
-        )
-        .get();
-      if (session === undefined) {
+      const generation = tx.findSessionGeneration(input.householdId, input.playbackSessionId);
+      if (generation === undefined) {
         throw createDomainError('PLAYBACK_NOT_FOUND');
       }
-      tx.insert(playbackProgressState)
-        .values({
-          householdId: input.householdId,
-          playbackSessionId: input.playbackSessionId,
-          profileId: input.profileId,
-          mediaId: input.mediaId,
-          candidateEpoch: allocated,
-          contentRevision: media.contentRevision,
-          profileContextVersion: input.profileContextVersion,
-          started: 0,
-          lastSampleSeq: 0,
-          lastSampleDigest: null,
-          lastGeneration: session.generation,
-          lastResult: null,
-        })
-        .onConflictDoNothing()
-        .run();
+      tx.insertProgressStateRow({
+        householdId: input.householdId,
+        playbackSessionId: input.playbackSessionId,
+        profileId: input.profileId,
+        mediaId: input.mediaId,
+        candidateEpoch: allocated,
+        contentRevision: mediaRevision,
+        profileContextVersion: input.profileContextVersion,
+        started: 0,
+        lastSampleSeq: 0,
+        lastSampleDigest: null,
+        lastGeneration: generation,
+        lastResult: null,
+      });
     });
   }
 
@@ -231,4 +200,3 @@ export function writeRightOf(input: {
   }
   return 'superseded'; // 旧 candidate:applied=false/superseded,不终止其合法播放
 }
-

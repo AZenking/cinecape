@@ -2,7 +2,13 @@ import { Module } from '@nestjs/common';
 import { MeController } from '@contexts/personal-data/interface/me.controller';
 import { ProgressClockService } from '@contexts/personal-data/application/progress-clock.service';
 import { ProgressWriteService } from '@contexts/personal-data/application/progress-write.service';
-import { PROGRESS_CLOCK_PORT, PROGRESS_WRITE_PORT } from '@contexts/personal-data/personal-data.tokens';
+import { bindPersonalDataStore } from '@contexts/personal-data/application/personal-data-store.port';
+import { drizzlePersonalDataStore } from '@contexts/personal-data/infrastructure/personal-data-store.drizzle';
+import {
+  PERSONAL_DATA_STORE,
+  PROGRESS_CLOCK_PORT,
+  PROGRESS_WRITE_PORT,
+} from '@contexts/personal-data/personal-data.tokens';
 
 /**
  * 个人数据模块(T097/T098/T099/T100/T101,005 US4):
@@ -22,10 +28,18 @@ import { PROGRESS_CLOCK_PORT, PROGRESS_WRITE_PORT } from '@contexts/personal-dat
  * 会产生第二实例,违反行为零变化:epoch 分配与写入状态机均为有状态服务);
  * exports 仅发布令牌,playback 侧类引用注入同步改为 @Inject(令牌)(T021 最小编译/
  * 启动修复,逐条记录)。
+ *
+ * 008-repository-extraction(T005,ADR-0015 D1):装配期绑定仓储 seam ——
+ * PERSONAL_DATA_STORE provider 实例化时经 bindPersonalDataStore 注入 Drizzle 实现
+ * (惰性 getDb 解析,Database 单例重开安全);不经 HTTP 暴露,不导出。
  */
 @Module({
   controllers: [MeController],
   providers: [
+    {
+      provide: PERSONAL_DATA_STORE,
+      useFactory: () => bindPersonalDataStore(drizzlePersonalDataStore()),
+    },
     ProgressClockService,
     ProgressWriteService,
     { provide: PROGRESS_CLOCK_PORT, useExisting: ProgressClockService },

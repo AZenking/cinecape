@@ -14,3 +14,6 @@
  */
 export const PROGRESS_CLOCK_PORT = Symbol('PROGRESS_CLOCK_PORT');
 export const PROGRESS_WRITE_PORT = Symbol('PROGRESS_WRITE_PORT');
+
+/** 008 仓储端口装配令牌（ADR-0015 D1）：personal-data.module 装配期绑定 Drizzle 实现到 seam。 */
+export const PERSONAL_DATA_STORE = Symbol('PERSONAL_DATA_STORE');

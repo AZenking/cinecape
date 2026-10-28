@@ -1,10 +1,13 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
-import { getDb } from '@contexts/identity-access';
-import { mediaItem, profileViewingHistory, type ProfileViewingHistory } from '@platform/database/schema';
 import { loadAvailableMediaIdSet } from '@contexts/policy';
 import { toPublicMedia } from '@contexts/media-catalog';
 import type { PublicMediaDto } from '@hmp/shared';
 import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload } from '@contexts/personal-data/infrastructure/signed-cursor';
+import {
+  personalDataStore,
+  type HistoryRow,
+  type KeysetAnchor,
+  type MediaItemRow,
+} from '@contexts/personal-data/application/personal-data-store.port';
 
 /**
  * 观看历史查询与续播冻结读取(T101,005 contracts/api.md §4/§5、data-model.md §7):
@@ -18,6 +21,9 @@ import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload 
  * - resume 冻结读取(readResumeFreeze):可信 probe 完成后、转换输出启动前由 resolve
  *   侧调用 —— 返回本次启动应冻结的 presentationStartSeconds(0 = 从头),不信任任何
  *   客户端位置声明;ready 提交仅重验,不改变已冻结输出(冻结值由调用方持有)。
+ *
+ * 008-repository-extraction(T005):数据访问经 PersonalDataStore 端口(ADR-0015 D1,
+ * 查询逐字迁移至 infrastructure/personal-data-store.drizzle.ts)。
  */
 
 /** 契约 HistoryItem */
@@ -63,8 +69,8 @@ export function canResumeOf(input: {
 }
 
 function toHistoryItem(
-  row: ProfileViewingHistory,
-  media: typeof mediaItem.$inferSelect | undefined,
+  row: HistoryRow,
+  media: MediaItemRow | undefined,
   available: boolean,
 ): HistoryItemDto {
   const durationSeconds = row.durationSeconds !== null && Number.isFinite(row.durationSeconds) ? row.durationSeconds : null;
@@ -98,29 +104,14 @@ function loadHistoryPage(input: {
   readonly profileId: string;
   readonly cursor?: string;
   readonly limit: number;
-}): { rows: ProfileViewingHistory[]; nextCursor: string | null } {
+}): { rows: HistoryRow[]; nextCursor: string | null } {
   const identity = { householdId: input.householdId, profileId: input.profileId };
-  const db = getDb();
-  let anchor: { sortAt: string; mediaId: string } | null = null;
+  let anchor: KeysetAnchor | null = null;
   if (input.cursor !== undefined) {
     const payload = decodePersonalCursor(input.cursor, { type: 'history', ...identity });
     anchor = { sortAt: payload.sortAt, mediaId: payload.mediaId };
   }
-  const predicate =
-    anchor === null
-      ? and(eq(profileViewingHistory.householdId, identity.householdId), eq(profileViewingHistory.profileId, identity.profileId))
-      : and(
-          eq(profileViewingHistory.householdId, identity.householdId),
-          eq(profileViewingHistory.profileId, identity.profileId),
-          sql`(${profileViewingHistory.lastViewedAt} < ${anchor.sortAt} OR (${profileViewingHistory.lastViewedAt} = ${anchor.sortAt} AND ${profileViewingHistory.mediaId} < ${anchor.mediaId}))`,
-        );
-  const rows = db
-    .select()
-    .from(profileViewingHistory)
-    .where(predicate)
-    .orderBy(desc(profileViewingHistory.lastViewedAt), desc(profileViewingHistory.mediaId))
-    .limit(input.limit)
-    .all();
+  const rows = personalDataStore().listHistoryRowsAfter(identity.householdId, identity.profileId, anchor, input.limit);
   let nextCursor: string | null = null;
   if (rows.length === input.limit && rows.length > 0) {
     const last = rows[rows.length - 1];
@@ -146,23 +137,14 @@ export function listHistory(input: {
   readonly limit: number;
 }): HistoryPage {
   const identity = { householdId: input.householdId, profileId: input.profileId };
-  const db = getDb();
+  const store = personalDataStore();
   const { rows, nextCursor } = loadHistoryPage({ ...input });
   if (rows.length === 0) {
     return { items: [], nextCursor: null };
   }
   const mediaIds = rows.map((row) => row.mediaId);
-  const mediaRows = db
-    .select()
-    .from(mediaItem)
-    .where(
-      and(
-        eq(mediaItem.householdId, identity.householdId),
-        sql`${mediaItem.id} IN (${sql.join(mediaIds.map((id) => sql`${id}`), sql`, `)})`,
-      ),
-    )
-    .all();
-  const mediaById = new Map(mediaRows.map((row) => [row.id, row] as const));
+  const mediaRows = store.listMediaRowsByIds(identity.householdId, mediaIds);
+  const mediaById = new Map<string, MediaItemRow>(mediaRows.map((row) => [row.id, row] as const));
   const availableIds = loadAvailableMediaIdSet(identity.householdId);
   return {
     items: rows.map((row) => toHistoryItem(row, mediaById.get(row.mediaId), availableIds.has(row.mediaId))),
@@ -176,26 +158,12 @@ export function getHistoryItem(input: {
   readonly profileId: string;
   readonly mediaId: string;
 }): HistoryItemDto | null {
-  const db = getDb();
-  const row = db
-    .select()
-    .from(profileViewingHistory)
-    .where(
-      and(
-        eq(profileViewingHistory.householdId, input.householdId),
-        eq(profileViewingHistory.profileId, input.profileId),
-        eq(profileViewingHistory.mediaId, input.mediaId),
-      ),
-    )
-    .get();
+  const store = personalDataStore();
+  const row = store.findHistoryRow(input.householdId, input.profileId, input.mediaId);
   if (row === undefined) {
     return null;
   }
-  const media = db
-    .select()
-    .from(mediaItem)
-    .where(and(eq(mediaItem.householdId, input.householdId), eq(mediaItem.id, input.mediaId)))
-    .get();
+  const media = store.findMediaRow(input.householdId, input.mediaId);
   const availableIds = loadAvailableMediaIdSet(input.householdId);
   return toHistoryItem(row, media, availableIds.has(input.mediaId));
 }
@@ -212,27 +180,13 @@ export function readResumeFreezePosition(input: {
   readonly mediaId: string;
   readonly probeDurationSeconds: number | null;
 }): number {
-  const db = getDb();
-  const row = db
-    .select()
-    .from(profileViewingHistory)
-    .where(
-      and(
-        eq(profileViewingHistory.householdId, input.householdId),
-        eq(profileViewingHistory.profileId, input.profileId),
-        eq(profileViewingHistory.mediaId, input.mediaId),
-      ),
-    )
-    .get();
+  const store = personalDataStore();
+  const row = store.findHistoryRow(input.householdId, input.profileId, input.mediaId);
   if (row === undefined) {
     return 0;
   }
-  const media = db
-    .select({ contentRevision: mediaItem.contentRevision })
-    .from(mediaItem)
-    .where(and(eq(mediaItem.householdId, input.householdId), eq(mediaItem.id, input.mediaId)))
-    .get();
-  if (media === undefined || media.contentRevision !== row.contentRevision) {
+  const mediaRevision = store.findMediaContentRevision(input.householdId, input.mediaId);
+  if (mediaRevision === undefined || mediaRevision !== row.contentRevision) {
     return 0; // 资源修订变化:不继承旧位置(旧历史保留)
   }
   const candidates = [row.durationSeconds, input.probeDurationSeconds].filter(
@@ -245,4 +199,3 @@ export function readResumeFreezePosition(input: {
   }
   return position;
 }
-

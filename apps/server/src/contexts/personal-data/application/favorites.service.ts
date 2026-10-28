@@ -1,16 +1,15 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
-import { getDb } from '@contexts/identity-access';
-import {
-  mediaItem,
-  profileChannelFavorite,
-  type ProfileChannelFavorite,
-} from '@platform/database/schema';
 import { loadAvailableMediaIdSet } from '@contexts/policy';
 import { loadLiveChannelWindows, type LiveChannelProjection } from '@contexts/live-tv';
 import { toPublicMedia } from '@contexts/media-catalog';
 import type { ExperienceProgrammeDto, PublicMediaDto } from '@hmp/shared';
 import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload } from '@contexts/personal-data/infrastructure/signed-cursor';
+import {
+  personalDataStore,
+  type FavoriteRow,
+  type KeysetAnchor,
+  type MediaItemRow,
+} from '@contexts/personal-data/application/personal-data-store.port';
 
 /**
  * 收藏服务(T098,005 contracts/api.md §4、data-model.md §4):
@@ -24,6 +23,9 @@ import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload 
  *   unavailable 摘要,可取消但不可播放;
  * - 身份只从服务端当前 Profile 推导(控制器经 CurrentProfileGuard 注入),
  *   不接受任何 body/query 身份声明。
+ *
+ * 008-repository-extraction(T005):数据访问经 PersonalDataStore 端口(ADR-0015 D1,
+ * 查询逐字迁移至 infrastructure/personal-data-store.drizzle.ts;事务经端口原样保留)。
  */
 
 /** 收藏列表页(契约 GET /me/favorites/channels) */
@@ -47,13 +49,13 @@ interface KeysetKey {
   readonly mediaId: string;
 }
 
-function keyOfFavorite(row: ProfileChannelFavorite): KeysetKey {
+function keyOfFavorite(row: FavoriteRow): KeysetKey {
   return { sortAt: row.createdAt, mediaId: row.mediaId };
 }
 
 /** 下一页游标(仅当本页取满 limit 时才可能还有更多) */
 function nextCursorFor(
-  rows: readonly ProfileChannelFavorite[],
+  rows: readonly FavoriteRow[],
   limit: number,
   identity: { readonly householdId: string; readonly profileId: string },
 ): string | null {
@@ -83,42 +85,21 @@ export function listFavoriteChannels(input: {
   readonly limit: number;
 }): FavoriteChannelPage {
   const identity = { householdId: input.householdId, profileId: input.profileId };
-  const db = getDb();
-  let anchor: KeysetKey | null = null;
+  const store = personalDataStore();
+  let anchor: KeysetAnchor | null = null;
   if (input.cursor !== undefined) {
     const payload = decodePersonalCursor(input.cursor, { type: 'favorites', ...identity });
     anchor = { sortAt: payload.sortAt, mediaId: payload.mediaId };
   }
-  const predicate = anchor === null
-    ? and(
-        eq(profileChannelFavorite.householdId, identity.householdId),
-        eq(profileChannelFavorite.profileId, identity.profileId),
-      )
-    : and(
-        eq(profileChannelFavorite.householdId, identity.householdId),
-        eq(profileChannelFavorite.profileId, identity.profileId),
-        // 键集:(created_at, media_id) 双列 DESC 严格后继
-        sql`(${profileChannelFavorite.createdAt} < ${anchor.sortAt} OR (${profileChannelFavorite.createdAt} = ${anchor.sortAt} AND ${profileChannelFavorite.mediaId} < ${anchor.mediaId}))`,
-      );
-  const rows = db
-    .select()
-    .from(profileChannelFavorite)
-    .where(predicate)
-    .orderBy(desc(profileChannelFavorite.createdAt), desc(profileChannelFavorite.mediaId))
-    .limit(input.limit)
-    .all();
+  const rows = store.listFavoriteRowsAfter(identity.householdId, identity.profileId, anchor, input.limit);
   if (rows.length === 0) {
     return { items: [], nextCursor: null };
   }
 
   // 媒体摘要(unavailable 保留)+ 可用性 + current/next(复用直播批量投影,查询次数固定)
   const mediaIds = rows.map((row) => row.mediaId);
-  const mediaRows = db
-    .select()
-    .from(mediaItem)
-    .where(and(eq(mediaItem.householdId, identity.householdId), sql`${mediaItem.id} IN (${sql.join(mediaIds.map((id) => sql`${id}`), sql`, `)} )`))
-    .all();
-  const mediaById = new Map(mediaRows.map((row) => [row.id, row] as const));
+  const mediaRows = store.listMediaRowsByIds(identity.householdId, mediaIds);
+  const mediaById = new Map<string, MediaItemRow>(mediaRows.map((row) => [row.id, row] as const));
   const availableIds = loadAvailableMediaIdSet(identity.householdId);
   const projections = new Map<string, LiveChannelProjection>(
     loadLiveChannelWindows(identity.householdId, Date.now(), { mediaIds, includeProgrammes: true }).map(
@@ -160,12 +141,8 @@ export function addFavoriteChannel(input: {
   readonly mediaId: string;
   readonly at?: string;
 }): void {
-  const db = getDb();
-  const media = db
-    .select({ id: mediaItem.id, type: mediaItem.type })
-    .from(mediaItem)
-    .where(and(eq(mediaItem.householdId, input.householdId), eq(mediaItem.id, input.mediaId)))
-    .get();
+  const store = personalDataStore();
+  const media = store.findMediaIdAndType(input.householdId, input.mediaId);
   if (media === undefined) {
     throw createDomainError('MEDIA_NOT_FOUND');
   }
@@ -177,18 +154,7 @@ export function addFavoriteChannel(input: {
     throw new DomainError(400, 'VALIDATION_FAILED', '不可用频道暂不能收藏');
   }
   const createdAt = input.at ?? new Date().toISOString();
-  db.transaction((tx) => {
-    // INSERT OR IGNORE:主键三元组冲突时保留首行(created_at 首次收藏固定)
-    tx.insert(profileChannelFavorite)
-      .values({
-        householdId: input.householdId,
-        profileId: input.profileId,
-        mediaId: input.mediaId,
-        createdAt,
-      })
-      .onConflictDoNothing()
-      .run();
-  });
+  store.insertFavoriteRow(input.householdId, input.profileId, input.mediaId, createdAt);
 }
 
 /**
@@ -200,15 +166,5 @@ export function removeFavoriteChannel(input: {
   readonly profileId: string;
   readonly mediaId: string;
 }): void {
-  getDb()
-    .delete(profileChannelFavorite)
-    .where(
-      and(
-        eq(profileChannelFavorite.householdId, input.householdId),
-        eq(profileChannelFavorite.profileId, input.profileId),
-        eq(profileChannelFavorite.mediaId, input.mediaId),
-      ),
-    )
-    .run();
+  personalDataStore().deleteFavoriteRow(input.householdId, input.profileId, input.mediaId);
 }
-

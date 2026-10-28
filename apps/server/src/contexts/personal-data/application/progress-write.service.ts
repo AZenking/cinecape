@@ -1,14 +1,3 @@
-import { and, eq } from 'drizzle-orm';
-import { getDb, type Db } from '@contexts/identity-access';
-import {
-  mediaItem,
-  playbackProgressState,
-  playbackSession,
-  profileViewingHistory,
-  type PlaybackSession,
-  type PlaybackProgressState,
-  type ProfileViewingHistory,
-} from '@platform/database/schema';
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import {
   decodeStoredResult,
@@ -18,6 +7,11 @@ import {
   writeRightOf,
   type StoredSampleResult,
 } from '@contexts/personal-data/application/progress-clock.service';
+import {
+  personalDataStore,
+  type PersonalDataTxStore,
+  type PlaybackSessionRow,
+} from '@contexts/personal-data/application/personal-data-store.port';
 import type { IProgressWriteService } from '@contexts/personal-data/application/ports';
 
 /**
@@ -40,6 +34,11 @@ import type { IProgressWriteService } from '@contexts/personal-data/application/
  *
  * sampleSeq 为会话生命周期内单调序号(换轨/seek/重渲染不重置);seq 簿记仅在接受
  * (generation/校验全通过)后推进 —— generation 冲突不消耗序号。
+ *
+ * 008-repository-extraction(T005):数据访问经 PersonalDataStore 端口(ADR-0015 D1,
+ * 查询逐字迁移至 infrastructure/personal-data-store.drizzle.ts);事务经 withTransaction
+ * 端口 —— applyFinalInTransaction 在调用方 lifecycle 事务内被调用时保持 better-sqlite3
+ * 嵌套事务自动 savepoint 的既有行为(同一连接、同一事务可见性)。
  */
 
 /** 契约样本输入(reason=started|periodic|pause;stop 的 final 走独立入口) */
@@ -83,95 +82,12 @@ function assertValidPosition(positionSeconds: number, trustedDuration: number | 
   }
 }
 
-function readSessionRow(tx: Db, householdId: string, sessionId: string): PlaybackSession {
-  const session = tx
-    .select()
-    .from(playbackSession)
-    .where(and(eq(playbackSession.householdId, householdId), eq(playbackSession.id, sessionId)))
-    .get();
+function readSessionRow(tx: PersonalDataTxStore, householdId: string, sessionId: string): PlaybackSessionRow {
+  const session = tx.findPlaybackSessionRow(householdId, sessionId);
   if (session === undefined) {
     sessionRowNotFound();
   }
   return session;
-}
-
-function readProgressStateRow(tx: Db, householdId: string, sessionId: string): PlaybackProgressState | undefined {
-  return tx
-    .select()
-    .from(playbackProgressState)
-    .where(
-      and(eq(playbackProgressState.householdId, householdId), eq(playbackProgressState.playbackSessionId, sessionId)),
-    )
-    .get();
-}
-
-function readHistoryRow(tx: Db, householdId: string, profileId: string, mediaId: string): ProfileViewingHistory | undefined {
-  return tx
-    .select()
-    .from(profileViewingHistory)
-    .where(
-      and(
-        eq(profileViewingHistory.householdId, householdId),
-        eq(profileViewingHistory.profileId, profileId),
-        eq(profileViewingHistory.mediaId, mediaId),
-      ),
-    )
-    .get();
-}
-
-function readMediaRevision(tx: Db, householdId: string, mediaId: string): number | undefined {
-  return tx
-    .select({ contentRevision: mediaItem.contentRevision })
-    .from(mediaItem)
-    .where(and(eq(mediaItem.householdId, householdId), eq(mediaItem.id, mediaId)))
-    .get()?.contentRevision;
-}
-
-/** 历史写入(取得写入权 = upsert;owner 继续 = update;revision 实际更新递增) */
-function upsertHistory(
-  tx: Db,
-  input: {
-    readonly householdId: string;
-    readonly profileId: string;
-    readonly mediaId: string;
-    readonly candidateEpoch: number;
-    readonly playbackSessionId: string;
-    readonly sampleSeq: number;
-    readonly contentRevision: number;
-    readonly positionSeconds: number;
-    readonly trustedDuration: number | null;
-    readonly at: string;
-  },
-): number {
-  const existing = readHistoryRow(tx, input.householdId, input.profileId, input.mediaId);
-  const nextRevision = (existing?.revision ?? 0) + 1;
-  const values = {
-    writerEpoch: input.candidateEpoch,
-    writerPlaybackSessionId: input.playbackSessionId,
-    lastSampleSeq: input.sampleSeq,
-    contentRevision: input.contentRevision,
-    positionSeconds: input.positionSeconds,
-    durationSeconds: input.trustedDuration,
-    lastViewedAt: input.at,
-    revision: nextRevision,
-  };
-  tx.insert(profileViewingHistory)
-    .values({
-      householdId: input.householdId,
-      profileId: input.profileId,
-      mediaId: input.mediaId,
-      ...values,
-    })
-    .onConflictDoUpdate({
-      target: [
-        profileViewingHistory.householdId,
-        profileViewingHistory.profileId,
-        profileViewingHistory.mediaId,
-      ],
-      set: values,
-    })
-    .run();
-  return nextRevision;
 }
 
 /**
@@ -195,9 +111,8 @@ export class ProgressWriteService implements IProgressWriteService {
     context: { readonly householdId: string; readonly deviceSessionId: string; readonly sessionId: string },
     input: ProgressSampleInput,
   ): ProgressSampleReply {
-    const db = getDb();
     const at = new Date(this.clock.now()).toISOString();
-    return db.transaction((tx): ProgressSampleReply => {
+    return personalDataStore().withTransaction((tx): ProgressSampleReply => {
       const session = readSessionRow(tx, context.householdId, context.sessionId);
       // 1. 归属防御(端点授权链之外的第二道;非本设备会话同形 404)
       if (session.deviceSessionId !== context.deviceSessionId) {
@@ -213,23 +128,19 @@ export class ProgressWriteService implements IProgressWriteService {
         throw createDomainError('PLAYBACK_GENERATION_STALE');
       }
       // 4. 直播:合法遥测但绝不建点播历史(200 accepted,historyRevision=null)
-      const mediaType = tx
-        .select({ type: mediaItem.type })
-        .from(mediaItem)
-        .where(and(eq(mediaItem.householdId, context.householdId), eq(mediaItem.id, session.mediaId)))
-        .get()?.type;
+      const mediaType = tx.findMediaType(context.householdId, session.mediaId);
       const isChannel = mediaType === 'channel';
       if (isChannel) {
         assertValidPosition(input.positionSeconds, null, true);
         return { applied: true, reason: 'accepted', historyRevision: null };
       }
       // 5. progress_state 必须存在(resolve 绑定;缺失 = 未曾在 resolve 接受进度绑定)
-      const state = readProgressStateRow(tx, context.householdId, context.sessionId);
+      const state = tx.findProgressStateRow(context.householdId, context.sessionId);
       if (state === undefined) {
         throw new DomainError(409, 'PLAYBACK_NOT_READY', '该会话未绑定进度状态,不能保存进度');
       }
       // 6. 资源修订变化:旧播放不改新资源历史
-      const currentRevision = readMediaRevision(tx, context.householdId, session.mediaId);
+      const currentRevision = tx.findMediaContentRevision(context.householdId, session.mediaId);
       if (currentRevision === undefined || currentRevision !== state.contentRevision) {
         throw createDomainError('PROGRESS_RESOURCE_CHANGED');
       }
@@ -262,7 +173,7 @@ export class ProgressWriteService implements IProgressWriteService {
         throw new DomainError(409, 'PLAYBACK_NOT_READY', '尚未确认首次播放,不能保存后续进度');
       }
       // 10. 写入权判定(first started 与后续样本共用;较新 epoch 才能抢占)
-      const history = readHistoryRow(tx, context.householdId, state.profileId, state.mediaId);
+      const history = tx.findHistoryRow(context.householdId, state.profileId, state.mediaId);
       const right = writeRightOf({
         history:
           history === undefined
@@ -285,7 +196,7 @@ export class ProgressWriteService implements IProgressWriteService {
       }
       let historyRevision: number | null = null;
       if (right === 'acquire' || right === 'owner') {
-        historyRevision = upsertHistory(tx, {
+        historyRevision = tx.upsertHistoryRow({
           householdId: context.householdId,
           profileId: state.profileId,
           mediaId: state.mediaId,
@@ -323,10 +234,9 @@ export class ProgressWriteService implements IProgressWriteService {
     readonly at: string;
     readonly final: { readonly sampleSeq: number; readonly expectedGeneration: number; readonly positionSeconds: number };
   }): ProgressSampleReply | null {
-    const db = getDb();
-    return db.transaction((tx): ProgressSampleReply | null => {
+    return personalDataStore().withTransaction((tx): ProgressSampleReply | null => {
       const session = readSessionRow(tx, input.householdId, input.sessionId);
-      const state = readProgressStateRow(tx, input.householdId, input.sessionId);
+      const state = tx.findProgressStateRow(input.householdId, input.sessionId);
       // 无进度绑定的会话(准备取消/直播):final 不可伪造 → 无写入
       if (state === undefined) {
         return null;
@@ -334,7 +244,7 @@ export class ProgressWriteService implements IProgressWriteService {
       if (session.generation !== input.final.expectedGeneration) {
         throw createDomainError('PLAYBACK_GENERATION_STALE');
       }
-      const currentRevision = readMediaRevision(tx, input.householdId, session.mediaId);
+      const currentRevision = tx.findMediaContentRevision(input.householdId, session.mediaId);
       if (currentRevision === undefined || currentRevision !== state.contentRevision) {
         throw createDomainError('PROGRESS_RESOURCE_CHANGED');
       }
@@ -362,7 +272,7 @@ export class ProgressWriteService implements IProgressWriteService {
       if (input.final.sampleSeq < state.lastSampleSeq) {
         return { applied: false, reason: 'stale_sample', historyRevision: null }; // 停止成功,不覆盖
       }
-      const history = readHistoryRow(tx, input.householdId, state.profileId, state.mediaId);
+      const history = tx.findHistoryRow(input.householdId, state.profileId, state.mediaId);
       const right = writeRightOf({
         history:
           history === undefined
@@ -374,7 +284,7 @@ export class ProgressWriteService implements IProgressWriteService {
       if (right === 'superseded') {
         return { applied: false, reason: 'superseded', historyRevision: null }; // 停止成功,不覆盖
       }
-      const historyRevision = upsertHistory(tx, {
+      const historyRevision = tx.upsertHistoryRow({
         householdId: input.householdId,
         profileId: state.profileId,
         mediaId: state.mediaId,
@@ -411,11 +321,7 @@ export class ProgressWriteService implements IProgressWriteService {
     if (probed !== null && Number.isFinite(probed) && probed > 0) {
       return probed;
     }
-    const row = getDb()
-      .select({ durationSeconds: profileViewingHistory.durationSeconds })
-      .from(profileViewingHistory)
-      .where(and(eq(profileViewingHistory.householdId, householdId), eq(profileViewingHistory.mediaId, mediaId)))
-      .get();
+    const row = personalDataStore().findHistoryDurationByMedia(householdId, mediaId);
     if (
       row?.durationSeconds !== undefined &&
       row.durationSeconds !== null &&
@@ -429,7 +335,7 @@ export class ProgressWriteService implements IProgressWriteService {
 
   /** 状态簿记(seq/digest/started/last_result);仅接受路径推进序号 */
   private bookkeepState(
-    tx: Db,
+    tx: PersonalDataTxStore,
     householdId: string,
     sessionId: string,
     input: {
@@ -440,15 +346,12 @@ export class ProgressWriteService implements IProgressWriteService {
       readonly result: StoredSampleResult;
     },
   ): void {
-    tx.update(playbackProgressState)
-      .set({
-        started: input.reason === 'started' ? 1 : undefined,
-        lastSampleSeq: input.sampleSeq,
-        lastSampleDigest: input.digest,
-        lastGeneration: input.expectedGeneration,
-        lastResult: encodeStoredResult(input.result),
-      })
-      .where(and(eq(playbackProgressState.householdId, householdId), eq(playbackProgressState.playbackSessionId, sessionId)))
-      .run();
+    tx.updateProgressStateRow(householdId, sessionId, {
+      started: input.reason === 'started' ? 1 : undefined,
+      lastSampleSeq: input.sampleSeq,
+      lastSampleDigest: input.digest,
+      lastGeneration: input.expectedGeneration,
+      lastResult: encodeStoredResult(input.result),
+    });
   }
 }
