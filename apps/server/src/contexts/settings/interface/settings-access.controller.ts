@@ -1,17 +1,17 @@
 import { Body, Controller, Delete, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
-import { SameOriginGuard } from '../../common/same-origin/same-origin.guard';
-import { SessionGuard } from '../../common/session.guard';
-import { CurrentSession } from '../../common/current-session.decorator';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { StrictBodyPipe } from '../../common/strict-input/strict-pipes';
-import { strictObject } from '../../common/strict-input/strict-schema';
+import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
+import { SessionGuard } from '../../../common/session.guard';
+import { CurrentSession } from '../../../common/current-session.decorator';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
+import { strictObject } from '../../../common/strict-input/strict-schema';
 import {
   readSettingsAccessStatus,
   revokeCurrentSessionGrant,
   type SettingsAccessBody,
-} from './settings-access-grant.service';
-import { verifyAndIssueSettingsAccess } from './settings-pin-verification.service';
+} from '@contexts/settings/application/settings-access-grant.service';
+import { verifyAndIssueSettingsAccess } from '@contexts/settings/application/settings-pin-verification.service';
 
 /**
  * /settings/access 独立入口契约路由(T083,005 contracts/api.md §6/§7):

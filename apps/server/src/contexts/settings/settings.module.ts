@@ -1,14 +1,14 @@
 import { Module } from '@nestjs/common';
 import { SourcesModule } from '@contexts/sources/sources.module';
-import { SettingsAccessController } from './settings-access.controller';
-import { SettingsAccountController } from './settings-account.controller';
-import { SettingsHouseholdController } from './settings-household.controller';
-import { SettingsProfilesController } from './settings-profiles.controller';
-import { SettingsPolicyController } from './settings-policy.controller';
-import { SettingsSourcesController, SettingsCatalogController } from './settings-sources.controller';
-import { SettingsEpgBindingController } from './settings-epg.controller';
-import { SettingsDevicesController } from './settings-devices.controller';
-import { SettingsGrantStartupRevocation } from './settings-access-revocation';
+import { SettingsAccessController } from '@contexts/settings/interface/settings-access.controller';
+import { SettingsAccountController } from '@contexts/settings/interface/settings-account.controller';
+import { SettingsHouseholdController } from '@contexts/settings/interface/settings-household.controller';
+import { SettingsProfilesController } from '@contexts/settings/interface/settings-profiles.controller';
+import { SettingsPolicyController } from '@contexts/settings/interface/settings-policy.controller';
+import { SettingsSourcesController, SettingsCatalogController } from '@contexts/settings/interface/settings-sources.controller';
+import { SettingsEpgBindingController } from '@contexts/settings/interface/settings-epg.controller';
+import { SettingsDevicesController } from '@contexts/settings/interface/settings-devices.controller';
+import { SettingsGrantStartupRevocation } from '@contexts/settings/application/settings-access-revocation';
 
 /**
  * 设置模块(T080~T085,US7;T125~T130,US8;ADR-0011):

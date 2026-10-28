@@ -11,16 +11,16 @@ import {
 } from '../../helpers';
 import { validateSessionToken } from '../../../src/common/session.guard';
 import type { SessionContext } from '../../../src/common/current-session.decorator';
-import { verifyAndIssueSettingsAccess } from '../../../src/modules/settings/settings-pin-verification.service';
+import { verifyAndIssueSettingsAccess } from '../../../src/contexts/settings/application/settings-pin-verification.service';
 import {
   getHouseholdSettings,
   patchHouseholdSettings,
-} from '../../../src/modules/settings/settings-household.service';
+} from '../../../src/contexts/settings/application/settings-household.service';
 import {
   createManagedProfile,
   patchManagedProfile,
   transferMainProfile,
-} from '../../../src/modules/settings/settings-profiles.service';
+} from '../../../src/contexts/settings/application/settings-profiles.service';
 import { updatePolicy } from '@contexts/policy/application/policy.service';
 
 /**

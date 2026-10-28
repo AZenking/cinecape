@@ -1,6 +1,6 @@
 import { ProblemCode } from '@hmp/shared';
-import { DomainError } from '../../common/domain-error';
-import type { SessionContext } from '../../common/current-session.decorator';
+import { DomainError } from '../../../common/domain-error';
+import type { SessionContext } from '../../../common/current-session.decorator';
 import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
 
 /**

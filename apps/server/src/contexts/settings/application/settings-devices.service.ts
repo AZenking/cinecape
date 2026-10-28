@@ -1,14 +1,14 @@
 import { and, desc, eq, lt, or, type SQL } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import type { PlaybackDelivery, PlaybackSessionState } from '../playback/playback.types';
-import { device, deviceSession, playbackFailureEvent, playbackSession } from '../../database/schema';
-import { DomainError } from '../../common/domain-error';
-import type { SessionContext } from '../../common/current-session.decorator';
+import type { PlaybackDelivery, PlaybackSessionState } from '../../../modules/playback/playback.types';
+import { device, deviceSession, playbackFailureEvent, playbackSession } from '../../../database/schema';
+import { DomainError } from '../../../common/domain-error';
+import type { SessionContext } from '../../../common/current-session.decorator';
 import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import { requireManagementRole } from '@contexts/identity-access/application/bootstrap.service';
 import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
 import { listHouseholdDevices, revokeHouseholdDevice, type DeviceDtoBody } from '@contexts/identity-access/application/device.service';
-import { requireValidSettingsGrantTx } from './settings-access-grant.service';
+import { requireValidSettingsGrantTx } from '@contexts/settings/application/settings-access-grant.service';
 
 /**
  * 设备与会话服务(T130,005 contracts/api.md §6「devices 三组」;FR-039/FR-040):

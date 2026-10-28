@@ -11,10 +11,10 @@ import {
 } from '../../helpers';
 import { validateSessionToken } from '../../../src/common/session.guard';
 import type { SessionContext } from '../../../src/common/current-session.decorator';
-import { verifyAndIssueSettingsAccess } from '../../../src/modules/settings/settings-pin-verification.service';
-import { changeAccountPassword } from '../../../src/modules/settings/settings-account.service';
-import { revokeDevice, queryDevicePlaybackRecords } from '../../../src/modules/settings/settings-devices.service';
-import { createManagedProfile } from '../../../src/modules/settings/settings-profiles.service';
+import { verifyAndIssueSettingsAccess } from '../../../src/contexts/settings/application/settings-pin-verification.service';
+import { changeAccountPassword } from '../../../src/contexts/settings/application/settings-account.service';
+import { revokeDevice, queryDevicePlaybackRecords } from '../../../src/contexts/settings/application/settings-devices.service';
+import { createManagedProfile } from '../../../src/contexts/settings/application/settings-profiles.service';
 import { randomUUID } from 'node:crypto';
 
 /**

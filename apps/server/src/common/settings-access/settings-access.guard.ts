@@ -3,7 +3,7 @@ import type { Request } from 'express';
 import { ProblemCode } from '@hmp/shared';
 import { DomainError } from '../domain-error';
 import type { SessionContext, SessionRequest } from '../current-session.decorator';
-import { requireValidSettingsGrant } from '../../modules/settings/settings-access-grant.service';
+import { requireValidSettingsGrant } from '@contexts/settings/application/settings-access-grant.service';
 
 /**
  * SettingsAccessGuard(T009 占位 → T083 填充,005 contracts/api.md §1 Settings 边界、

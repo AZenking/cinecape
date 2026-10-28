@@ -3,19 +3,19 @@ import type { Response } from 'express';
 import { z } from 'zod';
 import { and, eq } from 'drizzle-orm';
 import { ProblemCode, SESSION_COOKIE } from '@hmp/shared';
-import { env } from '../../config/env';
-import { account } from '../../database/schema';
-import { DomainError } from '../../common/domain-error';
-import { CurrentSession } from '../../common/current-session.decorator';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { SameOriginGuard } from '../../common/same-origin/same-origin.guard';
-import { SessionGuard } from '../../common/session.guard';
-import { SettingsAccessGuard } from '../../common/settings-access/settings-access.guard';
-import { StrictBodyPipe } from '../../common/strict-input/strict-pipes';
-import { strictObject } from '../../common/strict-input/strict-schema';
+import { env } from '../../../config/env';
+import { account } from '../../../database/schema';
+import { DomainError } from '../../../common/domain-error';
+import { CurrentSession } from '../../../common/current-session.decorator';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
+import { SessionGuard } from '../../../common/session.guard';
+import { SettingsAccessGuard } from '../../../common/settings-access/settings-access.guard';
+import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
+import { strictObject } from '../../../common/strict-input/strict-schema';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { changeAccountPassword } from './settings-account.service';
-import { requireValidSettingsGrant } from './settings-access-grant.service';
+import { changeAccountPassword } from '@contexts/settings/application/settings-account.service';
+import { requireValidSettingsGrant } from '@contexts/settings/application/settings-access-grant.service';
 
 /**
  * 账号与安全契约路由(T126,005 contracts/api.md §6):

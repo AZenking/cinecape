@@ -1,16 +1,16 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { z } from 'zod';
-import type { PlaybackRecordPageDto } from './settings-devices.service';
-import { CurrentSession } from '../../common/current-session.decorator';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { SameOriginGuard } from '../../common/same-origin/same-origin.guard';
-import { SessionGuard } from '../../common/session.guard';
-import { SettingsAccessGuard } from '../../common/settings-access/settings-access.guard';
-import { StrictBodyPipe } from '../../common/strict-input/strict-pipes';
-import { strictObject } from '../../common/strict-input/strict-schema';
+import type { PlaybackRecordPageDto } from '@contexts/settings/application/settings-devices.service';
+import { CurrentSession } from '../../../common/current-session.decorator';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
+import { SessionGuard } from '../../../common/session.guard';
+import { SettingsAccessGuard } from '../../../common/settings-access/settings-access.guard';
+import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
+import { strictObject } from '../../../common/strict-input/strict-schema';
 import { parseBody } from '@contexts/identity-access/interface/validation';
-import { listDevices, queryDevicePlaybackRecords, revokeDevice } from './settings-devices.service';
+import { listDevices, queryDevicePlaybackRecords, revokeDevice } from '@contexts/settings/application/settings-devices.service';
 
 /**
  * 设备与会话契约路由(T130,005 contracts/api.md §6「devices 三组」;api.md §8

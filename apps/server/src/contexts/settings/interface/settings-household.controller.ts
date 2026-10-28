@@ -1,17 +1,17 @@
 import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
-import { CurrentSession } from '../../common/current-session.decorator';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { SameOriginGuard } from '../../common/same-origin/same-origin.guard';
-import { SessionGuard } from '../../common/session.guard';
-import { SettingsAccessGuard } from '../../common/settings-access/settings-access.guard';
-import { StrictBodyPipe } from '../../common/strict-input/strict-pipes';
-import { strictObject } from '../../common/strict-input/strict-schema';
+import { CurrentSession } from '../../../common/current-session.decorator';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
+import { SessionGuard } from '../../../common/session.guard';
+import { SettingsAccessGuard } from '../../../common/settings-access/settings-access.guard';
+import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
+import { strictObject } from '../../../common/strict-input/strict-schema';
 import {
   getHouseholdSettings,
   patchHouseholdSettings,
   type HouseholdSettingsBody,
-} from './settings-household.service';
+} from '@contexts/settings/application/settings-household.service';
 
 /**
  * 通用设置契约路由(T130,005 contracts/api.md §6;FR-039):

@@ -1,9 +1,9 @@
 import { and, eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { account, deviceSession, household, profile } from '../../database/schema';
-import { DomainError, createDomainError } from '../../common/domain-error';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { env } from '../../config/env';
+import { account, deviceSession, household, profile } from '../../../database/schema';
+import { DomainError, createDomainError } from '../../../common/domain-error';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { env } from '../../../config/env';
 import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import { verifyPassword } from '@contexts/identity-access/infrastructure/password.service';
 import { requireManagementRole } from '@contexts/identity-access/application/bootstrap.service';
@@ -12,7 +12,7 @@ import {
   issueSettingsGrantTx,
   type IssuedSettingsGrant,
   type SettingsAccessBody,
-} from './settings-access-grant.service';
+} from '@contexts/settings/application/settings-access-grant.service';
 
 /**
  * 设置 PIN 验证服务(T082,005 data-model §3 + contracts/api.md §6/§7 + ADR-0011 决议 4)。

@@ -7,15 +7,15 @@ import {
   type EpgBindingDto,
   type EpgCandidatePageDto,
 } from '@hmp/shared';
-import { CurrentSession } from '../../common/current-session.decorator';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { DomainError } from '../../common/domain-error';
-import { SameOriginGuard } from '../../common/same-origin/same-origin.guard';
-import { SessionGuard } from '../../common/session.guard';
-import { SettingsAccessGuard } from '../../common/settings-access/settings-access.guard';
-import { StrictBodyPipe } from '../../common/strict-input/strict-pipes';
-import { deviceSession, mediaItem } from '../../database/schema';
-import { Database } from '../../database/database';
+import { CurrentSession } from '../../../common/current-session.decorator';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { DomainError } from '../../../common/domain-error';
+import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
+import { SessionGuard } from '../../../common/session.guard';
+import { SettingsAccessGuard } from '../../../common/settings-access/settings-access.guard';
+import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
+import { deviceSession, mediaItem } from '../../../database/schema';
+import { Database } from '../../../database/database';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
 import { parseBody } from '@contexts/identity-access/interface/validation';

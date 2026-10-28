@@ -1,17 +1,17 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import type { Profile } from '../../database/schema';
-import { account, deviceSession, profile } from '../../database/schema';
-import { DomainError, createDomainError } from '../../common/domain-error';
-import type { SessionContext } from '../../common/current-session.decorator';
+import type { Profile } from '../../../database/schema';
+import { account, deviceSession, profile } from '../../../database/schema';
+import { DomainError, createDomainError } from '../../../common/domain-error';
+import type { SessionContext } from '../../../common/current-session.decorator';
 import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
 import { requireManagementRole } from '@contexts/identity-access/application/bootstrap.service';
-import { verifyOwnerPassword } from './settings-owner-password';
+import { verifyOwnerPassword } from '@contexts/settings/application/settings-owner-password';
 import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
 import { revokeUnlockGrantsForProfile } from '@contexts/profile/application/pin.service';
-import { revokeSettingsGrantsForAccountTx } from './settings-access-revocation';
-import { requireValidSettingsGrantTx } from './settings-access-grant.service';
+import { revokeSettingsGrantsForAccountTx } from '@contexts/settings/application/settings-access-revocation';
+import { requireValidSettingsGrantTx } from '@contexts/settings/application/settings-access-grant.service';
 
 /**
  * 账号与安全服务(T126,005 contracts/api.md §6 + data-model.md §2 account + FR-035):

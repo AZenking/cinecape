@@ -1,19 +1,19 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
-import { CurrentSession } from '../../common/current-session.decorator';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { SameOriginGuard } from '../../common/same-origin/same-origin.guard';
-import { SessionGuard } from '../../common/session.guard';
-import { SettingsAccessGuard } from '../../common/settings-access/settings-access.guard';
-import { StrictBodyPipe } from '../../common/strict-input/strict-pipes';
-import { strictObject } from '../../common/strict-input/strict-schema';
+import { CurrentSession } from '../../../common/current-session.decorator';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
+import { SessionGuard } from '../../../common/session.guard';
+import { SettingsAccessGuard } from '../../../common/settings-access/settings-access.guard';
+import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
+import { strictObject } from '../../../common/strict-input/strict-schema';
 import {
   createManagedProfile,
   listManagedProfiles,
   patchManagedProfile,
   transferMainProfile,
   type MainProfileReplyBody,
-} from './settings-profiles.service';
+} from '@contexts/settings/application/settings-profiles.service';
 import type { ProfileSummaryBody } from '@contexts/identity-access/interface/account-session.dto';
 
 /**

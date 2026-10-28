@@ -17,7 +17,7 @@ import {
   readSettingsAccessStatus,
   requireValidSettingsGrant,
   revokeCurrentSessionGrant,
-} from '../../../src/modules/settings/settings-access-grant.service';
+} from '../../../src/contexts/settings/application/settings-access-grant.service';
 
 /**
  * T073(005 US7 单元测试,先 FAIL):settings_access_grant 签发/校验/撤销状态机。

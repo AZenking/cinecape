@@ -13,7 +13,7 @@ import { MediaCatalogModule } from '@contexts/media-catalog/media-catalog.module
 import { EpgModule } from '@contexts/epg/epg.module';
 import { PlaybackModule } from './modules/playback/playback.module';
 import { LiveTvModule } from '@contexts/live-tv/live-tv.module';
-import { SettingsModule } from './modules/settings/settings.module';
+import { SettingsModule } from '@contexts/settings/settings.module';
 import { PersonalDataModule } from '@contexts/personal-data/personal-data.module';
 
 @Module({

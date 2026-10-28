@@ -1,12 +1,12 @@
 import { eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { household } from '../../database/schema';
-import { DomainError, createDomainError } from '../../common/domain-error';
-import type { SessionContext } from '../../common/current-session.decorator';
+import { household } from '../../../database/schema';
+import { DomainError, createDomainError } from '../../../common/domain-error';
+import type { SessionContext } from '../../../common/current-session.decorator';
 import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import { requireManagementRole } from '@contexts/identity-access/application/bootstrap.service';
-import { verifyOwnerPassword } from './settings-owner-password';
-import { requireValidSettingsGrantTx } from './settings-access-grant.service';
+import { verifyOwnerPassword } from '@contexts/settings/application/settings-owner-password';
+import { requireValidSettingsGrantTx } from '@contexts/settings/application/settings-access-grant.service';
 
 /**
  * 通用设置服务(T130,005 contracts/api.md §6 + data-model.md §2 household + FR-039):

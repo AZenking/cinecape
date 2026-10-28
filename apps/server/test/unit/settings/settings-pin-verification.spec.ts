@@ -12,7 +12,7 @@ import {
 import { restartSettingsApp } from '../../helpers-settings';
 import { validateSessionToken } from '../../../src/common/session.guard';
 import type { SessionContext } from '../../../src/common/current-session.decorator';
-import { verifyAndIssueSettingsAccess } from '../../../src/modules/settings/settings-pin-verification.service';
+import { verifyAndIssueSettingsAccess } from '../../../src/contexts/settings/application/settings-pin-verification.service';
 
 /**
  * T074(005 US7 单元测试,先 FAIL):设置 PIN 验证竞态与持久失败锁定。

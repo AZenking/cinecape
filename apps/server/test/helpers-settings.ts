@@ -7,7 +7,7 @@ import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
-import { SettingsModule } from '../src/modules/settings/settings.module';
+import { SettingsModule } from '../src/contexts/settings/settings.module';
 import { Database } from '../src/database/database';
 import { loadEnv } from '../src/config/env.schema';
 import { setEnvOverride } from '../src/config/env';
