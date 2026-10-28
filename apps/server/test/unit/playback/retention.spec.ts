@@ -9,6 +9,14 @@ import { setEnvOverride } from '@platform/config/env';
 import { loadEnv } from '@platform/config/env.schema';
 import { createPlaybackBudgets, type PlaybackBudgets } from '@platform/config/playback-budgets';
 import { PlaybackRetentionService } from '../../../src/contexts/playback/application/playback-retention.service';
+import { bindPlaybackStore } from '../../../src/contexts/playback/application/playback-store.port';
+import { drizzlePlaybackStore } from '../../../src/contexts/playback/infrastructure/playback-store.drizzle';
+
+/**
+ * 008-T013(ADR-0015 D1):测试 rig 绑定仓储 seam(惰性 Database.db 解析,
+ * 每测试 close/重开单例仍正确;AppModule 路径由 PlaybackModule 幂等覆盖)。
+ */
+bindPlaybackStore(drizzlePlaybackStore());
 
 /**
  * 播放保留清理单元测试(T045,spec 004,US2b —— TDD 先行 RED 证据):
@@ -21,8 +29,8 @@ import { PlaybackRetentionService } from '../../../src/contexts/playback/applica
  *   budgets.lifecycle.recordRetentionDays=30(数值唯一权威 T010 config.spec)。
  * - budgets.ticket.expiredRetentionSeconds=24h:过期票保留时长,此后随每日清理删除
  *   —— 过期判定语义与仓储既有 deleteExpiredTickets 一致(expires_at 严格早于
- *   now-保留期;仓储 API 面被 repository.spec 钉死,本服务经 getDb() 直查补充
- *   「活跃 session 的票不删」保护,不改仓储)。
+ *   now-保留期;仓储 API 面被 repository.spec 钉死,本服务经本上下文仓储端口
+ *   直查补充「活跃 session 的票不删」保护,不改仓储)。
  * - 边界口径:审计保留「30 天」= 存活满 30 天即清理(occurred_at <= now-30d 删,
  *   恰好 30 天删/29 天留);过期票「24 小时保留」= 过期未满 24h 保留,过期且超出
  *   24h 删除,恰好 24h 保留(严格 lt,与仓储既有语义同源,不改判定基准)。

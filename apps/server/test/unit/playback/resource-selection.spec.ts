@@ -30,6 +30,8 @@ import { DomainError } from '@platform/http-common/domain-error';
 import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
+import { bindPlaybackStore } from '../../../src/contexts/playback/application/playback-store.port';
+import { drizzlePlaybackStore } from '../../../src/contexts/playback/infrastructure/playback-store.drizzle';
 import {
   PlaybackAuthorizationService,
   comparePlaybackCandidates,
@@ -42,6 +44,12 @@ import {
   type PlaybackProbePort,
 } from '../../../src/contexts/playback/application/playback-resolver.service';
 import { PlaybackTicketService } from '../../../src/contexts/playback/application/playback-ticket.service';
+
+/**
+ * 008-T013(ADR-0015 D1):测试 rig 绑定仓储 seam(惰性 Database.db 解析,
+ * 每测试 close/重开单例仍正确;AppModule 路径由 PlaybackModule 幂等覆盖)。
+ */
+bindPlaybackStore(drizzlePlaybackStore());
 
 /**
  * 资源选择与 preparing 会话单元测试(T019,spec 004;playback-resolver.service.ts 的被测底层)。

@@ -28,12 +28,20 @@ import {
 import { DomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
+import { bindPlaybackStore } from '../../../src/contexts/playback/application/playback-store.port';
+import { drizzlePlaybackStore } from '../../../src/contexts/playback/infrastructure/playback-store.drizzle';
 import { PlaybackAuthorizationService } from '../../../src/contexts/playback/application/playback-authorization.service';
 import {
   PLAYBACK_RENEW_LEAD_SECONDS,
   PlaybackTicketService,
   type TicketReply,
 } from '../../../src/contexts/playback/application/playback-ticket.service';
+
+/**
+ * 008-T013(ADR-0015 D1):测试 rig 绑定仓储 seam(惰性 Database.db 解析,
+ * 每测试 close/重开单例仍正确;AppModule 路径由 PlaybackModule 幂等覆盖)。
+ */
+bindPlaybackStore(drizzlePlaybackStore());
 
 /**
  * 播放票据服务单元测试(T018,spec 004;playback-ticket.service.ts 的被测底层)。

@@ -39,7 +39,16 @@ import {
 } from '../../../src/contexts/playback/application/playback-resolver.service';
 import { PlaybackSelectionService, type PlaybackTrackFactsPort } from '../../../src/contexts/playback/application/playback-selection.service';
 import { PlaybackTaskDirectoryLedger, PlaybackConversionBridge } from '../../../src/contexts/playback/playback.module';
+import { bindPlaybackStore } from '../../../src/contexts/playback/application/playback-store.port';
+import { drizzlePlaybackStore } from '../../../src/contexts/playback/infrastructure/playback-store.drizzle';
 import type { PlaybackErrorCode, PlaybackResult } from '../../../src/contexts/playback/domain/playback.types';
+
+/**
+ * 008-T013(ADR-0015 D1):测试 rig 绑定仓储 seam(惰性 Database.db 解析,
+ * 每测试 close/重开单例仍正确;AppModule 路径由 PlaybackModule 幂等覆盖;
+ * 本 spec 直接构造 PlaybackConversionBridge/authorization/resolver/selection,不经 Nest 容器)。
+ */
+bindPlaybackStore(drizzlePlaybackStore());
 
 /**
  * 转码交付接线单测(T033 缺口1/缺口2 修复;spec 004 US1 SC-007 四路径 HTTP 交付):

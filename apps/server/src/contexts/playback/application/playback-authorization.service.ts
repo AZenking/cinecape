@@ -1,20 +1,7 @@
-import { and, eq } from 'drizzle-orm';
 import { Inject, Injectable } from '@nestjs/common';
 import { ProblemCode } from '@hmp/shared';
-import {
-  account,
-  device,
-  deviceSession,
-  mediaItem,
-  mediaSource,
-  playbackSource,
-  profile,
-  profilePolicy,
-  sourceEntry,
-} from '@platform/database/schema';
 import { createDomainError, DomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { getDb } from '@contexts/identity-access';
 import {
   authorizeCurrentProfile,
   defaultPolicyValues,
@@ -22,6 +9,11 @@ import {
   type MediaPolicyFacts,
 } from '@contexts/policy';
 import { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
+import {
+  playbackStore,
+  type ProfileRow,
+  type TrustedSessionRow,
+} from '@contexts/playback/application/playback-store.port';
 import type { PlaybackDelivery } from '@contexts/playback/domain/playback.types';
 
 /**
@@ -44,8 +36,8 @@ import type { PlaybackDelivery } from '@contexts/playback/domain/playback.types'
  * - 策略:委托 policy.service 的 authorizeCurrentProfile(唯一判定核心 evaluatePolicy),
  *   每次实时读最新策略,不缓存;拒绝映射见 policyDenialToError(策略拒绝统一 404 同形,
  *   不返回策略明细;策略缺失/损坏 503 fail-closed)。
- * - 家庭可用资源:候选只取「present 条目 × 启用父源 × 播放资源」(本服务直查 Drizzle 只读
- *   投影,join 链与 policy.batch-context 的可用性定义一致;不经 PlaybackRepository 新方法,
+ * - 家庭可用资源:候选只取「present 条目 × 启用父源 × 播放资源」(本上下文仓储端口
+ *   playbackStore 只读投影,join 链与 policy.batch-context 的可用性定义一致;不经 PlaybackRepository 新方法,
  *   保持其 T011 已钉死的 API 面不变);零候选(媒体无启用源/家庭级零可用资源)一律 404
  *   MEDIA_NOT_FOUND 同形 —— T037 裁决 ①:api.md「稳定错误」权威口径「404 MEDIA_NOT_FOUND
  *   (不存在/跨家庭/不可见/无源同形)」,resolve 路径不再使用 503
@@ -168,49 +160,12 @@ function policyDenialToError(reason: AuthorizationReason): DomainError {
   return createDomainError('MEDIA_NOT_FOUND');
 }
 
-/** 自联查询投影(id 键控,与 SessionGuard 的 token 键控同管线同字段口径) */
-interface TrustedSessionRow {
-  sessionId: string;
-  sessionHouseholdId: string;
-  sessionAccountId: string;
-  sessionDeviceId: string;
-  activeProfileId: string | null;
-  sessionExpiresAt: string;
-  sessionRevokedAt: string | null;
-  accountUsername: string;
-  accountRole: string;
-  accountHouseholdId: string;
-  deviceRevokedAt: string | null;
-  profileHouseholdId: string | null;
-  profileAccountId: string | null;
-  /** 当前身份上下文版本(005 data-model §2;授权快照捕获与控制链路重验的唯一事实源) */
-  profileContextVersion: number;
-}
-
+/**
+ * 自联查询投影(id 键控,与 SessionGuard 的 token 键控同管线同字段口径;
+ * 008-T013 起查询经 playbackStore().findTrustedSessionRow,投影类型见 playback-store.port)
+ */
 function loadTrustedSessionRow(sessionId: string): TrustedSessionRow | undefined {
-  return getDb()
-    .select({
-      sessionId: deviceSession.id,
-      sessionHouseholdId: deviceSession.householdId,
-      sessionAccountId: deviceSession.accountId,
-      sessionDeviceId: deviceSession.deviceId,
-      activeProfileId: deviceSession.activeProfileId,
-      sessionExpiresAt: deviceSession.expiresAt,
-      sessionRevokedAt: deviceSession.revokedAt,
-      accountUsername: account.username,
-      accountRole: account.role,
-      accountHouseholdId: account.householdId,
-      deviceRevokedAt: device.revokedAt,
-      profileHouseholdId: profile.householdId,
-      profileAccountId: profile.accountId,
-      profileContextVersion: deviceSession.profileContextVersion,
-    })
-    .from(deviceSession)
-    .innerJoin(account, eq(account.id, deviceSession.accountId))
-    .innerJoin(device, eq(device.id, deviceSession.deviceId))
-    .leftJoin(profile, eq(profile.id, deviceSession.activeProfileId))
-    .where(eq(deviceSession.id, sessionId))
-    .get();
+  return playbackStore().findTrustedSessionRow(sessionId);
 }
 
 function rowToSessionContext(row: TrustedSessionRow): SessionContext {
@@ -347,11 +302,7 @@ export class PlaybackAuthorizationService {
 
   /** 设备会话当前身份上下文版本(库内实时事实;行缺失按未认证同形拒绝) */
   private currentContextVersion(sessionId: string): number {
-    const row = getDb()
-      .select({ profileContextVersion: deviceSession.profileContextVersion })
-      .from(deviceSession)
-      .where(eq(deviceSession.id, sessionId))
-      .get();
+    const row = playbackStore().findDeviceSessionContextVersion(sessionId);
     if (row === undefined) {
       throw sessionInvalid();
     }
@@ -403,12 +354,12 @@ export class PlaybackAuthorizationService {
   }
 
   /** 当前观看者链:必须存在、归属会话家庭+账号且 active(运行中停用/删除/伪造 → 403) */
-  private requireActiveProfileRow(trusted: SessionContext): typeof profile.$inferSelect {
+  private requireActiveProfileRow(trusted: SessionContext): ProfileRow {
     const activeProfileId = trusted.session.activeProfileId;
     if (activeProfileId === null) {
       throw activeProfileRequired();
     }
-    const row = getDb().select().from(profile).where(eq(profile.id, activeProfileId)).get();
+    const row = playbackStore().findProfileRowById(activeProfileId);
     if (
       row === undefined ||
       row.householdId !== trusted.session.householdId ||
@@ -429,16 +380,12 @@ export class PlaybackAuthorizationService {
   private assertBoundProfileCurrent(
     boundProfileId: string,
     trusted: SessionContext,
-    activeProfile: typeof profile.$inferSelect,
+    activeProfile: ProfileRow,
   ): void {
     if (boundProfileId === activeProfile.id) {
       return;
     }
-    const bound = getDb()
-      .select()
-      .from(profile)
-      .where(and(eq(profile.householdId, trusted.session.householdId), eq(profile.id, boundProfileId)))
-      .get();
+    const bound = playbackStore().findProfileRowInHousehold(trusted.session.householdId, boundProfileId);
     if (bound !== undefined && bound.pinHash !== null) {
       throw new DomainError(403, ProblemCode.PROFILE_PIN_REQUIRED, '该 Profile 受 PIN 保护,请先解锁');
     }
@@ -466,11 +413,7 @@ export class PlaybackAuthorizationService {
 
   /** 目标媒体类型(授权已放行后的读取;仅用于 startMode 透传校验,不下发客户端) */
   private readTrustedMediaType(householdId: string, mediaId: string): MediaPolicyFacts['type'] {
-    const row = getDb()
-      .select({ type: mediaItem.type })
-      .from(mediaItem)
-      .where(and(eq(mediaItem.householdId, householdId), eq(mediaItem.id, mediaId)))
-      .get();
+    const row = playbackStore().findMediaItemType(householdId, mediaId);
     if (row === undefined) {
       // 授权已放行后理论上不可达;防御性归一 MEDIA_NOT_FOUND 同形
       throw createDomainError('MEDIA_NOT_FOUND');
@@ -489,35 +432,27 @@ export class PlaybackAuthorizationService {
     if (activeProfileId === null) {
       return; // 无当前档案:authorizeCurrentProfile 统一 403,不回填
     }
-    const existing = getDb()
-      .select({ profileId: profilePolicy.profileId })
-      .from(profilePolicy)
-      .where(eq(profilePolicy.profileId, activeProfileId))
-      .get();
+    const existing = playbackStore().findProfilePolicyProfileId(activeProfileId);
     if (existing !== undefined) {
       return; // 已有行(含损坏行):不触碰,fail-closed 语义由判定核心承担
     }
-    const row = getDb().select().from(profile).where(eq(profile.id, activeProfileId)).get();
+    const row = playbackStore().findProfileRowById(activeProfileId);
     if (row === undefined) {
       return;
     }
     const defaults = defaultPolicyValues(row.type as 'adult' | 'child');
     try {
-      getDb()
-        .insert(profilePolicy)
-        .values({
-          householdId: trusted.session.householdId,
-          profileId: activeProfileId,
-          maxContentLevel: defaults.maxContentLevel,
-          allowUnrated: defaults.allowUnrated ? 1 : 0,
-          allowedMediaIds: '[]',
-          blockedMediaIds: '[]',
-          allowedChannelIds: '[]',
-          version: 1,
-          updatedAt: new Date().toISOString(),
-        })
-        .onConflictDoNothing()
-        .run();
+      playbackStore().insertProfilePolicyOnConflictNothing({
+        householdId: trusted.session.householdId,
+        profileId: activeProfileId,
+        maxContentLevel: defaults.maxContentLevel,
+        allowUnrated: defaults.allowUnrated ? 1 : 0,
+        allowedMediaIds: '[]',
+        blockedMediaIds: '[]',
+        allowedChannelIds: '[]',
+        version: 1,
+        updatedAt: new Date().toISOString(),
+      });
     } catch {
       // 竞态下另一请求已回填/约束拒绝:交由随后的判定链以库内事实裁决
     }
@@ -530,11 +465,7 @@ export class PlaybackAuthorizationService {
    * 与零可用资源(404 同形)对客户端不可区分,不互相掩盖也不泄露家庭资源面。
    */
   private readTrustedMediaFacts(householdId: string, mediaId: string): MediaPolicyFacts | null {
-    const row = getDb()
-      .select()
-      .from(mediaItem)
-      .where(and(eq(mediaItem.householdId, householdId), eq(mediaItem.id, mediaId)))
-      .get();
+    const row = playbackStore().findMediaItemRowInHousehold(householdId, mediaId);
     if (row === undefined) {
       return null;
     }
@@ -579,37 +510,14 @@ export class PlaybackAuthorizationService {
   }
 
   /**
-   * 只读:家庭内某媒体的「已启用可用」播放资源候选行(直查 Drizzle,不经仓储新方法,
-   * 保持 PlaybackRepository 的 T011 API 面不变)。join 链与谓词对齐 policy.batch-context
-   * 的可用性定义:present 条目 × 启用父源 × 播放资源记录,且 media_item_id 与条目 media_id
-   * 指向同一媒体。投影刻意排除 location/mime 等私有字段 —— 授权结果只携带 id 与排序事实。
+   * 只读:家庭内某媒体的「已启用可用」播放资源候选行(经本上下文仓储端口只读投影,
+   * 不经仓储新方法,保持 PlaybackRepository 的 T011 API 面不变)。join 链与谓词对齐
+   * policy.batch-context 的可用性定义:present 条目 × 启用父源 × 播放资源记录,且
+   * media_item_id 与条目 media_id 指向同一媒体。投影刻意排除 location/mime 等私有
+   * 字段 —— 授权结果只携带 id 与排序事实。
    */
   private listEnabledPlaybackResources(householdId: string, mediaId: string) {
-    const rows = getDb()
-      .select({
-        playbackSourceId: playbackSource.id,
-        sourceId: playbackSource.sourceId,
-        protocol: playbackSource.protocol,
-      })
-      .from(playbackSource)
-      .innerJoin(
-        mediaSource,
-        and(eq(mediaSource.householdId, playbackSource.householdId), eq(mediaSource.id, playbackSource.sourceId)),
-      )
-      .innerJoin(
-        sourceEntry,
-        and(eq(sourceEntry.householdId, playbackSource.householdId), eq(sourceEntry.id, playbackSource.sourceEntryId)),
-      )
-      .where(
-        and(
-          eq(playbackSource.householdId, householdId),
-          eq(playbackSource.mediaItemId, mediaId),
-          eq(sourceEntry.mediaId, mediaId),
-          eq(mediaSource.enabled, 1),
-          eq(sourceEntry.present, 1),
-        ),
-      )
-      .all();
+    const rows = playbackStore().listEnabledPlaybackResourceRows(householdId, mediaId);
     return rows;
   }
 }

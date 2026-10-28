@@ -1,9 +1,7 @@
-import { eq } from 'drizzle-orm';
 import { createDomainError, type DomainError } from '@platform/http-common/domain-error';
 import type { PlaybackBudgets } from '@platform/config/playback-budgets';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { getDb } from '@contexts/identity-access';
-import { deviceSession, playbackSession } from '@platform/database/schema';
+import { playbackStore } from '@contexts/playback/application/playback-store.port';
 import type { PlaybackAuthorizationService, PlaybackResourceCandidate } from '@contexts/playback/application/playback-authorization.service';
 import type { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
 import type { PlaybackProgressBindPort, PlaybackResumePositionPort } from '@contexts/personal-data';
@@ -436,39 +434,24 @@ export class PlaybackResolverService {
 
   /** 会话媒体 ID 只读投影(resume 冻结读取需要;行缺失回退空串,冻结为 0) */
   private sessionMediaIdOf(sessionId: string): string {
-    const row = getDb()
-      .select({ mediaId: playbackSession.mediaId })
-      .from(playbackSession)
-      .where(eq(playbackSession.id, sessionId))
-      .get();
+    const row = playbackStore().findSessionMediaId(sessionId);
     return row?.mediaId ?? '';
   }
 
   /**
    * 上下文版本复查(T051):playback_session 捕获的 profile_context_version 必须仍等于
-   * 其 DeviceSession 当前版本。不等(或行已缺失)→ false。直查 getDb()(与
+   * 其 DeviceSession 当前版本。不等(或行已缺失)→ false。经本上下文仓储端口直查(与
    * authorization/lifecycle 同一先例,不扩仓储 API 面)。
    */  private identityContextCurrent(sessionId: string): boolean {
-    const row = getDb()
-      .select({
-        sessionContextVersion: playbackSession.profileContextVersion,
-        deviceSessionId: playbackSession.deviceSessionId,
-      })
-      .from(playbackSession)
-      .where(eq(playbackSession.id, sessionId))
-      .get();
+    const row = playbackStore().findSessionContextBinding(sessionId);
     if (row === undefined) {
       return false;
     }
-    const device = getDb()
-      .select({ profileContextVersion: deviceSession.profileContextVersion })
-      .from(deviceSession)
-      .where(eq(deviceSession.id, row.deviceSessionId))
-      .get();
+    const device = playbackStore().findDeviceSessionContextVersion(row.deviceSessionId);
     if (device === undefined) {
       return false;
     }
-    return row.sessionContextVersion === device.profileContextVersion;
+    return row.profileContextVersion === device.profileContextVersion;
   }
 
   /**

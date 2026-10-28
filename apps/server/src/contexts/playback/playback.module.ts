@@ -4,14 +4,14 @@ import path from 'node:path';
 import { Inject, Injectable, Module, type OnModuleInit } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import type DatabaseConstructor from 'better-sqlite3';
-import { and, eq, inArray } from 'drizzle-orm';
 import { createPlaybackBudgets } from '@platform/config/playback-budgets';
 import { getConfig } from '@platform/config/env';
 import type { MediaRoots } from '@platform/config/env.schema';
 import { Database } from '@platform/database/database';
-import { playbackConversion, playbackSession } from '@platform/database/schema';
-import { getDb } from '@contexts/identity-access';
 import { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
+import { bindPlaybackStore, playbackStore } from '@contexts/playback/application/playback-store.port';
+import { drizzlePlaybackStore } from '@contexts/playback/infrastructure/playback-store.drizzle';
+import { PLAYBACK_STORE } from '@contexts/playback/playback.tokens';
 import { PlaybackAuthorizationService } from '@contexts/playback/application/playback-authorization.service';
 import { NasReaderService } from '@contexts/playback/infrastructure/nas-reader';
 import { HlsProxyService } from '@contexts/playback/infrastructure/hls-proxy.service';
@@ -329,17 +329,11 @@ export class PlaybackConversionBridge implements PlaybackRebuildCoordinator {
    */
   async cancelSupersededGeneration(sessionId: string, supersededGeneration: number): Promise<void> {
     const householdId = this.householdIdOfSession(sessionId);
-    const rows = getDb()
-      .select({ id: playbackConversion.id, householdId: playbackConversion.householdId })
-      .from(playbackConversion)
-      .where(
-        and(
-          eq(playbackConversion.sessionId, sessionId),
-          eq(playbackConversion.generation, supersededGeneration),
-          inArray(playbackConversion.state, [...PLAYBACK_CONVERSION_ACTIVE_STATES]),
-        ),
-      )
-      .all();
+    const rows = playbackStore().listActiveConversionRowsForGeneration(
+      sessionId,
+      supersededGeneration,
+      [...PLAYBACK_CONVERSION_ACTIVE_STATES],
+    );
     await Promise.allSettled(rows.map((row) => this.deps.supervisor.cancel(row.id)));
     if (householdId === null) {
       return;
@@ -432,11 +426,7 @@ export class PlaybackConversionBridge implements PlaybackRebuildCoordinator {
         // 竞速已被其他臂收口:返回值不再被采纳(占位稳定码,调用方已不读取)
         return 'PLAYBACK_RESOURCE_UNAVAILABLE';
       }
-      const row = getDb()
-        .select({ state: playbackConversion.state, failureCode: playbackConversion.failureCode })
-        .from(playbackConversion)
-        .where(eq(playbackConversion.id, conversionId))
-        .get();
+      const row = playbackStore().findConversionState(conversionId);
       if (row === undefined) {
         // 行未落库(seek 有界重试的 BUSY 窗口内本任务尚无预留行):继续观察,
         // 不作失败信号 —— 期限兜底由看门狗相位硬超时承担
@@ -455,11 +445,7 @@ export class PlaybackConversionBridge implements PlaybackRebuildCoordinator {
 
   /** 会话归属家庭只读投影(换代资源回收键;无行 → null,资源回收无从谈起) */
   private householdIdOfSession(sessionId: string): string | null {
-    const row = getDb()
-      .select({ householdId: playbackSession.householdId })
-      .from(playbackSession)
-      .where(eq(playbackSession.id, sessionId))
-      .get();
+    const row = playbackStore().findSessionHouseholdId(sessionId);
     return row?.householdId ?? null;
   }
 
@@ -732,6 +718,13 @@ class PlaybackBootstrapper implements OnModuleInit {
   imports: [HttpCommonModule, PersonalDataModule],
   controllers: [PlaybackController, PlaybackStreamController],
   providers: [
+    // 008-repository-extraction(ADR-0015 D1):装配期绑定仓储 seam ——
+    // PLAYBACK_STORE provider 实例化时经 bindPlaybackStore 注入 Drizzle 实现
+    // (惰性 getDb 解析,Database 单例重开安全);不经 HTTP 暴露,不导出。
+    {
+      provide: PLAYBACK_STORE,
+      useFactory: () => bindPlaybackStore(drizzlePlaybackStore()),
+    },
     // T011 仓储(类 token + 工厂;预算工厂期读取「当前」已校验 env)
     {
       provide: PlaybackRepository,

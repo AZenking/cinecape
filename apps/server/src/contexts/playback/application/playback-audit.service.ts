@@ -1,11 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
 import { Injectable } from '@nestjs/common';
 import { ProblemCode } from '@hmp/shared';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { DomainError } from '@platform/http-common/domain-error';
-import { mediaItem, playbackFailureEvent, playbackSource, profile, sourceEntry } from '@platform/database/schema';
-import { getDb } from '@contexts/identity-access';
+import { playbackStore } from '@contexts/playback/application/playback-store.port';
 
 /**
  * 播放审计服务(T043,spec 004,US2b)—— resolve 拒绝写 playback_failure_event:
@@ -24,8 +22,8 @@ import { getDb } from '@contexts/identity-access';
  * - 仓储 recordFailureEvent 的 stable_code 守卫(isPlaybackStableErrorCode)仅接受
  *   PLAYBACK_* 词表,而本任务的 stable_code 权威是「该次拒绝的公开 problem code」
  *   (MEDIA_NOT_FOUND 等共享码);仓储 API 面被 repository.spec 钉死 21 方法禁止修改,
- *   故本服务经 getDb() 直插(playback-authorization/lifecycle 同款先例)。DDL CHECK 仅
- *   length(stable_code) >= 1,共享码形态合法。
+ *   故本服务经本上下文仓储端口直插(playback-authorization/lifecycle 同款先例)。DDL
+ *   CHECK 仅 length(stable_code) >= 1,共享码形态合法。
  *
  * 「可见性」口径(与测试夹具语义一致,schema 无可见列):媒体行存在于本家庭
  * (media_item.household_id=会话家庭)且存在 present=1 的 source_entry 回链且挂有
@@ -66,19 +64,16 @@ export class PlaybackAuditService {
         return; // 无效会话(伪造/过期/撤销):仅脱敏安全日志语义,不写设备记录
       }
       const householdId = context.session.householdId;
-      getDb()
-        .insert(playbackFailureEvent)
-        .values({
-          id: randomUUID(),
-          householdId,
-          deviceSessionId: context.session.id,
-          deviceId: context.session.deviceId,
-          profileId: this.resolvableProfileIdOrNull(householdId, context.session.activeProfileId),
-          mediaId: this.visibleMediaIdOrNull(householdId, requestedMediaId),
-          occurredAt: options.at ?? new Date().toISOString(),
-          stableCode: error.code,
-        })
-        .run();
+      playbackStore().insertFailureEvent({
+        id: randomUUID(),
+        householdId,
+        deviceSessionId: context.session.id,
+        deviceId: context.session.deviceId,
+        profileId: this.resolvableProfileIdOrNull(householdId, context.session.activeProfileId),
+        mediaId: this.visibleMediaIdOrNull(householdId, requestedMediaId),
+        occurredAt: options.at ?? new Date().toISOString(),
+        stableCode: error.code,
+      });
     } catch {
       // 审计尽力而为:FK 竞态/约束等任何写入异常不得改变客户端可见的拒绝响应
     }
@@ -93,11 +88,7 @@ export class PlaybackAuditService {
     if (activeProfileId === null) {
       return null;
     }
-    const row = getDb()
-      .select({ id: profile.id })
-      .from(profile)
-      .where(and(eq(profile.householdId, householdId), eq(profile.id, activeProfileId)))
-      .get();
+    const row = playbackStore().findHouseholdProfileId(householdId, activeProfileId);
     return row === undefined ? null : activeProfileId;
   }
 
@@ -107,33 +98,15 @@ export class PlaybackAuditService {
    * 客户端原始目标 ID 不落库(不外泄不可见媒体标识,spec SC-004)。
    */
   private visibleMediaIdOrNull(householdId: string, requestedMediaId: string): string | null {
-    const media = getDb()
-      .select({ id: mediaItem.id })
-      .from(mediaItem)
-      .where(and(eq(mediaItem.householdId, householdId), eq(mediaItem.id, requestedMediaId)))
-      .get();
+    const media = playbackStore().findHouseholdMediaId(householdId, requestedMediaId);
     if (media === undefined) {
       return null;
     }
-    const entry = getDb()
-      .select({ id: sourceEntry.id })
-      .from(sourceEntry)
-      .where(
-        and(
-          eq(sourceEntry.householdId, householdId),
-          eq(sourceEntry.mediaId, requestedMediaId),
-          eq(sourceEntry.present, 1),
-        ),
-      )
-      .get();
+    const entry = playbackStore().findPresentSourceEntryId(householdId, requestedMediaId);
     if (entry === undefined) {
       return null;
     }
-    const source = getDb()
-      .select({ id: playbackSource.id })
-      .from(playbackSource)
-      .where(and(eq(playbackSource.householdId, householdId), eq(playbackSource.mediaItemId, requestedMediaId)))
-      .get();
+    const source = playbackStore().findPlaybackSourceIdByMedia(householdId, requestedMediaId);
     return source === undefined ? null : requestedMediaId;
   }
 }

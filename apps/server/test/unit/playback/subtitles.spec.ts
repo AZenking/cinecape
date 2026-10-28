@@ -22,6 +22,8 @@ import { account, device, deviceSession, profilePolicy } from '@platform/databas
 import { DomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
+import { bindPlaybackStore } from '../../../src/contexts/playback/application/playback-store.port';
+import { drizzlePlaybackStore } from '../../../src/contexts/playback/infrastructure/playback-store.drizzle';
 import { PlaybackAuthorizationService } from '../../../src/contexts/playback/application/playback-authorization.service';
 import { NasReaderService } from '../../../src/contexts/playback/infrastructure/nas-reader';
 import type { PlaybackProbeFacts } from '../../../src/contexts/playback/application/playback-resolver.service';
@@ -34,6 +36,12 @@ import {
   type SubtitleSourceLocator,
 } from '../../../src/contexts/playback/infrastructure/playback-subtitles.service';
 import type { MediaRoots } from '@platform/config/env.schema';
+
+/**
+ * 008-T013(ADR-0015 D1):测试 rig 绑定仓储 seam(惰性 Database.db 解析,
+ * 每测试 close/重开单例仍正确;AppModule 路径由 PlaybackModule 幂等覆盖)。
+ */
+bindPlaybackStore(drizzlePlaybackStore());
 
 /**
  * 播放字幕服务单元测试(T030,spec 004;playback-subtitles.service.ts 的被测底层)。

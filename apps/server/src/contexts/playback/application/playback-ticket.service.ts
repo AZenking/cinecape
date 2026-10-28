@@ -1,9 +1,8 @@
-import { eq } from 'drizzle-orm';
 import { createDomainError, type DomainError } from '@platform/http-common/domain-error';
 import type { PlaybackBudgets } from '@platform/config/playback-budgets';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { getDb, generateToken, hashToken } from '@contexts/identity-access';
-import { deviceSession, playbackSession, playbackTicket } from '@platform/database/schema';
+import { generateToken, hashToken } from '@contexts/identity-access';
+import { playbackStore } from '@contexts/playback/application/playback-store.port';
 import { isPlaybackTerminalSessionState } from '@contexts/playback/domain/playback.types';
 import type { PlaybackAuthorizationService } from '@contexts/playback/application/playback-authorization.service';
 import type { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
@@ -143,14 +142,14 @@ export class PlaybackTicketService {
    *    playback_session 行当前实时 generation —— 旧代票立即失效,无论会话 ready/preparing
    *    (api.md seek 行「旧票立即失效」),不符 → 401 INVALID。
    *
-   * 库内事实全部实时读取(getDb 直查,authorization/lifecycle 同款先例,不扩仓储 API 面),
-   * 不缓存任何正结果;票据维度拒绝统一 401 同形,不泄露存在性。
+   * 库内事实全部实时读取(经本上下文仓储端口直查,authorization/lifecycle 同款先例,
+   * 不扩仓储 API 面),不缓存任何正结果;票据维度拒绝统一 401 同形,不泄露存在性。
    */
   validateStreamTicket(
     token: string,
     bound: { readonly sessionId: string; readonly generation: number; readonly deviceSessionId: string },
   ): void {
-    const row = getDb().select().from(playbackTicket).where(eq(playbackTicket.tokenHash, hashToken(token))).get();
+    const row = playbackStore().findTicketRowByTokenHash(hashToken(token));
     if (row === undefined || row.revokedAt !== null) {
       throw createDomainError('PLAYBACK_TICKET_INVALID');
     }
@@ -160,7 +159,7 @@ export class PlaybackTicketService {
     if (row.sessionId !== bound.sessionId) {
       throw createDomainError('PLAYBACK_TICKET_INVALID');
     }
-    const session = getDb().select().from(playbackSession).where(eq(playbackSession.id, bound.sessionId)).get();
+    const session = playbackStore().findPlaybackSessionRowById(bound.sessionId);
     if (session === undefined) {
       throw createDomainError('PLAYBACK_TICKET_INVALID');
     }
@@ -172,11 +171,7 @@ export class PlaybackTicketService {
       throw createDomainError('PLAYBACK_TICKET_INVALID');
     }
     // 家庭边界先于设备绑定(请求设备会话行经 SessionGuard 必存在,此处防御性同形 404)
-    const requester = getDb()
-      .select({ householdId: deviceSession.householdId })
-      .from(deviceSession)
-      .where(eq(deviceSession.id, bound.deviceSessionId))
-      .get();
+    const requester = playbackStore().findDeviceSessionHouseholdId(bound.deviceSessionId);
     if (requester === undefined || requester.householdId !== session.householdId) {
       // 跨家庭:404 PLAYBACK_NOT_FOUND 同形(api.md 控制行「跨设备/家庭 session 统一 404」)
       throw createDomainError('PLAYBACK_NOT_FOUND');

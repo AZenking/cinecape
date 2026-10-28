@@ -30,6 +30,8 @@ import { ProblemJsonFilter } from '@platform/http-common/problem-json.filter';
 import { redactQueryTicket, redactSourcePaths, summarizeFfmpegStderr } from '@platform/http-common/log-redaction.util';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
+import { bindPlaybackStore } from '../../../src/contexts/playback/application/playback-store.port';
+import { drizzlePlaybackStore } from '../../../src/contexts/playback/infrastructure/playback-store.drizzle';
 import { PlaybackAuthorizationService } from '../../../src/contexts/playback/application/playback-authorization.service';
 import { HlsProxyService, validateUpstreamHop } from '../../../src/contexts/playback/infrastructure/hls-proxy.service';
 import { PlaybackAssetsService } from '../../../src/contexts/playback/application/playback-assets.service';
@@ -48,6 +50,12 @@ import {
   PlaybackSubtitlesService,
   type SubtitleSourceLocator,
 } from '../../../src/contexts/playback/infrastructure/playback-subtitles.service';
+
+/**
+ * 008-T013(ADR-0015 D1):测试 rig 绑定仓储 seam(惰性 Database.db 解析,
+ * 每测试 close/重开单例仍正确;AppModule 路径由 PlaybackModule 幂等覆盖)。
+ */
+bindPlaybackStore(drizzlePlaybackStore());
 
 /**
  * 输入安全聚合单测(T036,spec 004 US2)—— 跨服务组合攻击面 / 凭据泄漏 / header 后脱敏 / 伪造输入。

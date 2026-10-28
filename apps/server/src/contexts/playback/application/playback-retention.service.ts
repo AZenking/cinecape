@@ -1,8 +1,6 @@
-import { inArray, lt, lte } from 'drizzle-orm';
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import type { PlaybackBudgets } from '@platform/config/playback-budgets';
-import { playbackFailureEvent, playbackSession, playbackTicket } from '@platform/database/schema';
-import { getDb } from '@contexts/identity-access';
+import { playbackStore } from '@contexts/playback/application/playback-store.port';
 import { PLAYBACK_ACTIVE_SESSION_STATES } from '@contexts/playback/domain/playback.types';
 
 /**
@@ -24,7 +22,7 @@ import { PLAYBACK_ACTIVE_SESSION_STATES } from '@contexts/playback/domain/playba
  * - playback_ticket:expires_at 严格早于 now-24h 的过期票删除(与仓储既有
  *   deleteExpiredTickets 同一判定基准,语义由 repository.spec 钉死;恰好 24h 保留);
  *   并叠加「活跃 session 的票不删」保护(preparing/ready/playing/paused 会话名下的
- *   票一律不清理 —— 过期只代表不可用,不代表可回收;保护经 getDb() 直查实现,
+ *   票一律不清理 —— 过期只代表不可用,不代表可回收;保护经本上下文仓储端口直查实现,
  *   不新增/不修改 PlaybackRepository 方法,T011 API 面保持不变);
  * - playback_session / playback_conversion / 媒体身份行不在清理面内:活跃或终态
  *   session、转换与目录身份全部原样保留。
@@ -142,11 +140,7 @@ export class PlaybackRetentionService implements OnApplicationShutdown {
    */
   private pruneExpiredFailureEvents(nowMs: number): number {
     const horizonMs = nowMs - this.deps.budgets.lifecycle.recordRetentionDays * 86_400_000;
-    const result = getDb()
-      .delete(playbackFailureEvent)
-      .where(lte(playbackFailureEvent.occurredAt, iso(horizonMs)))
-      .run();
-    return result.changes;
+    return playbackStore().deleteFailureEventsAtOrBefore(iso(horizonMs));
   }
 
   /**
@@ -158,30 +152,17 @@ export class PlaybackRetentionService implements OnApplicationShutdown {
    */
   private pruneExpiredTickets(nowMs: number): number {
     const cutoffMs = nowMs - this.deps.budgets.ticket.expiredRetentionSeconds * 1000;
-    const expired = getDb()
-      .select({ id: playbackTicket.id, sessionId: playbackTicket.sessionId })
-      .from(playbackTicket)
-      .where(lt(playbackTicket.expiresAt, iso(cutoffMs)))
-      .all();
+    const expired = playbackStore().listExpiredTicketRowsBefore(iso(cutoffMs));
     if (expired.length === 0) {
       return 0;
     }
     const activeSessionIds = new Set(
-      getDb()
-        .select({ id: playbackSession.id })
-        .from(playbackSession)
-        .where(inArray(playbackSession.state, [...PLAYBACK_ACTIVE_SESSION_STATES]))
-        .all()
-        .map((row) => row.id),
+      playbackStore().listSessionIdsInStates([...PLAYBACK_ACTIVE_SESSION_STATES]),
     );
     const deletableIds = expired.filter((row) => !activeSessionIds.has(row.sessionId)).map((row) => row.id);
     if (deletableIds.length === 0) {
       return 0;
     }
-    const result = getDb()
-      .delete(playbackTicket)
-      .where(inArray(playbackTicket.id, deletableIds))
-      .run();
-    return result.changes;
+    return playbackStore().deleteTicketsByIds(deletableIds);
   }
 }

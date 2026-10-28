@@ -1,10 +1,8 @@
-import { eq } from 'drizzle-orm';
 import { createDomainError, DomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import type { PlaybackBudgets } from '@platform/config/playback-budgets';
 import { ProblemCode } from '@hmp/shared';
-import { getDb } from '@contexts/identity-access';
-import { playbackTicket } from '@platform/database/schema';
+import { playbackStore } from '@contexts/playback/application/playback-store.port';
 import type { PlaybackAuthorizationService } from '@contexts/playback/application/playback-authorization.service';
 import type { PlaybackDto, PlaybackProbeFacts } from '@contexts/playback/application/playback-resolver.service';
 import type { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
@@ -30,7 +28,7 @@ import {
  *   PLAYBACK_NOT_READY;「## playback_ticket」:换代后旧 generation 无论 TTL 不可用 ——
  *   根修为票校验的实时 generation 绑定(T037 裁决 ③:ticket.validateStreamTicket 以
  *   票代 === 会话当前代拒绝旧代票,api.md seek 行「旧票立即失效」);本服务叠加卫生层:
- *   换代提交成功后撤销该会话全部未撤销票行(经 getDb() 枚举 + 仓储既有单票 revokeTicket,
+ *   换代提交成功后撤销该会话全部未撤销票行(经本上下文仓储端口枚举 + 仓储既有单票 revokeTicket,
  *   lifecycle/authorization 同款「不扩仓储 API 面」先例),保持票行生命周期一致性;
  *   撤销失败不阻断换代响应(票代绑定已独立兜底)。
  * - contracts/api.md selection/seek 行为:「时间轴及请求预算」节(timelineOffsetSeconds/presentationStartSeconds
@@ -502,17 +500,13 @@ export class PlaybackSelectionService {
    * 换代票撤销卫生层(T037 裁决 ③(a)):撤销该会话全部未撤销票行,保持「换代后旧票失效」
    * 的票行生命周期一致性(api.md seek 行「旧票立即失效」)。仓储无「按会话撤销」原子入口
    * 且其 API 面被 repository.spec 钉死(T011),故按 authorization/lifecycle 同款先例经
-   * getDb() 只读枚举票行 + 组合仓储既有单票 revokeTicket 完成,不新增仓储方法。
+   * 本上下文仓储端口只读枚举票行 + 组合仓储既有单票 revokeTicket 完成,不新增仓储方法。
    * 撤销失败不阻断换代响应:E3 的根修是票校验的实时 generation 绑定
    * (ticket.validateStreamTicket,票代 === 会话当前代),本层为一致性卫生层。
    */
   private revokeSessionTickets(householdId: string, sessionId: string): void {
     try {
-      const rows = getDb()
-        .select({ id: playbackTicket.id, revokedAt: playbackTicket.revokedAt })
-        .from(playbackTicket)
-        .where(eq(playbackTicket.sessionId, sessionId))
-        .all();
+      const rows = playbackStore().listSessionTicketRows(sessionId);
       for (const row of rows) {
         if (row.revokedAt !== null) {
           continue; // 已撤销幂等跳过(revokeTicket 自身亦幂等,此处省去短事务开销)
