@@ -78,7 +78,7 @@
 **Independent Test**: `audit:boundaries` 全规则 0 违规（evidence/boundary-audit.md）+ 路由清单与 T005 基线 0 diff + `test`/`test:runtime` 全绿
 
 - [X] T020 [US2] 建立发布面：为 `apps/server/src/contexts/` 下 10 个上下文各创建 `index.ts` 与 `<context>.tokens.ts`（导出白名单 = contracts/internal-context-contracts.md：应用服务接口 + 注入令牌 + 跨上下文类型；禁止导出实现类/repository/DTO/controller）
-- [ ] T021 [US2] Nest module exports 对齐：各上下文 `<context>.module.ts` 仅 `exports` 发布的应用服务提供者（令牌绑定经 `useClass`/`useFactory` 指向 infrastructure 实现）；`app.module.ts` 相应更新；端口绑定不落在 domain/application 文件中
+- [X] T021 [US2] Nest module exports 对齐：各上下文 `<context>.module.ts` 仅 `exports` 发布的应用服务提供者（令牌绑定经 `useClass`/`useFactory` 指向 infrastructure 实现）；`app.module.ts` 相应更新；端口绑定不落在 domain/application 文件中
 - [ ] T022 [US2] 深导入改造：按 `audit:boundaries` 报告将全部跨上下文深导入改为经发布接口或 `@hmp/shared` 契约；确需反转的环按 research.md D3 处理并在 ADR 补记
 - [ ] T023 [US2] 框架渗漏清零：将 `@nestjs/*`、`drizzle-orm`、`better-sqlite3`、`express` 导入移出全部 `contexts/*/domain` 与 `contexts/*/application` 文件（端口移至 infrastructure，令牌绑定移至装配处）
 - [ ] T024 [US2] 边界审计归零留档：`audit:boundaries` 全规则 0 违规，输出存 `evidence/boundary-audit.md`

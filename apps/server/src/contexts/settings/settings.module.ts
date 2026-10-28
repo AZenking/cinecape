@@ -9,6 +9,9 @@ import { SettingsSourcesController, SettingsCatalogController } from '@contexts/
 import { SettingsEpgBindingController } from '@contexts/settings/interface/settings-epg.controller';
 import { SettingsDevicesController } from '@contexts/settings/interface/settings-devices.controller';
 import { SettingsGrantStartupRevocation } from '@contexts/settings/application/settings-access-revocation';
+import { requireValidSettingsGrant } from '@contexts/settings/application/settings-access-grant.service';
+import { SETTINGS_ACCESS_GRANT_PORT } from '@contexts/settings/settings.tokens';
+import type { ISettingsAccessGrantService } from '@contexts/settings/settings.ports';
 
 /**
  * 设置模块(T080~T085,US7;T125~T130,US8;ADR-0011):
@@ -31,6 +34,10 @@ import { SettingsGrantStartupRevocation } from '@contexts/settings/application/s
  *   Nest 模块缓存);SettingsGrantStartupRevocation:onApplicationBootstrap 执行
  *   「启动时撤销所有 grants」(data-model §3);
  * - SettingsAccessGuard 居 common/(T009 扩展点),经具名导入直接 @UseGuards 挂载。
+ *
+ * 007-T021:发布面令牌装配 —— 跨上下文消费的 settings-access-grant.service 以令牌
+ * provider 发布(纯函数模块经 useValue 函数束 + satisfies 对齐 ports 接口,零行为
+ * 变化);exports 仅发布令牌(platform 守卫消费方迁移属 T022,其 r4 边保持原样)。
  */
 @Module({
   imports: [SourcesModule],
@@ -45,6 +52,13 @@ import { SettingsGrantStartupRevocation } from '@contexts/settings/application/s
     SettingsEpgBindingController,
     SettingsDevicesController,
   ],
-  providers: [SettingsGrantStartupRevocation],
+  providers: [
+    SettingsGrantStartupRevocation,
+    {
+      provide: SETTINGS_ACCESS_GRANT_PORT,
+      useValue: { requireValidSettingsGrant } satisfies ISettingsAccessGrantService,
+    },
+  ],
+  exports: [SETTINGS_ACCESS_GRANT_PORT],
 })
 export class SettingsModule {}

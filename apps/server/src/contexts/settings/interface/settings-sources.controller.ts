@@ -15,7 +15,9 @@ import { SameOriginGuard } from '@platform/http-common/same-origin/same-origin.g
 import { SessionGuard } from '@platform/http-common/session.guard';
 import { SettingsAccessGuard } from '@platform/http-common/settings-access/settings-access.guard';
 import { StrictBodyPipe } from '@platform/http-common/strict-input/strict-pipes';
-import { RefreshExecutorService } from '@contexts/sources/application/refresh-executor.service';
+import { type RefreshExecutorService } from '@contexts/sources/application/refresh-executor.service';
+// 007-T021:SourcesModule exports 已对齐令牌,注入改经发布令牌(裸导入 = 发布面契约)
+import { REFRESH_EXECUTOR_PORT } from '@contexts/sources';
 import { parseBody } from '@contexts/identity-access/interface/validation';
 import { isParsableRemoteUrl } from '@contexts/sources/domain/source-target.validation';
 import {
@@ -143,8 +145,9 @@ const patchMediaRequestSchema = z
 
 @Controller('settings')
 export class SettingsSourcesController {
-  // 显式 @Inject 令牌:不依赖 emitDecoratorMetadata(契约测试经 vitest/esbuild 转译,无该元数据)
-  constructor(@Inject(RefreshExecutorService) private readonly refreshExecutor: RefreshExecutorService) {}
+  // 显式 @Inject 令牌:不依赖 emitDecoratorMetadata(契约测试经 vitest/esbuild 转译,无该元数据);
+  // 007-T021 起注入发布令牌(useExisting 别名,与原类 provider 同一实例)
+  constructor(@Inject(REFRESH_EXECUTOR_PORT) private readonly refreshExecutor: RefreshExecutorService) {}
 
   /** GET /settings/sources:分页脱敏概览(Settings 边界) */
   @Get('sources')

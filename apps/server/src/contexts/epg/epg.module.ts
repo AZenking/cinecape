@@ -1,6 +1,15 @@
 import { Module } from '@nestjs/common';
 import { HttpCommonModule } from '@platform/http-common/http-common.module';
 import { PublicGuideController } from '@contexts/epg/interface/public-guide.controller';
+import { EPG_MANUAL_BINDING_PORT, EPG_SERVICE_PORT } from '@contexts/epg/epg.tokens';
+import {
+  getBindingState,
+  listEpgCandidates,
+  saveBinding,
+  unbindBinding,
+} from '@contexts/epg/application/manual-epg-binding.service';
+import { getMediaProgrammes } from '@contexts/epg/application/epg.service';
+import type { IEpgManualBindingService, IEpgService } from '@contexts/epg/epg.ports';
 
 /**
  * EPG 节目指南模块(T042/T115;005 contracts/api.md §2、data-model.md §8):
@@ -14,11 +23,26 @@ import { PublicGuideController } from '@contexts/epg/interface/public-guide.cont
  * - PublicGuideController(US6 T115):GET /public/guide 公共 EPG 墙窗口
  *   (guide-calendar/guide-window.service/binding-core/catalog-revision 纯函数核心;
  *   Public 边界匿名、guide 限频 30 次/分钟、严格入参、409/422 语义)。
+ *
+ * 007-T021:发布面令牌装配 —— 跨上下文消费的应用服务(manual-epg-binding/epg.service)
+ * 以令牌 provider 发布(纯函数模块经 useValue 函数束 + satisfies 对齐 ports 接口,
+ * 零行为变化);exports 仅发布令牌,消费方迁移属 T022。
  */
 @Module({
   // CommonModule 提供 RateLimitGuard 的 RateLimitService(与 AuthModule 同一惯例;
   // US4 执行者越界最小修复:US6 T115 挂载守卫后全应用 boot 失败,详见最终报告)
   imports: [HttpCommonModule],
   controllers: [PublicGuideController],
+  providers: [
+    {
+      provide: EPG_MANUAL_BINDING_PORT,
+      useValue: { getBindingState, listEpgCandidates, saveBinding, unbindBinding } satisfies IEpgManualBindingService,
+    },
+    {
+      provide: EPG_SERVICE_PORT,
+      useValue: { getMediaProgrammes } satisfies IEpgService,
+    },
+  ],
+  exports: [EPG_MANUAL_BINDING_PORT, EPG_SERVICE_PORT],
 })
 export class EpgModule {}

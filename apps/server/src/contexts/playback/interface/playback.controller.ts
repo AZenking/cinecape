@@ -20,7 +20,9 @@ import { PlaybackSelectionService } from '@contexts/playback/application/playbac
 import { PlaybackLifecycleService } from '@contexts/playback/infrastructure/playback-lifecycle.service';
 import { PlaybackRateLimitService, type PlaybackRateLimitBucket } from '@contexts/playback/application/playback-rate-limit.service';
 import { PlaybackAuditService } from '@contexts/playback/application/playback-audit.service';
-import { ProgressWriteService, type ProgressSampleReply } from '@contexts/personal-data/application/progress-write.service';
+import { type ProgressWriteService, type ProgressSampleReply } from '@contexts/personal-data/application/progress-write.service';
+// 007-T021:PersonalDataModule exports 已对齐令牌,注入改经发布令牌(裸导入 = 发布面契约)
+import { PROGRESS_WRITE_PORT } from '@contexts/personal-data';
 
 /**
  * 播放控制端点(T031,spec 004)—— resolve/GET session/renew/heartbeat/stop/selection/seek。
@@ -206,7 +208,7 @@ export class PlaybackController {
     @Inject(PlaybackSelectionService) private readonly selection: PlaybackSelectionService,
     @Inject(PlaybackRateLimitService) private readonly rateLimit: PlaybackRateLimitService,
     @Inject(PlaybackAuditService) private readonly audit: PlaybackAuditService,
-    @Inject(ProgressWriteService) private readonly progressWrite: ProgressWriteService,
+    @Inject(PROGRESS_WRITE_PORT) private readonly progressWrite: ProgressWriteService,
   ) {}
 
   /**

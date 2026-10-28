@@ -6,6 +6,9 @@ import { HttpCommonModule } from '@platform/http-common/http-common.module';
 import { RateLimitGuard } from '@platform/http-common/rate-limit/rate-limit.guard';
 import { RateLimitService } from '@platform/http-common/rate-limit/rate-limit.service';
 import { PublicCatalogService } from '@contexts/media-catalog/application/public-catalog.service';
+import { patchMediaMetadata, queryCandidates } from '@contexts/media-catalog/application/catalog-admin.service';
+import { MEDIA_CATALOG_CATALOG_ADMIN_PORT } from '@contexts/media-catalog/media-catalog.tokens';
+import type { ICatalogAdminService } from '@contexts/media-catalog/media-catalog.ports';
 import { CatalogController } from '@contexts/media-catalog/interface/catalog.controller';
 import { PublicCatalogController } from '@contexts/media-catalog/interface/public-catalog.controller';
 
@@ -38,10 +41,22 @@ Reflect.defineMetadata(PARAMTYPES_METADATA, [RateLimitService, Reflector], RateL
  * 接线说明(供 app.module.ts 注册,本任务不改该文件):
  *   import { PublicCatalogModule } from './modules/public-catalog/public-catalog.module';
  *   imports: [..., PublicCatalogModule]
+ *
+ * 007-T021:发布面令牌装配 —— 跨上下文消费的 catalog-admin.service 以令牌 provider
+ * 发布(纯函数模块经 useValue 函数束 + satisfies 对齐 ports 接口,零行为变化);
+ * PublicCatalogService 仍被本上下文控制器类引用注入,原 provider 保留(并存惯例);
+ * exports 仅发布令牌,消费方迁移属 T022。
  */
 @Module({
   imports: [HttpCommonModule],
   controllers: [CatalogController, PublicCatalogController],
-  providers: [PublicCatalogService],
+  providers: [
+    PublicCatalogService,
+    {
+      provide: MEDIA_CATALOG_CATALOG_ADMIN_PORT,
+      useValue: { patchMediaMetadata, queryCandidates } satisfies ICatalogAdminService,
+    },
+  ],
+  exports: [MEDIA_CATALOG_CATALOG_ADMIN_PORT],
 })
 export class MediaCatalogModule {}

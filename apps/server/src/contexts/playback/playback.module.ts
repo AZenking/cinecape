@@ -51,11 +51,10 @@ import { PlaybackRetentionService } from '@contexts/playback/application/playbac
 import { PlaybackController } from '@contexts/playback/interface/playback.controller';
 import { PlaybackStreamController } from '@contexts/playback/interface/playback-stream.controller';
 import { PersonalDataModule } from '@contexts/personal-data/personal-data.module';
-import {
-  ProgressClockService,
-  registerPersonalPlaybackFactsPort,
-} from '@contexts/personal-data/application/progress-clock.service';
-import { ProgressWriteService } from '@contexts/personal-data/application/progress-write.service';
+import { registerPersonalPlaybackFactsPort } from '@contexts/personal-data/application/progress-clock.service';
+import { PROGRESS_CLOCK_PORT, PROGRESS_WRITE_PORT } from '@contexts/personal-data';
+import type { ProgressClockService } from '@contexts/personal-data/application/progress-clock.service';
+import type { ProgressWriteService } from '@contexts/personal-data/application/progress-write.service';
 import type { PlaybackFinalProgressPort } from '@contexts/playback/infrastructure/playback-lifecycle.service';
 import { HttpCommonModule } from '@platform/http-common/http-common.module';
 import {
@@ -834,7 +833,9 @@ class PlaybackBootstrapper implements OnModuleInit {
         PLAYBACK_PROBE_PORT,
         PLAYBACK_CONVERSION_LAUNCH_PORT,
         PLAYBACK_SESSION_SOURCE_PORT,
-        ProgressClockService,
+        // T021:PersonalDataModule exports 已对齐令牌,类 token 不再跨上下文可见 ——
+        // 注入改经 PROGRESS_CLOCK_PORT(useExisting 别名,同一实例)
+        PROGRESS_CLOCK_PORT,
       ],
     },
     // T100 可信时长装配桥(resolver probe 事实 → personal 写入状态机;注册表避免模块环)
@@ -917,7 +918,8 @@ class PlaybackBootstrapper implements OnModuleInit {
         ConversionStorageService,
         PlaybackAssetsService,
         PlaybackTaskDirectoryLedger,
-        ProgressWriteService,
+        // T021:同上 —— PersonalDataModule 令牌 exports,注入改经 PROGRESS_WRITE_PORT
+        PROGRESS_WRITE_PORT,
       ],
     },
     // 转换装配桥接(换代协同 + 看门狗/监督者/暂停配对;转换交付入口 launchAndWaitFirstOutput())
