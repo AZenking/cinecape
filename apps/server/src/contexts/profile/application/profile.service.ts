@@ -1,13 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, ne } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
 import type { Profile } from '@platform/database/schema';
-import { deviceSession, profile, profilePolicy } from '@platform/database/schema';
+import { profile, profilePolicy } from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { getDb, type Db } from '@contexts/identity-access';
-import { revokeUnlockGrantsForProfile } from '@contexts/profile/application/pin.service';
-import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
 import { defaultPolicyValues } from '@contexts/policy';
 
 /**
@@ -61,15 +59,6 @@ export function assertNotLastActiveProfile(activeOtherCount: number): void {
 // ---------------------------------------------------------------------------
 // 查询
 // ---------------------------------------------------------------------------
-
-export function listProfiles(householdId: string): ProfileDtoBody[] {
-  const rows = getDb()
-    .select()
-    .from(profile)
-    .where(eq(profile.householdId, householdId)) // 显式 household 边界(FR-006)
-    .all();
-  return rows.map(toProfileDto);
-}
 
 /** 白名单式输出:pin_hash / failed_pin_count / pin_locked_until 永不出现在 DTO(FR-007) */
 export function toProfileDto(row: Profile): ProfileDtoBody {
@@ -174,149 +163,13 @@ function insertDefaultPolicy(tx: Db, row: Profile): void {
     .run();
 }
 
-export interface UpdateProfileCommand {
-  profileId: string;
-  householdId: string;
-  accountId: string;
-  name?: string;
-  avatar?: string;
-  isDefault?: boolean;
-  status?: 'active' | 'disabled';
-  clearPin?: boolean;
-  /** 新 PIN 的 argon2id 哈希(控制器预先计算);与 clearPin 同时出现时 clearPin 优先 */
-  pinHash?: string;
-}
-
-export function updateProfile(command: UpdateProfileCommand): ProfileDtoBody {
-  return getDb().transaction((tx) => {
-    const row = tx
-      .select()
-      .from(profile)
-      .where(
-        and(
-          eq(profile.id, command.profileId),
-          eq(profile.householdId, command.householdId),
-          eq(profile.accountId, command.accountId),
-        ),
-      )
-      .get();
-    if (row === undefined) {
-      throw new DomainError(404, ProblemCode.NOT_FOUND);
-    }
-
-    const patch: {
-      name?: string;
-      avatar?: string | null;
-      isDefault?: number;
-      status?: string;
-      pinHash?: string | null;
-      failedPinCount?: number;
-      pinLockedUntil?: string | null;
-      pinVersion?: number;
-    } = {};
-    if (command.name !== undefined) {
-      patch.name = command.name;
-    }
-    if (command.avatar !== undefined) {
-      patch.avatar = command.avatar;
-    }
-
-    // clearPin / PIN 变更:重置 PIN 状态机,并作废该档案全部未消费解锁授予(旧授予不得绕过新 PIN)。
-    // 005 data-model §2:PIN 更新同事务递增 pin_version,并强制重新选档 ——
-    // 清空所有当前选用该档案的设备会话 active_profile_id、递增各自 profile_context_version、
-    // 终态化相关活动播放并撤票(clearDeviceSessionsProfile,不能只撤授予保留旧活动身份)。
-    let pinChanged = false;
-    if (command.clearPin === true) {
-      patch.pinHash = null;
-      patch.failedPinCount = 0;
-      patch.pinLockedUntil = null;
-      patch.pinVersion = row.pinVersion + 1;
-      pinChanged = true;
-    } else if (command.pinHash !== undefined) {
-      patch.pinHash = command.pinHash;
-      patch.failedPinCount = 0;
-      patch.pinLockedUntil = null;
-      patch.pinVersion = row.pinVersion + 1;
-      pinChanged = true;
-    }
-
-    const disabling = command.status === 'disabled' && row.status === 'active';
-    if (disabling) {
-      // FR-013:家庭内至少保留一个可用 Profile(事务内校验,SQLite 写串行无竞态)
-      const activeOthers = tx
-        .select({ id: profile.id })
-        .from(profile)
-        .where(
-          and(
-            eq(profile.householdId, row.householdId),
-            eq(profile.status, 'active'),
-            ne(profile.id, row.id),
-          ),
-        )
-        .all();
-      assertNotLastActiveProfile(activeOthers.length);
-    }
-    if (command.status !== undefined) {
-      patch.status = command.status;
-    }
-
-    // 重新启用保留了默认标记的档案 → 先清其他可用默认,避免部分唯一索引瞬时冲突
-    const reEnablingWithDefault = command.status === 'active' && row.status === 'disabled' && row.isDefault === 1;
-    if (command.isDefault === true || reEnablingWithDefault) {
-      swapActiveDefaultTo(tx, row.householdId, row.id);
-      patch.isDefault = 1;
-    } else if (command.isDefault === false) {
-      patch.isDefault = 0;
-    }
-
-    if (Object.keys(patch).length > 0) {
-      tx.update(profile).set(patch).where(eq(profile.id, row.id)).run();
-    }
-
-    /**
-     * 身份失效级联(T052,005 data-model §2;同一事务):
-     * - 停用(T028/FR-016 扩展):不只清 active_profile_id —— 同事务递增受影响设备会话的
-     *   profile_context_version、终态化该档案上下文的活动播放并撤票、撤销设置授予;
-     * - PIN 变更:同上(强制重新选档)。
-     * 两条路径共用「使用该档案的全部设备会话」定位;无使用会话时为无害 no-op。
-     */
-    if (disabling || pinChanged) {
-      const usingSessions = tx
-        .select({ id: deviceSession.id })
-        .from(deviceSession)
-        .where(
-          and(
-            eq(deviceSession.householdId, row.householdId),
-            eq(deviceSession.activeProfileId, row.id),
-          ),
-        )
-        .all();
-      clearDeviceSessionsProfile(tx, {
-        householdId: row.householdId,
-        deviceSessionIds: usingSessions.map((session) => session.id),
-        profileId: row.id,
-      });
-    }
-
-    // PIN 变更/清除成功落库后才作废授予(事务已保证一致性,此处仅内存副作用)
-    if (patch.pinHash !== undefined) {
-      revokeUnlockGrantsForProfile(row.id);
-    }
-
-    const updated = tx.select().from(profile).where(eq(profile.id, row.id)).get();
-    if (updated === undefined) {
-      throw new DomainError(404, ProblemCode.NOT_FOUND);
-    }
-    return toProfileDto(updated);
-  });
-}
-
 // ---------------------------------------------------------------------------
 // select(T026 → T038 已迁移)
 // ---------------------------------------------------------------------------
 // 选档逻辑(select/unlock)自 T038(005-US2)起由 profile-selection.service.ts
 // 承载:身份版本递增、设置授予撤销与播放终态化在 identity-transition.ts 挂钩。
-// 本文件保留管理性 CRUD(US8 迁移 /settings/profiles 前的既有契约)。
+// 007-T031:旧管理面 updateProfile 已随 005-US8 整体迁往 settings 上下文
+// (settings-profiles.service 自带同语义实现),本文件零消费副本删除。
 
 // ---------------------------------------------------------------------------
 // 事务内助手

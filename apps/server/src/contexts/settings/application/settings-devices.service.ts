@@ -25,7 +25,7 @@ import { requireValidSettingsGrantTx } from '@contexts/settings/application/sett
  *
  * 记录查询/DTO 所有权(005 US8 收口):设备播放记录入口已随管理迁移整体收口到
  * settings(005 api.md §6 末行 + §8「不保留旧 /devices 管理入口」)——旧
- * modules/playback/playback-records.controller(POST /api/devices/...)已删除,
+ * 旧 playback 管理控制器 playback-records.controller(POST /api/devices/...)已删除,
  * playback.module 不再注册;本文件为记录查询与 openapi 记录 DTO 的唯一权威实现
  * (键集分页语义与被删除的 004 控制器逐义相同:记录只含脱敏字段、(time,id) 倒序、
  * base64url 游标;服务层额外承担 Settings 授予重验与 owner-only)。

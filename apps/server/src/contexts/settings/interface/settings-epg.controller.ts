@@ -33,7 +33,7 @@ import {
  *   (当次密码);
  * - PUT /settings/catalog/media/{mediaId}/epg-binding:逐频道手动匹配与解除
  *   (当次密码 + expectedVersion;manual 失效不自动回退)。
- * 复用 modules/epg 域核心(manual-epg-binding.service)只读 import:匹配/解除语义、
+ * 复用 contexts/epg 域核心(manual-epg-binding.service)只读 import:匹配/解除语义、
  * manual 失效派生与 catalog revision 递增全部沿用;不引入定时同步、模糊匹配或批量匹配;
  * 旧 /catalog/media 管理入口随本次迁移删除(epg.module.ts 不再注册旧控制器)。
  */

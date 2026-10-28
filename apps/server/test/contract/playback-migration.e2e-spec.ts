@@ -19,7 +19,7 @@ import { cleanupRigs, startFreshApp, type TestRig } from '../helpers';
  *   夹具复用 test/helpers.ts 的 startFreshApp/cleanupRigs(migrations 选项 + 临时 DATA_DIR)。
  *
  * RED 约定:0005_playback 迁移目录由 T007/T008 落地;在其存在之前本文件全部用例必须失败
- * (未找到 src/database/migrations/0005_playback/up.sql)。本测试不实现迁移本身。
+ * (未找到 src/platform/database/migrations/0005_playback/up.sql)。本测试不实现迁移本身。
  *
  * 全部用例只用 os.tmpdir 临时 DATA_DIR,不触碰用户库;afterEach cleanupRigs()。
  *
@@ -66,7 +66,7 @@ function sha256(input: string): string {
 function migrationSql(name: string, file: 'up.sql' | 'down.sql'): string {
   const p = path.join(process.cwd(), 'src/platform/database/migrations', name, file);
   if (!fs.existsSync(p)) {
-    throw new Error(`未找到迁移文件 ${p} —— T007/T008 应创建 src/database/migrations/${name}/${file}(T006 为先行的失败测试)`);
+    throw new Error(`未找到迁移文件 ${p} —— T007/T008 应创建 src/platform/database/migrations/${name}/${file}(T006 为先行的失败测试)`);
   }
   return fs.readFileSync(p, 'utf8');
 }

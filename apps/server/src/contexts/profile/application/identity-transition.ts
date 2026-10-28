@@ -16,7 +16,7 @@ import type { Db } from '@contexts/identity-access';
  *  及撤销对应票据在同一事务」。A→B→A 至少递增两次(每次实际变化各递增一次)。
  *
  * 本文件是 profile/auth 两个模块共享的最小挂钩实现(纯 DB 事务内操作,无 I/O):
- * - modules/playback 的 PlaybackLifecycleService 依赖注入式回收(异步、监督者取消转换)
+ * - contexts/playback 的 PlaybackLifecycleService 依赖注入式回收(异步、监督者取消转换)
  *   无法在调用方短事务内复用,故此处按同一终态语义做最小同步实现:
  *   失权属系统回收 → state='interrupted'(与 playback-lifecycle 的失权终态选择一致,
  *   failure_code 仅 failed 非空,故不写);票据按会话撤销;

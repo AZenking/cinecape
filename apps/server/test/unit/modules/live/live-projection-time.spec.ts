@@ -22,7 +22,7 @@ import { loadLiveChannelWindows } from '@contexts/live-tv/application/live-proje
  * - EPG 同步失败与「成功但无节目」区分:两者对公开直播都表现为该频道 current/next=null,
  *   但频道本身(可用性由来源条目决定)仍返回;频道可用性不由 EPG 是否存在决定;
  * - 手动关联优先、手动失效不回退自动(语义与 epg.service 既有匹配核心一致;
- *   批量核心位于 modules/live,不含 ProfilePolicy)。
+ *   批量核心位于 contexts/live-tv,不含 ProfilePolicy)。
  */
 
 /** 固定 now:2026-06-01T12:00:00.000Z(全部用例锚定,不取 Date.now) */

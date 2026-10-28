@@ -24,12 +24,7 @@ export const PLAYBACK_ACTIVE_SESSION_STATES = ['preparing', 'ready', 'playing', 
 /** 终态:不可复活(data-model:终态不可复活) */
 export const PLAYBACK_TERMINAL_SESSION_STATES = ['ended', 'failed', 'interrupted'] as const;
 
-export type PlaybackActiveSessionState = (typeof PLAYBACK_ACTIVE_SESSION_STATES)[number];
 export type PlaybackTerminalSessionState = (typeof PLAYBACK_TERMINAL_SESSION_STATES)[number];
-
-export function isPlaybackActiveSessionState(state: string): state is PlaybackActiveSessionState {
-  return (PLAYBACK_ACTIVE_SESSION_STATES as readonly string[]).includes(state);
-}
 
 export function isPlaybackTerminalSessionState(state: string): state is PlaybackTerminalSessionState {
   return (PLAYBACK_TERMINAL_SESSION_STATES as readonly string[]).includes(state);

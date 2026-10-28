@@ -2,7 +2,7 @@
  * 可注入时钟(T012,quickstart 先决条件):
  * - 被测代码面向 Clock 接口取时/等待,测试注入 ManualClock 用 advance() 推进虚拟时间,
  *   覆盖导入预算(总 120s/空闲 15s)与待确认 24h 过期等场景,不真实睡眠;
- * - systemClock 为真实时间默认实现,接口一致便于替换。
+ *   需要真实时间的组件在实现内自带真实时钟(007-T031:零消费的 systemClock 夹具已删)。
  */
 
 export interface Clock {
@@ -70,16 +70,5 @@ export function createManualClock(options: ManualClockOptions = {}): ManualClock
       currentMs = nowMs;
     },
     pendingCount: () => timers.size,
-  };
-}
-
-/** 真实时间实现,作为注入缺省 */
-export function systemClock(): Clock {
-  return {
-    now: () => Date.now(),
-    delay: (ms: number) =>
-      new Promise<void>((resolve) => {
-        setTimeout(resolve, ms);
-      }),
   };
 }

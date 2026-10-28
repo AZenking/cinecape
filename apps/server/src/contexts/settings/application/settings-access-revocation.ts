@@ -11,7 +11,7 @@ import { getDb, type Db } from '@contexts/identity-access';
  * 生命周期事件的事务内写 revoked_at,后者是并发窗口的竞态兜底。挂接点分两类:
  *
  * 【US2 已挂接(本任务核对,零改动)】
- * - 实际换档/失效回落/登出/PIN 恢复:modules/profile/identity-transition.ts 的
+ * - 实际换档/失效回落/登出/PIN 恢复:contexts/profile/application/identity-transition.ts 的
  *   revokeSettingsGrantsForSessions / switchDeviceSessionProfile /
  *   clearDeviceSessionsProfile —— 调用方(auth logout、profile select、PIN 恢复)
  *   在同一 BEGIN IMMEDIATE 事务内撤销相关会话的设置授予;
@@ -70,15 +70,6 @@ export function revokeSettingsGrantsForAccountTx(tx: Db, accountId: string): voi
     .set({ revokedAt: new Date().toISOString() })
     .where(and(inArray(settingsAccessGrant.deviceSessionId, sessionIds), isNull(settingsAccessGrant.revokedAt)))
     .run();
-}
-
-/** 账号 id → 会话 → 授予 的存在性只在本模块内部使用(与 account 表联查口径一致) */
-export function countActiveSettingsGrants(householdId: string): number {
-  return getDb()
-    .select({ n: settingsAccessGrant.deviceSessionId })
-    .from(settingsAccessGrant)
-    .where(and(eq(settingsAccessGrant.householdId, householdId), isNull(settingsAccessGrant.revokedAt)))
-    .all().length;
 }
 
 /**

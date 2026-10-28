@@ -2,7 +2,7 @@
 -- 权威列定义:docs/specs/004-playback-resolver/data-model.md
 --   「## playback_session」「## playback_ticket」「## playback_conversion」
 --   「## playback_failure_event」四节 +「## 验证与恢复」节
--- ⚠️ 本文件与 src/database/schema.ts 必须同步修改(schema.ts 仅为查询层类型);
+-- ⚠️ 本文件与 src/platform/database/schema.ts 必须同步修改(schema.ts 仅为查询层类型);
 --    禁止修改既有 0001~0004 SQL。
 -- 执行环境:better-sqlite3(连接已开 foreign_keys = ON / WAL),由 migrate.ts 在事务内应用。
 -- 硬约束(宪章原则二/四):全部新表显式 household_id;复合外键以 (household_id, id) 唯一键

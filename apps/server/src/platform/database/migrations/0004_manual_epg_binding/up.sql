@@ -1,6 +1,6 @@
 -- 0004_manual_epg_binding · 阶段 3 增补(US5,ADR-0008):单频道手动 EPG 绑定
 -- 权威列定义:docs/specs/003-media-catalog/data-model.md「## 0004 增补:manual_epg_binding(设计,未实施)」
--- ⚠️ 本文件与 src/database/schema.ts 必须同步修改(schema.ts 仅为查询层类型);
+-- ⚠️ 本文件与 src/platform/database/schema.ts 必须同步修改(schema.ts 仅为查询层类型);
 --    禁止修改既有 0003 SQL(ADR-0008),media_source.epg_generation 以 ALTER TABLE ADD COLUMN 追加。
 -- 执行环境:better-sqlite3(连接已开 foreign_keys = ON / WAL),由 migrate.ts 在事务内应用。
 -- 语义:manual 保存即锁定(来源/频道成对);auto 为解除后的版本墓碑(不删行,防 ABA,

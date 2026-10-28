@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { ExperienceProgrammeDto } from '@hmp/shared';
 import { pickCurrentNext } from '@contexts/live-tv/domain/live-time';
-import { normalizeGroupTitle, pickMainGroupLabel, type GroupTitleSource } from '@contexts/live-tv/domain/live-grouping';
+import { pickMainGroupLabel, type GroupTitleSource } from '@contexts/live-tv/domain/live-grouping';
 import { getDb } from '@contexts/identity-access';
 import { loadAvailableMediaIdSet } from '@contexts/policy';
 import { epgChannel, epgProgramme, manualEpgBinding, mediaItem, mediaSource, sourceEntry } from '@platform/database/schema';
@@ -117,7 +117,7 @@ export interface ChannelMetaRow {
   readonly contentLevel: number | null;
 }
 
-/** 关联解析核心的集合装载结果(US6 T113 起供 modules/epg/binding-core 复用) */
+/** 关联解析核心的集合装载结果(US6 T113 起供 contexts/epg/domain/binding-core 复用) */
 export interface ChannelAssociationCore {
   /** 家庭全部频道元数据行(含不可用;可用性由 availableIds 判定) */
   readonly channelRows: ChannelMetaRow[];
@@ -422,5 +422,3 @@ export function loadLiveChannelWindows(
   );
   return projections;
 }
-
-export { normalizeGroupTitle };

@@ -82,7 +82,7 @@ import {
  *
  * 005 US8 收口:设备播放记录查询(旧 PlaybackRecordsController,POST
  * /api/devices/{deviceId}/playback-records/query)已随管理迁移整体迁出本模块 ——
- * 权威实现在 modules/settings(settings-devices.controller/service,POST
+ * 权威实现在 contexts/settings(settings-devices.controller/service,POST
  * /api/settings/devices/{deviceId}/playback-records/query,Settings 边界);
  * 旧 /devices 管理入口按 005 api.md §8 不保留别名,本模块不再注册该控制器。
  *

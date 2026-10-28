@@ -10,7 +10,7 @@ import {
 } from './precheck';
 
 /**
- * 迁移执行器(T009):`tsx src/database/migrate.ts <up|down|drill>`
+ * 迁移执行器(T009):`tsx src/platform/database/migrate.ts <up|down|drill>`
  *
  * - up:按目录名字典序应用所有未应用的迁移;
  * - down:逆序回滚最近一个已应用迁移;
@@ -334,7 +334,7 @@ export function runMigrationCommand(command: 'up' | 'down' | 'drill'): void {
 function main(): void {
   const command = process.argv[2];
   if (command !== 'up' && command !== 'down' && command !== 'drill') {
-    console.error('用法: tsx src/database/migrate.ts <up|down|drill>');
+    console.error('用法: tsx src/platform/database/migrate.ts <up|down|drill>');
     process.exitCode = 1;
     return;
   }
@@ -346,7 +346,7 @@ function main(): void {
   }
 }
 
-// CLI 入口:仅直接执行本文件时运行(tsx src/database/migrate.ts <cmd>);
+// CLI 入口:仅直接执行本文件时运行(tsx src/platform/database/migrate.ts <cmd>);
 // 测试进程 import 本模块时不触发(不得以 vitest 的 argv 误跑迁移)。
 if (typeof require !== 'undefined' && typeof require.main !== 'undefined' && require.main === module) {
   main();

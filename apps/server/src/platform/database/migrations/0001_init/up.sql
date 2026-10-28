@@ -1,6 +1,6 @@
 -- 0001_init · 首版迁移:household / account / profile / device / device_session
 -- 权威列定义:docs/specs/001-scaffold-identity-foundation/data-model.md
--- ⚠️ 本文件与 src/database/schema.ts 必须同步修改(schema.ts 仅为查询层类型)。
+-- ⚠️ 本文件与 src/platform/database/schema.ts 必须同步修改(schema.ts 仅为查询层类型)。
 -- 执行环境:better-sqlite3(连接已开 foreign_keys = ON / WAL),由 migrate.ts 在事务内应用。
 
 CREATE TABLE household (

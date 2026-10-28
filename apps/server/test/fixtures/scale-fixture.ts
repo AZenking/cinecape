@@ -8,7 +8,6 @@ import { loadEnv } from '@platform/config/env.schema';
 import { setEnvOverride } from '@platform/config/env';
 import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
 import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
-import { createManualClock, type ManualClock } from './clock';
 
 /**
  * 规模测试夹具生成器(005 T012,quickstart.md §1):
@@ -25,10 +24,10 @@ import { createManualClock, type ManualClock } from './clock';
  * 固定时钟:全部时间锚定 SCALE_FIXTURE_FIXED_NOW_MS(2026-11-04T12:05:00Z =
  * 2026-11-04 20:05 Asia/Shanghai,处于 20:00~20:30 档内 → 可断言「正在直播」)。
  * 注入方式与既有夹具一致:被测代码面向 Clock 接口取时,测试用
- * `createScaleFixtureClock()`(= createManualClock({ startMs: SCALE_FIXTURE_FIXED_NOW_MS }))注入;
+ * `createManualClock({ startMs: SCALE_FIXTURE_FIXED_NOW_MS })` 注入;
  * 需要真实时间的组件在故事任务里另行注入。
  *
- * 结构与代际:DDL 全部来自权威迁移(src/database/migrations,默认全量应用),
+ * 结构与代际:DDL 全部来自权威迁移(src/platform/database/migrations,默认全量应用),
  * 生成器不自带建表语句。profile.is_main / source_entry.group_title /
  * media_item.content_revision 等代际 2 列(0006_pc_experience,T006)存在时自动写入,
  * 缺失时跳过对应列,保证夹具在两代库上均可生成;stats.generation2Columns 报告实际写入情况。
@@ -82,11 +81,6 @@ export const SCALE_FIXTURE_LIVE_SLOT = (() => {
     endsAtUtc: new Date(scheduleSlotUtcMs(dayIndex, Math.floor(minuteOfDay / 30)).endMs).toISOString(),
   } as const;
 })();
-
-/** 固定时钟注入工具(与 fixtures/clock.ts 的 ManualClock 同一实现) */
-export function createScaleFixtureClock(): ManualClock {
-  return createManualClock({ startMs: SCALE_FIXTURE_FIXED_NOW_MS });
-}
 
 /* ------------------------------------------------------------------ */
 /* 规模与覆盖预算(表头账,种入后 seed 内断言总账)                        */
@@ -759,7 +753,7 @@ export interface ScaleFixtureLibrary {
 
 /**
  * 全新独立临时库:应用全部权威迁移后种入规模夹具,收尾检查点 WAL 并关闭连接。
- * 复用 apps/server/src/database 的 Database 单例 + env override(与 test/helpers.ts 同方式);
+ * 复用 apps/server/src/platform/database 的 Database 单例 + env override(与 test/helpers.ts 同方式);
  * 后续以 DATA_DIR=<返回的 dataDir> DB_FILENAME=<dbFilename> 启动服务即可消费。
  */
 export async function createScaleFixtureDatabase(

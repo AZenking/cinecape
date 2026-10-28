@@ -10,7 +10,7 @@ import { Database } from '@platform/database/database';
  *
  * - 读取:`readCatalogRevision` 单查询返回 catalog_state.revision,行缺失按
  *   「创建后应为 1」语义取 1。US6 起 live 控制器 T063 阶段的最小读取点平移至此
- *   (modules/live/live.controller.ts 仅改为调用本函数),guide 响应同源读取,
+ *   (contexts/live-tv/interface/live.controller.ts 仅改为调用本函数),guide 响应同源读取,
  *   不存在第二套读取实现。
  * - 递增:`incrementCatalogRevision` 为唯一写入实现,行缺失按「创建后应为 2」补建
  *   (CHECK ≥1),必须在调用方事务内执行。消费方:manual-epg-binding.service

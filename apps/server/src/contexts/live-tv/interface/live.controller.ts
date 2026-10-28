@@ -25,7 +25,7 @@ import { DEFAULT_PAGE_SIZE, paginate, sortChannelRows, type LiveSectionName, typ
  *   身份/授权事实字段不可能扩大公开查询范围);
  * - 每个响应冻结同一 now(liveNowMs 一次)+ 家庭 timezone + catalogRevision 同步快照;
  *   不要求不同 HTTP 请求的 now 相等;Cache-Control: no-store 由全局安全头拦截器统一附加;
- * - catalogRevision 读取(US6 T114 起平移至 modules/epg/catalog-revision.service):
+ * - catalogRevision 读取(US6 T114 起平移至 contexts/epg/infrastructure/catalog-revision.service):
  *   读 catalog_state.revision(来源/EPG 发布与管理修改同事务递增的既有计数),
  *   行缺失按「创建后应为 1」语义取 1(与 catalog-admin/sources 补建惯例一致)。
  */

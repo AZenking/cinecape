@@ -38,9 +38,9 @@ Reflect.defineMetadata(PARAMTYPES_METADATA, [RateLimitService, Reflector], RateL
  * 依赖:CommonModule 提供 PublicContextService(范围解析)与 RateLimitService
  * (RateLimitGuard 构造依赖);无状态 Guard/Pipe 按仓库惯例具名导入挂载,不入组。
  *
- * 接线说明(供 app.module.ts 注册,本任务不改该文件):
- *   import { PublicCatalogModule } from './modules/public-catalog/public-catalog.module';
- *   imports: [..., PublicCatalogModule]
+ * 接线说明(供 app.module.ts 注册,本任务不改该文件;007-T012 迁移落位后为
+ *   import { MediaCatalogModule } from '@contexts/media-catalog/media-catalog.module';
+ *   imports: [..., MediaCatalogModule])
  *
  * 007-T021:发布面令牌装配 —— 跨上下文消费的 catalog-admin.service 以令牌 provider
  * 发布(纯函数模块经 useValue 函数束 + satisfies 对齐 ports 接口,零行为变化);

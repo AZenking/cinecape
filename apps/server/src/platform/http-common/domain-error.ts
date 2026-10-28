@@ -335,9 +335,6 @@ export const DOMAIN_PROBLEM_REGISTRY = {
 /** 注册表覆盖的错误码(003 catalog 契约码 + 004 播放稳定码 + 005 §7 新增码;可据此获得 status 免重复硬编码的构造) */
 export type CatalogProblemCode = keyof typeof DOMAIN_PROBLEM_REGISTRY;
 
-/** 语义别名:与 CatalogProblemCode 同一集合,新代码优先用本名 */
-export type RegisteredProblemCode = CatalogProblemCode;
-
 /** 注册表外的既有码返回 undefined(渲染沿用既有推导,行为不变) */
 export function resolveDomainProblem(code: PcProblemCode): DomainProblemSpec | undefined {
   const lookup = DOMAIN_PROBLEM_REGISTRY as Partial<Record<PcProblemCode, DomainProblemSpec>>;

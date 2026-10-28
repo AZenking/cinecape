@@ -80,7 +80,7 @@ async function loadFutureModule(moduleName: string, task: string, exportName: st
     mod = await import(`${playbackModuleDir(moduleName)}/${moduleName}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`[${task}] src/modules/playback/${moduleName}.ts 尚未实现 —— T016 先行失败测试(RED 属预期,实现后本用例自动转绿): ${message}`);
+    throw new Error(`[${task}] src/contexts/playback/**/${moduleName}.ts 尚未实现 —— T016 先行失败测试(RED 属预期,实现后本用例自动转绿): ${message}`);
   }
   const exported = (mod as Record<string, unknown>)[exportName];
   if (typeof exported !== 'function') {

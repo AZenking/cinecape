@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
@@ -22,8 +21,6 @@ import { setEnvOverride } from '@platform/config/env';
  * 仅由 US7 自己的测试文件导入;lead 接入注册行后,本夹具与 startFreshApp 等价
  * (重复 import 同一模块对 Nest 无副作用)。
  */
-
-export { request };
 
 export interface SettingsTestRig {
   app: INestApplication;

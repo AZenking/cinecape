@@ -19,7 +19,7 @@ import { loadEnv } from '@platform/config/env.schema';
  * - 完整性:PRAGMA integrity_check 与 foreign_key_check 通过;应用全部迁移后 isReady()。
  *
  * 独立临时 DATA_DIR:本文件内联实现夹具(setEnvOverride + Database.close 单例重置),
- * 不复用 test/helpers.ts(该文件由并行任务所有);迁移以 src/database/migrations 权威 DDL 直读。
+ * 不复用 test/helpers.ts(该文件由并行任务所有);迁移以 src/platform/database/migrations 权威 DDL 直读。
  */
 
 interface CatalogMigrationRig {

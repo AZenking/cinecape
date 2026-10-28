@@ -6,7 +6,6 @@ import {
   playbackProgressState,
   playbackSession,
   profileProgressClock,
-  profileViewingHistory,
 } from '@platform/database/schema';
 import { createDomainError } from '@platform/http-common/domain-error';
 import { readResumeFreezePosition } from '@contexts/personal-data/application/history.service';
@@ -233,17 +232,3 @@ export function writeRightOf(input: {
   return 'superseded'; // 旧 candidate:applied=false/superseded,不终止其合法播放
 }
 
-/** 只读:当前历史行(供单测与 flush 协作复用) */
-export function readHistoryFor(householdId: string, profileId: string, mediaId: string) {
-  return getDb()
-    .select()
-    .from(profileViewingHistory)
-    .where(
-      and(
-        eq(profileViewingHistory.householdId, householdId),
-        eq(profileViewingHistory.profileId, profileId),
-        eq(profileViewingHistory.mediaId, mediaId),
-      ),
-    )
-    .get();
-}

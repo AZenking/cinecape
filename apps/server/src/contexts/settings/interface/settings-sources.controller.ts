@@ -36,8 +36,8 @@ import { patchMediaMetadata, queryCandidates } from '@contexts/media-catalog';
 /**
  * 媒体来源与目录管理契约路由(T128,005 contracts/api.md §6;api.md §8「新 settings
  * 前缀是替代,不保留旧 /sources、/catalog 管理入口」):
- * - 领域核心零改动:复用 modules/sources(sources.service)与 modules/imports
- *   (RefreshExecutorService)、modules/catalog(catalog-admin.service),本控制器
+ * - 领域核心零改动:复用 contexts/sources(sources.service)与 sources 发布面
+ *   (RefreshExecutorService)、contexts/media-catalog(catalog-admin.service),本控制器
  *   只做「Settings 边界守卫 + 严格入参 + 新前缀」;当次密码/既有 CAS/源 URL 脱敏/
  *   失败保留上次成功目录均由域核心承担;
  * - refresh Location 指向新契约路径 /api/settings/refreshes/{id};

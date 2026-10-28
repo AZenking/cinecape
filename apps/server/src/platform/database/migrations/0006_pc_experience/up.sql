@@ -3,10 +3,10 @@
 --   §2(现有实体扩展)、§3 settings_access_grant、§4 profile_channel_favorite、
 --   §5 profile_progress_clock、§6 playback_progress_state、§7 profile_viewing_history、
 --   §8(programme 补索引部分)。
--- ⚠️ 本文件与 src/database/schema.ts 必须同步修改(schema.ts 仅为查询层类型);
+-- ⚠️ 本文件与 src/platform/database/schema.ts 必须同步修改(schema.ts 仅为查询层类型);
 --    禁止修改既有 0001~0005 SQL。本代际仅对全新安装的空业务库应用(data-model §1:
 --    拒绝旧已初始化库,不能先删数据再尝试升级);旧库在迁移/启动入口被只读预检拒绝
---    (src/database/precheck.ts,T007)。
+--    (src/platform/database/precheck.ts,T007)。
 -- 执行环境:better-sqlite3(连接已开 foreign_keys = ON / WAL),由 migrate.ts 在事务内应用。
 -- 硬约束(宪章原则二/四):全部新表显式 household_id;复合外键以 (household_id, id) 唯一键
 --   为目标,禁止跨家庭关联;时间为 UTC ISO-8601 TEXT(字符串序即时间序);禁止触发器。

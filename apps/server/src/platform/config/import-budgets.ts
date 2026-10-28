@@ -58,5 +58,3 @@ export const IMPORT_BUDGETS = {
   /** 待确认快照 24 小时到期,到期清除暂存并将任务标记 expired */
   AWAITING_CONFIRMATION_TTL_MS: 24 * HOUR_MS,
 } as const;
-
-export type ImportBudgets = typeof IMPORT_BUDGETS;

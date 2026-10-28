@@ -16,13 +16,3 @@ export function parseBody<T>(schema: ZodType<T>, body: unknown): T {
   }
   return result.data;
 }
-
-/** 路径/查询参数校验:同 parseBody 管道,detail 以参数名开头便于定位 */
-export function parseParam<T>(schema: ZodType<T>, value: unknown, name: string): T {
-  const result = schema.safeParse(value);
-  if (!result.success) {
-    const detail = result.error.issues.map((issue) => issue.message).join('; ');
-    throw new DomainError(400, ProblemCode.VALIDATION_FAILED, `${name}: ${detail}`);
-  }
-  return result.data;
-}

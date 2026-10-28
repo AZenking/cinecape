@@ -1,6 +1,6 @@
 -- 0003_media_catalog · 阶段 3 迁移:媒体目录与来源(9 张新表 + 存量家庭 catalog_state 回填)
 -- 权威列定义:docs/specs/003-media-catalog/data-model.md
--- ⚠️ 本文件与 src/database/schema.ts 必须同步修改(schema.ts 仅为查询层类型)。
+-- ⚠️ 本文件与 src/platform/database/schema.ts 必须同步修改(schema.ts 仅为查询层类型)。
 -- 执行环境:better-sqlite3(连接已开 foreign_keys = ON / WAL),由 migrate.ts 在事务内应用。
 -- 硬约束(宪章原则二/四):全部新表显式 household_id 边界;复合外键以 (household_id, id)
 -- 或既有唯一键为目标,禁止跨家庭 source/entry/media/job/EPG 关联;时间为 UTC;

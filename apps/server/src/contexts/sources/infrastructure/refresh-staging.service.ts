@@ -20,15 +20,12 @@ import {
  *   (单事务全有或全无,不以最后一条覆盖);
  * - 同一 refresh 重复暂存为幂等替换(先 DELETE 后 INSERT),供执行器重试恢复;
  * - 不做发布、不写 source_entry/media_item(发布事务属后续执行器任务);
- *   数据库访问用传入的 better-sqlite3 连接(与 src/database/database.ts 的 Database.db 同型,
- *   列名与 src/database/schema.ts 的 Drizzle 定义一一对应)。
+ *   数据库访问用传入的 better-sqlite3 连接(与 src/platform/database/database.ts 的 Database.db 同型,
+ *   列名与 src/platform/database/schema.ts 的 Drizzle 定义一一对应)。
  */
 
 /** 暂存写入分批大小(单事务内分批执行,避免单语句/占位符膨胀;规格建议 500 条/批) */
 export const STAGE_WRITE_BATCH_SIZE = 500;
-
-/** refresh_stage_entry.kind 的开放枚举(迁移注释:规格未固定,DB 层不设 CHECK) */
-export type StageEntryKind = 'iptv' | 'nas' | 'epg';
 
 /** IPTV 暂存参数(条目为 parseM3U 输出) */
 export interface StageIptvParams {

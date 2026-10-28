@@ -25,7 +25,7 @@ import { PlaybackAssetsService } from '../../../src/contexts/playback/applicatio
  *   redirect<=3、连接/首字节<=15 秒、空闲 15 秒中止、分片单响应<=64MiB、key<=16 字节;
  *   拒绝 DRM/SAMPLE-AES、未知 URI 扩展、循环、data/file 等协议,不透传原文;
  * - docs/specs/004-playback-resolver/tasks.md T015;
- * - 预算数值唯一权威:apps/server/src/config/playback-budgets.ts 的 hlsUpstream 组(T010,
+ * - 预算数值唯一权威:apps/server/src/platform/config/playback-budgets.ts 的 hlsUpstream 组(T010,
  *   已由 test/unit/playback/config.spec.ts 锁定),本文件只做「配置消费」断言。
  *
  * RED 约定(与 fixtures-playback.spec.ts 同款):hls-proxy.service.ts(T021)与

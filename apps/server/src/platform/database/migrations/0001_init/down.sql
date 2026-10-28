@@ -1,6 +1,6 @@
 -- 0001_init · 回滚:完整 DROP(逆序)+ DROP 索引,可回滚到空业务表状态
 -- (_migrations 表与对应版本行由 migrate.ts 的执行器管理,不在本文件职责内)。
--- ⚠️ 本文件与 src/database/schema.ts / 0001_init/up.sql 必须同步修改。
+-- ⚠️ 本文件与 src/platform/database/schema.ts / 0001_init/up.sql 必须同步修改。
 
 DROP INDEX IF EXISTS device_session_token_hash_key;
 DROP INDEX IF EXISTS one_default_profile;

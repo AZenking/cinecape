@@ -21,11 +21,10 @@
     "test/fixtures/scale-fixture.cli.ts",
     "test/runtime-smoke.mjs"
   ],
-  // exclude 暂缓 exports/types 类目：contexts+platform 全量纳入后 T018 收口实测
-  // 残留 23 条死导出 + 4 条死类型（跨文件零消费，如 upsertHistoryRowForFixture），
-  // 其清零属 tasks.md T031（US4 零遗留清点）；T022/T023 边界与渗漏重构会重排这些
-  // 导出，先删会造成两次返工，故本阶段不纳入门禁、T031 恢复后清零。
-  "exclude": ["exports", "types", "nsExports", "nsTypes", "duplicates"],
+  // T018 曾暂缓 exports/types 类目（当时实测残留 23 死导出 + 4 死类型）；
+  // 007-T031 已恢复 exclude 缺省（= knip 全类目审计：exports/types/nsExports/nsTypes/
+  // duplicates 均纳入门禁），死导出/死类型当步清零；contexts/*/index.ts 发布面导出
+  // 以 entry 声明（见上），不受 exports 类目误报。
   "ignoreExportsUsedInFile": true,
   // 测试夹具/运行时冒烟以子进程调用真实 ffmpeg/ffprobe 生成与探测媒体资产，
   // 非包管理器依赖，knip 无法静态核对 → 豁免（测试基建,非运行时入口）。

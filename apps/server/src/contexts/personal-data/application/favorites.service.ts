@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import { getDb } from '@contexts/identity-access';
 import {
@@ -210,33 +210,5 @@ export function removeFavoriteChannel(input: {
       ),
     )
     .run();
-}
-
-/* 测试/诊断只读辅助(导出供单测复核主键三元组与首收藏时间固定) */
-export function readFavoriteRow(
-  householdId: string,
-  profileId: string,
-  mediaId: string,
-): ProfileChannelFavorite | undefined {
-  return getDb()
-    .select()
-    .from(profileChannelFavorite)
-    .where(
-      and(
-        eq(profileChannelFavorite.householdId, householdId),
-        eq(profileChannelFavorite.profileId, profileId),
-        eq(profileChannelFavorite.mediaId, mediaId),
-      ),
-    )
-    .get();
-}
-
-export function listFavoriteRowsOldestFirst(householdId: string, profileId: string): ProfileChannelFavorite[] {
-  return getDb()
-    .select()
-    .from(profileChannelFavorite)
-    .where(and(eq(profileChannelFavorite.householdId, householdId), eq(profileChannelFavorite.profileId, profileId)))
-    .orderBy(asc(profileChannelFavorite.createdAt))
-    .all();
 }
 

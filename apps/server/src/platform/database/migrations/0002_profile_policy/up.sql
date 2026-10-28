@@ -1,6 +1,6 @@
 -- 0002_profile_policy · 阶段 2迁移:profile_policy / parent_verification_state
 -- 权威列定义:docs/specs/002-profile-policy/data-model.md
--- ⚠️ 本文件与 src/database/schema.ts 必须同步修改(schema.ts 仅为查询层类型)。
+-- ⚠️ 本文件与 src/platform/database/schema.ts 必须同步修改(schema.ts 仅为查询层类型)。
 -- 执行环境:better-sqlite3(连接已开 foreign_keys = ON / WAL),由 migrate.ts 在事务内应用。
 
 -- 1) profile 复合唯一键:profile_policy(household_id, profile_id) 复合外键的目标

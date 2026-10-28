@@ -1,5 +1,4 @@
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
-import { createDomainError } from '@platform/http-common/domain-error';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { getDb } from '@contexts/identity-access';
 import { mediaItem, profileViewingHistory, type ProfileViewingHistory } from '@platform/database/schema';
 import { loadAvailableMediaIdSet } from '@contexts/policy';
@@ -247,79 +246,3 @@ export function readResumeFreezePosition(input: {
   return position;
 }
 
-/* 供单测/夹具使用的直读辅助(不进入 HTTP 面) */
-export function readHistoryRow(
-  householdId: string,
-  profileId: string,
-  mediaId: string,
-): ProfileViewingHistory | undefined {
-  return getDb()
-    .select()
-    .from(profileViewingHistory)
-    .where(
-      and(
-        eq(profileViewingHistory.householdId, householdId),
-        eq(profileViewingHistory.profileId, profileId),
-        eq(profileViewingHistory.mediaId, mediaId),
-      ),
-    )
-    .get();
-}
-
-export function listHistoryRowsOldestFirst(householdId: string, profileId: string): ProfileViewingHistory[] {
-  return getDb()
-    .select()
-    .from(profileViewingHistory)
-    .where(and(eq(profileViewingHistory.householdId, householdId), eq(profileViewingHistory.profileId, profileId)))
-    .orderBy(asc(profileViewingHistory.lastViewedAt))
-    .all();
-}
-
-export function upsertHistoryRowForFixture(input: {
-  readonly householdId: string;
-  readonly profileId: string;
-  readonly mediaId: string;
-  readonly writerEpoch: number;
-  readonly writerPlaybackSessionId: string;
-  readonly lastSampleSeq: number;
-  readonly contentRevision: number;
-  readonly positionSeconds: number;
-  readonly durationSeconds: number | null;
-  readonly lastViewedAt: string;
-  readonly revision: number;
-}): void {
-  getDb()
-    .insert(profileViewingHistory)
-    .values({
-      householdId: input.householdId,
-      profileId: input.profileId,
-      mediaId: input.mediaId,
-      writerEpoch: input.writerEpoch,
-      writerPlaybackSessionId: input.writerPlaybackSessionId,
-      lastSampleSeq: input.lastSampleSeq,
-      contentRevision: input.contentRevision,
-      positionSeconds: input.positionSeconds,
-      durationSeconds: input.durationSeconds,
-      lastViewedAt: input.lastViewedAt,
-      revision: input.revision,
-    })
-    .onConflictDoUpdate({
-      target: [profileViewingHistory.householdId, profileViewingHistory.profileId, profileViewingHistory.mediaId],
-      set: {
-        writerEpoch: input.writerEpoch,
-        writerPlaybackSessionId: input.writerPlaybackSessionId,
-        lastSampleSeq: input.lastSampleSeq,
-        contentRevision: input.contentRevision,
-        positionSeconds: input.positionSeconds,
-        durationSeconds: input.durationSeconds,
-        lastViewedAt: input.lastViewedAt,
-        revision: input.revision,
-      },
-    })
-    .run();
-}
-
-/** 非法媒体定位统一 404 同形(不存在/跨家庭不可区分) */
-export function mediaNotFound(): never {
-  throw createDomainError('MEDIA_NOT_FOUND');
-}

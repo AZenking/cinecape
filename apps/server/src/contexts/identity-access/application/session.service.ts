@@ -3,10 +3,9 @@ import type { Request, Response } from 'express';
 import { eq } from 'drizzle-orm';
 import { ProblemCode, SESSION_COOKIE } from '@hmp/shared';
 import type { NewDeviceSession } from '@platform/database/schema';
-import { account, deviceSession, profile } from '@platform/database/schema';
+import { account, deviceSession } from '@platform/database/schema';
 import { env } from '@platform/config/env';
 import { DomainError } from '@platform/http-common/domain-error';
-import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { hashPassword, verifyPassword } from '@contexts/identity-access/infrastructure/password.service';
 import { generateToken, hashToken } from '@contexts/identity-access/infrastructure/token.service';
@@ -35,15 +34,7 @@ export interface IssuedSession {
   expiresAt: string;
 }
 
-/** SessionDto 响应体(契约 components/schemas/SessionDto) */
-export interface SessionDtoBody {
-  sessionId: string;
-  account: { id: string; username: string; role: 'owner' | 'admin' };
-  /** 新签发会话尚未选择观看者(US2 才有 Profile 选择) */
-  activeProfile: null;
-  sessionToken: string;
-  expiresAt: string;
-}
+/** SessionDto 响应体(契约 components/schemas/SessionDto)—— 装配见 interface/account-session.dto.ts */
 
 function invalidCredentials(): DomainError {
   // 无 detail:两种失败路径的 problem 体必须逐字节一致(场景4 统一性断言)
@@ -106,20 +97,6 @@ export function issueSession(input: {
   return { sessionId: row.id, sessionToken, expiresAt };
 }
 
-export function buildSessionDto(issued: IssuedSession, accountInfo: AuthenticatedAccount): SessionDtoBody {
-  return {
-    sessionId: issued.sessionId,
-    account: {
-      id: accountInfo.id,
-      username: accountInfo.username,
-      role: accountInfo.role,
-    },
-    activeProfile: null,
-    sessionToken: issued.sessionToken,
-    expiresAt: issued.expiresAt,
-  };
-}
-
 /** httpOnly 会话 Cookie(契约 securitySchemes.sessionCookie,名 hmp_session) */
 export function setSessionCookie(response: Response, issued: IssuedSession): void {
   response.cookie(SESSION_COOKIE, issued.sessionToken, {
@@ -137,35 +114,6 @@ export function setSessionCookie(response: Response, issued: IssuedSession): voi
 // ---------------------------------------------------------------------------
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-/** 恢复响应中的观看者档案(契约 components/schemas/ProfileDto) */
-export interface RestoredProfileDtoBody {
-  id: string;
-  name: string;
-  avatar: string | null;
-  type: 'adult' | 'child';
-  isDefault: boolean;
-  /** 是否设置了 PIN(不暴露哈希) */
-  pinProtected: boolean;
-  status: 'active' | 'disabled';
-  createdAt: string;
-}
-
-/**
- * 恢复/校验会话的响应体(契约 components/schemas/SessionDto)。
- * 与登录响应 SessionDtoBody 的差异:不含 sessionToken —— 契约约定该字段
- * 仅在 POST /auth/login 响应中出现一次,恢复响应必须省略。
- */
-export interface RestoredSessionDtoBody {
-  sessionId: string;
-  account: { id: string; username: string; role: 'owner' | 'admin' };
-  activeProfile: RestoredProfileDtoBody | null;
-  expiresAt: string;
-}
-
-function sessionInvalid(): DomainError {
-  return new DomainError(401, ProblemCode.SESSION_INVALID, undefined);
-}
 
 /**
  * 滑动续期(T033/FR-010/research D5):
@@ -200,44 +148,6 @@ export function renewSession(sessionId: string, currentExpiresAt: string): strin
   return nextExpiresAt;
 }
 
-/** 当前观看者 → ProfileDto(US2 选择后生效;已停用/不存在视为无上下文) */
-function activeProfileDtoOf(profileId: string | null): RestoredProfileDtoBody | null {
-  if (profileId === null) {
-    return null;
-  }
-  const row = getDb().select().from(profile).where(eq(profile.id, profileId)).get();
-  if (row === undefined || row.status !== 'active') {
-    return null;
-  }
-  return {
-    id: row.id,
-    name: row.name,
-    avatar: row.avatar,
-    type: row.type as RestoredProfileDtoBody['type'],
-    isDefault: row.isDefault === 1,
-    pinProtected: row.pinHash !== null,
-    status: 'active',
-    createdAt: row.createdAt,
-  };
-}
-
-/** 恢复响应 DTO(无 sessionToken;activeProfile 由服务端会话得出,FR-018) */
-export function buildRestoredSessionDto(
-  context: SessionContext,
-  expiresAt: string,
-): RestoredSessionDtoBody {
-  return {
-    sessionId: context.session.id,
-    account: {
-      id: context.account.id,
-      username: context.account.username,
-      role: context.account.role,
-    },
-    activeProfile: activeProfileDtoOf(context.session.activeProfileId),
-    expiresAt,
-  };
-}
-
 /**
  * 令牌来源:Authorization: Bearer 优先,其次手工解析 Cookie。
  * ⚠️ 与 common/session.guard.ts 的 extractToken 同规则(common 不可改动,镜像实现须保持同步)。
@@ -263,33 +173,4 @@ export function resolveSessionToken(request: Request): string | null {
     }
   }
   return null;
-}
-
-/**
- * 幂等注销(T034/FR-011/FR-012)。语义选择(与严格 Guard 有意不同):
- * - 令牌缺失/查无此会话 → 401 SESSION_INVALID(与 Guard 一致);
- * - 查到会话(无论是否已过期):
- *   - 未注销 → 写 revoked_at = now → 204;
- *   - 已注销 → no-op → 204(重复注销幂等,FR-012);
- *   - 已过期但未注销 → 同样补写 revoked_at → 204(注销过期会话无害且无副作用)。
- * 因此 logout 不走 SessionGuard(Guard 会把已注销/过期会话直接 401,与「重复
- * logout 仍 204」的契约冲突),由控制器按 Guard 同规则手工解析令牌后调用此处。
- */
-export function revokeSessionByToken(token: string): void {
-  const row = getDb()
-    .select({ id: deviceSession.id, revokedAt: deviceSession.revokedAt })
-    .from(deviceSession)
-    .where(eq(deviceSession.tokenHash, hashToken(token)))
-    .get();
-  if (row === undefined) {
-    throw sessionInvalid();
-  }
-  if (row.revokedAt !== null) {
-    return; // 幂等:重复注销 no-op
-  }
-  getDb()
-    .update(deviceSession)
-    .set({ revokedAt: new Date().toISOString() })
-    .where(eq(deviceSession.id, row.id))
-    .run();
 }

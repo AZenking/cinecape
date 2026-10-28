@@ -18,9 +18,9 @@ import type { ILiveProjectionService } from '@contexts/live-tv/live-tv.ports';
  *   (live-projection.service:关联解析不含 ProfilePolicy,集合查询次数不随频道数增长);
  * - 模块无独立持久状态,纯函数服务不经 providers 注入(对齐 epg/catalog 惯例)。
  *
- * 注册(app.module.ts,由 lead 任务勾选时接入;本任务不改 app.module.ts):
- *   import { LiveModule } from './modules/live/live.module';
- *   imports: [ ..., LiveModule ]  (追加于 EpgModule 之后)
+ * 注册(app.module.ts,由 lead 任务勾选时接入;007-T012 迁移落位后为
+ *   import { LiveTvModule } from '@contexts/live-tv/live-tv.module';
+ *   imports: [ ..., LiveTvModule ]  (追加于 EpgModule 之后))
  *
  * 007-T021:发布面令牌装配 —— 跨上下文消费的 live-projection.service 以令牌 provider
  * 发布(纯函数模块经 useValue 函数束 + satisfies 对齐 ports 接口,零行为变化;

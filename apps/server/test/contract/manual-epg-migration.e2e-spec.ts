@@ -22,10 +22,10 @@ import { loadEnv } from '@platform/config/env.schema';
  *   不宣称恢复手动配置(ADR-0008:恢复须回滚前备份)。
  * - 就绪(T009 就绪语义变更):Database.isReady 在缺 0004 记录/缺新表/缺新列时 false;
  *   目录含 0005 后,仅应用 0001~0004 的部分形态库始终安全拒绝(完整迁移库就绪由 playback-readiness 覆盖)。
- * - drill:独立临时 DATA_DIR 上 `tsx src/database/migrate.ts drill` 通过(CLI 层面)。
+ * - drill:独立临时 DATA_DIR 上 `tsx src/platform/database/migrate.ts drill` 通过(CLI 层面)。
  *
  * 独立临时 DATA_DIR:本文件内联实现夹具(setEnvOverride + Database.close 单例重置),
- * 不复用 test/helpers.ts(该文件由并行任务所有);迁移以 src/database/migrations 权威 DDL 直读。
+ * 不复用 test/helpers.ts(该文件由并行任务所有);迁移以 src/platform/database/migrations 权威 DDL 直读。
  */
 
 interface MigrationRig {

@@ -10,6 +10,8 @@ export default tseslint.config(
       '**/coverage/**',
       '**/*.d.ts',
       'packages/shared/src/schema.d.ts',
+      // 007-T025 证据工具(一次性采样/比对脚本,非交付代码,不入 lint 项目服务)
+      'docs/specs/007-backend-ddd-restructure/evidence/snapshot-parity/*.mjs',
     ],
   },
   eslint.configs.recommended,

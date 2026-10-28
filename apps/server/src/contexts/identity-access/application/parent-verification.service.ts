@@ -32,9 +32,6 @@ export interface ParentFailureState {
   lockedUntil: string | null;
 }
 
-/** 成功验证后的干净状态(计数清零、窗口清空;持久化形态为删除状态行) */
-export const PARENT_STATE_CLEARED: ParentFailureState = { failedAttempts: 0, lockedUntil: null };
-
 /** 锁定窗口内 = locked_until 严格晚于 now;恰好到期 = 已解除 */
 export function isParentLocked(lockedUntil: string | null, now: Date): boolean {
   if (lockedUntil === null) {

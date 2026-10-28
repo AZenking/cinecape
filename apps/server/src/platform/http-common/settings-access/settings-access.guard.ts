@@ -23,7 +23,7 @@ import { SETTINGS_GRANT_VALIDATOR_PORT, type SettingsGrantValidatorPort } from '
  *   端口反转 —— platform 不再深导入 settings 应用服务,改消费组合根绑定的
  *   SETTINGS_GRANT_VALIDATOR_PORT,真实实现 = 发布面纯函数,行为零变化);
  * - /settings/access 的 GET/POST/DELETE 是独立入口(api.md §7),不挂本 Guard ——
- *   由 modules/settings/settings-access.controller.ts 单独注册;
+ *   由 contexts/settings/interface/settings-access.controller.ts 单独注册;
  * - 判定逻辑全部写在 protected authorize()(T009 约定的扩展点,保持可覆写);
  *   逐请求重检、无缓存:每次请求都以库内现值为准,本 Guard 不放行也不缓存任何
  *   授权事实。

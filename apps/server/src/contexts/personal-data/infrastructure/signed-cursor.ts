@@ -52,11 +52,6 @@ function hmacHex(payload: string): string {
   return createHmac('sha256', deploymentKey()).update(payload).digest('hex');
 }
 
-/** 测试注入稳定部署事实(生产不调用;置 null 后按当前库路径重派生) */
-export function resetCursorDeploymentKeyForTest(): void {
-  deploymentKeyCache = null;
-}
-
 /** 编码 signed cursor(载荷必须与当前身份一致;由调用方保证) */
 export function encodePersonalCursor(payload: PersonalCursorPayload): string {
   const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');

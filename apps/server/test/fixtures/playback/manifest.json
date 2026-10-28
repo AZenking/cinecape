@@ -11,7 +11,7 @@
     "verify": "生成后自动 ffprobe 复核逐样本形态;--verify-only 可独立复核;非法/损坏样本预期 probe 稳定失败。"
   },
   "security": "样本全部由本仓库脚本在本机用 ffmpeg 合成,无外部下载、无真实源凭据;生成产物默认输出 os.tmpdir 随机子目录,不入库不提交。",
-  "planReference": "apps/server/src/modules/playback/playback-plan.service.ts 决策树(容器矩阵 mp4/mkv/avi/mov/ts;视频兼容=h264+8bit+yuv420p;音频兼容=aac/无轨;direct→remux→audio_transcode→video_transcode;4K/HDR 仅尽力直放,需重编码即稳定失败)。",
+  "planReference": "apps/server/src/contexts/playback/application/playback-plan.service.ts 决策树(容器矩阵 mp4/mkv/avi/mov/ts;视频兼容=h264+8bit+yuv420p;音频兼容=aac/无轨;direct→remux→audio_transcode→video_transcode;4K/HDR 仅尽力直放,需重编码即稳定失败)。",
   "defaults": {
     "durationSeconds": 3,
     "resolution": "128x96",
