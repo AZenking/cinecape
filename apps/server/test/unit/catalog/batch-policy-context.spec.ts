@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ProblemCode } from '@hmp/shared';
 import * as schema from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
-import type { Db } from '@contexts/identity-access/infrastructure/db';
+import type { Db } from '@platform/database/drizzle';
 import { bindPolicyStore } from '@contexts/policy/application/policy-store.port';
 import { drizzlePolicyStore } from '@contexts/policy/infrastructure/policy-store.drizzle';
 import {

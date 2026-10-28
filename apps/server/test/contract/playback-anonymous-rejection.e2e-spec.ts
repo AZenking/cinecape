@@ -17,7 +17,7 @@ import {
   type PlaybackSessionFixture,
   type PlaybackWorld,
 } from '../fixtures/playback';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@platform/database/drizzle';
 import { deviceSession } from '@platform/database/schema';
 
 /**

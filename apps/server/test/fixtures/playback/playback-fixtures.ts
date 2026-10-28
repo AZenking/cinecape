@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@platform/database/drizzle';
 import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
 import { generateToken, hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import { createPlaybackBudgets } from '@platform/config/playback-budgets';

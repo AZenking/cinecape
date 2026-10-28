@@ -9,7 +9,7 @@ import {
   seedPlaybackWorld,
   type PlaybackWorld,
 } from '../../fixtures/playback';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@platform/database/drizzle';
 import { Database } from '@platform/database/database';
 import { selectMainAndUnlockSettings } from '../../helpers-management';
 import { getConfig } from '@platform/config/env';

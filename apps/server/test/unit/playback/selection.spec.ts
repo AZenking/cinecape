@@ -17,7 +17,7 @@ import { Database } from '@platform/database/database';
 import { setEnvOverride } from '@platform/config/env';
 import { loadEnv } from '@platform/config/env.schema';
 import { createPlaybackBudgets, type PlaybackBudgets } from '@platform/config/playback-budgets';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@platform/database/drizzle';
 import { account, deviceSession, playbackSession, profilePolicy } from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';

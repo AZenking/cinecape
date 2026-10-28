@@ -20,7 +20,7 @@ export { listHouseholdDevices, revokeHouseholdDevice, type DeviceDtoBody } from 
 // —— 非应用服务面：跨上下文消费的基础设施纯函数/类型再导出 ——
 // getDb 必须保持惰性调用语义（Database 单例 close 后重开自动换包装，禁止工厂期缓存），
 // 故不以 DI 令牌发布，仅函数/类型再导出。
-export { getDb, type Db } from './infrastructure/db';
+export { getDb, type Db } from '@platform/database/drizzle';
 export { hashPassword, verifyPassword } from './infrastructure/password.service';
 export { generateToken, hashToken } from './infrastructure/token.service';
 export { parseBody } from './interface/validation';

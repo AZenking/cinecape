@@ -4,7 +4,7 @@ import { SESSION_COOKIE } from '@hmp/shared';
 import { cleanupRigs, startFreshApp, type TestRig } from '../helpers';
 import { seedPersonalWorld, type PersonalWorld } from '../unit/personal/personal-world';
 import { Database } from '@platform/database/database';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@platform/database/drizzle';
 import {
   playbackProgressState,
   playbackSession,

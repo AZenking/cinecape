@@ -14,7 +14,7 @@ import {
 import { Database } from '@platform/database/database';
 import { getConfig } from '@platform/config/env';
 import { createPlaybackBudgets } from '@platform/config/playback-budgets';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@platform/database/drizzle';
 import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import {
   account,

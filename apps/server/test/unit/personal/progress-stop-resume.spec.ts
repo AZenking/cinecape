@@ -20,7 +20,7 @@ import { PlaybackRepository } from '../../../src/contexts/playback/infrastructur
 import { createPlaybackBudgets } from '@platform/config/playback-budgets';
 import { getConfig } from '@platform/config/env';
 import { switchDeviceSessionProfile } from '@contexts/profile/application/identity-transition';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@platform/database/drizzle';
 import { Database } from '@platform/database/database';
 import {
   mediaItem,

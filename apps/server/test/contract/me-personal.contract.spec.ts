@@ -80,7 +80,7 @@ describe('T091 · /me 收藏与历史契约', () => {
     expect(gone.status).toBe(204);
     await request(rig.app.getHttpServer()).put(`${FAV_URL}/${world.channel.mediaId}`).set('Cookie', cookieA).send({});
     // 频道失效(present=0)后仍可取消
-    const { getDb } = await import('@contexts/identity-access/infrastructure/db');
+    const { getDb } = await import('@platform/database/drizzle');
     const { sourceEntry } = await import('@platform/database/schema');
     const { eq } = await import('drizzle-orm');
     getDb().update(sourceEntry).set({ present: 0, missingSince: '2026-10-23T12:00:00.000Z' }).where(eq(sourceEntry.id, world.channel.entryId)).run();

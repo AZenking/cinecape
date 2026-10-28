@@ -21,7 +21,7 @@ import {
   type SeedPlaybackSessionOptions,
   type SeedPlaybackWorldOptions,
 } from '../fixtures/playback';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@platform/database/drizzle';
 import { playbackSession, playbackTicket } from '@platform/database/schema';
 
 /**

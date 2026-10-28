@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import type { Profile } from '@platform/database/schema';
 import { deviceSession, profile } from '@platform/database/schema';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@platform/database/drizzle';
 import { clearDeviceSessionsProfile } from '@contexts/profile';
 // T024 类型上提：ProfileSummaryBody / toProfileSummary 实体落位 application 层
 // （profile-summary.dto.ts，application→interface 为审计禁边故上提；实现零改动），

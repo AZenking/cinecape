@@ -15,7 +15,7 @@ import {
   seedPlaybackWorld,
   type PlaybackWorld,
 } from '../fixtures/playback';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@platform/database/drizzle';
 import { Database } from '@platform/database/database';
 import { mediaItem } from '@platform/database/schema';
 import { hashToken } from '@contexts/identity-access/infrastructure/token.service';

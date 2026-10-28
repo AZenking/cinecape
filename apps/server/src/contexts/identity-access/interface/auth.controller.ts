@@ -5,7 +5,7 @@ import { and, eq } from 'drizzle-orm';
 import { SESSION_COOKIE } from '@hmp/shared';
 import { env } from '@platform/config/env';
 import { deviceSession } from '@platform/database/schema';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@platform/database/drizzle';
 import { SameOriginGuard } from '@platform/http-common/same-origin/same-origin.guard';
 import { SessionGuard } from '@platform/http-common/session.guard';
 import { CurrentSession } from '@platform/http-common/current-session.decorator';

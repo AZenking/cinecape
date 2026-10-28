@@ -22,7 +22,7 @@ import {
   selectMainAndUnlockSettings,
   mgmtSessionCookie,
 } from '../helpers-management';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { getDb } from '@platform/database/drizzle';
 import { generateToken, hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import { device, deviceSession, household } from '@platform/database/schema';
 
