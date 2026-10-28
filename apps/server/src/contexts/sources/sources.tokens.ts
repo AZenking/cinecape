@@ -11,6 +11,11 @@
  *
  * domain/source-target.validation 纯函数与 infrastructure/nas-scanner 类型为跨上下文
  * 必需面，经 index.ts 再导出（非令牌面）。
+ *
+ * 008-repository-extraction（T009，ADR-0015 D1）：SOURCES_STORE 为装配期仓储 seam
+ * 绑定令牌（sources.module.ts useFactory 经 bindSourcesStore 绑定 Drizzle 实现），
+ * 不属跨上下文消费面，不进 index.ts 发布面。
  */
 export const REFRESH_EXECUTOR_PORT = Symbol('REFRESH_EXECUTOR_PORT');
 export const SOURCES_SERVICE_PORT = Symbol('SOURCES_SERVICE_PORT');
+export const SOURCES_STORE = Symbol('SOURCES_STORE');

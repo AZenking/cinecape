@@ -6,8 +6,15 @@ import { ProblemCode } from '@hmp/shared';
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import { getConfig } from '@platform/config/env';
 import { IMPORT_BUDGETS } from '@platform/config/import-budgets';
-import { Database } from '@platform/database/database';
 import type { IRefreshExecutorService } from '@contexts/sources/application/ports';
+// 008-T009(ADR-0015 D1):数据访问经仓储端口 seam(原生 SQL 逐字迁移至 infrastructure/
+// sources-store.drizzle.ts;行类型与任务状态枚举随端口走,行为零变化)
+import {
+  sourcesStore,
+  type MediaSourceRow,
+  type RefreshJobStatus,
+  type SourceRefreshRow,
+} from '@contexts/sources/application/sources-store.port';
 import {
   CatalogDiffFailure,
   canonicalJson,
@@ -18,16 +25,16 @@ import {
   type RefreshExceptionReason,
 } from '@contexts/sources/infrastructure/catalog-diff';
 import {
-  clearStagedEntries,
   computeSnapshotDigest as stagedSnapshotDigest,
-  loadStagedEntries,
-  stageEntries,
 } from '@contexts/sources/infrastructure/refresh-staging.service';
 import { M3UParseFailure, parseM3U } from '@contexts/sources/infrastructure/m3u.parser';
 import { NasScanFailure, scanNasRoot } from '@contexts/sources/infrastructure/nas-scanner';
 import { XMLTVParseFailure, parseXMLTV, type XMLTVParseResult } from '@contexts/sources/infrastructure/xmltv.parser';
 import { RemoteReadFailure, openRemoteSource } from '@contexts/sources/infrastructure/safe-http-reader';
 import { RefreshPublishService, isPolicyCorruptionError } from '@contexts/sources/application/refresh-publish.service';
+
+/** 任务状态(随仓储端口迁移;再导出维持本模块既有发布面) */
+export type { RefreshJobStatus };
 
 /**
  * 刷新执行器服务(T026;research R5/data-model「状态流转」「发布事务」,contracts/api.md 刷新与待确认):
@@ -48,18 +55,6 @@ import { RefreshPublishService, isPolicyCorruptionError } from '@contexts/source
  *   失败 → 409 REFRESH_STALE 并标 stale;成功走发布事务;丢弃清暂存并释放来源锁;
  * - 终态 immutable:任何状态迁移都以「当前状态 + version」为守卫,终态不再被本服务改写。
  */
-
-/** 任务状态(与 source_refresh_status_check CHECK 一致) */
-export type RefreshJobStatus =
-  | 'queued'
-  | 'running'
-  | 'succeeded'
-  | 'failed'
-  | 'awaiting_confirmation'
-  | 'interrupted'
-  | 'discarded'
-  | 'expired'
-  | 'stale';
 
 /** 数量统计(RefreshDto counts 全字段;summary_json 只存本次适用的子集,缺失按 0 补齐) */
 export interface RefreshSummaryCounts {
@@ -114,38 +109,6 @@ export interface RefreshDecisionInput {
   sessionId?: string;
 }
 
-interface SourceRefreshRow {
-  id: string;
-  household_id: string;
-  source_id: string;
-  initiator_account_id: string;
-  initiator_session_id: string;
-  operation_key: string;
-  status: RefreshJobStatus;
-  version: number;
-  source_version: number;
-  baseline_revision: number;
-  snapshot_digest: string | null;
-  item_count: number | null;
-  summary_json: string | null;
-  error_code: string | null;
-  created_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-  expires_at: string | null;
-}
-
-interface MediaSourceRow {
-  id: string;
-  household_id: string;
-  kind: 'iptv' | 'nas' | 'epg';
-  remote_url: string | null;
-  root_key: string | null;
-  relative_directory: string | null;
-  enabled: number;
-  version: number;
-}
-
 /** EPG 指南窗口:刷新时刻前 24h ~ 后 7d(data-model;解析器按闭区间相交过滤) */
 const EPG_WINDOW_PAST_MS = 24 * 3_600_000;
 const EPG_WINDOW_FUTURE_MS = 7 * 24 * 3_600_000;
@@ -154,13 +117,6 @@ export const REFRESH_WORKER_POLL_MS = 500;
 
 function iso(ms: number): string {
   return new Date(ms).toISOString();
-}
-
-function getJobRow(householdId: string, refreshId: string): SourceRefreshRow | undefined {
-  return Database.db.prepare('SELECT * FROM source_refresh WHERE id = ? AND household_id = ?').get(
-    refreshId,
-    householdId,
-  ) as SourceRefreshRow | undefined;
 }
 
 function parseSummary(text: string | null): {
@@ -257,8 +213,8 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
     if (input.ownerPasswordVerified !== true) {
       throw new DomainError(403, ProblemCode.PARENT_VERIFICATION_REQUIRED, '需要主账号密码完成家长验证');
     }
-    const db = Database.db;
-    const source = db.prepare('SELECT * FROM media_source WHERE id = ?').get(input.sourceId) as MediaSourceRow | undefined;
+    const store = sourcesStore();
+    const source = store.findMediaSourceRecordById(input.sourceId);
     if (source === undefined || source.household_id !== input.householdId) {
       throw new DomainError(404, ProblemCode.NOT_FOUND);
     }
@@ -266,9 +222,7 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
       throw createDomainError('SOURCE_DISABLED');
     }
 
-    const existing = db
-      .prepare('SELECT * FROM source_refresh WHERE household_id = ? AND operation_key = ?')
-      .get(input.householdId, input.operationKey) as SourceRefreshRow | undefined;
+    const existing = store.findRefreshJobByOperationKey(input.householdId, input.operationKey);
     if (existing !== undefined) {
       if (existing.source_id === input.sourceId && existing.source_version === input.expectedVersion) {
         return toView(existing);
@@ -278,53 +232,37 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
     if (source.version !== input.expectedVersion) {
       throw createDomainError('SOURCE_VERSION_CONFLICT');
     }
-    const session = db
-      .prepare('SELECT id FROM device_session WHERE id = ? AND household_id = ?')
-      .get(input.sessionId, input.householdId);
-    if (session === undefined) {
+    if (!store.sessionExistsInHousehold(input.sessionId, input.householdId)) {
       throw new DomainError(401, ProblemCode.SESSION_INVALID, '会话无效或已撤销');
     }
-    const account = db
-      .prepare('SELECT id FROM account WHERE id = ? AND household_id = ?')
-      .get(input.accountId, input.householdId);
-    if (account === undefined) {
+    if (!store.accountExistsInHousehold(input.accountId, input.householdId)) {
       throw new DomainError(403, ProblemCode.FORBIDDEN);
     }
-    const busy = db
-      .prepare(
-        "SELECT id FROM source_refresh WHERE household_id = ? AND source_id = ? AND status IN ('queued', 'running', 'awaiting_confirmation')",
-      )
-      .get(input.householdId, input.sourceId);
-    if (busy !== undefined) {
+    if (store.hasActiveRefreshJob(input.householdId, input.sourceId)) {
       throw createDomainError('SOURCE_BUSY');
     }
-    const queued = db.prepare("SELECT COUNT(*) AS n FROM source_refresh WHERE status = 'queued'").get() as { n: number };
-    if (queued.n >= IMPORT_BUDGETS.IMPORT_QUEUE_CAPACITY) {
+    if (store.countQueuedRefreshJobs() >= IMPORT_BUDGETS.IMPORT_QUEUE_CAPACITY) {
       throw createDomainError('IMPORT_QUEUE_FULL');
     }
-    const catalog = db
-      .prepare('SELECT revision FROM catalog_state WHERE household_id = ?')
-      .get(input.householdId) as { revision: number } | undefined;
-    if (catalog === undefined) {
+    const baselineRevision = store.getCatalogRevision(input.householdId);
+    if (baselineRevision === undefined) {
       throw new DomainError(500, ProblemCode.INTERNAL, '目录状态缺失');
     }
 
     const id = randomUUID();
     const now = new Date().toISOString();
     try {
-      db.prepare(
-        "INSERT INTO source_refresh (id, household_id, source_id, initiator_account_id, initiator_session_id, operation_key, status, version, source_version, baseline_revision, snapshot_digest, item_count, summary_json, error_code, created_at, started_at, finished_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, 'queued', 1, ?, ?, NULL, NULL, NULL, NULL, ?, NULL, NULL, NULL)",
-      ).run(
+      store.insertQueuedRefreshJob({
         id,
-        input.householdId,
-        input.sourceId,
-        input.accountId,
-        input.sessionId,
-        input.operationKey,
-        source.version,
-        catalog.revision,
-        now,
-      );
+        householdId: input.householdId,
+        sourceId: input.sourceId,
+        initiatorAccountId: input.accountId,
+        initiatorSessionId: input.sessionId,
+        operationKey: input.operationKey,
+        sourceVersion: source.version,
+        baselineRevision,
+        createdAt: now,
+      });
     } catch (error) {
       // 并发竞态兜底:部分唯一索引/幂等键冲突映射回稳定业务码
       const message = error instanceof Error ? error.message : String(error);
@@ -336,12 +274,12 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
       }
       throw error;
     }
-    return toView(getJobRow(input.householdId, id) as SourceRefreshRow);
+    return toView(store.getRefreshJobRow(input.householdId, id) as SourceRefreshRow);
   }
 
   /** 按 id 读取任务概览(供 T028 GET /refreshes/{refreshId};跨家庭/未知 → null 由调用方 404) */
   getRefreshJob(householdId: string, refreshId: string): RefreshJobView | null {
-    const row = getJobRow(householdId, refreshId);
+    const row = sourcesStore().getRefreshJobRow(householdId, refreshId);
     return row === undefined ? null : toView(row);
   }
 
@@ -366,26 +304,11 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
   }
 
   private async processNextQueued(nowMs: number): Promise<RefreshJobView | null> {
-    const db = Database.db;
-    if (!this.hasSourceRefreshTable(db)) {
+    const store = sourcesStore();
+    if (!store.hasSourceRefreshTable()) {
       return null;
     }
-    const claim = db.transaction((): SourceRefreshRow | null => {
-      const candidate = db
-        .prepare("SELECT id, household_id FROM source_refresh WHERE status = 'queued' ORDER BY created_at ASC, id ASC LIMIT 1")
-        .get() as { id: string; household_id: string } | undefined;
-      if (candidate === undefined) {
-        return null;
-      }
-      const claimed = db
-        .prepare("UPDATE source_refresh SET status = 'running', version = version + 1, started_at = ? WHERE id = ? AND household_id = ? AND status = 'queued'")
-        .run(iso(nowMs), candidate.id, candidate.household_id);
-      if (Number(claimed.changes) !== 1) {
-        return null;
-      }
-      return getJobRow(candidate.household_id, candidate.id) ?? null;
-    });
-    const job = claim();
+    const job = store.claimNextQueuedJob(iso(nowMs));
     if (job === null) {
       return null;
     }
@@ -394,16 +317,13 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
     } catch (error) {
       this.failJob(job, nowMs, errorCodeOf(error));
     }
-    const finalRow = getJobRow(job.household_id, job.id);
+    const finalRow = store.getRefreshJobRow(job.household_id, job.id);
     return finalRow === undefined ? null : toView(finalRow);
   }
 
   /** 按 kind 分派:暂存(IPTV/NAS)或解析(EPG)→ 异常判定 → 发布/待确认 */
   private async executeJob(job: SourceRefreshRow, nowMs: number): Promise<void> {
-    const db = Database.db;
-    const source = db
-      .prepare('SELECT * FROM media_source WHERE id = ? AND household_id = ?')
-      .get(job.source_id, job.household_id) as MediaSourceRow | undefined;
+    const source = sourcesStore().findMediaSourceRecordInHousehold(job.source_id, job.household_id);
     if (source === undefined) {
       this.failJob(job, nowMs, ProblemCode.NOT_FOUND);
       return;
@@ -421,14 +341,14 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
 
   /** IPTV/NAS:网络/文件 IO + 暂存(写事务外)→ diff → 待确认或发布 */
   private async executeEntryJob(job: SourceRefreshRow, source: MediaSourceRow, nowMs: number): Promise<void> {
-    const db = Database.db;
+    const store = sourcesStore();
     let staged: { digest: string; stagedCount: number };
     if (source.kind === 'iptv') {
       const remoteUrl = source.remote_url ?? '';
       const opened = await openRemoteSource(remoteUrl, { allowedTargets: getConfig().LAN_ALLOWED_TARGETS });
       try {
         const parsed = await parseM3U(opened.stream);
-        const result = stageEntries(db, {
+        const result = store.stageEntries({
           householdId: job.household_id,
           refreshId: job.id,
           kind: 'iptv',
@@ -444,7 +364,7 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
         rootKey: source.root_key ?? '',
         relativeDirectory: source.relative_directory ?? '',
       });
-      const result = stageEntries(db, {
+      const result = store.stageEntries({
         householdId: job.household_id,
         refreshId: job.id,
         kind: 'nas',
@@ -455,14 +375,10 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
 
     this.recordStagedMeta(job, staged.digest, staged.stagedCount);
 
-    const stagedRows = loadStagedEntries(db, { householdId: job.household_id, refreshId: job.id });
-    const baseline = db
-      .prepare(
-        "SELECT identity_kind || ':' || identity_digest AS entry_key FROM source_entry WHERE household_id = ? AND source_id = ? AND present = 1",
-      )
-      .all(job.household_id, job.source_id) as Array<{ entry_key: string }>;
+    const stagedRows = store.loadStagedEntries({ householdId: job.household_id, refreshId: job.id });
+    const baseline = store.listPresentEntryKeys(job.household_id, job.source_id);
     const { counts } = diffSnapshot(
-      baseline.map((row) => ({ entryKey: row.entry_key, present: true })),
+      baseline.map((entryKey) => ({ entryKey, present: true })),
       stagedRows.map((row) => ({ entryKey: row.entryKey })),
     );
     const evaluation = evaluateExceptions({
@@ -473,13 +389,11 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
     });
     if (evaluation.requiresConfirmation) {
       // 异常快照:数量化 summary(脱敏,只有数量),TTL 内等待家长确认
-      db.prepare(
-        "UPDATE source_refresh SET status = 'awaiting_confirmation', version = version + 1, summary_json = ?, expires_at = ? WHERE id = ? AND household_id = ? AND status = 'running'",
-      ).run(
+      store.markRefreshJobAwaitingConfirmation(
+        job.household_id,
+        job.id,
         canonicalJson({ counts, confirmationReason: evaluation.reason }),
         iso(nowMs + IMPORT_BUDGETS.AWAITING_CONFIRMATION_TTL_MS),
-        job.id,
-        job.household_id,
       );
       return;
     }
@@ -541,9 +455,7 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
 
   /** 暂存完成元数据落库(非状态迁移,不加 version;发布重验 snapshot_digest 用) */
   private recordStagedMeta(job: SourceRefreshRow, digest: string, itemCount: number): void {
-    Database.db
-      .prepare('UPDATE source_refresh SET snapshot_digest = ?, item_count = ? WHERE id = ? AND household_id = ?')
-      .run(digest, itemCount, job.id, job.household_id);
+    sourcesStore().recordRefreshJobStagedMeta(job.household_id, job.id, digest, itemCount);
   }
 
   /** 发布事务包装(错误向上抛给 processNextQueued 统一映射失败) */
@@ -571,13 +483,7 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
 
   /** 发起会话/设备仍有效(自动发布前置;撤销/过期 → false) */
   private initiatorSessionValid(householdId: string, sessionId: string, nowMs: number): boolean {
-    const row = Database.db
-      .prepare(
-        'SELECT s.revoked_at AS session_revoked_at, s.expires_at AS expires_at, d.revoked_at AS device_revoked_at FROM device_session s JOIN device d ON d.id = s.device_id WHERE s.id = ? AND s.household_id = ?',
-      )
-      .get(sessionId, householdId) as
-      | { session_revoked_at: string | null; expires_at: string; device_revoked_at: string | null }
-      | undefined;
+    const row = sourcesStore().findSessionDeviceValidity(sessionId, householdId);
     return (
       row !== undefined &&
       row.session_revoked_at === null &&
@@ -588,13 +494,7 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
 
   /** 任务失败(终态):稳定 errorCode + finished_at + version+1;清理暂存,不触碰已发布目录 */
   private failJob(job: SourceRefreshRow, nowMs: number, errorCode: string): void {
-    const db = Database.db;
-    db.transaction(() => {
-      db.prepare(
-        "UPDATE source_refresh SET status = 'failed', version = version + 1, error_code = ?, finished_at = ? WHERE id = ? AND household_id = ? AND status = 'running'",
-      ).run(errorCode, iso(nowMs), job.id, job.household_id);
-      clearStagedEntries(db, { householdId: job.household_id, refreshId: job.id });
-    })();
+    sourcesStore().failRefreshJob(job.household_id, job.id, errorCode, iso(nowMs));
   }
 
   /* ---------------------------------------------------------------- */
@@ -606,52 +506,24 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
    * (readiness 语义即缺表降级 503,不允许 onModuleInit 崩溃)。
    * source_refresh 表缺失时自动路径静默跳过,循环下一轮重新检查(建表后自动恢复)。
    */
-  private hasSourceRefreshTable(db: typeof Database.db): boolean {
-    const row = db
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'source_refresh'")
-      .get() as { name: string } | undefined;
-    return row !== undefined;
+  private hasSourceRefreshTable(): boolean {
+    return sourcesStore().hasSourceRefreshTable();
   }
 
   /** 重启恢复:queued/running → interrupted(version+1,finished_at),不自动重跑;返回任务数 */
   recoverInterrupted(nowMs: number = Date.now()): number {
-    const db = Database.db;
-    if (!this.hasSourceRefreshTable(db)) {
+    if (!this.hasSourceRefreshTable()) {
       return 0;
     }
-    return db.transaction((): number => {
-      const rows = db
-        .prepare("SELECT id, household_id FROM source_refresh WHERE status IN ('queued', 'running')")
-        .all() as Array<{ id: string; household_id: string }>;
-      for (const row of rows) {
-        db.prepare(
-          "UPDATE source_refresh SET status = 'interrupted', version = version + 1, finished_at = ? WHERE id = ? AND household_id = ? AND status IN ('queued', 'running')",
-        ).run(iso(nowMs), row.id, row.household_id);
-      }
-      return rows.length;
-    })();
+    return sourcesStore().recoverInterruptedJobs(iso(nowMs));
   }
 
   /** 懒过期:awaiting_confirmation 超 expires_at → expired(version+1)+清暂存;返回过期任务数 */
   expireStaleConfirmations(nowMs: number = Date.now()): number {
-    const db = Database.db;
-    if (!this.hasSourceRefreshTable(db)) {
+    if (!this.hasSourceRefreshTable()) {
       return 0;
     }
-    return db.transaction((): number => {
-      const rows = db
-        .prepare(
-          "SELECT id, household_id FROM source_refresh WHERE status = 'awaiting_confirmation' AND expires_at IS NOT NULL AND expires_at <= ?",
-        )
-        .all(iso(nowMs)) as Array<{ id: string; household_id: string }>;
-      for (const row of rows) {
-        db.prepare(
-          "UPDATE source_refresh SET status = 'expired', version = version + 1, finished_at = ? WHERE id = ? AND household_id = ? AND status = 'awaiting_confirmation'",
-        ).run(iso(nowMs), row.id, row.household_id);
-        clearStagedEntries(db, { householdId: row.household_id, refreshId: row.id });
-      }
-      return rows.length;
-    })();
+    return sourcesStore().expireStaleConfirmationJobs(iso(nowMs));
   }
 
   /* ---------------------------------------------------------------- */
@@ -667,23 +539,19 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
   confirmRefresh(input: RefreshDecisionInput): RefreshJobView {
     const job = this.requireAwaitingJob(input);
     const nowMs = Date.now();
-    const db = Database.db;
-    const source = db
-      .prepare('SELECT * FROM media_source WHERE id = ? AND household_id = ?')
-      .get(job.source_id, job.household_id) as MediaSourceRow | undefined;
-    const stagedRows = loadStagedEntries(db, { householdId: job.household_id, refreshId: job.id });
+    const store = sourcesStore();
+    const source = store.findMediaSourceRecordInHousehold(job.source_id, job.household_id);
+    const stagedRows = store.loadStagedEntries({ householdId: job.household_id, refreshId: job.id });
     const digest = stagedSnapshotDigest(stagedRows);
     const rejectStale = (detail: string): DomainError => {
-      this.markJobStatus(job, 'stale', nowMs);
+      store.markAwaitingJobTerminal(job.household_id, job.id, 'stale', iso(nowMs));
       return createDomainError('REFRESH_STALE', detail);
     };
     if (source === undefined || source.enabled !== 1 || source.version !== job.source_version) {
       throw rejectStale('来源配置已变化,快照失效');
     }
-    const catalog = db.prepare('SELECT revision FROM catalog_state WHERE household_id = ?').get(job.household_id) as
-      | { revision: number }
-      | undefined;
-    if (catalog === undefined || catalog.revision !== job.baseline_revision) {
+    const baselineRevision = store.getCatalogRevision(job.household_id);
+    if (baselineRevision === undefined || baselineRevision !== job.baseline_revision) {
       throw rejectStale('目录基线已变化,快照失效');
     }
     if (job.snapshot_digest === null || digest !== job.snapshot_digest) {
@@ -694,7 +562,7 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
         this.verifyNasStagedFacts(source, stagedRows);
       } catch (error) {
         // 磁盘事实与快照不符:与来源/基线失效同样处理(标 stale + 409 REFRESH_STALE)
-        this.markJobStatus(job, 'stale', nowMs);
+        store.markAwaitingJobTerminal(job.household_id, job.id, 'stale', iso(nowMs));
         throw error;
       }
     }
@@ -714,25 +582,20 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
     if (outcome === 'stale') {
       throw createDomainError('REFRESH_STALE');
     }
-    return toView(getJobRow(job.household_id, job.id) as SourceRefreshRow);
+    return toView(store.getRefreshJobRow(job.household_id, job.id) as SourceRefreshRow);
   }
 
   /** 丢弃待确认快照:仅 awaiting;成功 → discarded + 清暂存 + 释放来源锁 */
   discardRefresh(input: RefreshDecisionInput): RefreshJobView {
     const job = this.requireAwaitingJob(input);
-    const db = Database.db;
-    db.transaction(() => {
-      db.prepare(
-        "UPDATE source_refresh SET status = 'discarded', version = version + 1, finished_at = ? WHERE id = ? AND household_id = ? AND status = 'awaiting_confirmation'",
-      ).run(iso(Date.now()), job.id, job.household_id);
-      clearStagedEntries(db, { householdId: job.household_id, refreshId: job.id });
-    })();
-    return toView(getJobRow(job.household_id, job.id) as SourceRefreshRow);
+    sourcesStore().discardAwaitingJob(job.household_id, job.id, iso(Date.now()));
+    return toView(sourcesStore().getRefreshJobRow(job.household_id, job.id) as SourceRefreshRow);
   }
 
   /** 确认/丢弃共用前置:任务存在(404)→ 会话可选重验(401)→ 过期懒标(REFRESH_STALE)→ 状态/版本(409) */
   private requireAwaitingJob(input: RefreshDecisionInput): SourceRefreshRow {
-    const job = getJobRow(input.householdId, input.refreshId);
+    const store = sourcesStore();
+    const job = store.getRefreshJobRow(input.householdId, input.refreshId);
     if (job === undefined) {
       throw new DomainError(404, ProblemCode.NOT_FOUND);
     }
@@ -741,7 +604,7 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
     }
     const nowMs = Date.now();
     if (job.status === 'awaiting_confirmation' && job.expires_at !== null && Date.parse(job.expires_at) <= nowMs) {
-      this.markJobStatus(job, 'expired', nowMs);
+      store.markAwaitingJobTerminal(job.household_id, job.id, 'expired', iso(nowMs));
       throw createDomainError('REFRESH_STALE', '待确认快照已过期');
     }
     if (job.status !== 'awaiting_confirmation') {
@@ -760,29 +623,14 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
     }
   }
 
-  /** 终态迁移(stale/expired):version+1 + finished_at + 清暂存(带状态守卫,终态 immutable) */
-  private markJobStatus(job: SourceRefreshRow, status: 'stale' | 'expired', nowMs: number): void {
-    const db = Database.db;
-    db.transaction(() => {
-      db.prepare(
-        `UPDATE source_refresh SET status = '${status}', version = version + 1, finished_at = ? WHERE id = ? AND household_id = ? AND status = 'awaiting_confirmation'`,
-      ).run(iso(nowMs), job.id, job.household_id);
-      clearStagedEntries(db, { householdId: job.household_id, refreshId: job.id });
-    })();
-  }
-
   /** 确认发布用的差异计数(重算,保证 summary 与发布内容一致) */
   private recomputeEntryCounts(
     job: SourceRefreshRow,
     stagedRows: ReadonlyArray<{ entryKey: string }>,
   ): { counts: DiffCounts } {
-    const baseline = Database.db
-      .prepare(
-        "SELECT identity_kind || ':' || identity_digest AS entry_key FROM source_entry WHERE household_id = ? AND source_id = ? AND present = 1",
-      )
-      .all(job.household_id, job.source_id) as Array<{ entry_key: string }>;
+    const baseline = sourcesStore().listPresentEntryKeys(job.household_id, job.source_id);
     return diffSnapshot(
-      baseline.map((row) => ({ entryKey: row.entry_key, present: true })),
+      baseline.map((entryKey) => ({ entryKey, present: true })),
       stagedRows,
     );
   }

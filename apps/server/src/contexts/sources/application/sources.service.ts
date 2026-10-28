@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { and, count, eq, sql } from 'drizzle-orm';
 import {
   ProblemCode,
   type RefreshDto,
@@ -10,18 +9,14 @@ import {
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { getConfig } from '@platform/config/env';
-import {
-  catalogState,
-  deviceSession,
-  mediaSource,
-  sourceRefresh,
-  type MediaSource,
-} from '@platform/database/schema';
-import { getDb, verifyParentPassword, type Db } from '@contexts/identity-access';
+import type { MediaSource } from '@platform/database/schema';
+import { verifyParentPassword } from '@contexts/identity-access';
 import { toRefreshDtoCounts, type RefreshJobView } from '@contexts/sources/application/refresh-executor.service';
 // 007-T022a:executor 参数改用发布面接口(结构同源,实现类 implements;纯类型收窄,行为零变化)
 import type { IRefreshExecutorService } from './ports';
 import { findNasTargetDenial, findRemoteTargetDenial } from '@contexts/sources/domain/source-target.validation';
+// 008-T009(ADR-0015 D1):数据访问经仓储端口 seam,Drizzle 实现于 infrastructure 装配期绑定
+import { sourcesStore } from './sources-store.port';
 
 /**
  * 来源管理服务(T020;US1 来源三端点 + source-roots):
@@ -34,11 +29,9 @@ import { findNasTargetDenial, findRemoteTargetDenial } from '@contexts/sources/d
  * - DTO 脱敏:SourceDto 仅含契约字段;locationLabel = 远程 origin 的主机标签(host[:port],
  *   默认端口省略,IPv6 保留方括号;绝无 path/query/userinfo)或 NAS rootKey;
  *   remote_url/rootKey/relativeDirectory 绝不进入响应;
- * - 服务为纯函数模块(对齐 policy/profile 惯例),事务经 better-sqlite3 同步回调。
+ * - 服务为纯函数模块(对齐 policy/profile 惯例),事务经仓储端口 withTransaction 表达
+ *   (008-T009:SQL 逐字迁移至 infrastructure/sources-store.drizzle.ts,行为零变化)。
  */
-
-/** 事务句柄类型(better-sqlite3 同步事务回调入参;与 parent-verification.service 同一惯用法) */
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 export interface CreateSourceInput {
   ownerPassword?: string;
@@ -86,7 +79,7 @@ async function requireParentVerification(context: SessionContext, ownerPassword?
     throw new DomainError(403, ProblemCode.PARENT_VERIFICATION_REQUIRED, '需要主账号密码完成家长验证');
   }
   await verifyParentPassword(context, ownerPassword);
-  const sessionRow = getDb().select().from(deviceSession).where(eq(deviceSession.id, context.session.id)).get();
+  const sessionRow = sourcesStore().findDeviceSession(context.session.id);
   if (
     sessionRow === undefined ||
     sessionRow.revokedAt !== null ||
@@ -127,20 +120,9 @@ function toSourceDto(row: MediaSource): SourceDto {
   };
 }
 
-/** catalog_state.revision +1(单事务内;行缺失时以「创建后应为 2」的语义补建,不重置已有修订) */
-function bumpCatalogRevision(tx: Tx, householdId: string): void {
-  tx.insert(catalogState)
-    .values({ householdId, revision: 2 })
-    .onConflictDoUpdate({
-      target: catalogState.householdId,
-      set: { revision: sql`${catalogState.revision} + 1` },
-    })
-    .run();
-}
-
 /** EPG 关联目标校验:必须同家庭(不存在/跨家庭 404 同形)、kind=epg(400)、非自引用(400);允许目标暂时禁用 */
 function resolveEpgTarget(epgSourceId: string, householdId: string, selfSourceId: string | null): void {
-  const target = getDb().select().from(mediaSource).where(eq(mediaSource.id, epgSourceId)).get();
+  const target = sourcesStore().findMediaSourceById(epgSourceId);
   if (target === undefined || target.householdId !== householdId) {
     throw notFound();
   }
@@ -154,18 +136,8 @@ function resolveEpgTarget(epgSourceId: string, householdId: string, selfSourceId
 
 /** GET /sources:分页脱敏概览(owner);items 按 created_at、id 稳定排序 */
 export function listSources(context: SessionContext, query: ListSourcesQuery): SourcePageDto {
-  const db = getDb();
-  const where = eq(mediaSource.householdId, context.session.householdId);
-  const total = db.select({ value: count() }).from(mediaSource).where(where).get()?.value ?? 0;
-  const rows = db
-    .select()
-    .from(mediaSource)
-    .where(where)
-    .orderBy(mediaSource.createdAt, mediaSource.id)
-    .limit(query.pageSize)
-    .offset((query.page - 1) * query.pageSize)
-    .all();
-  return { items: rows.map(toSourceDto), total, page: query.page, pageSize: query.pageSize };
+  const page = sourcesStore().listMediaSourcePage(context.session.householdId, query.page, query.pageSize);
+  return { items: page.rows.map(toSourceDto), total: page.total, page: query.page, pageSize: query.pageSize };
 }
 
 /** GET /source-roots:NAS 根选择列表(owner);label 即 rootKey,不含绝对路径 */
@@ -214,28 +186,26 @@ export async function createSource(context: SessionContext, input: CreateSourceI
 
   const now = new Date().toISOString();
   const id = randomUUID();
-  return getDb().transaction((tx) => {
-    tx.insert(mediaSource)
-      .values({
-        id,
-        householdId,
-        kind: input.kind,
-        name: input.name,
-        remoteUrl,
-        rootKey,
-        relativeDirectory,
-        privateAccessApproved: input.privateAccessApproved ? 1 : 0,
-        epgSourceId,
-        enabled: input.enabled ? 1 : 0,
-        version: 1,
-        lastSuccessAt: null,
-        lastJobId: null,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-    bumpCatalogRevision(tx, householdId);
-    const row = tx.select().from(mediaSource).where(eq(mediaSource.id, id)).get();
+  return sourcesStore().withTransaction((tx) => {
+    tx.insertMediaSource({
+      id,
+      householdId,
+      kind: input.kind,
+      name: input.name,
+      remoteUrl,
+      rootKey,
+      relativeDirectory,
+      privateAccessApproved: input.privateAccessApproved ? 1 : 0,
+      epgSourceId,
+      enabled: input.enabled ? 1 : 0,
+      version: 1,
+      lastSuccessAt: null,
+      lastJobId: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    tx.bumpCatalogRevision(householdId);
+    const row = tx.findMediaSourceById(id);
     if (row === undefined) {
       throw new Error('来源创建后读取失败');
     }
@@ -257,8 +227,7 @@ export async function updateSource(
   await requireParentVerification(context, input.ownerPassword);
   const householdId = context.session.householdId;
 
-  const sourceWhere = and(eq(mediaSource.id, sourceId), eq(mediaSource.householdId, householdId));
-  const existing = getDb().select().from(mediaSource).where(sourceWhere).get();
+  const existing = sourcesStore().findOwnedMediaSource(sourceId, householdId);
   if (existing === undefined) {
     throw notFound();
   }
@@ -293,43 +262,29 @@ export async function updateSource(
     nextRemoteUrl = input.remoteUrl;
   }
 
-  return getDb().transaction((tx) => {
-    const row = tx.select().from(mediaSource).where(sourceWhere).get();
+  return sourcesStore().withTransaction((tx) => {
+    const row = tx.findOwnedMediaSource(sourceId, householdId);
     if (row === undefined) {
       throw notFound();
     }
     if (row.version !== input.expectedVersion) {
       throw createDomainError('SOURCE_VERSION_CONFLICT');
     }
-    tx
-      .update(mediaSource)
-      .set({
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.enabled !== undefined ? { enabled: input.enabled ? 1 : 0 } : {}),
-        ...(input.privateAccessApproved !== undefined
-          ? { privateAccessApproved: input.privateAccessApproved ? 1 : 0 }
-          : {}),
-        remoteUrl: nextRemoteUrl,
-        epgSourceId: nextEpgSourceId,
-        version: row.version + 1,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(sourceWhere)
-      .run();
+    tx.updateOwnedMediaSource(sourceId, householdId, {
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.enabled !== undefined ? { enabled: input.enabled ? 1 : 0 } : {}),
+      ...(input.privateAccessApproved !== undefined
+        ? { privateAccessApproved: input.privateAccessApproved ? 1 : 0 }
+        : {}),
+      remoteUrl: nextRemoteUrl,
+      epgSourceId: nextEpgSourceId,
+      version: row.version + 1,
+      updatedAt: new Date().toISOString(),
+    });
     // 旧待确认快照失效(同事务):任务 version 随状态变化加一
-    tx
-      .update(sourceRefresh)
-      .set({ status: 'stale', version: sql`${sourceRefresh.version} + 1` })
-      .where(
-        and(
-          eq(sourceRefresh.householdId, householdId),
-          eq(sourceRefresh.sourceId, sourceId),
-          eq(sourceRefresh.status, 'awaiting_confirmation'),
-        ),
-      )
-      .run();
-    bumpCatalogRevision(tx, householdId);
-    const fresh = tx.select().from(mediaSource).where(sourceWhere).get();
+    tx.markAwaitingSnapshotsStale(householdId, sourceId);
+    tx.bumpCatalogRevision(householdId);
+    const fresh = tx.findOwnedMediaSource(sourceId, householdId);
     if (fresh === undefined) {
       throw new Error('来源更新后读取失败');
     }

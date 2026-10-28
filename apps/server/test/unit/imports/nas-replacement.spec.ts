@@ -12,7 +12,15 @@ import {
   type RefreshJobView,
 } from '@contexts/sources/application/refresh-executor.service';
 import { RefreshPublishService } from '@contexts/sources/application/refresh-publish.service';
+import { bindSourcesStore } from '@contexts/sources/application/sources-store.port';
+import { drizzleSourcesStore } from '@contexts/sources/infrastructure/sources-store.drizzle';
 import { createNasRootFixture, type NasRootFixture } from '../../helpers';
+
+/**
+ * 008-T009(ADR-0015 D1):测试 rig 绑定仓储 seam(惰性 Database.db 解析,
+ * bootstrapRig 每测试 close/重开单例仍正确)。
+ */
+bindSourcesStore(drizzleSourcesStore());
 
 /**
  * NAS 同路径替换清理事务测试(T027;FR-022/SC-009/research R4):

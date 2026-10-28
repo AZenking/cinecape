@@ -1,16 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import type DatabaseConstructor from 'better-sqlite3';
 import { canonicalJson, type DiffCounts } from '@contexts/sources/infrastructure/catalog-diff';
 import {
-  clearStagedEntries,
   computeSnapshotDigest as stagedSnapshotDigest,
-  loadStagedEntries,
   type LoadedStagedEntry,
 } from '@contexts/sources/infrastructure/refresh-staging.service';
 import { parseStoredList } from '@contexts/policy';
 import type { XMLTVChannel, XMLTVProgramme } from '@contexts/sources/infrastructure/xmltv.parser';
-import { Database } from '@platform/database/database';
+// 008-T009(ADR-0015 D1):数据访问经仓储端口 seam,发布事务经 withSqlTransaction 表达
+// (原生 SQL 逐字迁移至 infrastructure/sources-store.drizzle.ts,行为零变化)
+import {
+  sourcesStore,
+  type MediaSourceRow,
+  type RefreshTxStore,
+  type SourceEntryRow,
+} from '@contexts/sources/application/sources-store.port';
 
 /**
  * 刷新发布事务(T026/T027;data-model「发布事务」/research R5,FR-022/SC-009):
@@ -79,28 +83,6 @@ export interface EpgPublishParams {
 }
 
 export type PublishOutcome = 'succeeded' | 'stale';
-
-/** 事务句柄(better-sqlite3 同步事务回调入参,与 sources.service 同惯用法) */
-type Tx = Parameters<Parameters<DatabaseConstructor.Database['transaction']>[0]>[0];
-
-interface MediaSourceRow {
-  id: string;
-  household_id: string;
-  kind: string;
-  root_key: string | null;
-  enabled: number;
-  version: number;
-}
-
-interface SourceEntryRow {
-  id: string;
-  identity_kind: string;
-  identity_digest: string;
-  media_id: string | null;
-  present: number;
-  file_size_text: string | null;
-  file_mtime_ns: string | null;
-}
 
 /** 发布用暂存条目投影(payload 回读) */
 interface StagedEntry {
@@ -188,28 +170,17 @@ function stagedEntryOf(row: LoadedStagedEntry): StagedEntry {
  * 策略缺失不补建(FR-003/FR-008);名单解析损坏抛 PolicyCorruptionError 整体回滚。
  */
 function applyNasReplacementCleanup(
-  tx: Tx,
+  db: RefreshTxStore,
   householdId: string,
   replacedMediaIds: ReadonlySet<string>,
   nowIso: string,
 ): void {
-  const nullLevel = tx.prepare(
-    'UPDATE media_item SET content_level = NULL, version = version + 1, updated_at = ? WHERE id = ? AND household_id = ?',
-  );
   for (const mediaId of replacedMediaIds) {
-    nullLevel.run(nowIso, mediaId, householdId);
+    db.nullMediaItemContentLevel(mediaId, householdId, nowIso);
   }
-  const profiles = tx.prepare('SELECT id FROM profile WHERE household_id = ? ORDER BY id').all(householdId) as Array<{
-    id: string;
-  }>;
-  const readPolicy = tx.prepare('SELECT * FROM profile_policy WHERE household_id = ? AND profile_id = ?');
-  const writePolicy = tx.prepare(
-    'UPDATE profile_policy SET allowed_media_ids = ?, version = version + 1, updated_at = ? WHERE household_id = ? AND profile_id = ?',
-  );
-  for (const profile of profiles) {
-    const policy = readPolicy.get(householdId, profile.id) as
-      | { allowed_media_ids: string; blocked_media_ids: string }
-      | undefined;
+  const profiles = db.listProfileIdsInHousehold(householdId);
+  for (const profileId of profiles) {
+    const policy = db.findProfilePolicyLists(householdId, profileId);
     if (policy === undefined) {
       continue; // 不自动补建缺失策略;该档案本就没有允许项可清理
     }
@@ -220,14 +191,14 @@ function applyNasReplacementCleanup(
       allowed = parseStoredList(policy.allowed_media_ids, 'allowedMediaIds');
       blocked = parseStoredList(policy.blocked_media_ids, 'blockedMediaIds');
     } catch {
-      throw new PolicyCorruptionError(`profile ${profile.id} 的 allowedMediaIds/blockedMediaIds`);
+      throw new PolicyCorruptionError(`profile ${profileId} 的 allowedMediaIds/blockedMediaIds`);
     }
     void blocked; // blocked 仅用于严格解析(任一名单损坏即整体失败),本事务不写入禁止项
     const filtered = allowed.filter((mediaId) => !replacedMediaIds.has(mediaId));
     if (filtered.length === allowed.length) {
       continue; // 该档案名单未变化:version 不加
     }
-    writePolicy.run(JSON.stringify(filtered), nowIso, householdId, profile.id);
+    db.updateProfilePolicyAllowedMediaIds(householdId, profileId, JSON.stringify(filtered), nowIso);
   }
 }
 
@@ -238,44 +209,34 @@ export class RefreshPublishService {
    * 返回 'stale' 时任务已在事务内被标记 stale(终态),调用方无须再改状态。
    */
   publishEntrySnapshot(params: EntryPublishParams): PublishOutcome {
-    const db = Database.db;
     const nowIso = iso(params.nowMs);
-    const run = db.transaction((): PublishOutcome => {
+    return sourcesStore().withSqlTransaction((db): PublishOutcome => {
       const stale = this.markStaleAndClear(db, params, nowIso);
       if (!this.revalidate(db, params, stale)) {
         return 'stale';
       }
-      const stagedRows = loadStagedEntries(db, { householdId: params.householdId, refreshId: params.refreshId });
+      const stagedRows = db.loadStagedEntries({ householdId: params.householdId, refreshId: params.refreshId });
       if (stagedSnapshotDigest(stagedRows) !== params.snapshotDigest) {
         stale();
         return 'stale';
       }
       const staged = stagedRows.map(stagedEntryOf).sort((left, right) => (left.entryKey < right.entryKey ? -1 : 1));
 
-      const baselineRows = db
-        .prepare(
-          'SELECT id, identity_kind, identity_digest, media_id, present, file_size_text, file_mtime_ns FROM source_entry WHERE household_id = ? AND source_id = ?',
-        )
-        .all(params.householdId, params.sourceId) as SourceEntryRow[];
+      const baselineRows = db.listSourceEntryBaselineRows(params.householdId, params.sourceId);
       const existingByKey = new Map<string, SourceEntryRow>(
         baselineRows.map((row) => [entryKeyOf(row.identity_kind, row.identity_digest), row] as const),
       );
       const stagedKeys = new Set(staged.map((entry) => entry.entryKey));
 
       // mark missing:baseline present 而 staged 缺席 → present=0 + missing_since(不删行、不动媒体)
-      const markMissing = db.prepare(
-        'UPDATE source_entry SET present = 0, missing_since = ? WHERE id = ? AND household_id = ? AND present = 1',
-      );
       for (const row of baselineRows) {
         if (row.present === 1 && !stagedKeys.has(entryKeyOf(row.identity_kind, row.identity_digest))) {
-          markMissing.run(nowIso, row.id, params.householdId);
+          db.markSourceEntryMissing(row.id, params.householdId, nowIso);
         }
       }
 
-      const source = db.prepare('SELECT * FROM media_source WHERE id = ? AND household_id = ?').get(
-        params.sourceId,
-        params.householdId,
-      ) as MediaSourceRow;
+      // 重验已保证来源行存在(与迁移前同一非空断言语义)
+      const source = db.findMediaSourceRecordInHousehold(params.sourceId, params.householdId) as MediaSourceRow;
       const replacedMediaIds = new Set<string>();
       // T148(005 data-model §2 media_item.content_revision):同一 NAS 身份文件的可信
       // size/mtime 真实变化时,导入发布事务内递增 content_revision(与目录发布原子;
@@ -283,65 +244,26 @@ export class RefreshPublishService {
       // 不触发修订;同一成功快照重试时 size/mtime 与已存值一致 → 不再递增(幂等)。
       // 缺列容忍(照 hasGroupTitleColumn 惯例):仅应用 0001~0005 的部分迁移库无该列,
       // bump 静默跳过;已就绪库(含 0006)恒执行。
-      const hasContentRevisionColumn = (
-        db.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('media_item') WHERE name = 'content_revision'").get() as { n: number }
-      ).n === 1;
-      // 语句按缺列容忍惯例仅在列就绪时 prepare(缺列库上 prepare 未知列即抛错,
-      // 会使整个发布事务以 INTERNAL 失败 —— nas-replacement 等部分迁移夹具回归根因)
-      const bumpContentRevision = hasContentRevisionColumn
-        ? db.prepare(
-            'UPDATE media_item SET content_revision = content_revision + 1, version = version + 1, updated_at = ? WHERE id = ? AND household_id = ?',
-          )
-        : null;
-      const insertMedia = db.prepare(
-        "INSERT INTO media_item (id, household_id, type, title, description, poster_ref, content_level, title_overridden, type_overridden, version, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, NULL, NULL, 0, 0, 1, ?, ?)",
-      );
-      const readMedia = db.prepare(
-        'SELECT title, type, title_overridden, type_overridden FROM media_item WHERE id = ? AND household_id = ?',
-      );
-      const updateMediaPresentation = db.prepare(
-        'UPDATE media_item SET title = ?, type = ?, version = version + 1, updated_at = ? WHERE id = ? AND household_id = ?',
-      );
+      const hasContentRevisionColumn = db.mediaItemHasContentRevisionColumn();
       // T146:group_title 写入按缺列容忍降级(照本文件 epg_generation 缺列惯例)——
       // 仅应用 0001~0003 的部分迁移库没有 source_entry.group_title 列,发布静默跳过分组写入
       // 不使任务崩溃;已就绪库(含 0006)恒有该列,分组恒随发布事务持久化。
-      const hasGroupTitleColumn = (
-        db.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('source_entry') WHERE name = 'group_title'").get() as { n: number }
-      ).n === 1;
-      const insertEntry = db.prepare(
-        hasGroupTitleColumn
-          ? "INSERT INTO source_entry (id, household_id, source_id, identity_kind, identity_digest, media_id, upstream_channel_id, present, last_seen_job_id, first_seen_at, last_seen_at, missing_since, file_size_text, file_mtime_ns, group_title) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NULL, ?, ?, ?)"
-          : "INSERT INTO source_entry (id, household_id, source_id, identity_kind, identity_digest, media_id, upstream_channel_id, present, last_seen_job_id, first_seen_at, last_seen_at, missing_since, file_size_text, file_mtime_ns) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NULL, ?, ?)",
-      );
-      const updateEntry = db.prepare(
-        hasGroupTitleColumn
-          ? 'UPDATE source_entry SET media_id = ?, upstream_channel_id = ?, present = 1, last_seen_job_id = ?, last_seen_at = ?, missing_since = NULL, file_size_text = ?, file_mtime_ns = ?, group_title = ? WHERE id = ? AND household_id = ?'
-          : 'UPDATE source_entry SET media_id = ?, upstream_channel_id = ?, present = 1, last_seen_job_id = ?, last_seen_at = ?, missing_since = NULL, file_size_text = ?, file_mtime_ns = ? WHERE id = ? AND household_id = ?',
-      );
-      const insertPlayback = db.prepare(
-        "INSERT INTO playback_source (id, household_id, source_id, source_entry_id, media_item_id, protocol, location, mime_type, priority, requires_proxy, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 100, 0, ?, ?)",
-      );
-      const updatePlayback = db.prepare(
-        'UPDATE playback_source SET media_item_id = ?, protocol = ?, location = ?, updated_at = ? WHERE id = ? AND household_id = ?',
-      );
-      const readPlayback = db.prepare('SELECT id FROM playback_source WHERE household_id = ? AND source_entry_id = ?');
+      const hasGroupTitleColumn = db.sourceEntryHasGroupTitleColumn();
 
       for (const entry of staged) {
         const existing = existingByKey.get(entry.entryKey);
         let mediaId = existing?.media_id ?? null;
         if (mediaId === null) {
           mediaId = randomUUID();
-          insertMedia.run(mediaId, params.householdId, entryMediaType(params.kind), entryTitleOf(params.kind, entry), nowIso, nowIso);
+          db.insertMediaItem(mediaId, params.householdId, entryMediaType(params.kind), entryTitleOf(params.kind, entry), nowIso, nowIso);
         } else {
           // 人工标题/类型不被刷新覆盖;既有 content_level 一律不改写
-          const media = readMedia.get(mediaId, params.householdId) as
-            | { title: string; type: string; title_overridden: number; type_overridden: number }
-            | undefined;
+          const media = db.findMediaItemPresentation(mediaId, params.householdId);
           if (media !== undefined) {
             const nextTitle = media.title_overridden === 1 ? media.title : entryTitleOf(params.kind, entry);
             const nextType = media.type_overridden === 1 ? media.type : entryMediaType(params.kind);
             if (nextTitle !== media.title || nextType !== media.type) {
-              updateMediaPresentation.run(nextTitle, nextType, nowIso, mediaId, params.householdId);
+              db.updateMediaItemPresentation(mediaId, params.householdId, nextTitle, nextType, nowIso);
             }
           }
         }
@@ -356,7 +278,7 @@ export class RefreshPublishService {
         const groupTitle = params.kind === 'iptv' ? entry.groupTitle : null;
         if (existing === undefined) {
           if (hasGroupTitleColumn) {
-            insertEntry.run(
+            db.insertSourceEntryWithGroup(
               entryId,
               params.householdId,
               params.sourceId,
@@ -372,7 +294,7 @@ export class RefreshPublishService {
               groupTitle,
             );
           } else {
-            insertEntry.run(
+            db.insertSourceEntry(
               entryId,
               params.householdId,
               params.sourceId,
@@ -396,12 +318,12 @@ export class RefreshPublishService {
             replacedMediaIds.add(mediaId);
             // T148:真实内容变化(NAS 身份文件 size/mtime 任一不同)→ 同事务递增修订;
             // 标题/分级路径不进入本分支(只改 version,不递增 content_revision)
-            if (bumpContentRevision !== null) {
-              bumpContentRevision.run(nowIso, mediaId, params.householdId);
+            if (hasContentRevisionColumn) {
+              db.bumpMediaItemContentRevision(mediaId, params.householdId, nowIso);
             }
           }
           if (hasGroupTitleColumn) {
-            updateEntry.run(
+            db.updateSourceEntryWithGroup(
               mediaId,
               upstreamChannelId,
               params.refreshId,
@@ -413,7 +335,7 @@ export class RefreshPublishService {
               params.householdId,
             );
           } else {
-            updateEntry.run(
+            db.updateSourceEntry(
               mediaId,
               upstreamChannelId,
               params.refreshId,
@@ -426,10 +348,10 @@ export class RefreshPublishService {
           }
         }
 
-        const playback = readPlayback.get(params.householdId, entryId) as { id: string } | undefined;
+        const playbackId = db.findPlaybackSourceId(params.householdId, entryId);
         const resource = playbackOf(params.kind, entry, source);
-        if (playback === undefined) {
-          insertPlayback.run(
+        if (playbackId === undefined) {
+          db.insertPlaybackSource(
             randomUUID(),
             params.householdId,
             params.sourceId,
@@ -441,7 +363,7 @@ export class RefreshPublishService {
             nowIso,
           );
         } else {
-          updatePlayback.run(mediaId, resource.protocol, resource.location, nowIso, playback.id, params.householdId);
+          db.updatePlaybackSource(mediaId, resource.protocol, resource.location, nowIso, playbackId, params.householdId);
         }
       }
 
@@ -452,7 +374,6 @@ export class RefreshPublishService {
       this.finalizeSuccess(db, params, nowIso, canonicalJson({ counts: params.counts }));
       return 'succeeded';
     });
-    return run();
   }
 
   /**
@@ -462,27 +383,20 @@ export class RefreshPublishService {
    * 且绝不触碰 manual_epg_binding(手动配置跨刷新保留)。
    */
   publishEpgWindow(params: EpgPublishParams): PublishOutcome {
-    const db = Database.db;
     const nowIso = iso(params.nowMs);
-    const run = db.transaction((): PublishOutcome => {
+    return sourcesStore().withSqlTransaction((db): PublishOutcome => {
       const stale = this.markStaleAndClear(db, params, nowIso);
       if (!this.revalidate(db, params, stale)) {
         return 'stale';
       }
-      db.prepare('DELETE FROM epg_programme WHERE household_id = ? AND source_id = ?').run(params.householdId, params.sourceId);
-      db.prepare('DELETE FROM epg_channel WHERE household_id = ? AND source_id = ?').run(params.householdId, params.sourceId);
+      db.deleteEpgProgrammes(params.householdId, params.sourceId);
+      db.deleteEpgChannels(params.householdId, params.sourceId);
 
       const conflicted = new Set(params.conflictedChannelIds);
-      const insertChannel = db.prepare(
-        'INSERT INTO epg_channel (household_id, source_id, xmltv_channel_id, display_name, conflicted) VALUES (?, ?, ?, ?, ?)',
-      );
       for (const channel of params.channels) {
-        insertChannel.run(params.householdId, params.sourceId, channel.xmltvChannelId, channel.displayName ?? channel.xmltvChannelId, conflicted.has(channel.xmltvChannelId) ? 1 : 0);
+        db.insertEpgChannel(params.householdId, params.sourceId, channel.xmltvChannelId, channel.displayName ?? channel.xmltvChannelId, conflicted.has(channel.xmltvChannelId) ? 1 : 0);
       }
 
-      const insertProgramme = db.prepare(
-        'INSERT OR IGNORE INTO epg_programme (id, household_id, source_id, xmltv_channel_id, title, description, starts_at, ends_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      );
       const seenSlots = new Set<string>();
       let storedProgrammes = 0;
       for (const programme of params.programmes) {
@@ -493,7 +407,7 @@ export class RefreshPublishService {
           continue; // 完全相同节目去重
         }
         seenSlots.add(slot);
-        const result = insertProgramme.run(
+        storedProgrammes += db.insertEpgProgrammeIfAbsent(
           randomUUID(),
           params.householdId,
           params.sourceId,
@@ -503,7 +417,6 @@ export class RefreshPublishService {
           startsAt,
           endsAt,
         );
-        storedProgrammes += Number(result.changes);
       }
 
       this.finalizeSuccess(
@@ -518,22 +431,17 @@ export class RefreshPublishService {
       // 缺列容忍(照 hasSourceRefreshTable 的未就绪库降级惯例):仅应用 0001~0003 的
       // 部分迁移库(就绪检查应 503)没有 epg_generation 列,bump 静默跳过不使发布崩溃;
       // 已就绪库(含 0004)恒有该列,bump 恒执行。
-      const hasGenerationColumn = (
-        db.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('media_source') WHERE name = 'epg_generation'").get() as { n: number }
-      ).n === 1;
+      const hasGenerationColumn = db.mediaSourceHasEpgGenerationColumn();
       if (hasGenerationColumn) {
-        db.prepare(
-          "UPDATE media_source SET epg_generation = epg_generation + 1 WHERE id = ? AND household_id = ? AND kind = 'epg'",
-        ).run(params.sourceId, params.householdId);
+        db.bumpMediaSourceEpgGeneration(params.sourceId, params.householdId);
       }
       return 'succeeded';
     });
-    return run();
   }
 
   /** 发布重验:来源存在且启用、source.version、catalog revision、job version、摘要落库一致 */
   private revalidate(
-    db: DatabaseConstructor.Database,
+    db: RefreshTxStore,
     params: {
       householdId: string;
       sourceId: string;
@@ -545,24 +453,18 @@ export class RefreshPublishService {
     },
     stale: () => void,
   ): boolean {
-    const source = db
-      .prepare('SELECT enabled, version FROM media_source WHERE id = ? AND household_id = ?')
-      .get(params.sourceId, params.householdId) as { enabled: number; version: number } | undefined;
+    const source = db.findMediaSourceEnabledVersion(params.sourceId, params.householdId);
     if (source === undefined || source.enabled !== 1 || source.version !== params.sourceVersion) {
       stale();
       return false;
     }
-    const catalog = db
-      .prepare('SELECT revision FROM catalog_state WHERE household_id = ?')
-      .get(params.householdId) as { revision: number } | undefined;
-    if (catalog === undefined || catalog.revision !== params.baselineRevision) {
+    const catalogRevision = db.getCatalogRevision(params.householdId);
+    if (catalogRevision === undefined || catalogRevision !== params.baselineRevision) {
       stale();
       return false;
     }
-    const job = db
-      .prepare('SELECT version, snapshot_digest FROM source_refresh WHERE id = ? AND household_id = ?')
-      .get(params.refreshId, params.householdId) as { version: number; snapshot_digest: string | null } | undefined;
-    if (job === undefined || job.version !== params.jobVersion || job.snapshot_digest !== params.snapshotDigest) {
+    const job = db.findRefreshJobVersionAndDigest(params.householdId, params.refreshId);
+    if (job === undefined || job.version !== params.jobVersion || job.snapshotDigest !== params.snapshotDigest) {
       stale();
       return false;
     }
@@ -571,33 +473,26 @@ export class RefreshPublishService {
 
   /** stale 标记(发布事务内,原子):status='stale'、version+1、finished_at、清理暂存 */
   private markStaleAndClear(
-    db: DatabaseConstructor.Database,
+    db: RefreshTxStore,
     params: { householdId: string; refreshId: string },
     nowIso: string,
   ): () => void {
     return (): void => {
-      db.prepare(
-        "UPDATE source_refresh SET status = 'stale', version = version + 1, finished_at = ? WHERE id = ? AND household_id = ?",
-      ).run(nowIso, params.refreshId, params.householdId);
-      clearStagedEntries(db, { householdId: params.householdId, refreshId: params.refreshId });
+      db.markRefreshJobStaleAndClearStaged(params.householdId, params.refreshId, nowIso);
     };
   }
 
   /** 收尾(同一事务):来源成功信息、job succeeded、catalog revision+1、清理已发布快照的暂存 */
   private finalizeSuccess(
-    db: DatabaseConstructor.Database,
+    db: RefreshTxStore,
     params: { householdId: string; sourceId: string; refreshId: string },
     nowIso: string,
     summaryJson: string,
   ): void {
-    db.prepare(
-      'UPDATE media_source SET last_success_at = ?, last_job_id = ?, updated_at = ? WHERE id = ? AND household_id = ?',
-    ).run(nowIso, params.refreshId, nowIso, params.sourceId, params.householdId);
-    db.prepare(
-      "UPDATE source_refresh SET status = 'succeeded', version = version + 1, finished_at = ?, summary_json = ?, error_code = NULL WHERE id = ? AND household_id = ?",
-    ).run(nowIso, summaryJson, params.refreshId, params.householdId);
-    db.prepare('UPDATE catalog_state SET revision = revision + 1 WHERE household_id = ?').run(params.householdId);
+    db.recordMediaSourceSuccess(params.sourceId, params.householdId, params.refreshId, nowIso);
+    db.markRefreshJobSucceeded(params.householdId, params.refreshId, nowIso, summaryJson);
+    db.incrementCatalogRevision(params.householdId);
     // 快照已发布:暂存数据完成使命,同事务清理(与成功终态原子)
-    clearStagedEntries(db, { householdId: params.householdId, refreshId: params.refreshId });
+    db.clearStagedEntries({ householdId: params.householdId, refreshId: params.refreshId });
   }
 }

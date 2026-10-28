@@ -20,6 +20,8 @@ import {
   type RefreshJobView,
 } from '@contexts/sources/application/refresh-executor.service';
 import { RefreshPublishService } from '@contexts/sources/application/refresh-publish.service';
+import { bindSourcesStore } from '@contexts/sources/application/sources-store.port';
+import { drizzleSourcesStore } from '@contexts/sources/infrastructure/sources-store.drizzle';
 import {
   buildXmltv,
   createControlledMediaServer,
@@ -87,6 +89,8 @@ function bootstrapRig(extraEnv: Record<string, string> = {}): void {
   // 008-T007(ADR-0015 D1/D2):rig 绑定 epg 仓储 seam(惰性 getDb,单例重开安全;
   // 绑定函数已无 db 参数,每次 rig 重建幂等覆盖)
   bindEpgStore(drizzleEpgStore());
+  // 008-T009(ADR-0015 D1):rig 绑定 sources 仓储 seam(惰性 Database.db,单例重开安全)
+  bindSourcesStore(drizzleSourcesStore());
   rigs.push({ dataDir });
 }
 
