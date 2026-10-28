@@ -7,5 +7,10 @@
  *
  * 本上下文服务为纯函数模块惯例（SettingsGrantStartupRevocation 仅本上下文模块装配，
  * 不入令牌面）；令牌绑定经 useValue 函数束（T021，`satisfies` 对齐对应接口）。
+ *
+ * 008-repository-extraction（T012，ADR-0015 D1）：SETTINGS_STORE 为仓储 seam 装配
+ * 令牌（settings.module.ts useFactory 经 bindSettingsStore 注入 Drizzle 实现）；
+ * 仅本上下文模块装配使用，不入 exports 发布面。
  */
 export const SETTINGS_ACCESS_GRANT_PORT = Symbol('SETTINGS_ACCESS_GRANT_PORT');
+export const SETTINGS_STORE = Symbol('SETTINGS_STORE');

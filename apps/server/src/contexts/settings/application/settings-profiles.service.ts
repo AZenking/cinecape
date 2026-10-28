@@ -1,15 +1,10 @@
-import { and, eq, ne } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import type { Profile } from '@platform/database/schema';
-import { deviceSession, household, profile, profilePolicy } from '@platform/database/schema';
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import {
-  getDb,
   hashPassword,
   requireManagementRole,
   toProfileSummary,
-  type Db,
   type ProfileSummaryBody,
 } from '@contexts/identity-access';
 import { verifyOwnerPassword } from '@contexts/settings/application/settings-owner-password';
@@ -22,6 +17,12 @@ import {
 import { defaultPolicyValues } from '@contexts/policy';
 import { revokeAllSettingsGrantsForHouseholdTx, revokeSettingsGrantsForProfileTx } from '@contexts/settings/application/settings-access-revocation';
 import { requireValidSettingsGrantTx } from '@contexts/settings/application/settings-access-grant.service';
+import {
+  settingsStore,
+  type ProfileRow,
+  type ProfileRowPatch,
+  type SettingsTxStore,
+} from '@contexts/settings/application/settings-store.port';
 
 /**
  * Profile 管理 / PIN / 主档案转移服务(T127,005 contracts/api.md §6 + data-model.md
@@ -41,6 +42,12 @@ import { requireValidSettingsGrantTx } from '@contexts/settings/application/sett
  *
  * 事务纪律:PIN 哈希与密码验证在事务外;BEGIN IMMEDIATE 提交前重验权限快照
  * (requireValidSettingsGrantTx)与全部版本快照。
+ *
+ * 008-repository-extraction(T012,ADR-0015 D1):数据访问经 SettingsStore 端口
+ * (查询逐字迁往 infrastructure/settings-store.drizzle.ts;事务经 withTransaction
+ * 端口,BEGIN IMMEDIATE 语义不变;requireProfileOfHousehold / swapActiveDefaultTx
+ * 收敛为端口调用;clearDeviceSessionsProfile 的调用方事务句柄以回调第二参
+ * handle 穿引 —— 不透明连接凭证,加入同一物理事务,profile 端口先例)。
  */
 
 function notFound(): DomainError {
@@ -48,12 +55,8 @@ function notFound(): DomainError {
 }
 
 /** 归属校验单一实现点:不存在/跨家庭/非本账号统一 404 同形 */
-function requireProfileOfHousehold(db: Db, householdId: string, accountId: string, profileId: string): Profile {
-  const row = db
-    .select()
-    .from(profile)
-    .where(and(eq(profile.id, profileId), eq(profile.householdId, householdId), eq(profile.accountId, accountId)))
-    .get();
+function requireProfileOfHousehold(db: SettingsTxStore, householdId: string, accountId: string, profileId: string): ProfileRow {
+  const row = db.findProfileOfHousehold(householdId, accountId, profileId);
   if (row === undefined) {
     throw notFound();
   }
@@ -61,11 +64,8 @@ function requireProfileOfHousehold(db: Db, householdId: string, accountId: strin
 }
 
 export function listManagedProfiles(householdId: string, accountId: string): ProfileSummaryBody[] {
-  return getDb()
-    .select()
-    .from(profile)
-    .where(and(eq(profile.householdId, householdId), eq(profile.accountId, accountId)))
-    .all()
+  return settingsStore()
+    .listManagedProfileRows(householdId, accountId)
     .map(toProfileSummary);
 }
 
@@ -84,17 +84,16 @@ export interface CreateManagedProfileInput {
 
 export async function createManagedProfile(context: SessionContext, input: CreateManagedProfileInput): Promise<ProfileSummaryBody> {
   requireManagementRole(context);
-  const db = getDb();
   // 当次密码(既有计数/锁定)在事务外;PIN 哈希同样在事务外
   await verifyOwnerPassword(context, input.ownerPassword);
   const pinHash = input.pin !== undefined ? await hashPassword(input.pin) : undefined;
 
-  return db.transaction(
+  return settingsStore().withTransaction(
     (tx) => {
       requireValidSettingsGrantTx(tx, context);
       const householdId = context.session.householdId;
       const now = new Date().toISOString();
-      const row: Profile = {
+      const row: ProfileRow = {
         id: crypto.randomUUID(),
         householdId,
         accountId: context.account.id,
@@ -115,43 +114,36 @@ export async function createManagedProfile(context: SessionContext, input: Creat
       if (row.isDefault === 1) {
         swapActiveDefaultTx(tx, householdId, row.id);
       }
-      tx.insert(profile).values(row).run();
+      tx.insertProfile(row);
       // 默认内容策略同事务(成人 18/true,儿童 12/false;与 bootstrap/旧创建路径同语义)
       const defaults = defaultPolicyValues(input.type);
-      tx
-        .insert(profilePolicy)
-        .values({
-          householdId,
-          profileId: row.id,
-          maxContentLevel: defaults.maxContentLevel,
-          allowUnrated: defaults.allowUnrated ? 1 : 0,
-          allowedMediaIds: '[]',
-          blockedMediaIds: '[]',
-          allowedChannelIds: '[]',
-          version: 1,
-          updatedAt: now,
-        })
-        .run();
+      tx.insertProfilePolicy({
+        householdId,
+        profileId: row.id,
+        maxContentLevel: defaults.maxContentLevel,
+        allowUnrated: defaults.allowUnrated ? 1 : 0,
+        allowedMediaIds: '[]',
+        blockedMediaIds: '[]',
+        allowedChannelIds: '[]',
+        version: 1,
+        updatedAt: now,
+      });
       return toProfileSummary(row);
     },
-    { behavior: 'immediate' },
+    'immediate',
   );
 }
 
 /** FR-013 默认唯一互换(事务内):与 profile.service 私有实现同语义(swapDefault 纯函数复用) */
-function swapActiveDefaultTx(tx: Db, householdId: string, targetProfileId: string): void {
-  const rows = tx
-    .select({ id: profile.id, isDefault: profile.isDefault })
-    .from(profile)
-    .where(and(eq(profile.householdId, householdId), eq(profile.status, 'active')))
-    .all();
+function swapActiveDefaultTx(tx: SettingsTxStore, householdId: string, targetProfileId: string): void {
+  const rows = tx.listActiveProfileDefaultFlags(householdId);
   for (const desired of swapDefault(rows, targetProfileId)) {
     if (desired.isDefault || desired.id === targetProfileId) {
       continue;
     }
     const original = rows.find((candidate) => candidate.id === desired.id);
     if (original !== undefined && original.isDefault === 1) {
-      tx.update(profile).set({ isDefault: 0 }).where(eq(profile.id, desired.id)).run();
+      tx.clearProfileDefault(desired.id);
     }
   }
 }
@@ -177,13 +169,12 @@ export async function patchManagedProfile(
   input: PatchManagedProfileInput,
 ): Promise<ProfileSummaryBody> {
   requireManagementRole(context);
-  const db = getDb();
   await verifyOwnerPassword(context, input.ownerPassword);
   const pinHash = input.pin !== undefined ? await hashPassword(input.pin) : undefined;
   const identityReset = input.clearPin === true || pinHash !== undefined || input.status === 'disabled';
 
-  const summary = db.transaction(
-    (tx) => {
+  const summary = settingsStore().withTransaction(
+    (tx, handle) => {
       requireValidSettingsGrantTx(tx, context);
       const householdId = context.session.householdId;
       const row = requireProfileOfHousehold(tx, householdId, context.account.id, profileId);
@@ -202,17 +193,7 @@ export async function patchManagedProfile(
         }
       }
 
-      const patch: {
-        name?: string;
-        avatar?: string | null;
-        isDefault?: number;
-        status?: string;
-        pinHash?: string | null;
-        failedPinCount?: number;
-        pinLockedUntil?: string | null;
-        pinVersion?: number;
-        version: number;
-      } = { version: row.version + 1 };
+      const patch: ProfileRowPatch = { version: row.version + 1 };
       if (input.name !== undefined) {
         patch.name = input.name;
       }
@@ -239,11 +220,7 @@ export async function patchManagedProfile(
       // 「不能停用最后一个可用档案」(事务内校验;SQLite 写串行无竞态)
       const disabling = input.status === 'disabled' && row.status === 'active';
       if (disabling) {
-        const activeOthers = tx
-          .select({ id: profile.id })
-          .from(profile)
-          .where(and(eq(profile.householdId, householdId), eq(profile.status, 'active'), ne(profile.id, row.id)))
-          .all();
+        const activeOthers = tx.listOtherActiveProfileIds(householdId, row.id);
         assertNotLastActiveProfile(activeOthers.length);
       }
       if (input.status !== undefined) {
@@ -259,7 +236,7 @@ export async function patchManagedProfile(
         patch.isDefault = 0;
       }
 
-      tx.update(profile).set(patch).where(eq(profile.id, row.id)).run();
+      tx.updateProfileRow(row.id, patch);
 
       /**
        * 身份失效级联(data-model §2;同一事务):停用或 PIN 变更 → 使用该档案的
@@ -268,22 +245,19 @@ export async function patchManagedProfile(
        */
       if (disabling || pinChanged) {
         const usingSessionIds = tx
-          .select({ id: deviceSession.id })
-          .from(deviceSession)
-          .where(and(eq(deviceSession.householdId, householdId), eq(deviceSession.activeProfileId, row.id)))
-          .all()
+          .listSessionIdsUsingProfile(householdId, row.id)
           .map((session) => session.id);
-        clearDeviceSessionsProfile(tx, { householdId, deviceSessionIds: usingSessionIds, profileId: row.id });
+        clearDeviceSessionsProfile(handle, { householdId, deviceSessionIds: usingSessionIds, profileId: row.id });
         revokeSettingsGrantsForProfileTx(tx, { householdId, profileId: row.id });
       }
 
-      const updated = tx.select().from(profile).where(eq(profile.id, row.id)).get();
+      const updated = tx.findProfileRow(row.id);
       if (updated === undefined) {
         throw notFound();
       }
       return toProfileSummary(updated);
     },
-    { behavior: 'immediate' },
+    'immediate',
   );
 
   // 提交后撤销内存选档授予(PIN 变更/停用后旧解锁不得复用;与 profile.service 同模式)
@@ -313,26 +287,21 @@ export interface MainProfileReplyBody {
 
 export async function transferMainProfile(context: SessionContext, input: TransferMainProfileInput): Promise<MainProfileReplyBody> {
   requireManagementRole(context);
-  const db = getDb();
   const householdId = context.session.householdId;
   await verifyOwnerPassword(context, input.ownerPassword);
 
-  return db.transaction(
+  return settingsStore().withTransaction(
     (tx): MainProfileReplyBody => {
       // 权限快照重验(转移使全部设置授予失效,当前有效授予是本次操作的授权前提)
       requireValidSettingsGrantTx(tx, context);
 
       // 现任主档案(必须存在;Settings 守卫已保证,防御性 404)
-      const currentMain = tx
-        .select()
-        .from(profile)
-        .where(and(eq(profile.householdId, householdId), eq(profile.isMain, 1)))
-        .get();
+      const currentMain = tx.findMainProfileRow(householdId);
       if (currentMain === undefined) {
         throw notFound();
       }
       // CAS 1:household.main_profile_version
-      const householdRow = tx.select().from(household).where(eq(household.id, householdId)).get();
+      const householdRow = tx.findHouseholdRow(householdId);
       if (householdRow === undefined || householdRow.mainProfileVersion !== input.expectedVersion) {
         throw createDomainError('VERSION_CONFLICT');
       }
@@ -356,26 +325,14 @@ export async function transferMainProfile(context: SessionContext, input: Transf
       }
 
       // 一次事务先去旧标记再设新标记(两行版本同步递增;不允许中间状态提交)
-      tx
-        .update(profile)
-        .set({ isMain: 0, version: currentMain.version + 1 })
-        .where(eq(profile.id, currentMain.id))
-        .run();
-      tx
-        .update(profile)
-        .set({ isMain: 1, version: target.version + 1 })
-        .where(eq(profile.id, target.id))
-        .run();
-      tx
-        .update(household)
-        .set({ mainProfileVersion: householdRow.mainProfileVersion + 1 })
-        .where(eq(household.id, householdId))
-        .run();
+      tx.updateProfileRow(currentMain.id, { isMain: 0, version: currentMain.version + 1 });
+      tx.updateProfileRow(target.id, { isMain: 1, version: target.version + 1 });
+      tx.updateHouseholdRow(householdId, { mainProfileVersion: householdRow.mainProfileVersion + 1 });
       // 「完成撤销全部设置授予」(转移后旧授权一律失效;含未撤销行兜底)
       revokeAllSettingsGrantsForHouseholdTx(tx, householdId);
 
       return { mainProfileId: target.id, mainProfileVersion: householdRow.mainProfileVersion + 1 };
     },
-    { behavior: 'immediate' },
+    'immediate',
   );
 }

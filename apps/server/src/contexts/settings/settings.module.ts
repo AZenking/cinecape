@@ -10,7 +10,9 @@ import { SettingsEpgBindingController } from '@contexts/settings/interface/setti
 import { SettingsDevicesController } from '@contexts/settings/interface/settings-devices.controller';
 import { SettingsGrantStartupRevocation } from '@contexts/settings/application/settings-access-revocation';
 import { requireValidSettingsGrant } from '@contexts/settings/application/settings-access-grant.service';
-import { SETTINGS_ACCESS_GRANT_PORT } from '@contexts/settings/settings.tokens';
+import { bindSettingsStore } from '@contexts/settings/application/settings-store.port';
+import { drizzleSettingsStore } from '@contexts/settings/infrastructure/settings-store.drizzle';
+import { SETTINGS_ACCESS_GRANT_PORT, SETTINGS_STORE } from '@contexts/settings/settings.tokens';
 import type { ISettingsAccessGrantService } from '@contexts/settings/settings.ports';
 
 /**
@@ -38,6 +40,10 @@ import type { ISettingsAccessGrantService } from '@contexts/settings/settings.po
  * 007-T021:发布面令牌装配 —— 跨上下文消费的 settings-access-grant.service 以令牌
  * provider 发布(纯函数模块经 useValue 函数束 + satisfies 对齐 ports 接口,零行为
  * 变化);exports 仅发布令牌(platform 守卫消费方迁移属 T022,其 r4 边保持原样)。
+ *
+ * 008-repository-extraction(ADR-0015 D1):装配期绑定仓储 seam ——
+ * SETTINGS_STORE provider 实例化时经 bindSettingsStore 注入 Drizzle 实现
+ * (惰性 getDb 解析,Database 单例重开安全);不经 HTTP 暴露,不导出。
  */
 @Module({
   imports: [SourcesModule],
@@ -53,6 +59,10 @@ import type { ISettingsAccessGrantService } from '@contexts/settings/settings.po
     SettingsDevicesController,
   ],
   providers: [
+    {
+      provide: SETTINGS_STORE,
+      useFactory: () => bindSettingsStore(drizzleSettingsStore()),
+    },
     SettingsGrantStartupRevocation,
     {
       provide: SETTINGS_ACCESS_GRANT_PORT,

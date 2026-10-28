@@ -1,9 +1,7 @@
-import { and, eq, isNull } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { device, deviceSession, household, profile, settingsAccessGrant, account } from '@platform/database/schema';
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { getDb, type Db } from '@contexts/identity-access';
+import { settingsStore, type SettingsTxStore } from '@contexts/settings/application/settings-store.port';
 
 /**
  * 设置访问授予服务(T081,005 data-model §3 + contracts/api.md §6/§7 + ADR-0011 决议 3)。
@@ -24,6 +22,10 @@ import { getDb, type Db } from '@contexts/identity-access';
  * 服务为纯函数模块(对齐 token.service/pin.service 惯例),无需 Nest 注入;
  * 事务变体(Tx 后缀)供调用方在自己的 BEGIN IMMEDIATE 事务内组合
  * (settings-pin-verification 的「成功清零 + 签发」原子提交)。
+ *
+ * 008-repository-extraction(T012,ADR-0015 D1):数据访问经 SettingsStore 端口
+ * (查询逐字迁往 infrastructure/settings-store.drizzle.ts;事务经 withTransaction
+ * 端口,语义不变;Tx 变体的句柄参数收敛为 SettingsTxStore 事务作用域形态)。
  */
 
 /** 固定 TTL:15 分钟;固定不滑动,无任何续期入口 */
@@ -78,20 +80,11 @@ function accessExpired(): DomainError {
  * - 否则按联合主键覆盖写全新授予(旧 revoked 行被新行取代 —— 非恢复,新到期时间)。
  */
 export function issueSettingsGrantTx(
-  tx: Db,
+  tx: SettingsTxStore,
   input: { householdId: string; deviceSessionId: string; snapshot: SettingsGrantSnapshot },
 ): IssuedSettingsGrant {
   const now = new Date();
-  const existing = tx
-    .select()
-    .from(settingsAccessGrant)
-    .where(
-      and(
-        eq(settingsAccessGrant.householdId, input.householdId),
-        eq(settingsAccessGrant.deviceSessionId, input.deviceSessionId),
-      ),
-    )
-    .get();
+  const existing = tx.findSettingsGrant(input.householdId, input.deviceSessionId);
   const snapshot = input.snapshot;
   if (
     existing !== undefined &&
@@ -112,33 +105,16 @@ export function issueSettingsGrantTx(
   }
   const issuedAt = isoNow();
   const expiresAt = new Date(now.getTime() + SETTINGS_GRANT_TTL_MS).toISOString();
-  tx
-    .insert(settingsAccessGrant)
-    .values({
-      householdId: input.householdId,
-      deviceSessionId: input.deviceSessionId,
-      profileId: snapshot.profileId,
-      profileContextVersion: snapshot.profileContextVersion,
-      pinVersion: snapshot.pinVersion,
-      mainProfileVersion: snapshot.mainProfileVersion,
-      issuedAt,
-      expiresAt,
-      revokedAt: null,
-    })
-    .onConflictDoUpdate({
-      target: [settingsAccessGrant.householdId, settingsAccessGrant.deviceSessionId],
-      set: {
-        profileId: snapshot.profileId,
-        profileContextVersion: snapshot.profileContextVersion,
-        pinVersion: snapshot.pinVersion,
-        mainProfileVersion: snapshot.mainProfileVersion,
-        issuedAt,
-        expiresAt,
-        // 全新授予:旧撤销行被覆盖取代(不是恢复 —— 原到期时间不复用)
-        revokedAt: null,
-      },
-    })
-    .run();
+  tx.upsertSettingsGrant({
+    householdId: input.householdId,
+    deviceSessionId: input.deviceSessionId,
+    profileId: snapshot.profileId,
+    profileContextVersion: snapshot.profileContextVersion,
+    pinVersion: snapshot.pinVersion,
+    mainProfileVersion: snapshot.mainProfileVersion,
+    issuedAt,
+    expiresAt,
+  });
   return { profileId: snapshot.profileId, issuedAt, expiresAt, reused: false };
 }
 
@@ -148,29 +124,20 @@ export function issueSettingsGrant(input: {
   deviceSessionId: string;
   snapshot: SettingsGrantSnapshot;
 }): IssuedSettingsGrant {
-  return getDb().transaction((tx) => issueSettingsGrantTx(tx, input), { behavior: 'immediate' });
+  return settingsStore().withTransaction((tx) => issueSettingsGrantTx(tx, input), 'immediate');
 }
 
 /** 事务内撤销当前会话授予:仅未撤销行写 revoked_at(失效后不再恢复,幂等) */
 export function revokeSettingsGrantTx(
-  tx: Db,
+  tx: SettingsTxStore,
   input: { householdId: string; deviceSessionId: string },
 ): void {
-  tx.update(settingsAccessGrant)
-    .set({ revokedAt: isoNow() })
-    .where(
-      and(
-        eq(settingsAccessGrant.householdId, input.householdId),
-        eq(settingsAccessGrant.deviceSessionId, input.deviceSessionId),
-        isNull(settingsAccessGrant.revokedAt),
-      ),
-    )
-    .run();
+  tx.revokeSessionGrant(input.householdId, input.deviceSessionId);
 }
 
 /** DELETE /settings/access 用例:撤销当前会话授予(仅 Session,204 幂等) */
 export function revokeCurrentSessionGrant(context: SessionContext): void {
-  getDb().transaction((tx) =>
+  settingsStore().withTransaction((tx) =>
     revokeSettingsGrantTx(tx, {
       householdId: context.session.householdId,
       deviceSessionId: context.session.id,
@@ -190,27 +157,20 @@ export function revokeCurrentSessionGrant(context: SessionContext): void {
  * 权限快照(data-model §1「提交前重新校验权限快照」);两个入口共用同一判定体。
  */
 export function requireValidSettingsGrant(context: SessionContext): SettingsGrantValidation {
-  return validateSettingsGrant(getDb(), context);
+  return validateSettingsGrant(settingsStore(), context);
 }
 
-/** 事务内变体:调用方传入 BEGIN IMMEDIATE 事务句柄(或共享连接),提交前重验权限快照 */
-export function requireValidSettingsGrantTx(tx: Db | TxDb, context: SessionContext): SettingsGrantValidation {
+/** 事务内变体:调用方传入 BEGIN IMMEDIATE 事务作用域(或共享连接),提交前重验权限快照 */
+export function requireValidSettingsGrantTx(tx: SettingsTxStore, context: SessionContext): SettingsGrantValidation {
   return validateSettingsGrant(tx, context);
 }
 
-/** better-sqlite3 同步事务回调入参(与 parent-verification/policy.service 同一惯用法) */
-type TxDb = Parameters<Parameters<Db['transaction']>[0]>[0];
-
-function validateSettingsGrant(db: Db | TxDb, context: SessionContext): SettingsGrantValidation {
+function validateSettingsGrant(db: SettingsTxStore, context: SessionContext): SettingsGrantValidation {
   const householdId = context.session.householdId;
   const now = Date.now();
 
   // 1. 会话/设备/账号行仍在且有效(撤销、过期 → 401 优先于一切 403)
-  const sessionRow = db
-    .select()
-    .from(deviceSession)
-    .where(and(eq(deviceSession.householdId, householdId), eq(deviceSession.id, context.session.id)))
-    .get();
+  const sessionRow = db.findSessionRow(householdId, context.session.id);
   if (
     sessionRow === undefined ||
     sessionRow.revokedAt !== null ||
@@ -218,34 +178,17 @@ function validateSettingsGrant(db: Db | TxDb, context: SessionContext): Settings
   ) {
     throw sessionInvalid();
   }
-  const deviceRow = db
-    .select({ revokedAt: device.revokedAt })
-    .from(device)
-    .where(and(eq(device.householdId, householdId), eq(device.id, sessionRow.deviceId)))
-    .get();
+  const deviceRow = db.findDeviceRevocation(householdId, sessionRow.deviceId);
   if (deviceRow === undefined || deviceRow.revokedAt !== null) {
     throw sessionInvalid();
   }
-  const accountRow = db
-    .select({ role: account.role })
-    .from(account)
-    .where(and(eq(account.householdId, householdId), eq(account.id, sessionRow.accountId)))
-    .get();
+  const accountRow = db.findAccountRole(householdId, sessionRow.accountId);
   if (accountRow === undefined) {
     throw sessionInvalid();
   }
 
   // 2. 授予行存在且未撤销、未过期
-  const grant = db
-    .select()
-    .from(settingsAccessGrant)
-    .where(
-      and(
-        eq(settingsAccessGrant.householdId, householdId),
-        eq(settingsAccessGrant.deviceSessionId, context.session.id),
-      ),
-    )
-    .get();
+  const grant = db.findSettingsGrant(householdId, context.session.id);
   if (grant === undefined || grant.revokedAt !== null) {
     throw accessRequired();
   }
@@ -254,11 +197,7 @@ function validateSettingsGrant(db: Db | TxDb, context: SessionContext): Settings
   }
 
   // 3. 当前主 Profile(状态/归属)+ 管理角色 + 会话当前档案必须仍是主档案
-  const mainRow = db
-    .select()
-    .from(profile)
-    .where(and(eq(profile.householdId, householdId), eq(profile.isMain, 1)))
-    .get();
+  const mainRow = db.findMainProfileRow(householdId);
   if (mainRow === undefined || mainRow.status !== 'active') {
     throw accessRequired();
   }
@@ -282,11 +221,7 @@ function validateSettingsGrant(db: Db | TxDb, context: SessionContext): Settings
   ) {
     throw accessRequired();
   }
-  const householdRow = db
-    .select({ mainProfileVersion: household.mainProfileVersion })
-    .from(household)
-    .where(eq(household.id, householdId))
-    .get();
+  const householdRow = db.findHouseholdMainProfileVersion(householdId);
   if (householdRow === undefined || grant.mainProfileVersion !== householdRow.mainProfileVersion) {
     throw accessRequired();
   }

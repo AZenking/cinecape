@@ -1,19 +1,21 @@
-import { and, desc, eq, lt, or, type SQL } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
 import type { PlaybackDelivery, PlaybackSessionState } from '@contexts/playback';
-import { device, deviceSession, playbackFailureEvent, playbackSession } from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import {
-  getDb,
   requireManagementRole,
   verifyParentPassword,
   listHouseholdDevices,
   revokeHouseholdDevice,
-  type Db,
   type DeviceDtoBody,
 } from '@contexts/identity-access';
 import { requireValidSettingsGrantTx } from '@contexts/settings/application/settings-access-grant.service';
+import {
+  settingsStore,
+  type PlaybackFailureEventRow,
+  type PlaybackSessionRow,
+  type SettingsTxStore,
+} from '@contexts/settings/application/settings-store.port';
 
 /**
  * 设备与会话服务(T130,005 contracts/api.md §6「devices 三组」;FR-039/FR-040):
@@ -29,6 +31,10 @@ import { requireValidSettingsGrantTx } from '@contexts/settings/application/sett
  * playback.module 不再注册;本文件为记录查询与 openapi 记录 DTO 的唯一权威实现
  * (键集分页语义与被删除的 004 控制器逐义相同:记录只含脱敏字段、(time,id) 倒序、
  * base64url 游标;服务层额外承担 Settings 授予重验与 owner-only)。
+ *
+ * 008-repository-extraction(T012,ADR-0015 D1):数据访问经 SettingsStore 端口
+ * (查询逐字迁往 infrastructure/settings-store.drizzle.ts,含 (time,id) 游标谓词;
+ * requireDeviceOfHousehold 收敛为端口调用;行→DTO 映射与游标编解码留 application)。
  */
 
 /* ------------------------------------------------------------------ */
@@ -94,7 +100,7 @@ async function requireParentVerification(context: SessionContext, ownerPassword:
     throw new DomainError(403, ProblemCode.PARENT_VERIFICATION_REQUIRED, '需要主账号密码完成家长验证');
   }
   await verifyParentPassword(context, ownerPassword);
-  const sessionRow = getDb().select().from(deviceSession).where(eq(deviceSession.id, context.session.id)).get();
+  const sessionRow = settingsStore().findSessionRowById(context.session.id);
   if (sessionRow === undefined || sessionRow.revokedAt !== null || !(Date.parse(sessionRow.expiresAt) > Date.now())) {
     throw new DomainError(401, ProblemCode.SESSION_INVALID, undefined);
   }
@@ -110,18 +116,13 @@ export interface DevicePlaybackRecordsInput {
   limit?: number;
 }
 
-interface RecordCursor {
-  readonly time: string;
-  readonly id: string;
-}
-
 /** base64url(JSON 外的内部形态);时间/ID 均为库内文本,以 \0 分隔避免歧义 */
 function encodeCursor(time: string, id: string): string {
   return Buffer.from(`${time}\u0000${id}`, 'utf8').toString('base64url');
 }
 
 /** 畸形/越权构造游标 → 400 VALIDATION_FAILED(不静默当作首页,防绕过分页边界) */
-function decodeCursor(cursor: string): RecordCursor {
+function decodeCursor(cursor: string): { time: string; id: string } {
   let raw: string;
   try {
     raw = Buffer.from(cursor, 'base64url').toString('utf8');
@@ -143,7 +144,7 @@ function compareRecordDesc(a: { id: string; time: string }, b: { id: string; tim
   return a.id < b.id ? 1 : -1;
 }
 
-function toSessionRecord(row: typeof playbackSession.$inferSelect): PlaybackSessionRecordDto {
+function toSessionRecord(row: PlaybackSessionRow): PlaybackSessionRecordDto {
   return {
     kind: 'session',
     id: row.id,
@@ -161,7 +162,7 @@ function toSessionRecord(row: typeof playbackSession.$inferSelect): PlaybackSess
   };
 }
 
-function toFailureRecord(row: typeof playbackFailureEvent.$inferSelect): PlaybackFailureRecordDto {
+function toFailureRecord(row: PlaybackFailureEventRow): PlaybackFailureRecordDto {
   return {
     kind: 'failure',
     id: row.id,
@@ -173,12 +174,8 @@ function toFailureRecord(row: typeof playbackFailureEvent.$inferSelect): Playbac
 }
 
 /** 设备归属重验:不存在/跨家庭统一 404 同形(与随机 id 不可区分,不泄漏存在性/归属) */
-function requireDeviceOfHousehold(db: Db, householdId: string, deviceId: string): void {
-  const row = db
-    .select({ householdId: device.householdId })
-    .from(device)
-    .where(eq(device.id, deviceId))
-    .get();
+function requireDeviceOfHousehold(db: SettingsTxStore, householdId: string, deviceId: string): void {
+  const row = db.findDeviceHousehold(deviceId);
   if (row === undefined || row.householdId !== householdId) {
     throw new DomainError(404, ProblemCode.NOT_FOUND);
   }
@@ -202,46 +199,16 @@ export async function queryDevicePlaybackRecords(
   // api.md §7 次序(一般设置主体):Session → 角色(此处 owner-only)→ grant →
   // 严格入参(控制器 StrictBodyPipe)→ 当次密码 → 目标归属 → 查询
   requireOwnerRole(context);
-  const db = getDb();
-  requireValidSettingsGrantTx(db, context);
+  const store = settingsStore();
+  requireValidSettingsGrantTx(store, context);
   await requireParentVerification(context, input.ownerPassword);
-  requireDeviceOfHousehold(db, context.session.householdId, deviceId);
+  requireDeviceOfHousehold(store, context.session.householdId, deviceId);
   const limit = input.limit ?? 20;
   const cursor = input.cursor === undefined ? undefined : decodeCursor(input.cursor);
   const householdId = context.session.householdId;
 
-  const sessionWhere: SQL[] = [eq(playbackSession.householdId, householdId), eq(playbackSession.deviceId, deviceId)];
-  const failureWhere: SQL[] = [eq(playbackFailureEvent.householdId, householdId), eq(playbackFailureEvent.deviceId, deviceId)];
-  if (cursor !== undefined) {
-    const sessionCursor = or(
-      lt(playbackSession.createdAt, cursor.time),
-      and(eq(playbackSession.createdAt, cursor.time), lt(playbackSession.id, cursor.id)),
-    );
-    if (sessionCursor !== undefined) {
-      sessionWhere.push(sessionCursor);
-    }
-    const failureCursor = or(
-      lt(playbackFailureEvent.occurredAt, cursor.time),
-      and(eq(playbackFailureEvent.occurredAt, cursor.time), lt(playbackFailureEvent.id, cursor.id)),
-    );
-    if (failureCursor !== undefined) {
-      failureWhere.push(failureCursor);
-    }
-  }
-  const sessionRows = db
-    .select()
-    .from(playbackSession)
-    .where(and(...sessionWhere))
-    .orderBy(desc(playbackSession.createdAt), desc(playbackSession.id))
-    .limit(limit + 1)
-    .all();
-  const failureRows = db
-    .select()
-    .from(playbackFailureEvent)
-    .where(and(...failureWhere))
-    .orderBy(desc(playbackFailureEvent.occurredAt), desc(playbackFailureEvent.id))
-    .limit(limit + 1)
-    .all();
+  const sessionRows = store.listPlaybackSessionRows(householdId, deviceId, cursor, limit);
+  const failureRows = store.listPlaybackFailureRows(householdId, deviceId, cursor, limit);
 
   const merged: Array<{ id: string; time: string; item: PlaybackRecordItemDto }> = [
     ...sessionRows.map((row) => ({ id: row.id, time: row.createdAt, item: toSessionRecord(row) })),

@@ -1,16 +1,18 @@
-import { and, eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { account, deviceSession, household, profile } from '@platform/database/schema';
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { env } from '@platform/config/env';
-import { getDb, verifyPassword, requireManagementRole, type Db } from '@contexts/identity-access';
+import { verifyPassword, requireManagementRole } from '@contexts/identity-access';
 import { PIN_STATE_CLEARED, isPinLocked, registerPinFailure } from '@contexts/profile';
 import {
   issueSettingsGrantTx,
   type IssuedSettingsGrant,
   type SettingsAccessBody,
 } from '@contexts/settings/application/settings-access-grant.service';
+import {
+  settingsStore,
+  type SettingsTxStore,
+} from '@contexts/settings/application/settings-store.port';
 
 /**
  * 设置 PIN 验证服务(T082,005 data-model §3 + contracts/api.md §6/§7 + ADR-0011 决议 4)。
@@ -27,6 +29,10 @@ import {
  *   行同一状态机,profile.rules/pin.service),连续 5 次锁 5 分钟,跨刷新/新会话/
  *   重启保留;成功清零;锁定内即使正确 PIN 一律 423 PROFILE_PIN_LOCKED;
  * - PIN 只在当次请求 body,不进入地址/日志/公共响应;错误 detail 仅含剩余次数。
+ *
+ * 008-repository-extraction(T012,ADR-0015 D1):数据访问经 SettingsStore 端口
+ * (查询逐字迁往 infrastructure/settings-store.drizzle.ts;事务经 withTransaction
+ * 端口,BEGIN IMMEDIATE 语义不变;readMainProfileRow 收敛为端口投影 + 应用判定)。
  */
 
 function pinLockedError(): DomainError {
@@ -34,7 +40,7 @@ function pinLockedError(): DomainError {
   return new DomainError(423, ProblemCode.PROFILE_PIN_LOCKED, 'PIN 已锁定,请稍后重试');
 }
 
-/** 主档案行(含 PIN 状态机列与哈希;仅服务端内部使用,绝不进入响应) */
+/** 主档案行(含 PIN 状态机列与哈希;仅服务端内部使用,绝不进入响应;哈希已收窄非空) */
 interface MainProfileRow {
   id: string;
   accountId: string;
@@ -44,19 +50,8 @@ interface MainProfileRow {
   pinLockedUntil: string | null;
 }
 
-function readMainProfileRow(db: Db, householdId: string): MainProfileRow | null {
-  const row = db
-    .select({
-      id: profile.id,
-      accountId: profile.accountId,
-      pinHash: profile.pinHash,
-      pinVersion: profile.pinVersion,
-      failedPinCount: profile.failedPinCount,
-      pinLockedUntil: profile.pinLockedUntil,
-    })
-    .from(profile)
-    .where(and(eq(profile.householdId, householdId), eq(profile.isMain, 1)))
-    .get();
+function readMainProfileRow(db: SettingsTxStore, householdId: string): MainProfileRow | null {
+  const row = db.findMainProfilePinRow(householdId);
   // 主档案 CHECK 保证 is_main=1 ⇒ pin_hash 非空;形态异常按未首建同形拒绝(fail-closed)
   return row !== undefined && row.pinHash !== null ? { ...row, pinHash: row.pinHash } : null;
 }
@@ -87,20 +82,16 @@ export async function verifyAndIssueSettingsAccess(
   // 1. 管理角色(owner/admin);不足 403(api.md §7:角色/当前主 Profile 先于 grant)
   requireManagementRole(context);
   const householdId = context.session.householdId;
-  const db = getDb();
+  const store = settingsStore();
 
   // 2. 当前主 Profile 必须存在(未首建:目标不存在,404 同形)
-  const main = readMainProfileRow(db, householdId);
+  const main = readMainProfileRow(store, householdId);
   if (main === null) {
     throw new DomainError(404, ProblemCode.NOT_FOUND);
   }
 
   // 3. 当前档案必须是主 Profile(未选档 403 ACTIVE_PROFILE_REQUIRED;普通档案 403)
-  const sessionRow = db
-    .select({ activeProfileId: deviceSession.activeProfileId })
-    .from(deviceSession)
-    .where(and(eq(deviceSession.householdId, householdId), eq(deviceSession.id, context.session.id)))
-    .get();
+  const sessionRow = store.findSessionActiveProfileId(householdId, context.session.id);
   if (sessionRow === undefined) {
     throw new DomainError(401, ProblemCode.SESSION_INVALID, undefined);
   }
@@ -118,21 +109,9 @@ export async function verifyAndIssueSettingsAccess(
   }
 
   // 5. 快照捕获(验证开始时)
-  const sessionFull = db
-    .select({ profileContextVersion: deviceSession.profileContextVersion })
-    .from(deviceSession)
-    .where(and(eq(deviceSession.householdId, householdId), eq(deviceSession.id, context.session.id)))
-    .get();
-  const householdRow = db
-    .select({ mainProfileVersion: household.mainProfileVersion })
-    .from(household)
-    .where(eq(household.id, householdId))
-    .get();
-  const accountRow = db
-    .select({ credentialVersion: account.credentialVersion })
-    .from(account)
-    .where(and(eq(account.householdId, householdId), eq(account.id, context.account.id)))
-    .get();
+  const sessionFull = store.findSessionContextVersion(householdId, context.session.id);
+  const householdRow = store.findHouseholdMainProfileVersion(householdId);
+  const accountRow = store.findAccountCredentialVersion(householdId, context.account.id);
   if (sessionFull === undefined || householdRow === undefined || accountRow === undefined) {
     throw new DomainError(401, ProblemCode.SESSION_INVALID, undefined);
   }
@@ -147,27 +126,15 @@ export async function verifyAndIssueSettingsAccess(
   const pinMatches = await verifyPassword(main.pinHash, pin).catch(() => false);
 
   // 7. BEGIN IMMEDIATE:提交前重验快照 → 失败计数写入与授予签发原子提交
-  const outcome = db.transaction(
+  const outcome = store.withTransaction(
     (tx): VerifyOutcome => {
       const freshMain = readMainProfileRow(tx, householdId);
       if (freshMain === null) {
         throw new DomainError(404, ProblemCode.NOT_FOUND);
       }
-      const freshSession = tx
-        .select({ activeProfileId: deviceSession.activeProfileId, profileContextVersion: deviceSession.profileContextVersion })
-        .from(deviceSession)
-        .where(and(eq(deviceSession.householdId, householdId), eq(deviceSession.id, context.session.id)))
-        .get();
-      const freshHousehold = tx
-        .select({ mainProfileVersion: household.mainProfileVersion })
-        .from(household)
-        .where(eq(household.id, householdId))
-        .get();
-      const freshAccount = tx
-        .select({ credentialVersion: account.credentialVersion })
-        .from(account)
-        .where(and(eq(account.householdId, householdId), eq(account.id, context.account.id)))
-        .get();
+      const freshSession = tx.findSessionActiveProfileWithContext(householdId, context.session.id);
+      const freshHousehold = tx.findHouseholdMainProfileVersion(householdId);
+      const freshAccount = tx.findAccountCredentialVersion(householdId, context.account.id);
       if (freshSession === undefined || freshHousehold === undefined || freshAccount === undefined) {
         throw new DomainError(401, ProblemCode.SESSION_INVALID, undefined);
       }
@@ -191,22 +158,14 @@ export async function verifyAndIssueSettingsAccess(
           env.PIN_MAX_ATTEMPTS,
           env.PIN_LOCK_MINUTES,
         );
-        tx
-          .update(profile)
-          .set(next)
-          .where(and(eq(profile.householdId, householdId), eq(profile.id, freshMain.id)))
-          .run();
+        tx.updateProfilePinState(householdId, freshMain.id, next);
         return {
           kind: 'failed',
           remaining: Math.max(0, env.PIN_MAX_ATTEMPTS - next.failedPinCount),
         };
       }
       // 成功:清持久失败计数(与选档共享,成功清零)+ 同事务签发/复用授予
-      tx
-        .update(profile)
-        .set(PIN_STATE_CLEARED)
-        .where(and(eq(profile.householdId, householdId), eq(profile.id, freshMain.id)))
-        .run();
+      tx.updateProfilePinState(householdId, freshMain.id, PIN_STATE_CLEARED);
       const grant = issueSettingsGrantTx(tx, {
         householdId,
         deviceSessionId: context.session.id,
@@ -219,7 +178,7 @@ export async function verifyAndIssueSettingsAccess(
       });
       return { kind: 'ok', grant };
     },
-    { behavior: 'immediate' },
+    'immediate',
   );
 
   // 8. 事务返回结果、提交后再抛领域错误:失败计数/锁定的写入必须随事务提交

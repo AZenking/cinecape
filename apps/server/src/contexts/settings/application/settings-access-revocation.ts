@@ -1,8 +1,5 @@
 import { Injectable, type OnApplicationBootstrap } from '@nestjs/common';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
-import { deviceSession, settingsAccessGrant } from '@platform/database/schema';
-import { Database } from '@platform/database/database';
-import { getDb, type Db } from '@contexts/identity-access';
+import { settingsStore, type SettingsTxStore } from '@contexts/settings/application/settings-store.port';
 
 /**
  * 设置授予生命周期撤销(T085,005 data-model §3「显式撤销 + 启动撤销」、ADR-0011 决议 3/6)。
@@ -25,14 +22,15 @@ import { getDb, type Db } from '@contexts/identity-access';
  *   US8 PUT /settings/account/password;该事务同时撤销全部 device_session);
  * - 应用启动撤销(revokeAllSettingsGrantsOnStartup):readiness 前撤销所有 grants,
  *   备份恢复/进程重启不继承不可验证的旧授权;普通浏览器刷新不触发。
+ *
+ * 008-repository-extraction(T012,ADR-0015 D1):数据访问经 SettingsStore 端口
+ * (查询逐字迁往 infrastructure/settings-store.drizzle.ts;Database 值导入收敛进
+ * 仓储实现,isReady 端口化;Tx 变体句柄参数收敛为 SettingsTxStore 形态)。
  */
 
 /** 事务内:撤销家庭全部未撤销设置授予(授权域事件统一收口) */
-export function revokeAllSettingsGrantsForHouseholdTx(tx: Db, householdId: string): void {
-  tx.update(settingsAccessGrant)
-    .set({ revokedAt: new Date().toISOString() })
-    .where(and(eq(settingsAccessGrant.householdId, householdId), isNull(settingsAccessGrant.revokedAt)))
-    .run();
+export function revokeAllSettingsGrantsForHouseholdTx(tx: SettingsTxStore, householdId: string): void {
+  tx.revokeAllGrantsForHousehold(householdId);
 }
 
 /**
@@ -40,56 +38,33 @@ export function revokeAllSettingsGrantsForHouseholdTx(tx: Db, householdId: strin
  * 故对主档案即「家庭全部」)。PIN 变更/恢复、主档案转移、档案停用事务调用。
  */
 export function revokeSettingsGrantsForProfileTx(
-  tx: Db,
+  tx: SettingsTxStore,
   input: { householdId: string; profileId: string },
 ): void {
-  tx.update(settingsAccessGrant)
-    .set({ revokedAt: new Date().toISOString() })
-    .where(
-      and(
-        eq(settingsAccessGrant.householdId, input.householdId),
-        eq(settingsAccessGrant.profileId, input.profileId),
-        isNull(settingsAccessGrant.revokedAt),
-      ),
-    )
-    .run();
+  tx.revokeGrantsForProfile(input);
 }
 
 /** 事务内:撤销账号全部设置授予(经该账号的会话;密码改动同事务调用) */
-export function revokeSettingsGrantsForAccountTx(tx: Db, accountId: string): void {
-  const sessionIds = tx
-    .select({ id: deviceSession.id })
-    .from(deviceSession)
-    .where(eq(deviceSession.accountId, accountId))
-    .all()
-    .map((row) => row.id);
-  if (sessionIds.length === 0) {
-    return;
-  }
-  tx.update(settingsAccessGrant)
-    .set({ revokedAt: new Date().toISOString() })
-    .where(and(inArray(settingsAccessGrant.deviceSessionId, sessionIds), isNull(settingsAccessGrant.revokedAt)))
-    .run();
+export function revokeSettingsGrantsForAccountTx(tx: SettingsTxStore, accountId: string): void {
+  tx.revokeGrantsForAccount(accountId);
 }
 
 /**
  * 启动撤销(data-model §3「启动时撤销所有 grants」+ §10「恢复备份后先撤销授予…
  * 再提供 readiness」):仅当存储就绪(user_version=2 且全部表/必需列在场,与
- * healthz 的 Database.isReady 同一门禁)时执行;撤销失败向上抛出 —— AppModule
- * 初始化失败、进程不进入监听,fail-closed(绝不带着未撤销的旧授权提供服务)。
- * 普通浏览器刷新不是服务重启,不经过此路径。
+ * healthz 的 Database.isReady 同一门禁,经仓储端口 isReady 表达)时执行;撤销失败
+ * 向上抛出 —— AppModule 初始化失败、进程不进入监听,fail-closed(绝不带着未撤销
+ * 的旧授权提供服务)。普通浏览器刷新不是服务重启,不经过此路径。
  */
 export function revokeAllSettingsGrantsOnStartup(): void {
-  if (!Database.isReady()) {
+  const store = settingsStore();
+  if (!store.isReady()) {
     // 未就绪(旧代际/迁移中断/备份恢复中):readiness 门禁本就 503,无请求被服务;
     // 此处不触碰可能不完整的库,待就绪路径(migrate 完成 + 重启)再撤销。
     return;
   }
-  getDb().transaction((tx) => {
-    tx.update(settingsAccessGrant)
-      .set({ revokedAt: new Date().toISOString() })
-      .where(isNull(settingsAccessGrant.revokedAt))
-      .run();
+  store.withTransaction((tx) => {
+    tx.revokeAllGrants();
   });
 }
 
