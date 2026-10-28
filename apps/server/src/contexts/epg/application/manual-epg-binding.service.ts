@@ -25,7 +25,7 @@ import { incrementCatalogRevision } from '@contexts/epg/infrastructure/catalog-r
  */
 
 /** 单个 better-sqlite3 连接句柄(Database.db 同型;refresh-staging 同惯例) */
-type DbHandle = DatabaseConstructor.Database;
+export type DbHandle = DatabaseConstructor.Database;
 
 /** 绑定模式:none=无行,manual=家长锁定,auto=解除后的版本墓碑 */
 export type ManualBindingMode = 'none' | 'manual' | 'auto';

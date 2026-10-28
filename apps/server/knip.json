@@ -9,9 +9,13 @@
   // T018 起 src/modules/**、src/common/**、src/config/**、src/database/** 旧树已消亡，
   // src/contexts/** 与 src/platform/** 纳入正式审计（不再有目录级 ignore）。
   // .sql 等非 TS 资产位于 src/platform/database/migrations/**，knip 本身只分析 JS/TS。
+  // 007-T020 起 contexts/*/index.ts 为各上下文发布面（contracts/internal-context-contracts.md：
+  // R2 唯一合法跨上下文落点）——属 API 入口而非死文件；消费方迁移在 T022，故先以 entry
+  // 声明其入口地位（否则生产图暂无导入方，会被误报 unused files）。
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
     "src/app.module.ts",
+    "src/contexts/*/index.ts",
     "test/**/*.spec.ts",
     "test/**/*.e2e-spec.ts",
     "test/fixtures/scale-fixture.cli.ts",

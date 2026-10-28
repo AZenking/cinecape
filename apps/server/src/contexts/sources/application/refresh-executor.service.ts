@@ -7,6 +7,7 @@ import { DomainError, createDomainError } from '@platform/http-common/domain-err
 import { getConfig } from '@platform/config/env';
 import { IMPORT_BUDGETS } from '@platform/config/import-budgets';
 import { Database } from '@platform/database/database';
+import type { IRefreshExecutorService } from '@contexts/sources/application/ports';
 import {
   CatalogDiffFailure,
   canonicalJson,
@@ -233,7 +234,7 @@ function errorCodeOf(error: unknown): string {
 }
 
 @Injectable()
-export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy {
+export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IRefreshExecutorService {
   private readonly publish: RefreshPublishService;
   /** 串行执行器守卫:同一时刻至多一个任务在处理(research R5 全局单执行器) */
   private working = false;

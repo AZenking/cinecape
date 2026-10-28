@@ -10,6 +10,7 @@ import {
 } from '@platform/database/schema';
 import { createDomainError } from '@platform/http-common/domain-error';
 import { readResumeFreezePosition } from '@contexts/personal-data/application/history.service';
+import type { IProgressClockService } from '@contexts/personal-data/application/ports';
 
 /**
  * 点播写入权时钟与 resolve 绑定(T099,005 data-model.md §5/§6、api.md §5 resolve):
@@ -117,7 +118,7 @@ export function personalTrustedDurationSeconds(sessionId: string, generation: nu
 }
 
 /** ProgressClockService:epoch 短事务分配 + resolve 状态绑定(PlaybackModule/单测共用) */
-export class ProgressClockService implements PlaybackProgressBindPort, PlaybackResumePositionPort {
+export class ProgressClockService implements PlaybackProgressBindPort, PlaybackResumePositionPort, IProgressClockService {
   /**
    * 点播 resolve 绑定(短事务,原子):
    * 1) profile_progress_clock 行不存在则建(next_epoch=2,分配 1);存在则

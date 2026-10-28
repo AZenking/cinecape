@@ -18,6 +18,7 @@ import {
   writeRightOf,
   type StoredSampleResult,
 } from '@contexts/personal-data/application/progress-clock.service';
+import type { IProgressWriteService } from '@contexts/personal-data/application/ports';
 
 /**
  * 进度写入状态机(T100,005 api.md §5 progress、data-model.md §6/§7「写入状态转换」):
@@ -178,7 +179,7 @@ function upsertHistory(
  * applySample 面向 progress 端点(独立短事务);applyFinalInTransaction 面向 stop
  * 同事务协作(调用方持有事务,本方法只做同一机器的校验与写入,不自行 BEGIN)。
  */
-export class ProgressWriteService {
+export class ProgressWriteService implements IProgressWriteService {
   private readonly clock: { now(): number };
 
   constructor(clock?: { now(): number }) {
