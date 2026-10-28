@@ -1,11 +1,11 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import type { MediaDto, MediaPageDto, ProgrammesDto } from '@hmp/shared';
-import { CurrentSession, type SessionContext } from '../../common/current-session.decorator';
-import { SessionGuard } from '../../common/session.guard';
-import { parseBody } from '../auth/validation';
+import { CurrentSession, type SessionContext } from '../../../common/current-session.decorator';
+import { SessionGuard } from '../../../common/session.guard';
+import { parseBody } from '../../../modules/auth/validation';
 import { getMediaProgrammes } from '@contexts/epg/application/epg.service';
-import { getMedia, listMedia } from './catalog.service';
+import { getMedia, listMedia } from '@contexts/media-catalog/application/catalog.service';
 
 /**
  * 观看目录契约路由(T035/T044;003 contracts/openapi.yaml /media、/media/{mediaId}、

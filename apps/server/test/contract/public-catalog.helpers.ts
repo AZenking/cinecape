@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
-import { PublicCatalogModule } from '../../src/modules/public-catalog/public-catalog.module';
+import { MediaCatalogModule } from '@contexts/media-catalog/media-catalog.module';
 import { Database } from '../../src/database/database';
 import { loadEnv } from '../../src/config/env.schema';
 import { setEnvOverride } from '../../src/config/env';
@@ -60,7 +60,7 @@ export async function startPublicCatalogApp(options: { prefix?: string } = {}): 
     'CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY NOT NULL, applied_at TEXT NOT NULL)',
   );
   applyMigrations(allMigrationNames());
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule, PublicCatalogModule] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule, MediaCatalogModule] }).compile();
   const app: INestApplication = moduleRef.createNestApplication({ logger: ['warn', 'error'] });
   // 与 src/main.ts 相同的全局前缀,保证契约路径 /api/** 与生产一致
   app.setGlobalPrefix('api');

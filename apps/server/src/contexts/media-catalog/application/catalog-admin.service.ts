@@ -1,11 +1,11 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { ProblemCode, type CandidateDto, type CandidatePageDto, type MediaDto } from '@hmp/shared';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { DomainError } from '../../common/domain-error';
-import { catalogState, deviceSession, mediaItem } from '../../database/schema';
-import { getDb, type Db } from '../auth/db';
-import { verifyParentPassword } from '../auth/parent-verification.service';
-import { loadMediaAvailabilityFacts } from './resource-reader';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { DomainError } from '../../../common/domain-error';
+import { catalogState, deviceSession, mediaItem } from '../../../database/schema';
+import { getDb, type Db } from '../../../modules/auth/db';
+import { verifyParentPassword } from '../../../modules/auth/parent-verification.service';
+import { loadMediaAvailabilityFacts } from '@contexts/media-catalog/infrastructure/resource-reader';
 import type { CatalogCandidateRow } from '@contexts/policy/application/policy.batch-context';
 import type { MediaType } from '@contexts/policy/domain/policy.rules';
 

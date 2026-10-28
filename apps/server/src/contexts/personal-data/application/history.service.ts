@@ -3,7 +3,7 @@ import { createDomainError } from '../../../common/domain-error';
 import { getDb } from '../../../modules/auth/db';
 import { mediaItem, profileViewingHistory, type ProfileViewingHistory } from '../../../database/schema';
 import { loadAvailableMediaIdSet } from '@contexts/policy/application/policy.batch-context';
-import { toPublicMedia } from '../../../modules/public-catalog/public-media-projection';
+import { toPublicMedia } from '@contexts/media-catalog/domain/public-media-projection';
 import type { PublicMediaDto } from '@hmp/shared';
 import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload } from '@contexts/personal-data/infrastructure/signed-cursor';
 

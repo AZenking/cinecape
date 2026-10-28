@@ -16,8 +16,8 @@ import {
   type BatchCatalogContext,
   type CatalogCandidateRow,
 } from '@contexts/policy/application/policy.batch-context';
-import { buildMediaPage, type ListMediaQuery } from '../../../src/modules/catalog/catalog.service';
-import { isMediaAvailable, loadMediaAvailabilityFacts } from '../../../src/modules/catalog/resource-reader';
+import { buildMediaPage, type ListMediaQuery } from '@contexts/media-catalog/application/catalog.service';
+import { isMediaAvailable, loadMediaAvailabilityFacts } from '@contexts/media-catalog/infrastructure/resource-reader';
 import type { MediaType, PolicyJudgment } from '@contexts/policy/domain/policy.rules';
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toPublicMedia, type PublicMediaRow } from '../../src/modules/public-catalog/public-media-projection';
+import { toPublicMedia, type PublicMediaRow } from '@contexts/media-catalog/domain/public-media-projection';
 
 /**
  * T017(US1 单元):公共投影服务逐字执行 PublicMedia 白名单(data-model.md §9):

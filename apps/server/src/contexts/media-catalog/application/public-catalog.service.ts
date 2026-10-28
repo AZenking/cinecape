@@ -1,11 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ProblemCode, type PublicContextDto, type PublicMediaDto, type PublicMediaPageDto } from '@hmp/shared';
-import { Database } from '../../database/database';
-import { PublicContextService } from '../../common/public-context/public-context.service';
-import { DomainError } from '../../common/domain-error';
-import { getDb } from '../auth/db';
+import { Database } from '../../../database/database';
+import { PublicContextService } from '../../../common/public-context/public-context.service';
+import { DomainError } from '../../../common/domain-error';
+import { getDb } from '../../../modules/auth/db';
 import { loadAvailableMediaIdSet } from '@contexts/policy/application/policy.batch-context';
-import { toPublicMedia, type PublicMediaRow } from './public-media-projection';
+import { toPublicMedia, type PublicMediaRow } from '@contexts/media-catalog/domain/public-media-projection';
 
 /**
  * 公共目录服务(T023/T024/T025,005 contracts/api.md §1/§2、research R1):

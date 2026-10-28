@@ -5,8 +5,9 @@ import { Reflector } from '@nestjs/core';
 import { CommonModule } from '../../common/common.module';
 import { RateLimitGuard } from '../../common/rate-limit/rate-limit.guard';
 import { RateLimitService } from '../../common/rate-limit/rate-limit.service';
-import { PublicCatalogController } from './public-catalog.controller';
-import { PublicCatalogService } from './public-catalog.service';
+import { PublicCatalogService } from '@contexts/media-catalog/application/public-catalog.service';
+import { CatalogController } from '@contexts/media-catalog/interface/catalog.controller';
+import { PublicCatalogController } from '@contexts/media-catalog/interface/public-catalog.controller';
 
 /**
  * RateLimitGuard 构造参数元数据补齐(本模块装载时一次性执行)——
@@ -20,6 +21,12 @@ import { PublicCatalogService } from './public-catalog.service';
 Reflect.defineMetadata(PARAMTYPES_METADATA, [RateLimitService, Reflector], RateLimitGuard);
 
 /**
+ * 观看目录模块(T035;US2):只读目录路由 + 家长候选/人工修正(T050)。
+ * 目录服务为纯函数模块(对齐 policy/profile 惯例),数据访问经 auth/db
+ * 共享 SQLite 单例,无独立 provider。
+ * ⚠️ PolicyListsController(PUT /profiles/{profileId}/policy/lists)为 T063 过渡托管:
+ * 该路由最终应迁入 policy.controller.ts(本任务不可写该文件),迁移时仅动控制器注册。
+ *
  * 公共目录模块(T023,005 Phase 3 US1)——
  * 承载 /api/public/context、/api/public/media、/api/public/media/{mediaId} 三个
  * 匿名只读端点(research R1:公共元数据统一 /api/public/*,复用 available-media
@@ -34,7 +41,7 @@ Reflect.defineMetadata(PARAMTYPES_METADATA, [RateLimitService, Reflector], RateL
  */
 @Module({
   imports: [CommonModule],
-  controllers: [PublicCatalogController],
+  controllers: [CatalogController, PublicCatalogController],
   providers: [PublicCatalogService],
 })
-export class PublicCatalogModule {}
+export class MediaCatalogModule {}

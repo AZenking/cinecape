@@ -28,7 +28,7 @@ import {
   requestSourceRefresh,
   updateSource,
 } from '@contexts/sources/application/sources.service';
-import { patchMediaMetadata, queryCandidates } from '../catalog/catalog-admin.service';
+import { patchMediaMetadata, queryCandidates } from '@contexts/media-catalog/application/catalog-admin.service';
 
 /**
  * 媒体来源与目录管理契约路由(T128,005 contracts/api.md §6;api.md §8「新 settings

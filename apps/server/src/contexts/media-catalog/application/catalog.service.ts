@@ -1,7 +1,7 @@
 import { ProblemCode, type MediaDto, type MediaPageDto } from '@hmp/shared';
-import type { SessionContext } from '../../common/current-session.decorator';
-import { DomainError } from '../../common/domain-error';
-import { getDb } from '../auth/db';
+import type { SessionContext } from '../../../common/current-session.decorator';
+import { DomainError } from '../../../common/domain-error';
+import { getDb } from '../../../modules/auth/db';
 import type { CatalogCandidateRow } from '@contexts/policy/application/policy.batch-context';
 import { loadBatchCatalogContext } from '@contexts/policy/application/policy.batch-context';
 import type { MediaType } from '@contexts/policy/domain/policy.rules';
