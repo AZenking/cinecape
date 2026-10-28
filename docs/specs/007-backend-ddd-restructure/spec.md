@@ -4,11 +4,11 @@
 
 **Created**: 2026-10-28
 
-**Status**: Proposed
+**Status**: Accepted（2026-10-28: 维护者随 `/speckit-implement` 实施指令显式接受；结构方案与规则偏离清单见 ADR-0014）
 
 **Governance**: Follow `.specify/memory/constitution.md`（当前 v1.4.0）。Link accepted ADRs before implementation; use Proposed → Accepted → Implementing → Verified (or Superseded).
 
-**Related ADRs**: 待新增（实施前必须先通过 ADR 记录：后端 DDD 分层与限界上下文划分方案、跨上下文协作机制、既有代码迁移映射与规则偏离清单）。既有相关决策：ADR-0003（宪章对齐）、ADR-0004（技术栈）。宪法合规评估见文末「宪法合规评估」。
+**Related ADRs**: [ADR-0014（结构方案与规则偏离清单，Accepted）](../../adr/0014-backend-ddd-structure.md)；既有相关决策：ADR-0003（宪章对齐）、ADR-0004（技术栈）。宪法合规评估见文末「宪法合规评估」。
 
 **Input**: User description: "按照最新constitution；调整下后端代码结构；不得有任何遗留"
 

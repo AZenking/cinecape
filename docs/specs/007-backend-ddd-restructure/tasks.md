@@ -16,7 +16,7 @@
 
 **Purpose**: 宪章门槛（规格 Accepted + ADR）与审计工具就绪；记录迁移前基线
 
-- [ ] T001 依照宪章原则一/五完成开工门槛：将 `docs/specs/007-backend-ddd-restructure/spec.md` 状态流转 Proposed → Accepted，撰写并推动接受结构方案 ADR `docs/adr/0014-backend-ddd-structure.md`（内容：10 上下文划分、四层规则、跨上下文协作机制、platform 归属、规则偏离清单章节——初稿按 `nestjs-best-practices-compliance.md` 中 ⏸/🔄 条目填写）
+- [X] T001 依照宪章原则一/五完成开工门槛：将 `docs/specs/007-backend-ddd-restructure/spec.md` 状态流转 Proposed → Accepted，撰写并推动接受结构方案 ADR `docs/adr/0014-backend-ddd-structure.md`（内容：10 上下文划分、四层规则、跨上下文协作机制、platform 归属、规则偏离清单章节——初稿按 `nestjs-best-practices-compliance.md` 中 ⏸/🔄 条目填写）
 - [ ] T002 [P] 安装并配置审计工具：在 `apps/server` 添加 devDependencies `dependency-cruiser` 与 `knip`；新建 `apps/server/.dependency-cruiser.cjs`（规则 = data-model.md §3 依赖矩阵 + 深导入禁令 + domain/application 框架渗漏禁令，规则路径域限定 `src/contexts/**` 与 `src/platform/**`）与 `apps/server/knip.json`（入口 `src/main.ts`，忽略测试与迁移 SQL）
 - [ ] T003 [P] 接入门禁脚本：在 `apps/server/package.json` 增加 `"audit:boundaries": "depcruise src --config .dependency-cruiser.cjs"` 与 `"audit:orphans": "knip"`；在根 `package.json` 的 `verify:release` 前置链路（或等价位置）追加两脚本调用
 - [ ] T004 [P] 捕获迁移前基线证据：运行 `pnpm --filter @hmp/server test`、`pnpm test:runtime`、`pnpm migration:drill`，将结果（含测试数量统计）记录到 `docs/specs/007-backend-ddd-restructure/evidence/baseline.md`
