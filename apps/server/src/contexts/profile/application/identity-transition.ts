@@ -2,7 +2,6 @@ import type { Db } from '@platform/database/drizzle';
 import {
   profileStore,
   type IdentityChangePlaybackInput,
-  type RevokeSettingsGrantsInput,
   type SwitchProfileInput,
 } from '@contexts/profile/application/profile-store.port';
 
