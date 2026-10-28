@@ -55,3 +55,23 @@
 5. **旧树不回改策略**：`src/modules/**`、`src/common/**`、`src/config/**`、`src/database/**` 及指向旧树的导入保留相对路径，不提前别名化——旧树随 T009–T018 各迁移步自然消失，避免对将死代码做无用回改（含旧树中已指向 `src/contexts/**` 的相对导入，同样待各步迁移时转换）。
 
 **验证**（T008a 门禁，2026-10-28）：typecheck / lint / 全量测试 1376/1376 / `AUDIT_ENFORCE=0 audit:boundaries` 40 条（与 T008 持平，别名化未引入新违规）/ `audit:orphans` exit 0 / build 通过且 dist 无残留别名。
+
+## 治理裁决修正（2026-10-28，007-T022a–T024 实施定稿）
+
+**背景**：T022a 机械收口后软审计余 431 条，其中 62 条为"经发布面 index.ts"的跨上下文边——依赖矩阵对 application 层他上下文依赖的一刀切 ❌ 比宪章 v1.4.0 技术约束 6 的文本更严：宪章禁止的是"直取内部表结构/私有服务/绕过领域层"，并**明确允许**"通过显式发布的接口、领域事件或共享契约包"的跨上下文访问。经逐边分析，矩阵需按下述裁决修正，使审计规则精确编码宪章原文（而非超出宪章的过度约束）。
+
+**修正 1 · 发布面对所有层合法**：`@contexts/<ctx>`（index.ts）跨上下文导入对 interface/application/infrastructure/domain 全部合法；**深导入禁令（R2）不变**——落点必须为发布面。依据：宪章约束 6 原文；实现类仍禁止导出（contracts 白名单不变）。
+
+**修正 2 · 框架禁令范围 = 领域核心（强制，不放松）**：domain 层保持零 `@nestjs/*`、零 drizzle-orm、零 better-sqlite3、零 rxjs、零他上下文——R1a/R3(domain-only) 强制编码，**本特性内已真修**（guide-problems HttpException 纯化为 GuideProblemError + interface 层翻译；binding-core 复用边经 live-tv 发布面）。宪章"严禁依赖 NestJS 装饰器、HTTP 传输细节、具体 ORM 或任何框架 API"的宾语是"领域核心"，application 层不在该禁令内。
+
+**修正 3 · application 层合法面（矩阵修正）**：application 可导入——他上下文发布面（修正 1）、`@platform/**`（config 值、database 数据访问缝、http-common 工具与错误契约）、node 标准库确定性子集、drizzle-orm/better-sqlite3/rxjs（数据访问实现细节，见登记 5）、own-context infrastructure（同上下文层间协作，DDD-lite 分层；跨上下文仍仅发布面）。
+
+**修正 4 · domain 层三项精确放行（R1a pathNot）**：①node 标准库确定性子集（net/crypto/path/fs 等裸名精确集合，非通配）；②`platform/http-common/domain-error.ts`（宪章定义的跨上下文错误契约，plain TS class，豁免逻辑同 @hmp/shared）；③`@internationalized/date`（纯值库，无 IO/框架）。
+
+**登记 5 · 已登记偏离（宪章约束 7）——应用层直接数据访问，分阶段合规**：application 层 35 个文件经 `getDb`、34 个文件经 drizzle-orm、10 个文件经 better-sqlite3 直接读写数据（共 68 条导入边），未按仓储模式抽取。**裁决**：本特性授权范围为"纯结构对齐 + 行为零变化"，在规格内对 40+ 服务做仓储化抽取超出风险包络（违背 FR-007 精神）；按约束 7 登记为已记录偏离，**补救路径**：仓储化抽取作为后续独立规格（建议 008）立项，逐上下文抽取 repository 至 infrastructure 层并经端口注入——完成前，本 ADR 为其治理依据，审计规则（修正 2/3）不将这些边记为违规。
+
+**修正 6 · 真修完成项**：R4 platform→contexts 反向边 2 条经组合根端口反转归零（`PlatformPortsModule` 全局绑定 SESSION_VERIFIER_PORT / SETTINGS_GRANT_VALIDATOR_PORT，守卫经 @Inject 消费端口）；bootstrap.service 的 ProfileSummaryBody/toProfileSummary 上提至 application/profile-summary.dto.ts（消除 application→own interface 边）。
+
+**追认**：R1c/R1d 外部包放行（矩阵各行列本无外部包禁令单元；框架治理由 R3(domain)+R1b(application) 编码）；FRAMEWORK_PKGS 增补 @types/express（类型工件）；R3 更名 r3-no-framework-leakage-into-domain。
+
+**终态**：2026-10-28 T024 达成**双模式审计归零**（软/强制均 `✔ no dependency violations`，exit 0；负向探针对照证明强制有效），204 modules / 1074 deps。全链趋势：40→77→95→136→159→214→259→381→572→745→602→431→5→**0**。登记 5 的偏离清单由 US3 合规清单（nestjs-best-practices-compliance.md）按"已记录偏离（ADR-0014 登记 5）"逐条挂接，补救由规格 008 承接。
