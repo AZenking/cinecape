@@ -94,10 +94,10 @@
 
 **Independent Test**: 清单 40/40 有结论、证据列全非空、⏸ 条目均附 ADR 链接（SC-005）
 
-- [ ] T026 [P] [US3] 核验类别 1–2（arch-×6、di-×6 共 12 条）：对照 `apps/server/src/contexts/**` 实际结构逐条判定，填写 `nestjs-best-practices-compliance.md` 对应「证据位置」列（引用具体文件/审计输出）
-- [ ] T027 [P] [US3] 核验类别 3–5（error-×3、security-×5、perf-×4 共 12 条）：含 🔄 适配项（argon2+会话对照 security-auth-jwt、zod strict-input 对照 security-validate-all-input）的意图达成核验；⏸ 条目（缓存/懒加载）核对 ADR 登记在案
-- [ ] T028 [P] [US3] 核验类别 6–7（test-×3、db-×3 共 6 条）：@nestjs/testing/Vitest 适配、事务边界收口在 application、N+1 迁移步审计记录、migration:drill 证据引用
-- [ ] T029 [P] [US3] 核验类别 8–10（api-×4、micro-×3、devops-×3 共 10 条）：含 ⏸ 候选偏离（api-versioning、micro-use-patterns、micro-use-queues）与 🔄 适配（DTO 序列化、health-checks、config-module）核验
+- [X] T026 [P] [US3] 核验类别 1–2（arch-×6、di-×6 共 12 条）：对照 `apps/server/src/contexts/**` 实际结构逐条判定，填写 `nestjs-best-practices-compliance.md` 对应「证据位置」列（引用具体文件/审计输出）
+- [X] T027 [P] [US3] 核验类别 3–5（error-×3、security-×5、perf-×4 共 12 条）：含 🔄 适配项（argon2+会话对照 security-auth-jwt、zod strict-input 对照 security-validate-all-input）的意图达成核验；⏸ 条目（缓存/懒加载）核对 ADR 登记在案
+- [X] T028 [P] [US3] 核验类别 6–7（test-×3、db-×3 共 6 条）：@nestjs/testing/Vitest 适配、事务边界收口在 application、N+1 迁移步审计记录、migration:drill 证据引用
+- [X] T029 [P] [US3] 核验类别 8–10（api-×4、micro-×3、devops-×3 共 10 条）：含 ⏸ 候选偏离（api-versioning、micro-use-patterns、micro-use-queues）与 🔄 适配（DTO 序列化、health-checks、config-module）核验
 - [x] T030 [US3] 偏离终版登记与结论：将全部 ⏸/最终判定为偏离的条目整理进 `docs/adr/0014-backend-ddd-structure.md`「规则偏离清单」章节；填写清单末尾「统计与结论栏」（覆盖率 40/40、SC-005 结论）（依赖 T026–T029）
 
 **Checkpoint**: US3 完成 = 清单全结论 + ADR 偏离登记完毕
@@ -111,9 +111,9 @@
 **Independent Test**: `audit:orphans` 0 + 全库残留检索 0 + quickstart.md 全量终验通过 + 证据链完整（SC-001..006 逐条可勾验）
 
 - [x] T031 [US4] 零遗留清点：运行 `pnpm --filter @hmp/server audit:orphans` 清零；全库检索被注释的旧实现、迁移占位标记（属于本次迁移的 TODO/FIXME）、临时绕行垫片并清零；结果存 `evidence/zero-leftover.md`（含检索命令与命中数）（**已完成（2026-10-28）**：恢复 T018 暂缓的 knip 全类目（整行 exclude 删除），首轮 27 项（23 死导出+4 死类型）逐项人工核验后删 28 项（含 1 级联死类型），全为深路径内部导出、发布面零预留零误报；旧树路径字样 45 处更新为当前真实路径（modules/* 21 处、src/database|common|config 23 处含 SQL 头部与 migrate.ts 用法串、manifest.json planReference），仅留 1 处「原 src/common」溯源注记；TODO/FIXME/注释旧实现/迁移垫片均为零；六项门禁全绿：orphans exit 0 无 hint、typecheck、lint（修复 T025 证据脚本 pre-existing 解析错）、test 1376/1376、boundaries 软/强制双模式 0 violations）
-- [ ] T032 [US4] 文档原子同步：在同一提交中完成——`docs/specs/007-backend-ddd-restructure/spec.md` 状态流转（Implementing → Verified 的前置状态推进）、`docs/adr/0014-backend-ddd-structure.md` 链接核对、宪章无涉改确认（本次不改宪章）；提交信息按宪章惯例注明规格与 ADR
+- [X] T032 [US4] 文档原子同步：在同一提交中完成——`docs/specs/007-backend-ddd-restructure/spec.md` 状态流转（Implementing → Verified 的前置状态推进）、`docs/adr/0014-backend-ddd-structure.md` 链接核对、宪章无涉改确认（本次不改宪章）；提交信息按宪章惯例注明规格与 ADR
 - [X] T033 [US4] 执行 `docs/specs/007-backend-ddd-restructure/quickstart.md`「全量终验」全部命令（含 `pnpm gen:types` 产物 diff 为空核对、`migration:drill`、双审计归零），输出存 `evidence/final-validation.md`
-- [ ] T034 [US4] 完成对照与验收报告：对照 spec.md SC-001..006 逐条勾验并汇总全部 evidence 文件索引，产出 `evidence/completion.md`；确认 `nestjs-best-practices-compliance.md` 统计栏与 T030 一致后提交最终状态
+- [X] T034 [US4] 完成对照与验收报告：对照 spec.md SC-001..006 逐条勾验并汇总全部 evidence 文件索引，产出 `evidence/completion.md`；确认 `nestjs-best-practices-compliance.md` 统计栏与 T030 一致后提交最终状态
 
 **Checkpoint**: US4 完成 = 零遗留 + 文档同步 + 全量终验通过；本特性整体交付
 

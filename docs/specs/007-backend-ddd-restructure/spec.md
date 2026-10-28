@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-28
 
-**Status**: Accepted（2026-10-28: 维护者随 `/speckit-implement` 实施指令显式接受；结构方案与规则偏离清单见 ADR-0014）
+**Status**: Verified（2026-10-28: Accepted 后同日完成实施与多层证据验收——分层/边界双模式审计强制归零、路由 0-diff、65/65 新旧树响应采样一致、零遗留清点归零、40/40 规则合规核验；证据见 [evidence/final-validation.md](./evidence/final-validation.md)、[boundary-audit.md](./evidence/boundary-audit.md)、[behavior-parity.md](./evidence/behavior-parity.md)、[zero-leftover.md](./evidence/zero-leftover.md)、[completion.md](./evidence/completion.md)；结构方案与规则偏离清单见 ADR-0014（Accepted，含治理裁决修正案））
 
 **Governance**: Follow `.specify/memory/constitution.md`（当前 v1.4.0）。Link accepted ADRs before implementation; use Proposed → Accepted → Implementing → Verified (or Superseded).
 
