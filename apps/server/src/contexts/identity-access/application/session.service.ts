@@ -1,12 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
-import { eq } from 'drizzle-orm';
 import { ProblemCode, SESSION_COOKIE } from '@hmp/shared';
 import type { NewDeviceSession } from '@platform/database/schema';
-import { account, deviceSession } from '@platform/database/schema';
 import { env } from '@platform/config/env';
 import { DomainError } from '@platform/http-common/domain-error';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { identityAccessStore } from '@contexts/identity-access/application/identity-access-store.port';
 import { hashPassword, verifyPassword } from '@contexts/identity-access/infrastructure/password.service';
 import { generateToken, hashToken } from '@contexts/identity-access/infrastructure/token.service';
 
@@ -17,6 +15,10 @@ import { generateToken, hashToken } from '@contexts/identity-access/infrastructu
  * - 明文令牌只在签发响应中出现一次,落库仅 SHA-256 哈希;
  * - 过期时间 = now + SESSION_TTL_DAYS 天(env 注入,FR-004)。
  * 纯函数导出,无需 Nest 注入(对齐 token.service.ts 惯例)。
+ *
+ * 008-repository-extraction(T011,ADR-0015 D1):账号查找/会话行写入/续期读写
+ * 逐字迁往 infrastructure/identity-access-store.drizzle.ts;时序均衡 argon2、
+ * TTL 计算与「未前移不写库」判定留本层。
  */
 
 export interface AuthenticatedAccount {
@@ -48,11 +50,7 @@ export async function authenticate(
   username: string,
   password: string,
 ): Promise<AuthenticatedAccount> {
-  const row = getDb()
-    .select()
-    .from(account)
-    .where(eq(account.usernameNormalized, username.toLowerCase()))
-    .get();
+  const row = identityAccessStore().findAccountByUsernameNormalized(username.toLowerCase());
 
   if (row === undefined) {
     timingEqualizerHash ??= await hashPassword('hmp-timing-equalizer');
@@ -93,7 +91,7 @@ export function issueSession(input: {
     lastActiveAt: now.toISOString(),
     createdAt: now.toISOString(),
   };
-  getDb().insert(deviceSession).values(row).run();
+  identityAccessStore().insertDeviceSession(row);
   return { sessionId: row.id, sessionToken, expiresAt };
 }
 
@@ -123,11 +121,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * 返回生效的过期时间(ISO)。
  */
 export function renewSession(sessionId: string, currentExpiresAt: string): string {
-  const row = getDb()
-    .select({ expiresAt: deviceSession.expiresAt, createdAt: deviceSession.createdAt })
-    .from(deviceSession)
-    .where(eq(deviceSession.id, sessionId))
-    .get();
+  const row = identityAccessStore().findSessionExpiry(sessionId);
   if (row === undefined) {
     // Guard 已校验存在;防御性回退,绝不因续期放大失败面
     return currentExpiresAt;
@@ -140,11 +134,7 @@ export function renewSession(sessionId: string, currentExpiresAt: string): strin
     // 未前移 → 不写库,返回原值
     return row.expiresAt;
   }
-  getDb()
-    .update(deviceSession)
-    .set({ lastActiveAt: new Date(now).toISOString(), expiresAt: nextExpiresAt })
-    .where(eq(deviceSession.id, sessionId))
-    .run();
+  identityAccessStore().updateSessionRenewal(sessionId, new Date(now).toISOString(), nextExpiresAt);
   return nextExpiresAt;
 }
 

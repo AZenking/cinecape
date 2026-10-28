@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { ProblemCode } from '@hmp/shared';
 import type { Account, Household, NewAccount, NewHousehold } from '@platform/database/schema';
-import { account, household } from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { identityAccessStore } from '@contexts/identity-access/application/identity-access-store.port';
 
 /**
  * 部署初始化服务(T036,005 research R2「初始化与首档案分为两个事务流程」):
@@ -13,8 +12,12 @@ import { getDb } from '@contexts/identity-access/infrastructure/db';
  * - `BEGIN IMMEDIATE` 单事务:检查-写入原子完成,SQLite 写串行化下并发提交
  *   只可能有一方看到「零家庭」并成功,另一方在事务内复检后 409 回滚;
  *   账号 username_normalized 唯一索引作为并发兜底(冲突同样映射 409);
- * - 失败(任何一步抛错)整体回滚,不遗留半配置状态;
+ * - 失败(任何一步)整体回滚,不遗留半配置状态;
  * - 密码哈希由调用方在事务外预先计算(短事务,对齐既有惯例)。
+ *
+ * 008-repository-extraction(T011,ADR-0015 D1):事务内复检与双表写入逐字迁往
+ * infrastructure/identity-access-store.drizzle.ts;唯一约束冲突 → 409 的映射与
+ * 行构造留本层。BEGIN IMMEDIATE 经 withTransaction(fn, 'immediate') 原样传递。
  */
 
 export interface InitializeDeploymentInput {
@@ -59,21 +62,21 @@ export function initializeDeployment(input: InitializeDeploymentInput): { househ
   };
 
   try {
-    return getDb().transaction(
+    return identityAccessStore().withTransaction(
       (tx) => {
         // 事务内复检(与 BEGIN IMMEDIATE 写锁共同保证并发下恰一次成功)
-        if (tx.select({ id: household.id }).from(household).limit(1).get() !== undefined) {
+        if (tx.findAnyHousehold() !== undefined) {
           throw alreadyDone();
         }
-        tx.insert(household).values(householdRow).run();
-        tx.insert(account).values(accountRow).run();
+        tx.insertHousehold(householdRow);
+        tx.insertAccount(accountRow);
         return {
           household: householdRow as Household,
           account: accountRow as Account,
         };
       },
       // T036 契约:BEGIN IMMEDIATE 单事务(写锁在事务开始即获取,并发提交串行判定)
-      { behavior: 'immediate' },
+      'immediate',
     );
   } catch (error) {
     if (isUniqueConstraintError(error)) {

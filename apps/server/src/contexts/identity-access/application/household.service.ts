@@ -1,9 +1,7 @@
-import { eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
 import type { Household } from '@platform/database/schema';
-import { household } from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { identityAccessStore } from '@contexts/identity-access/application/identity-access-store.port';
 
 /**
  * Household 聚合(T018):
@@ -11,6 +9,10 @@ import { getDb } from '@contexts/identity-access/infrastructure/db';
  * - GET /household 从服务端会话边界读取(FR-006 显式 household_id)。
  * 初始化用例(POST /setup/initialize)由 setup.service.initializeDeployment 承载;
  * 007-T031 清理:旧 initializeHousehold/isInitialized 全仓零消费,已删除。
+ *
+ * 008-repository-extraction(T011,ADR-0015 D1):查询逐字迁往
+ * infrastructure/identity-access-store.drizzle.ts(findHousehold);404 判定与
+ * DTO 白名单映射留本层。
  */
 
 /** HouseholdDto 响应体(契约 components/schemas/HouseholdDto) */
@@ -23,7 +25,7 @@ export interface HouseholdDtoBody {
 }
 
 export function getHousehold(householdId: string): Household {
-  const row = getDb().select().from(household).where(eq(household.id, householdId)).get();
+  const row = identityAccessStore().findHousehold(householdId);
   if (row === undefined) {
     // 会话本身有效但家庭行缺失属服务端数据不一致,按契约 404 不泄露跨家庭信息
     throw new DomainError(404, ProblemCode.NOT_FOUND);

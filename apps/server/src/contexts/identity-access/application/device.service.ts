@@ -1,10 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, isNull } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
 import type { Device, NewDevice } from '@platform/database/schema';
-import { device, deviceSession } from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
-import { getDb } from '@contexts/identity-access/infrastructure/db';
+import { identityAccessStore } from '@contexts/identity-access/application/identity-access-store.port';
 import { clearDeviceSessionsProfile } from '@contexts/profile';
 
 /**
@@ -15,6 +13,11 @@ import { clearDeviceSessionsProfile } from '@contexts/profile';
  *   设备撤销(FR-011/012)将波及无关会话,违背"撤销影响该设备全部会话"的边界;
  * - 无稳定客户端设备标识时逐次新建,保证「一会话 ↔ 一设备」的最小正确性;
  * - 设备合并/改名/复用留待 US3 设备管理(届时由服务端下发并持久化 deviceId)。
+ *
+ * 008-repository-extraction(T011,ADR-0015 D1):设备/会话读写与撤销事务逐字迁往
+ * infrastructure/identity-access-store.drizzle.ts;身份清理经 profile 上下文
+ * identity-transition 挂钩(clearDeviceSessionsProfile)以 txHandle() 不透明连接
+ * 凭证加入同一事务,调用形态与迁移前一致。
  */
 export type DeviceType = 'web' | 'mobile' | 'tv' | 'nas' | 'other';
 
@@ -35,7 +38,7 @@ export function registerDevice(input: RegisterDeviceInput): Device {
     revokedAt: null,
     createdAt: now,
   };
-  getDb().insert(device).values(row).run();
+  identityAccessStore().insertDevice(row);
   return row as Device;
 }
 
@@ -66,12 +69,8 @@ function toDeviceDto(row: Device): DeviceDtoBody {
 
 /** GET /devices:当前家庭设备列表(含已撤销,以 revokedAt 标注;边界 FR-006) */
 export function listHouseholdDevices(householdId: string): DeviceDtoBody[] {
-  return getDb()
-    .select()
-    .from(device)
-    .where(eq(device.householdId, householdId))
-    .orderBy(asc(device.createdAt))
-    .all()
+  return identityAccessStore()
+    .listDevicesByHousehold(householdId)
     .map(toDeviceDto);
 }
 
@@ -86,12 +85,8 @@ export function listHouseholdDevices(householdId: string): DeviceDtoBody[] {
  * - 幂等:重复调用 204 且无任何写副作用。
  */
 export function revokeHouseholdDevice(householdId: string, deviceId: string): void {
-  getDb().transaction((tx) => {
-    const row = tx
-      .select({ id: device.id, revokedAt: device.revokedAt })
-      .from(device)
-      .where(and(eq(device.id, deviceId), eq(device.householdId, householdId)))
-      .get();
+  identityAccessStore().withTransaction((tx) => {
+    const row = tx.findDeviceRevocationState(deviceId, householdId);
     if (row === undefined) {
       // 不存在 / 属于其他家庭:同形 404,不泄露跨家庭存在性
       throw new DomainError(404, ProblemCode.NOT_FOUND);
@@ -99,20 +94,10 @@ export function revokeHouseholdDevice(householdId: string, deviceId: string): vo
     if (row.revokedAt !== null) {
       return; // 幂等:已撤销 no-op
     }
-    const identified = tx
-      .select({ id: deviceSession.id, activeProfileId: deviceSession.activeProfileId })
-      .from(deviceSession)
-      .where(and(eq(deviceSession.deviceId, deviceId), isNull(deviceSession.revokedAt)))
-      .all();
+    const identified = tx.listUnrevokedSessionsByDevice(deviceId);
     const now = new Date().toISOString();
-    tx.update(device)
-      .set({ revokedAt: now })
-      .where(and(eq(device.id, deviceId), isNull(device.revokedAt)))
-      .run();
-    tx.update(deviceSession)
-      .set({ revokedAt: now })
-      .where(and(eq(deviceSession.deviceId, deviceId), isNull(deviceSession.revokedAt)))
-      .run();
+    tx.revokeDevice(deviceId, now);
+    tx.revokeDeviceSessions(deviceId, now);
     const byProfile = new Map<string, string[]>();
     for (const session of identified) {
       if (session.activeProfileId === null) {
@@ -123,7 +108,7 @@ export function revokeHouseholdDevice(householdId: string, deviceId: string): vo
       byProfile.set(session.activeProfileId, ids);
     }
     for (const [profileId, sessionIds] of byProfile) {
-      clearDeviceSessionsProfile(tx, { householdId, deviceSessionIds: sessionIds, profileId });
+      clearDeviceSessionsProfile(tx.txHandle(), { householdId, deviceSessionIds: sessionIds, profileId });
     }
   });
 }

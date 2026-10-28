@@ -1,9 +1,7 @@
-import { and, eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { account, parentVerificationState } from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
+import { identityAccessStore } from '@contexts/identity-access/application/identity-access-store.port';
 import { verifyPassword } from '@contexts/identity-access/infrastructure/password.service';
 
 /**
@@ -18,6 +16,11 @@ import { verifyPassword } from '@contexts/identity-access/infrastructure/passwor
  *   (并发下正确请求不得绕过新锁定,失败计数不得被覆盖丢失)。
  *
  * 服务为纯函数模块(对齐 token.service/pin.service 惯例),无需 Nest 注入。
+ *
+ * 008-repository-extraction(T011,ADR-0015 D1):账号/验证状态读写逐字迁往
+ * infrastructure/identity-access-store.drizzle.ts(findAccountByIdAndHousehold /
+ * findParentVerificationState / delete / upsert);锁定状态机(纯函数)与
+ * 401/403/423 判定留本层。
  */
 
 export const PARENT_VERIFICATION_MAX_ATTEMPTS = 5;
@@ -68,19 +71,6 @@ function lockedError(): DomainError {
   return new DomainError(423, ProblemCode.PARENT_VERIFICATION_LOCKED, '家长验证已锁定,请稍后重试');
 }
 
-function loadState(db: Db | Parameters<Parameters<Db['transaction']>[0]>[0], context: SessionContext) {
-  return db
-    .select()
-    .from(parentVerificationState)
-    .where(
-      and(
-        eq(parentVerificationState.householdId, context.session.householdId),
-        eq(parentVerificationState.accountId, context.session.accountId),
-      ),
-    )
-    .get();
-}
-
 /**
  * 验证当前会话账号的主账号密码(FR-004)。
  * 顺序:锁定检查(423)→ argon2 异步校验 → 事务内重读状态(并发安全)→
@@ -89,18 +79,14 @@ function loadState(db: Db | Parameters<Parameters<Db['transaction']>[0]>[0], con
  * 任何路径都不修改业务数据(仅验证状态表);密码明文不进异常/日志(敏感键脱敏兜底)。
  */
 export async function verifyParentPassword(context: SessionContext, password: string): Promise<void> {
-  const db = getDb();
-  const accountRow = db
-    .select()
-    .from(account)
-    .where(and(eq(account.id, context.account.id), eq(account.householdId, context.session.householdId)))
-    .get();
+  const store = identityAccessStore();
+  const accountRow = store.findAccountByIdAndHousehold(context.account.id, context.session.householdId);
   if (accountRow === undefined) {
     // 会话上下文与账号行不一致(理论不可达,守卫已校验)→ 按会话失效拒绝,不泄露细节
     throw new DomainError(401, ProblemCode.SESSION_INVALID, undefined);
   }
 
-  const initial = loadState(db, context);
+  const initial = store.findParentVerificationState(context.session.householdId, context.session.accountId);
   if (isParentLocked(initial?.lockedUntil ?? null, new Date())) {
     throw lockedError();
   }
@@ -109,23 +95,15 @@ export async function verifyParentPassword(context: SessionContext, password: st
   const matches = await verifyPassword(accountRow.passwordHash, password).catch(() => false);
   const now = new Date();
 
-  const outcome = db.transaction((tx) => {
+  const outcome = store.withTransaction((tx) => {
     // 异步哈希验证期间状态可能被并发请求改变:事务内重读,不依赖过时快照
-    const fresh = loadState(tx, context);
+    const fresh = tx.findParentVerificationState(context.session.householdId, context.session.accountId);
     if (isParentLocked(fresh?.lockedUntil ?? null, now)) {
       return { kind: 'locked' as const };
     }
     if (matches) {
       if (fresh !== undefined) {
-        tx
-          .delete(parentVerificationState)
-          .where(
-            and(
-              eq(parentVerificationState.householdId, context.session.householdId),
-              eq(parentVerificationState.accountId, context.session.accountId),
-            ),
-          )
-          .run();
+        tx.deleteParentVerificationState(context.session.householdId, context.session.accountId);
       }
       return { kind: 'ok' as const };
     }
@@ -133,19 +111,12 @@ export async function verifyParentPassword(context: SessionContext, password: st
       { failedAttempts: fresh?.failedAttempts ?? 0, lockedUntil: fresh?.lockedUntil ?? null },
       now,
     );
-    tx
-      .insert(parentVerificationState)
-      .values({
-        householdId: context.session.householdId,
-        accountId: context.session.accountId,
-        failedAttempts: next.failedAttempts,
-        lockedUntil: next.lockedUntil,
-      })
-      .onConflictDoUpdate({
-        target: [parentVerificationState.householdId, parentVerificationState.accountId],
-        set: { failedAttempts: next.failedAttempts, lockedUntil: next.lockedUntil },
-      })
-      .run();
+    tx.upsertParentVerificationState({
+      householdId: context.session.householdId,
+      accountId: context.session.accountId,
+      failedAttempts: next.failedAttempts,
+      lockedUntil: next.lockedUntil,
+    });
     return {
       kind: 'failed' as const,
       remaining: Math.max(0, PARENT_VERIFICATION_MAX_ATTEMPTS - next.failedAttempts),

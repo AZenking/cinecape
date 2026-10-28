@@ -1,10 +1,12 @@
-import { and, eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { account, deviceSession, profile, profilePolicy, profileProgressClock } from '@platform/database/schema';
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { defaultPolicyValues } from '@contexts/policy';
-import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
+import {
+  identityAccessStore,
+  type IdentityAccessTxStore,
+  type MainProfileSnapshotRow,
+} from '@contexts/identity-access/application/identity-access-store.port';
 import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
 import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
 import { clearDeviceSessionsProfile, revokeUnlockGrantsForProfile } from '@contexts/profile';
@@ -25,6 +27,14 @@ import { toProfileSummary, type ProfileSummaryBody } from '@contexts/identity-ac
  * - PIN 恢复仅重设当前家庭主档案 PIN:清锁定与失败计数、递增 pin_version、
  *   撤销目标档案选档/设置授予、清空当前选用该档案的 active_profile_id 并递增其
  *   contextVersion、终态化相关活动播放并撤票(强制重新选档)。
+ *
+ * 008-repository-extraction(T011,ADR-0015 D1):全部 SQL 逐字迁往
+ * infrastructure/identity-access-store.drizzle.ts。读取作用域与迁移前 db/tx 双形态
+ * 逐字对应:helpers 以 IdentityAccessTxStore 为参(顶层仓储经接口继承同形),
+ * recoverMainProfilePin 事务内的 credential_version 复检保持经**顶层仓储(getDb
+ * 惰性解析,非事务句柄)**读取 —— 与迁移前 readCredentialVersion 的连接语义一致。
+ * 身份清理经 profile identity-transition 挂钩(clearDeviceSessionsProfile)以
+ * txHandle() 不透明连接凭证加入同一事务,调用形态与迁移前一致。
  */
 
 /** 目标必须为管理角色(owner/admin);非管理 403 FORBIDDEN(不区分具体角色细节) */
@@ -34,12 +44,8 @@ export function requireManagementRole(context: SessionContext): void {
   }
 }
 
-function credentialVersionOf(db: Db, householdId: string, accountId: string): number {
-  const row = db
-    .select({ credentialVersion: account.credentialVersion })
-    .from(account)
-    .where(and(eq(account.householdId, householdId), eq(account.id, accountId)))
-    .get();
+function credentialVersionOf(scope: IdentityAccessTxStore, householdId: string, accountId: string): number {
+  const row = scope.findCredentialVersion(householdId, accountId);
   if (row === undefined) {
     // 会话与账号行不一致(理论不可达,Guard 已校验)→ 按会话失效拒绝
     throw new DomainError(401, ProblemCode.SESSION_INVALID, undefined);
@@ -48,32 +54,22 @@ function credentialVersionOf(db: Db, householdId: string, accountId: string): nu
 }
 
 function readCredentialVersion(context: SessionContext): number {
-  return credentialVersionOf(getDb(), context.session.householdId, context.account.id);
+  // 与迁移前一致:经 getDb() 句柄(非事务)读取 —— recoverMainProfilePin 事务内的
+  // 复检同样走本函数(独立连接),连接语义逐字保留
+  return credentialVersionOf(identityAccessStore(), context.session.householdId, context.account.id);
 }
 
-function householdProfileCount(householdId: string): number {
-  return getDb()
-    .select({ id: profile.id })
-    .from(profile)
-    .where(eq(profile.householdId, householdId))
-    .all().length;
+function householdProfileCount(scope: IdentityAccessTxStore, householdId: string): number {
+  return scope.countHouseholdProfiles(householdId);
 }
 
-function readMainProfileRow(
-  db: Db,
-  householdId: string,
-): { id: string; pinVersion: number; version: number } | null {
-  const row = db
-    .select({ id: profile.id, pinVersion: profile.pinVersion, version: profile.version })
-    .from(profile)
-    .where(and(eq(profile.householdId, householdId), eq(profile.isMain, 1)))
-    .get();
-  return row ?? null;
+function readMainProfileRow(scope: IdentityAccessTxStore, householdId: string): MainProfileSnapshotRow | null {
+  return scope.findMainProfileSnapshot(householdId) ?? null;
 }
 
 /** 首建事务体(密码验证与 PIN 哈希已在事务外完成):提交前重读快照再写入 */
 function insertMainProfileTx(
-  tx: Db,
+  tx: IdentityAccessTxStore,
   input: {
     householdId: string;
     accountId: string;
@@ -83,7 +79,7 @@ function insertMainProfileTx(
   },
 ): ProfileSummaryBody {
   // 提交前重读零档案状态与 credential_version(异步哈希期间可能并发变化)
-  if (householdProfileCountTx(tx, input.householdId) > 0) {
+  if (householdProfileCount(tx, input.householdId) > 0) {
     throw createDomainError('BOOTSTRAP_ALREADY_DONE');
   }
   const credentialVersion = credentialVersionOf(tx, input.householdId, input.accountId);
@@ -109,34 +105,24 @@ function insertMainProfileTx(
     version: 1,
     createdAt: now,
   };
-  tx.insert(profile).values(row).run();
+  tx.insertProfile(row);
   // 默认内容策略(成人 18/true,空名单)同事务
   const defaults = defaultPolicyValues('adult');
-  tx
-    .insert(profilePolicy)
-    .values({
-      householdId: input.householdId,
-      profileId: row.id,
-      maxContentLevel: defaults.maxContentLevel,
-      allowUnrated: defaults.allowUnrated ? 1 : 0,
-      allowedMediaIds: '[]',
-      blockedMediaIds: '[]',
-      allowedChannelIds: '[]',
-      version: 1,
-      updatedAt: now,
-    })
-    .run();
+  tx.insertProfilePolicy({
+    householdId: input.householdId,
+    profileId: row.id,
+    maxContentLevel: defaults.maxContentLevel,
+    allowUnrated: defaults.allowUnrated ? 1 : 0,
+    allowedMediaIds: '[]',
+    blockedMediaIds: '[]',
+    allowedChannelIds: '[]',
+    version: 1,
+    updatedAt: now,
+  });
   // progress clock 同事务初始化(next_epoch=1;可跳号不可重置)
-  tx
-    .insert(profileProgressClock)
-    .values({ householdId: input.householdId, profileId: row.id, nextEpoch: 1 })
-    .run();
+  tx.insertProfileProgressClock({ householdId: input.householdId, profileId: row.id, nextEpoch: 1 });
   // 不设置任何 device_session.active_profile_id —— 不自动选档
   return toProfileSummary(row);
-}
-
-function householdProfileCountTx(tx: Db, householdId: string): number {
-  return tx.select({ id: profile.id }).from(profile).where(eq(profile.householdId, householdId)).all().length;
 }
 
 /**
@@ -151,7 +137,7 @@ export async function bootstrapMainProfile(
 ): Promise<ProfileSummaryBody> {
   requireManagementRole(context);
   const householdId = context.session.householdId;
-  if (householdProfileCount(householdId) > 0) {
+  if (householdProfileCount(identityAccessStore(), householdId) > 0) {
     throw createDomainError('BOOTSTRAP_ALREADY_DONE');
   }
   // 当次 owner 密码逐次验证(错误计数/锁定持久化在 parent_verification_state)
@@ -160,7 +146,7 @@ export async function bootstrapMainProfile(
   const pinHash = await hashPassword(input.pin); // 事务外哈希
   const expectedCredentialVersion = readCredentialVersion(context);
 
-  return getDb().transaction(
+  return identityAccessStore().withTransaction(
     (tx) =>
       insertMainProfileTx(tx, {
         householdId,
@@ -169,7 +155,7 @@ export async function bootstrapMainProfile(
         pinHash,
         expectedCredentialVersion,
       }),
-    { behavior: 'immediate' },
+    'immediate',
   );
 }
 
@@ -186,7 +172,7 @@ export async function recoverMainProfilePin(
 ): Promise<void> {
   requireManagementRole(context);
   const householdId = context.session.householdId;
-  const main = readMainProfileRow(getDb(), householdId);
+  const main = readMainProfileRow(identityAccessStore(), householdId);
   if (main === null) {
     // 主档案不存在(未首建):目标不存在,同形 404
     throw new DomainError(404, ProblemCode.NOT_FOUND);
@@ -197,7 +183,7 @@ export async function recoverMainProfilePin(
   const expectedPinVersion = main.pinVersion;
   const expectedCredentialVersion = readCredentialVersion(context);
 
-  getDb().transaction(
+  identityAccessStore().withTransaction(
     (tx) => {
       // 提交前重读主档案与 credential_version 快照(异步哈希期间可能并发变化)
       const fresh = readMainProfileRow(tx, householdId);
@@ -211,31 +197,24 @@ export async function recoverMainProfilePin(
         throw createDomainError('VERSION_CONFLICT');
       }
       // 重设 PIN:清失败计数与锁定、递增 pin_version 与 version(旧授予全部失效)
-      tx.update(profile)
-        .set({
-          pinHash: newPinHash,
-          failedPinCount: 0,
-          pinLockedUntil: null,
-          pinVersion: fresh.pinVersion + 1,
-          version: fresh.version + 1,
-        })
-        .where(and(eq(profile.householdId, householdId), eq(profile.id, fresh.id)))
-        .run();
+      tx.updateProfilePinReset(householdId, fresh.id, {
+        pinHash: newPinHash,
+        failedPinCount: 0,
+        pinLockedUntil: null,
+        pinVersion: fresh.pinVersion + 1,
+        version: fresh.version + 1,
+      });
       // 清空当前选用该档案的全部设备会话身份(强制重新选档,同事务递增各自 contextVersion)
-      const sessions = tx
-        .select({ id: deviceSession.id })
-        .from(deviceSession)
-        .where(and(eq(deviceSession.householdId, householdId), eq(deviceSession.activeProfileId, fresh.id)))
-        .all();
-      clearDeviceSessionsProfile(tx, {
+      const sessions = tx.listActiveProfileSessionIds(householdId, fresh.id);
+      clearDeviceSessionsProfile(tx.txHandle(), {
         householdId,
-        deviceSessionIds: sessions.map((row) => row.id),
+        deviceSessionIds: sessions,
         profileId: fresh.id,
       });
       // 撤销该档案的全部内存选档一次性授予(US7 发现的残留缺口:
       // 恢复后 5min TTL 窗口内旧授予不得再通过选档)
       revokeUnlockGrantsForProfile(fresh.id);
     },
-    { behavior: 'immediate' },
+    'immediate',
   );
 }

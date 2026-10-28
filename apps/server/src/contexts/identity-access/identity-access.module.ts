@@ -8,10 +8,13 @@ import {
   IDENTITY_ACCESS_BOOTSTRAP_PORT,
   IDENTITY_ACCESS_DEVICE_PORT,
   IDENTITY_ACCESS_PARENT_VERIFICATION_PORT,
+  IDENTITY_ACCESS_STORE,
 } from '@contexts/identity-access/identity-access.tokens';
 import { listHouseholdDevices, revokeHouseholdDevice } from '@contexts/identity-access/application/device.service';
 import { requireManagementRole } from '@contexts/identity-access/application/bootstrap.service';
 import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
+import { bindIdentityAccessStore } from '@contexts/identity-access/application/identity-access-store.port';
+import { drizzleIdentityAccessStore } from '@contexts/identity-access/infrastructure/identity-access-store.drizzle';
 import type {
   IBootstrapService,
   IDeviceService,
@@ -39,11 +42,19 @@ import type {
  * (纯函数模块经 useValue 函数束 + satisfies 对齐 ports 接口,零行为变化:
  * 函数引用原样,不新增实例/状态);exports 仅发布令牌(contracts 白名单),
  * 消费方迁移(经 index 直接导入或 @Inject(令牌))属 T022。
+ *
+ * 008-repository-extraction(T011,ADR-0015 D1):装配期绑定仓储 seam ——
+ * IDENTITY_ACCESS_STORE provider 实例化时经 bindIdentityAccessStore 注入
+ * Drizzle 实现(惰性 getDb 解析,Database 单例重开安全);不经 HTTP 暴露,不导出。
  */
 @Module({
   imports: [HttpCommonModule],
   controllers: [AuthController, SetupController, BootstrapController, HouseholdController],
   providers: [
+    {
+      provide: IDENTITY_ACCESS_STORE,
+      useFactory: () => bindIdentityAccessStore(drizzleIdentityAccessStore()),
+    },
     {
       provide: IDENTITY_ACCESS_PARENT_VERIFICATION_PORT,
       useValue: { verifyParentPassword } satisfies IParentVerificationService,
