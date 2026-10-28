@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SESSION_COOKIE } from '@hmp/shared';
 import { cleanupRigs, startFreshApp, expectProblemContentType, type TestRig } from '../helpers';
 import { seedPersonalWorld, type PersonalWorld } from '../unit/personal/personal-world';
-import { encodePersonalCursor } from '../../src/modules/personal/signed-cursor';
+import { encodePersonalCursor } from '../../src/contexts/personal-data/infrastructure/signed-cursor';
 
 /**
  * T091(005 US4 契约测试)—— /me 收藏与历史(contracts/api.md §4):

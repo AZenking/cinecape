@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { MeController } from './me.controller';
-import { ProgressClockService } from './progress-clock.service';
-import { ProgressWriteService } from './progress-write.service';
+import { MeController } from './interface/me.controller';
+import { ProgressClockService } from './application/progress-clock.service';
+import { ProgressWriteService } from './application/progress-write.service';
 
 /**
  * 个人数据模块(T097/T098/T099/T100/T101,005 US4):
@@ -21,4 +21,4 @@ import { ProgressWriteService } from './progress-write.service';
   providers: [ProgressClockService, ProgressWriteService],
   exports: [ProgressClockService, ProgressWriteService],
 })
-export class PersonalModule {}
+export class PersonalDataModule {}

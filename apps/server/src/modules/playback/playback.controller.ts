@@ -20,7 +20,7 @@ import { PlaybackSelectionService } from './playback-selection.service';
 import { PlaybackLifecycleService } from './playback-lifecycle.service';
 import { PlaybackRateLimitService, type PlaybackRateLimitBucket } from './playback-rate-limit.service';
 import { PlaybackAuditService } from './playback-audit.service';
-import { ProgressWriteService, type ProgressSampleReply } from '../personal/progress-write.service';
+import { ProgressWriteService, type ProgressSampleReply } from '../../contexts/personal-data/application/progress-write.service';
 
 /**
  * 播放控制端点(T031,spec 004)—— resolve/GET session/renew/heartbeat/stop/selection/seek。

@@ -1,16 +1,16 @@
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
-import { DomainError, createDomainError } from '../../common/domain-error';
-import { getDb } from '../auth/db';
+import { DomainError, createDomainError } from '../../../common/domain-error';
+import { getDb } from '../../../modules/auth/db';
 import {
   mediaItem,
   profileChannelFavorite,
   type ProfileChannelFavorite,
-} from '../../database/schema';
-import { loadAvailableMediaIdSet } from '../policy/policy.batch-context';
-import { loadLiveChannelWindows, type LiveChannelProjection } from '../live/live-projection.service';
-import { toPublicMedia } from '../public-catalog/public-media-projection';
+} from '../../../database/schema';
+import { loadAvailableMediaIdSet } from '../../../modules/policy/policy.batch-context';
+import { loadLiveChannelWindows, type LiveChannelProjection } from '../../../modules/live/live-projection.service';
+import { toPublicMedia } from '../../../modules/public-catalog/public-media-projection';
 import type { ExperienceProgrammeDto, PublicMediaDto } from '@hmp/shared';
-import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload } from './signed-cursor';
+import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload } from '../infrastructure/signed-cursor';
 
 /**
  * 收藏服务(T098,005 contracts/api.md §4、data-model.md §4):

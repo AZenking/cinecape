@@ -7,7 +7,7 @@ import { playbackConversion, playbackSession } from '../../database/schema';
 import { Database } from '../../database/database';
 import { getDb } from '../auth/db';
 import { DomainError } from '../../common/domain-error';
-import type { ProgressSampleReply } from '../personal/progress-write.service';
+import type { ProgressSampleReply } from '../../contexts/personal-data/application/progress-write.service';
 import type { PlaybackRepository } from './playback.repository';
 import {
   PLAYBACK_ACTIVE_SESSION_STATES,

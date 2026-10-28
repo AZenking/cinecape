@@ -1,24 +1,24 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Put, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { CurrentProfile, type ProfileContext } from '../../common/profile-context/current-profile.decorator';
-import { SessionGuard } from '../../common/session.guard';
-import { CurrentProfileGuard } from '../../common/profile-context/current-profile.guard';
-import { SameOriginGuard } from '../../common/same-origin/same-origin.guard';
-import { StrictBodyPipe, StrictQueryPipe } from '../../common/strict-input/strict-pipes';
-import { strictObject } from '../../common/strict-input/strict-schema';
+import { CurrentProfile, type ProfileContext } from '../../../common/profile-context/current-profile.decorator';
+import { SessionGuard } from '../../../common/session.guard';
+import { CurrentProfileGuard } from '../../../common/profile-context/current-profile.guard';
+import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
+import { StrictBodyPipe, StrictQueryPipe } from '../../../common/strict-input/strict-pipes';
+import { strictObject } from '../../../common/strict-input/strict-schema';
 import {
   addFavoriteChannel,
   listFavoriteChannels,
   removeFavoriteChannel,
   type FavoriteChannelPage,
-} from './favorites.service';
+} from '../application/favorites.service';
 import {
   getHistoryItem,
   listHistory,
   type HistoryItemDto,
   type HistoryPage,
-} from './history.service';
+} from '../application/history.service';
 
 /**
  * /me 个人边界路由(T098/T101,005 contracts/api.md §4):

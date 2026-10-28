@@ -9,7 +9,7 @@ import {
   readHistoryRowFor,
   type PersonalWorld,
 } from '../unit/personal/personal-world';
-import { registerPersonalPlaybackFactsPort } from '../../src/modules/personal/progress-clock.service';
+import { registerPersonalPlaybackFactsPort } from '../../src/contexts/personal-data/application/progress-clock.service';
 
 /**
  * T093(005 US4 契约测试,SC-004 指标用例,双 Profile 双设备夹具):

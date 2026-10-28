@@ -7,9 +7,9 @@ import {
   readHistoryRowFor,
   type PersonalWorld,
 } from './personal-world';
-import { ProgressClockService, registerPersonalPlaybackFactsPort } from '../../../src/modules/personal/progress-clock.service';
-import { ProgressWriteService } from '../../../src/modules/personal/progress-write.service';
-import { canResumeOf, getHistoryItem, readResumeFreezePosition } from '../../../src/modules/personal/history.service';
+import { ProgressClockService, registerPersonalPlaybackFactsPort } from '../../../src/contexts/personal-data/application/progress-clock.service';
+import { ProgressWriteService } from '../../../src/contexts/personal-data/application/progress-write.service';
+import { canResumeOf, getHistoryItem, readResumeFreezePosition } from '../../../src/contexts/personal-data/application/history.service';
 import {
   PlaybackLifecycleService,
   type LifecycleStoragePort,

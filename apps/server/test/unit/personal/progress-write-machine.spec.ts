@@ -9,8 +9,8 @@ import {
   readHistoryRowFor,
   type PersonalWorld,
 } from './personal-world';
-import { ProgressWriteService } from '../../../src/modules/personal/progress-write.service';
-import { ProgressClockService, progressSampleDigest, registerPersonalPlaybackFactsPort } from '../../../src/modules/personal/progress-clock.service';
+import { ProgressWriteService } from '../../../src/contexts/personal-data/application/progress-write.service';
+import { ProgressClockService, progressSampleDigest, registerPersonalPlaybackFactsPort } from '../../../src/contexts/personal-data/application/progress-clock.service';
 import { getDb } from '../../../src/modules/auth/db';
 import {
   mediaItem,

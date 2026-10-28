@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { createDomainError } from '../../common/domain-error';
-import { Database } from '../../database/database';
+import { createDomainError } from '../../../common/domain-error';
+import { Database } from '../../../database/database';
 
 /**
  * 个人列表 signed cursor(T098,005 contracts/api.md §4、data-model.md §4):

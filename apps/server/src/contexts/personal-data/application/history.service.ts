@@ -1,11 +1,11 @@
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
-import { createDomainError } from '../../common/domain-error';
-import { getDb } from '../auth/db';
-import { mediaItem, profileViewingHistory, type ProfileViewingHistory } from '../../database/schema';
-import { loadAvailableMediaIdSet } from '../policy/policy.batch-context';
-import { toPublicMedia } from '../public-catalog/public-media-projection';
+import { createDomainError } from '../../../common/domain-error';
+import { getDb } from '../../../modules/auth/db';
+import { mediaItem, profileViewingHistory, type ProfileViewingHistory } from '../../../database/schema';
+import { loadAvailableMediaIdSet } from '../../../modules/policy/policy.batch-context';
+import { toPublicMedia } from '../../../modules/public-catalog/public-media-projection';
 import type { PublicMediaDto } from '@hmp/shared';
-import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload } from './signed-cursor';
+import { decodePersonalCursor, encodePersonalCursor, type PersonalCursorPayload } from '../infrastructure/signed-cursor';
 
 /**
  * 观看历史查询与续播冻结读取(T101,005 contracts/api.md §4/§5、data-model.md §7):

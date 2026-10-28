@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { getDb, type Db } from '../auth/db';
+import { getDb, type Db } from '../../../modules/auth/db';
 import {
   mediaItem,
   playbackProgressState,
@@ -8,8 +8,8 @@ import {
   type PlaybackSession,
   type PlaybackProgressState,
   type ProfileViewingHistory,
-} from '../../database/schema';
-import { DomainError, createDomainError } from '../../common/domain-error';
+} from '../../../database/schema';
+import { DomainError, createDomainError } from '../../../common/domain-error';
 import {
   decodeStoredResult,
   encodeStoredResult,

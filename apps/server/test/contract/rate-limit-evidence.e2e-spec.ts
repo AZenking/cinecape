@@ -9,7 +9,7 @@ import {
   seedProgressState,
   type PersonalWorld,
 } from '../unit/personal/personal-world';
-import { registerPersonalPlaybackFactsPort } from '../../src/modules/personal/progress-clock.service';
+import { registerPersonalPlaybackFactsPort } from '../../src/contexts/personal-data/application/progress-clock.service';
 import { sharedRateLimitService } from '../../src/common/rate-limit/rate-limit.service';
 
 /**

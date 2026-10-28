@@ -1,14 +1,14 @@
 import { createHash } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
-import { getDb } from '../auth/db';
+import { getDb } from '../../../modules/auth/db';
 import {
   mediaItem,
   playbackProgressState,
   playbackSession,
   profileProgressClock,
   profileViewingHistory,
-} from '../../database/schema';
-import { createDomainError } from '../../common/domain-error';
+} from '../../../database/schema';
+import { createDomainError } from '../../../common/domain-error';
 import { readResumeFreezePosition } from './history.service';
 
 /**

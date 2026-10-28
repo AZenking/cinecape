@@ -45,7 +45,7 @@
 
 **说明**: 以下每步 = 按 `evidence/migration-map.md` 移动文件 + 机械修正导入路径（含 `apps/server/test/**` 的导入）+ Nest module 重命名/合并 + `app.module.ts` 装配更新；步末通过快速门禁（typecheck / lint / 全量测试 / `audit:orphans`）+ `AUDIT_ENFORCE=0 audit:boundaries` 报告（违规数记录留档；指向旧树的边由 US2 T022 收口，T024 起强制归零）后独立提交。此阶段允许暂存跨上下文深导入（US2 统一收口），但**禁止**改变任何行为语义。**自 T008a 起，T009–T019 各步新增/改动的导入一律采用 `@contexts/*` / `@platform/*` 别名形态（见 T008a 约定）。**
 
-- [ ] T008 [US1] 迁移 ① personal-data：`apps/server/src/modules/personal/**` → `apps/server/src/contexts/personal-data/{domain,application,infrastructure,interface}/`（me.controller→interface；favorites/history/progress-write/progress-clock.service→application；signed-cursor 按 T007 判定归位；模块更名 `PersonalDataModule`）
+- [X] T008 [US1] 迁移 ① personal-data：`apps/server/src/modules/personal/**` → `apps/server/src/contexts/personal-data/{domain,application,infrastructure,interface}/`（me.controller→interface；favorites/history/progress-write/progress-clock.service→application；signed-cursor 按 T007 判定归位；模块更名 `PersonalDataModule`）
 - [ ] T008a [US1] 路径别名基座（**维护者 2026-10-28 指令插入**；须在 T008 完成后、T009 发车前执行）：
   1. `apps/server/tsconfig.json` 与 `tsconfig.build.json` 增加 `"baseUrl": "."` 与 `"paths": { "@contexts/*": ["src/contexts/*"], "@platform/*": ["src/platform/*"] }`；
   2. 新增 devDep `tsc-alias`（构建链唯一新增），`apps/server/package.json` build 脚本改为 `tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json && cp -R src/database/migrations dist/database/`；

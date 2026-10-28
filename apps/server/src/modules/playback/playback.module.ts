@@ -50,12 +50,12 @@ import { PlaybackAuditService } from './playback-audit.service';
 import { PlaybackRetentionService } from './playback-retention.service';
 import { PlaybackController } from './playback.controller';
 import { PlaybackStreamController } from './playback-stream.controller';
-import { PersonalModule } from '../personal/personal.module';
+import { PersonalDataModule } from '../../contexts/personal-data/personal-data.module';
 import {
   ProgressClockService,
   registerPersonalPlaybackFactsPort,
-} from '../personal/progress-clock.service';
-import { ProgressWriteService } from '../personal/progress-write.service';
+} from '../../contexts/personal-data/application/progress-clock.service';
+import { ProgressWriteService } from '../../contexts/personal-data/application/progress-write.service';
 import type { PlaybackFinalProgressPort } from './playback-lifecycle.service';
 import { CommonModule } from '../../common/common.module';
 import {
@@ -725,7 +725,7 @@ class PlaybackBootstrapper implements OnModuleInit {
 /* ------------------------------------------------------------------ */
 
 @Module({
-  imports: [CommonModule, PersonalModule],
+  imports: [CommonModule, PersonalDataModule],
   controllers: [PlaybackController, PlaybackStreamController],
   providers: [
     // T011 仓储(类 token + 工厂;预算工厂期读取「当前」已校验 env)

@@ -6,7 +6,7 @@ import { getDb } from '../auth/db';
 import { deviceSession, playbackSession } from '../../database/schema';
 import type { PlaybackAuthorizationService, PlaybackResourceCandidate } from './playback-authorization.service';
 import type { PlaybackRepository } from './playback.repository';
-import type { PlaybackProgressBindPort, PlaybackResumePositionPort } from '../personal/progress-clock.service';
+import type { PlaybackProgressBindPort, PlaybackResumePositionPort } from '../../contexts/personal-data/application/progress-clock.service';
 import type {
   MarkPlayingInput,
   PlaybackDelivery,

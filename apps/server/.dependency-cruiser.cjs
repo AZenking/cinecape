@@ -50,6 +50,8 @@ const FRAMEWORK_PACKAGES =
  *    此时已迁移上下文仍存在指向旧树（src/modules|common 等）的跨上下文边，
  *    这些边按计划在 US2（T022）统一收口，故 US1 仅记录违规数、不阻断。
  *  证据留档：docs/specs/007-backend-ddd-restructure/evidence/boundary-audit.md 汇总趋势。 */
+// Node 全局(process)未声明,与本文件下方 module.exports 同一处理。
+// eslint-disable-next-line no-undef
 const ENFORCE = process.env.AUDIT_ENFORCE !== "0";
 const RULE_SEVERITY = ENFORCE ? "error" : "info";
 
