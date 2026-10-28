@@ -2,8 +2,8 @@ import 'reflect-metadata';
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ProblemCode } from '@hmp/shared';
-import { Database } from '../../src/database/database';
-import type { SessionContext } from '../../src/common/current-session.decorator';
+import { Database } from '@platform/database/database';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { bootstrapMainProfile } from '@contexts/identity-access/application/bootstrap.service';
 import {
   INITIALIZE_BODY,

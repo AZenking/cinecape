@@ -14,15 +14,15 @@ import {
   DomainError,
   type DomainProblemSpec,
   resolveDomainProblem,
-} from '../../../src/common/domain-error';
-import { ProblemJsonFilter } from '../../../src/common/problem-json.filter';
+} from '@platform/http-common/domain-error';
+import { ProblemJsonFilter } from '@platform/http-common/problem-json.filter';
 import {
   redactForLog,
   redactQueryTicket,
   redactSourcePaths,
   summarizeFfmpegStderr,
   summarizeSourcePath,
-} from '../../../src/common/log-redaction.util';
+} from '@platform/http-common/log-redaction.util';
 
 /**
  * T012(004 播放解析):契约稳定错误接入 + 流前/流后错误边界 + 日志脱敏。

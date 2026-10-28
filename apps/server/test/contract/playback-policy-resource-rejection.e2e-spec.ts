@@ -16,8 +16,8 @@ import {
   type PlaybackWorld,
 } from '../fixtures/playback';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { Database } from '../../src/database/database';
-import { mediaItem } from '../../src/database/schema';
+import { Database } from '@platform/database/database';
+import { mediaItem } from '@platform/database/schema';
 import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import { selectMainAndUnlockSettings } from '../helpers-management';
 
@@ -182,7 +182,7 @@ describe('T046 · 策略/资源失效拒绝与登录期间重判(FR-012/US3 场�
     expect(before.status).toBe(201);
 
     // 停用 IPTV 父源(与公开目录可用性同一开关)
-    const { mediaSource } = await import('../../src/database/schema');
+    const { mediaSource } = await import('@platform/database/schema');
     getDb()
       .update(mediaSource)
       .set({ enabled: 0 })
@@ -219,7 +219,7 @@ describe('T046 · 策略/资源失效拒绝与登录期间重判(FR-012/US3 场�
     expect(accepted.status).toBe(201);
 
     // 登录期间目标失效:NAS 来源停用
-    const { mediaSource } = await import('../../src/database/schema');
+    const { mediaSource } = await import('@platform/database/schema');
     getDb()
       .update(mediaSource)
       .set({ enabled: 0 })

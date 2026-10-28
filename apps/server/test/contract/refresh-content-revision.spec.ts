@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { cleanupRigs, startFreshApp, type TestRig } from '../helpers';
 import { seedPersonalWorld, type PersonalWorld } from '../unit/personal/personal-world';
-import { Database } from '../../src/database/database';
+import { Database } from '@platform/database/database';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { sourceEntry } from '../../src/database/schema';
+import { sourceEntry } from '@platform/database/schema';
 import { eq } from 'drizzle-orm';
 import { stageEntries } from '@contexts/sources/infrastructure/refresh-staging.service';
 import { RefreshPublishService } from '@contexts/sources/application/refresh-publish.service';

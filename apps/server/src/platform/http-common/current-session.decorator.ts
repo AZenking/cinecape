@@ -1,7 +1,7 @@
 import { createParamDecorator, type ExecutionContext } from '@nestjs/common';
 import type { Request } from 'express';
 import { ProblemCode as ProblemCodeConst } from '@hmp/shared';
-import { DomainError } from './domain-error';
+import { DomainError } from '@platform/http-common/domain-error';
 
 /**
  * 会话上下文(T012):SessionGuard 校验通过后写入请求,

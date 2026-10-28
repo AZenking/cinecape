@@ -1,7 +1,7 @@
 import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { Observable, tap } from 'rxjs';
-import { redactQueryTicket } from './log-redaction.util';
+import { redactQueryTicket } from '@platform/http-common/log-redaction.util';
 
 /**
  * 访问日志拦截器(T041):只记录 method / url / status / 耗时。

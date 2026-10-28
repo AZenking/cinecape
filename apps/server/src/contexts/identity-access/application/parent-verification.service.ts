@@ -1,8 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { account, parentVerificationState } from '../../../database/schema';
-import { DomainError } from '../../../common/domain-error';
-import type { SessionContext } from '../../../common/current-session.decorator';
+import { account, parentVerificationState } from '@platform/database/schema';
+import { DomainError } from '@platform/http-common/domain-error';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import { verifyPassword } from '@contexts/identity-access/infrastructure/password.service';
 

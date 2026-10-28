@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
-import { Database } from '../../src/database/database';
+import { Database } from '@platform/database/database';
 import {
   INITIALIZE_BODY,
   buildM3u,

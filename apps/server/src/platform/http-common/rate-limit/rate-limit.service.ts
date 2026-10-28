@@ -4,7 +4,7 @@ import {
   RATE_LIMIT_POLICIES,
   RATE_LIMIT_WINDOW_MS,
   type RateLimitPolicyName,
-} from './rate-limit.policies';
+} from '@platform/http-common/rate-limit/rate-limit.policies';
 
 /**
  * 可复用滑动窗口限频器(T009 底座,005 contracts/api.md §1)——

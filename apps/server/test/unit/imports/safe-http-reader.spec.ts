@@ -10,8 +10,8 @@ import {
   type ControlledRouteSpec,
   type ManualClock,
 } from '../../fixtures';
-import { IMPORT_BUDGETS } from '../../../src/config/import-budgets';
-import type { LanTarget } from '../../../src/config/env.schema';
+import { IMPORT_BUDGETS } from '@platform/config/import-budgets';
+import type { LanTarget } from '@platform/config/env.schema';
 import {
   ABORTED,
   BUDGET_EXCEEDED,

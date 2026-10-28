@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { ProblemCode, type ProgrammeDto, type ProgrammesDto } from '@hmp/shared';
-import type { SessionContext } from '../../../common/current-session.decorator';
-import { DomainError } from '../../../common/domain-error';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
+import { DomainError } from '@platform/http-common/domain-error';
 import {
   device,
   deviceSession,
@@ -12,7 +12,7 @@ import {
   mediaSource,
   profile,
   sourceEntry,
-} from '../../../database/schema';
+} from '@platform/database/schema';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { type MediaType } from '@contexts/policy/domain/policy.rules';
 import {

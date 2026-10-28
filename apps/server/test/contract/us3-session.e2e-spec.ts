@@ -24,7 +24,7 @@ import {
 } from '../helpers-management';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { generateToken, hashToken } from '@contexts/identity-access/infrastructure/token.service';
-import { device, deviceSession, household } from '../../src/database/schema';
+import { device, deviceSession, household } from '@platform/database/schema';
 
 /**
  * T032(US3 契约 e2e):会话生命周期 —— 恢复、注销与设备撤销。

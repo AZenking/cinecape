@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ProblemCode as ProblemCodeConst } from '@hmp/shared';
-import { DomainError } from '../domain-error';
+import { DomainError } from '@platform/http-common/domain-error';
 
 /**
  * 严格入参工具(T009,005 contracts/api.md §1「未知 JSON/query 字段一律拒绝,

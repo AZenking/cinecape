@@ -1,9 +1,9 @@
 import { and, eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { deviceSession, profile } from '../../../database/schema';
-import { DomainError, createDomainError } from '../../../common/domain-error';
-import type { SessionContext } from '../../../common/current-session.decorator';
-import { env } from '../../../config/env';
+import { deviceSession, profile } from '@platform/database/schema';
+import { DomainError, createDomainError } from '@platform/http-common/domain-error';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
+import { env } from '@platform/config/env';
 import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import { verifyPassword } from '@contexts/identity-access/infrastructure/password.service';
 import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';

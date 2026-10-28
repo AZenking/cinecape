@@ -22,7 +22,7 @@ import {
   type SeedPlaybackWorldOptions,
 } from '../fixtures/playback';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { playbackSession, playbackTicket } from '../../src/database/schema';
+import { playbackSession, playbackTicket } from '@platform/database/schema';
 
 /**
  * T014(004-playback-resolver · US1,只写测试不实现):播放控制端点契约 e2e。

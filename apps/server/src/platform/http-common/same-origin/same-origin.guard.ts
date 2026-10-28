@@ -1,8 +1,8 @@
 import { Injectable, type CanActivate, type ExecutionContext } from '@nestjs/common';
 import type { Request } from 'express';
 import { ProblemCode as ProblemCodeConst } from '@hmp/shared';
-import { getConfig } from '../../config/env';
-import { DomainError } from '../domain-error';
+import { getConfig } from '@platform/config/env';
+import { DomainError } from '@platform/http-common/domain-error';
 
 /**
  * 同源校验(T009,005 contracts/api.md §1)——

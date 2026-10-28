@@ -2,11 +2,11 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
-import type { PlaybackBudgets } from '../../../config/playback-budgets';
-import { playbackConversion, playbackSession } from '../../../database/schema';
-import { Database } from '../../../database/database';
+import type { PlaybackBudgets } from '@platform/config/playback-budgets';
+import { playbackConversion, playbackSession } from '@platform/database/schema';
+import { Database } from '@platform/database/database';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { DomainError } from '../../../common/domain-error';
+import { DomainError } from '@platform/http-common/domain-error';
 import type { ProgressSampleReply } from '@contexts/personal-data/application/progress-write.service';
 import type { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
 import {

@@ -8,8 +8,8 @@ import {
   type PlaybackSession,
   type PlaybackProgressState,
   type ProfileViewingHistory,
-} from '../../../database/schema';
-import { DomainError, createDomainError } from '../../../common/domain-error';
+} from '@platform/database/schema';
+import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import {
   decodeStoredResult,
   encodeStoredResult,

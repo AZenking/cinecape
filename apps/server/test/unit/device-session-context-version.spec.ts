@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Database } from '../../src/database/database';
-import type { SessionContext } from '../../src/common/current-session.decorator';
+import { Database } from '@platform/database/database';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { bootstrapMainProfile } from '@contexts/identity-access/application/bootstrap.service';
 import { unlockSelectionPin, selectActiveProfile } from '@contexts/profile/application/profile-selection.service';
 import { restoreAccountSession } from '@contexts/identity-access/interface/account-session.dto';

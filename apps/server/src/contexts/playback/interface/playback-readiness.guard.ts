@@ -1,5 +1,5 @@
 import { CanActivate, ServiceUnavailableException, Injectable } from '@nestjs/common';
-import { Database } from '../../../database/database';
+import { Database } from '@platform/database/database';
 
 /**
  * 播放域就绪门禁（T009 口径的业务端延伸）:

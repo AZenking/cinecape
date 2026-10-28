@@ -9,7 +9,7 @@ import {
 import type { Response } from 'express';
 import { ZodError } from 'zod';
 import { ProblemCode as ProblemCodeConst } from '@hmp/shared';
-import { DomainError, resolveDomainProblem, type PcProblemCode } from './domain-error';
+import { DomainError, resolveDomainProblem, type PcProblemCode } from '@platform/http-common/domain-error';
 
 /**
  * RFC 9457 全局异常过滤器(T010):一切错误统一输出 application/problem+json。

@@ -1,5 +1,5 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
-import { Database } from '../../database/database';
+import { Database } from '@platform/database/database';
 
 /**
  * FR-001:健康检查 —— 服务与持久化存储均就绪才返回 200。

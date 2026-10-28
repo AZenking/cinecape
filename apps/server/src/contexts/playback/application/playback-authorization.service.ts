@@ -11,9 +11,9 @@ import {
   profile,
   profilePolicy,
   sourceEntry,
-} from '../../../database/schema';
-import { createDomainError, DomainError } from '../../../common/domain-error';
-import type { SessionContext } from '../../../common/current-session.decorator';
+} from '@platform/database/schema';
+import { createDomainError, DomainError } from '@platform/http-common/domain-error';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { authorizeCurrentProfile, type AuthorizationReason } from '@contexts/policy/application/policy.service';
 import { defaultPolicyValues } from '@contexts/policy/domain/policy.rules';

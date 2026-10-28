@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { loadEnv } from '../../../src/config/env.schema';
+import { loadEnv } from '@platform/config/env.schema';
 import {
   PLAYBACK_BUDGETS,
   createPlaybackBudgets,
   ticketTtlMs,
-} from '../../../src/config/playback-budgets';
+} from '@platform/config/playback-budgets';
 
 /**
  * 播放解析技术预算(T010,spec 004)。

@@ -4,7 +4,7 @@ import request from 'supertest';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { ProblemCode } from '@hmp/shared';
 import type { INestApplication } from '@nestjs/common';
-import { Database } from '../../src/database/database';
+import { Database } from '@platform/database/database';
 import { XMLTV_ERROR } from '@contexts/sources/infrastructure/xmltv.parser';
 import {
   INITIALIZE_BODY,

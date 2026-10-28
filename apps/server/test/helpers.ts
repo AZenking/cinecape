@@ -9,9 +9,9 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { SESSION_COOKIE } from '@hmp/shared';
 import { AppModule } from '../src/app.module';
-import { Database } from '../src/database/database';
-import { loadEnv } from '../src/config/env.schema';
-import { setEnvOverride } from '../src/config/env';
+import { Database } from '@platform/database/database';
+import { loadEnv } from '@platform/config/env.schema';
+import { setEnvOverride } from '@platform/config/env';
 
 /**
  * 契约 e2e 公共夹具(自 us1-setup-login.e2e-spec.ts 抽取,US1/US3 共用):
@@ -45,7 +45,7 @@ export interface StartAppOptions {
 }
 
 function migrationsDir(): string {
-  return path.join(process.cwd(), 'src/database/migrations');
+  return path.join(process.cwd(), 'src/platform/database/migrations');
 }
 
 /** 迁移目录下按字典序排列的全部迁移名(与 database.ts isReady 的期望清单同源) */

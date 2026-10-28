@@ -17,19 +17,19 @@ import {
   type PlaybackRevalidatePort,
 } from '../../../src/contexts/playback/infrastructure/playback-lifecycle.service';
 import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
-import { createPlaybackBudgets } from '../../../src/config/playback-budgets';
-import { getConfig } from '../../../src/config/env';
+import { createPlaybackBudgets } from '@platform/config/playback-budgets';
+import { getConfig } from '@platform/config/env';
 import { switchDeviceSessionProfile } from '@contexts/profile/application/identity-transition';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { Database } from '../../../src/database/database';
+import { Database } from '@platform/database/database';
 import {
   mediaItem,
   playbackProgressState,
   playbackSession,
   deviceSession,
-} from '../../../src/database/schema';
+} from '@platform/database/schema';
 import { and, eq } from 'drizzle-orm';
-import { DomainError } from '../../../src/common/domain-error';
+import { DomainError } from '@platform/http-common/domain-error';
 import { createManualClock } from '../../fixtures/clock';
 
 /**

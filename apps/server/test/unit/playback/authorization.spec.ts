@@ -11,9 +11,9 @@ import {
   type PlaybackSourceRef,
   type PlaybackWorld,
 } from '../../fixtures/playback';
-import { Database } from '../../../src/database/database';
-import { getConfig } from '../../../src/config/env';
-import { createPlaybackBudgets } from '../../../src/config/playback-budgets';
+import { Database } from '@platform/database/database';
+import { getConfig } from '@platform/config/env';
+import { createPlaybackBudgets } from '@platform/config/playback-budgets';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import {
@@ -26,9 +26,9 @@ import {
   profile,
   profilePolicy,
   sourceEntry,
-} from '../../../src/database/schema';
-import { DomainError } from '../../../src/common/domain-error';
-import type { SessionContext } from '../../../src/common/current-session.decorator';
+} from '@platform/database/schema';
+import { DomainError } from '@platform/http-common/domain-error';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
 import {
   PlaybackAuthorizationService,

@@ -8,9 +8,9 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
 import { SettingsModule } from '../src/contexts/settings/settings.module';
-import { Database } from '../src/database/database';
-import { loadEnv } from '../src/config/env.schema';
-import { setEnvOverride } from '../src/config/env';
+import { Database } from '@platform/database/database';
+import { loadEnv } from '@platform/config/env.schema';
+import { setEnvOverride } from '@platform/config/env';
 
 /**
  * US7 设置模块专用测试夹具(T073~T076;apps/server/test/helpers.ts 的同构变体)。
@@ -34,7 +34,7 @@ export interface SettingsTestRig {
 const rigs: SettingsTestRig[] = [];
 
 function migrationsDir(): string {
-  return path.join(process.cwd(), 'src/database/migrations');
+  return path.join(process.cwd(), 'src/platform/database/migrations');
 }
 
 function allMigrationNames(): string[] {

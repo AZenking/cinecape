@@ -1,5 +1,5 @@
 import { SetMetadata } from '@nestjs/common';
-import type { RateLimitPolicyName } from './rate-limit.policies';
+import type { RateLimitPolicyName } from '@platform/http-common/rate-limit/rate-limit.policies';
 
 /**
  * 限频策略标注(T009 底座)—— 与 RateLimitGuard 配对,本任务不挂任何路由:

@@ -2,9 +2,9 @@ import 'reflect-metadata';
 import { Module } from '@nestjs/common';
 import { PARAMTYPES_METADATA } from '@nestjs/common/constants.js';
 import { Reflector } from '@nestjs/core';
-import { CommonModule } from '../../common/common.module';
-import { RateLimitGuard } from '../../common/rate-limit/rate-limit.guard';
-import { RateLimitService } from '../../common/rate-limit/rate-limit.service';
+import { HttpCommonModule } from '@platform/http-common/http-common.module';
+import { RateLimitGuard } from '@platform/http-common/rate-limit/rate-limit.guard';
+import { RateLimitService } from '@platform/http-common/rate-limit/rate-limit.service';
 import { PublicCatalogService } from '@contexts/media-catalog/application/public-catalog.service';
 import { CatalogController } from '@contexts/media-catalog/interface/catalog.controller';
 import { PublicCatalogController } from '@contexts/media-catalog/interface/public-catalog.controller';
@@ -40,7 +40,7 @@ Reflect.defineMetadata(PARAMTYPES_METADATA, [RateLimitService, Reflector], RateL
  *   imports: [..., PublicCatalogModule]
  */
 @Module({
-  imports: [CommonModule],
+  imports: [HttpCommonModule],
   controllers: [CatalogController, PublicCatalogController],
   providers: [PublicCatalogService],
 })

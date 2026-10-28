@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Database } from '../../src/database/database';
+import { Database } from '@platform/database/database';
 import {
   INITIALIZE_BODY,
   login,

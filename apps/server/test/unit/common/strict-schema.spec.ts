@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { ProblemCode as ProblemCodeConst } from '@hmp/shared';
-import { DomainError } from '../../../src/common/domain-error';
-import { parseStrict, strictObject } from '../../../src/common/strict-input/strict-schema';
-import { StrictBodyPipe, StrictQueryPipe } from '../../../src/common/strict-input/strict-pipes';
+import { DomainError } from '@platform/http-common/domain-error';
+import { parseStrict, strictObject } from '@platform/http-common/strict-input/strict-schema';
+import { StrictBodyPipe, StrictQueryPipe } from '@platform/http-common/strict-input/strict-pipes';
 
 /**
  * T009(005 contracts/api.md §1「未知 JSON/query 字段一律拒绝,不能通过

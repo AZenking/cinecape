@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Request } from 'express';
 import { ProblemCode as ProblemCodeConst } from '@hmp/shared';
-import { assertSameOrigin, SameOriginGuard } from '../../../src/common/same-origin/same-origin.guard';
-import { DomainError } from '../../../src/common/domain-error';
-import { loadEnv } from '../../../src/config/env.schema';
-import { setEnvOverride } from '../../../src/config/env';
+import { assertSameOrigin, SameOriginGuard } from '@platform/http-common/same-origin/same-origin.guard';
+import { DomainError } from '@platform/http-common/domain-error';
+import { loadEnv } from '@platform/config/env.schema';
+import { setEnvOverride } from '@platform/config/env';
 
 /**
  * T009 同源校验(005 contracts/api.md §1)——

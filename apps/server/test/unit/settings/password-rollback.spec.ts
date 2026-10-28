@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import { Database } from '../../../src/database/database';
+import { Database } from '@platform/database/database';
 import {
   INITIALIZE_BODY,
   cleanupRigs,
@@ -9,8 +9,8 @@ import {
   login,
   startFreshApp,
 } from '../../helpers';
-import { validateSessionToken } from '../../../src/common/session.guard';
-import type { SessionContext } from '../../../src/common/current-session.decorator';
+import { validateSessionToken } from '@platform/http-common/session.guard';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { verifyAndIssueSettingsAccess } from '../../../src/contexts/settings/application/settings-pin-verification.service';
 import { changeAccountPassword } from '../../../src/contexts/settings/application/settings-account.service';
 import { revokeDevice, queryDevicePlaybackRecords } from '../../../src/contexts/settings/application/settings-devices.service';

@@ -3,10 +3,10 @@ import type { ExecutionContext } from '@nestjs/common';
 import type { Reflector } from '@nestjs/core';
 import type { Request, Response } from 'express';
 import { ProblemCode as ProblemCodeConst } from '@hmp/shared';
-import { RateLimitGuard } from '../../../src/common/rate-limit/rate-limit.guard';
-import { RateLimitService } from '../../../src/common/rate-limit/rate-limit.service';
-import { DomainError } from '../../../src/common/domain-error';
-import type { SessionContext } from '../../../src/common/current-session.decorator';
+import { RateLimitGuard } from '@platform/http-common/rate-limit/rate-limit.guard';
+import { RateLimitService } from '@platform/http-common/rate-limit/rate-limit.service';
+import { DomainError } from '@platform/http-common/domain-error';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 
 /**
  * T009 限频守卫(T009 底座,不挂路由)——

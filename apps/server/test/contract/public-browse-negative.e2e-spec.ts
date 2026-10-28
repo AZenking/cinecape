@@ -3,7 +3,7 @@ import http from 'node:http';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
-import { Database } from '../../src/database/database';
+import { Database } from '@platform/database/database';
 import { cleanupPublicCatalogRigs, seedInitializedHousehold, startPublicCatalogApp } from './public-catalog.helpers';
 import { expectProblemContentType } from '../helpers';
 

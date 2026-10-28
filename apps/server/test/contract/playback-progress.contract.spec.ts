@@ -11,7 +11,7 @@ import {
 } from '../unit/personal/personal-world';
 import { registerPersonalPlaybackFactsPort } from '@contexts/personal-data/application/progress-clock.service';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { mediaItem, playbackProgressState, playbackSession } from '../../src/database/schema';
+import { mediaItem, playbackProgressState, playbackSession } from '@platform/database/schema';
 import { eq } from 'drizzle-orm';
 
 /**

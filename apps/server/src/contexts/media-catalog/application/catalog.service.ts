@@ -1,6 +1,6 @@
 import { ProblemCode, type MediaDto, type MediaPageDto } from '@hmp/shared';
-import type { SessionContext } from '../../../common/current-session.decorator';
-import { DomainError } from '../../../common/domain-error';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
+import { DomainError } from '@platform/http-common/domain-error';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import type { CatalogCandidateRow } from '@contexts/policy/application/policy.batch-context';
 import { loadBatchCatalogContext } from '@contexts/policy/application/policy.batch-context';

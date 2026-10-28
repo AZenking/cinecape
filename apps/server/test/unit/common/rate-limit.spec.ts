@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { RateLimitService } from '../../../src/common/rate-limit/rate-limit.service';
-import { RATE_LIMIT_POLICIES, RATE_LIMIT_WINDOW_MS } from '../../../src/common/rate-limit/rate-limit.policies';
-import { clientIpOf } from '../../../src/common/rate-limit/client-ip.util';
-import { loadEnv, type Env } from '../../../src/config/env.schema';
-import { setEnvOverride } from '../../../src/config/env';
+import { RateLimitService } from '@platform/http-common/rate-limit/rate-limit.service';
+import { RATE_LIMIT_POLICIES, RATE_LIMIT_WINDOW_MS } from '@platform/http-common/rate-limit/rate-limit.policies';
+import { clientIpOf } from '@platform/http-common/rate-limit/client-ip.util';
+import { loadEnv, type Env } from '@platform/config/env.schema';
+import { setEnvOverride } from '@platform/config/env';
 import type { Request } from 'express';
 
 /**

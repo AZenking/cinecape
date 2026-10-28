@@ -1,6 +1,6 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
-import { CurrentSession, type SessionContext } from '../../../common/current-session.decorator';
-import { SessionGuard } from '../../../common/session.guard';
+import { CurrentSession, type SessionContext } from '@platform/http-common/current-session.decorator';
+import { SessionGuard } from '@platform/http-common/session.guard';
 import { getHousehold, toHouseholdDto, type HouseholdDtoBody } from '@contexts/identity-access/application/household.service';
 
 /**

@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ProblemCode, type PublicContextDto, type PublicMediaDto, type PublicMediaPageDto } from '@hmp/shared';
-import { Database } from '../../../database/database';
-import { PublicContextService } from '../../../common/public-context/public-context.service';
-import { DomainError } from '../../../common/domain-error';
+import { Database } from '@platform/database/database';
+import { PublicContextService } from '@platform/http-common/public-context/public-context.service';
+import { DomainError } from '@platform/http-common/domain-error';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { loadAvailableMediaIdSet } from '@contexts/policy/application/policy.batch-context';
 import { toPublicMedia, type PublicMediaRow } from '@contexts/media-catalog/domain/public-media-projection';

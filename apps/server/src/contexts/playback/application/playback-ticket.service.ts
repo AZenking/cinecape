@@ -1,10 +1,10 @@
 import { eq } from 'drizzle-orm';
-import { createDomainError, type DomainError } from '../../../common/domain-error';
-import type { PlaybackBudgets } from '../../../config/playback-budgets';
-import type { SessionContext } from '../../../common/current-session.decorator';
+import { createDomainError, type DomainError } from '@platform/http-common/domain-error';
+import type { PlaybackBudgets } from '@platform/config/playback-budgets';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { generateToken, hashToken } from '@contexts/identity-access/infrastructure/token.service';
-import { deviceSession, playbackSession, playbackTicket } from '../../../database/schema';
+import { deviceSession, playbackSession, playbackTicket } from '@platform/database/schema';
 import { isPlaybackTerminalSessionState } from '@contexts/playback/domain/playback.types';
 import type { PlaybackAuthorizationService } from '@contexts/playback/application/playback-authorization.service';
 import type { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';

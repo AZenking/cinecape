@@ -10,9 +10,9 @@ import { Test } from '@nestjs/testing';
 import type { ChannelPageDto, GroupPageDto, ExperienceProgrammesDto } from '@hmp/shared';
 import { AppModule } from '../../src/app.module';
 import { LiveTvModule } from '@contexts/live-tv/live-tv.module';
-import { Database } from '../../src/database/database';
-import { setEnvOverride } from '../../src/config/env';
-import { loadEnv } from '../../src/config/env.schema';
+import { Database } from '@platform/database/database';
+import { setEnvOverride } from '@platform/config/env';
+import { loadEnv } from '@platform/config/env.schema';
 import { seedScaleFixture, scaleChannelMediaId, scheduleSlotUtcMs, SCALE_FIXTURE_FIXED_NOW_MS, SCALE_FIXTURE_TIMEZONE } from '../fixtures/scale-fixture';
 import { cleanupRigs, expectProblemContentType } from '../helpers';
 
@@ -50,7 +50,7 @@ beforeAll(async () => {
   setEnvOverride(loadEnv({ NODE_ENV: 'test', DATA_DIR: dataDir, DB_FILENAME: `${randomUUID()}.hmp.db` }));
   Database.close();
   Database.db.exec('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY NOT NULL, applied_at TEXT NOT NULL)');
-  const migrationsDir = path.join(process.cwd(), 'src/database/migrations');
+  const migrationsDir = path.join(process.cwd(), 'src/platform/database/migrations');
   const names = fs
     .readdirSync(migrationsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())

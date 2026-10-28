@@ -8,10 +8,10 @@ import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ArgumentsHost, INestApplication } from '@nestjs/common';
 import { ProblemCode, SESSION_COOKIE } from '@hmp/shared';
-import { createDomainError } from '../../src/common/domain-error';
-import { ProblemJsonFilter } from '../../src/common/problem-json.filter';
+import { createDomainError } from '@platform/http-common/domain-error';
+import { ProblemJsonFilter } from '@platform/http-common/problem-json.filter';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { Database } from '../../src/database/database';
+import { Database } from '@platform/database/database';
 import {
   deviceSession,
   mediaItem,
@@ -20,7 +20,7 @@ import {
   playbackSource,
   playbackTicket,
   profile,
-} from '../../src/database/schema';
+} from '@platform/database/schema';
 import {
   cleanupRigs,
   cookiePairOf,

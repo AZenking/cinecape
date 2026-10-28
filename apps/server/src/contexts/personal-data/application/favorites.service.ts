@@ -1,11 +1,11 @@
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
-import { DomainError, createDomainError } from '../../../common/domain-error';
+import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import {
   mediaItem,
   profileChannelFavorite,
   type ProfileChannelFavorite,
-} from '../../../database/schema';
+} from '@platform/database/schema';
 import { loadAvailableMediaIdSet } from '@contexts/policy/application/policy.batch-context';
 import { loadLiveChannelWindows, type LiveChannelProjection } from '@contexts/live-tv/application/live-projection.service';
 import { toPublicMedia } from '@contexts/media-catalog/domain/public-media-projection';

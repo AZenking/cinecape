@@ -14,7 +14,7 @@ import {
   startFreshApp,
   type TestRig,
 } from '../helpers';
-import { Database } from '../../src/database/database';
+import { Database } from '@platform/database/database';
 import { selectMainAndUnlockSettings } from '../helpers-management';
 import {
   seedPlaybackSession,
@@ -24,7 +24,7 @@ import {
   type SeedPlaybackWorldOptions,
 } from '../fixtures/playback';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { account, deviceSession, playbackFailureEvent, playbackSession, playbackSource } from '../../src/database/schema';
+import { account, deviceSession, playbackFailureEvent, playbackSession, playbackSource } from '@platform/database/schema';
 
 /**
  * T042(004-playback-resolver · US2b,只写测试不实现):播放会话记录与失败可见性契约 e2e。

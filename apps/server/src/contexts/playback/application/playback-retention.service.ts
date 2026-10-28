@@ -1,7 +1,7 @@
 import { inArray, lt, lte } from 'drizzle-orm';
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
-import type { PlaybackBudgets } from '../../../config/playback-budgets';
-import { playbackFailureEvent, playbackSession, playbackTicket } from '../../../database/schema';
+import type { PlaybackBudgets } from '@platform/config/playback-budgets';
+import { playbackFailureEvent, playbackSession, playbackTicket } from '@platform/database/schema';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { PLAYBACK_ACTIVE_SESSION_STATES } from '@contexts/playback/domain/playback.types';
 

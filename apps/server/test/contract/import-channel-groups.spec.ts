@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
-import { Database } from '../../src/database/database';
+import { Database } from '@platform/database/database';
 import type { GroupPageDto, ChannelPageDto } from '@hmp/shared';
 import {
   INITIALIZE_BODY,
@@ -19,8 +19,8 @@ import { selectMainAndUnlockSettings } from '../helpers-management';
 import { groupKeyOf } from '@contexts/live-tv/domain/live-grouping';
 import { AppModule } from '../../src/app.module';
 import { LiveTvModule } from '@contexts/live-tv/live-tv.module';
-import { setEnvOverride } from '../../src/config/env';
-import { loadEnv } from '../../src/config/env.schema';
+import { setEnvOverride } from '@platform/config/env';
+import { loadEnv } from '@platform/config/env.schema';
 import { Test } from '@nestjs/testing';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -70,7 +70,7 @@ async function bootstrap(): Promise<Rig> {
   setEnvOverride(loadEnv({ NODE_ENV: 'test', DATA_DIR: dataDir, DB_FILENAME: dbFilename, LAN_ALLOWED_TARGETS: '127.0.0.1' }));
   Database.close();
   Database.db.exec('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY NOT NULL, applied_at TEXT NOT NULL)');
-  const migrationsDir = path.join(process.cwd(), 'src/database/migrations');
+  const migrationsDir = path.join(process.cwd(), 'src/platform/database/migrations');
   for (const name of fs.readdirSync(migrationsDir).sort()) {
     Database.db.exec(fs.readFileSync(path.join(migrationsDir, name, 'up.sql'), 'utf8'));
     Database.db.prepare('INSERT INTO _migrations (name, applied_at) VALUES (?, ?)').run(name, new Date().toISOString());

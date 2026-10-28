@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Database } from '../../src/database/database';
+import { Database } from '@platform/database/database';
 import {
   login,
   cleanupRigs, cookiePairOf, initialize, startFreshApp, INITIALIZE_BODY} from '../helpers';

@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { CommonModule } from '../../common/common.module';
+import { HttpCommonModule } from '@platform/http-common/http-common.module';
 import { AuthController } from '@contexts/identity-access/interface/auth.controller';
 import { SetupController } from '@contexts/identity-access/interface/setup.controller';
 import { BootstrapController } from '@contexts/identity-access/interface/bootstrap.controller';
@@ -23,7 +23,7 @@ import { HouseholdController } from '@contexts/identity-access/interface/househo
  * (contexts/identity-access 装配;HouseholdController 路由前缀语义原样保留)。
  */
 @Module({
-  imports: [CommonModule],
+  imports: [HttpCommonModule],
   controllers: [AuthController, SetupController, BootstrapController, HouseholdController],
 })
 export class IdentityAccessModule {}

@@ -2,15 +2,15 @@ import { describe, expect, it } from 'vitest';
 import type { ExecutionContext } from '@nestjs/common';
 import type { Request } from 'express';
 import { ProblemCode as ProblemCodeConst } from '@hmp/shared';
-import { CurrentProfileGuard } from '../../../src/common/profile-context/current-profile.guard';
+import { CurrentProfileGuard } from '@platform/http-common/profile-context/current-profile.guard';
 import {
   attachProfileContext,
   CurrentProfile,
   resolveProfileContext,
   type ProfileContext,
-} from '../../../src/common/profile-context/current-profile.decorator';
-import { DomainError } from '../../../src/common/domain-error';
-import type { SessionContext } from '../../../src/common/current-session.decorator';
+} from '@platform/http-common/profile-context/current-profile.decorator';
+import { DomainError } from '@platform/http-common/domain-error';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 
 /**
  * T009 CurrentProfileGuard(Profile 边界,Session 之后)—— 无 DB 负向路径:

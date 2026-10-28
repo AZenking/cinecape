@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ProblemCode } from '@hmp/shared';
-import { DomainError, createDomainError } from '../../../common/domain-error';
-import { getConfig } from '../../../config/env';
-import { IMPORT_BUDGETS } from '../../../config/import-budgets';
-import { Database } from '../../../database/database';
+import { DomainError, createDomainError } from '@platform/http-common/domain-error';
+import { getConfig } from '@platform/config/env';
+import { IMPORT_BUDGETS } from '@platform/config/import-budgets';
+import { Database } from '@platform/database/database';
 import {
   CatalogDiffFailure,
   canonicalJson,

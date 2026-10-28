@@ -5,9 +5,9 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import DatabaseConstructor from 'better-sqlite3';
-import { Database } from '../../src/database/database';
-import { setEnvOverride } from '../../src/config/env';
-import { loadEnv } from '../../src/config/env.schema';
+import { Database } from '@platform/database/database';
+import { setEnvOverride } from '@platform/config/env';
+import { loadEnv } from '@platform/config/env.schema';
 
 /**
  * T067(阶段 3 US5 契约 e2e):0004_manual_epg_binding 迁移升级/回滚矩阵,对照
@@ -39,7 +39,7 @@ const rigs: MigrationRig[] = [];
 const MIGRATION_NAME = '0004_manual_epg_binding';
 
 function migrationsDir(): string {
-  return path.join(process.cwd(), 'src/database/migrations');
+  return path.join(process.cwd(), 'src/platform/database/migrations');
 }
 
 function migrationSql(name: string, file: 'up.sql' | 'down.sql'): string {
@@ -557,7 +557,7 @@ describe('0004_manual_epg_binding 迁移升级/回滚(US5 契约 e2e)', () => {
     const tsxCli = path.join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
 
     // CLI 层面演练:up → down → up(终态须全部已应用、表/列齐备),与 pnpm migration:drill 同命令
-    const stdout = execFileSync(process.execPath, [tsxCli, 'src/database/migrate.ts', 'drill'], {
+    const stdout = execFileSync(process.execPath, [tsxCli, 'src/platform/database/migrate.ts', 'drill'], {
       cwd: process.cwd(),
       env: { ...process.env, NODE_ENV: 'test', DATA_DIR: drillDir, DB_FILENAME: drillDb },
       encoding: 'utf8',

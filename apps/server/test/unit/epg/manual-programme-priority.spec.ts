@@ -3,10 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Database } from '../../../src/database/database';
-import { setEnvOverride } from '../../../src/config/env';
-import { loadEnv } from '../../../src/config/env.schema';
-import type { SessionContext } from '../../../src/common/current-session.decorator';
+import { Database } from '@platform/database/database';
+import { setEnvOverride } from '@platform/config/env';
+import { loadEnv } from '@platform/config/env.schema';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { getMediaProgrammes } from '@contexts/epg/application/epg.service';
 import { saveBinding, unbindBinding } from '@contexts/epg/application/manual-epg-binding.service';
 
@@ -28,7 +28,7 @@ interface DbRig {
 const rigs: DbRig[] = [];
 
 function migrationsDir(): string {
-  return path.join(process.cwd(), 'src/database/migrations');
+  return path.join(process.cwd(), 'src/platform/database/migrations');
 }
 
 function migrationSql(name: string): string {

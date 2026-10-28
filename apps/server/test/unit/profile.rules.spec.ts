@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import DatabaseConstructor from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { ProblemCode } from '@hmp/shared';
-import { DomainError } from '../../src/common/domain-error';
+import { DomainError } from '@platform/http-common/domain-error';
 import {
   PIN_STATE_CLEARED,
   UNLOCK_GRANT_TTL_MS,
@@ -30,7 +30,7 @@ import {
  */
 
 function migrationUpSql(): string {
-  return fs.readFileSync(path.join(process.cwd(), 'src/database/migrations/0001_init/up.sql'), 'utf8');
+  return fs.readFileSync(path.join(process.cwd(), 'src/platform/database/migrations/0001_init/up.sql'), 'utf8');
 }
 
 describe('swapDefault —— FR-013 默认唯一互换(纯函数)', () => {

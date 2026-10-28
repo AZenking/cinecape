@@ -3,9 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import type DatabaseConstructor from 'better-sqlite3';
-import { Database } from '../../src/database/database';
-import { loadEnv } from '../../src/config/env.schema';
-import { setEnvOverride } from '../../src/config/env';
+import { Database } from '@platform/database/database';
+import { loadEnv } from '@platform/config/env.schema';
+import { setEnvOverride } from '@platform/config/env';
 import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
 import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import { createManualClock, type ManualClock } from './clock';
@@ -244,7 +244,7 @@ function hasColumn(conn: Conn, table: string, column: string): boolean {
 }
 
 function migrationsDir(): string {
-  return path.join(process.cwd(), 'src/database/migrations');
+  return path.join(process.cwd(), 'src/platform/database/migrations');
 }
 
 /** 应用全部权威迁移 up.sql(与 test/helpers.ts 同语义;独立实现避免 helpers↔fixtures 循环引用) */

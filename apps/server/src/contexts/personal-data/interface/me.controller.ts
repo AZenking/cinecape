@@ -1,12 +1,12 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Put, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { CurrentProfile, type ProfileContext } from '../../../common/profile-context/current-profile.decorator';
-import { SessionGuard } from '../../../common/session.guard';
-import { CurrentProfileGuard } from '../../../common/profile-context/current-profile.guard';
-import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
-import { StrictBodyPipe, StrictQueryPipe } from '../../../common/strict-input/strict-pipes';
-import { strictObject } from '../../../common/strict-input/strict-schema';
+import { CurrentProfile, type ProfileContext } from '@platform/http-common/profile-context/current-profile.decorator';
+import { SessionGuard } from '@platform/http-common/session.guard';
+import { CurrentProfileGuard } from '@platform/http-common/profile-context/current-profile.guard';
+import { SameOriginGuard } from '@platform/http-common/same-origin/same-origin.guard';
+import { StrictBodyPipe, StrictQueryPipe } from '@platform/http-common/strict-input/strict-pipes';
+import { strictObject } from '@platform/http-common/strict-input/strict-schema';
 import {
   addFavoriteChannel,
   listFavoriteChannels,

@@ -1,10 +1,10 @@
 import { Body, Controller, Get, Inject, Param, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import type { PublicContextDto, PublicMediaDto, PublicMediaPageDto } from '@hmp/shared';
-import { RateLimitGuard } from '../../../common/rate-limit/rate-limit.guard';
-import { RateLimit } from '../../../common/rate-limit/rate-limit.decorator';
-import { StrictBodyPipe, StrictQueryPipe } from '../../../common/strict-input/strict-pipes';
-import { strictObject } from '../../../common/strict-input/strict-schema';
+import { RateLimitGuard } from '@platform/http-common/rate-limit/rate-limit.guard';
+import { RateLimit } from '@platform/http-common/rate-limit/rate-limit.decorator';
+import { StrictBodyPipe, StrictQueryPipe } from '@platform/http-common/strict-input/strict-pipes';
+import { strictObject } from '@platform/http-common/strict-input/strict-schema';
 import { PublicCatalogService, type PublicMediaListQuery } from '@contexts/media-catalog/application/public-catalog.service';
 
 /**

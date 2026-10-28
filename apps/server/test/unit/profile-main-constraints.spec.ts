@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Database } from '../../src/database/database';
-import type { SessionContext } from '../../src/common/current-session.decorator';
+import { Database } from '@platform/database/database';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { bootstrapMainProfile, recoverMainProfilePin } from '@contexts/identity-access/application/bootstrap.service';
 import {
   INITIALIZE_BODY,

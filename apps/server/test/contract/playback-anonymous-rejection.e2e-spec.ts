@@ -18,7 +18,7 @@ import {
   type PlaybackWorld,
 } from '../fixtures/playback';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { deviceSession } from '../../src/database/schema';
+import { deviceSession } from '@platform/database/schema';
 
 /**
  * T044(005 US3 契约负向测试,先 FAIL):匿名与失效会话直接播放全链拒绝。

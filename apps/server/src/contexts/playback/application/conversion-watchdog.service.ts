@@ -1,4 +1,4 @@
-import type { PlaybackBudgets } from '../../../config/playback-budgets';
+import type { PlaybackBudgets } from '@platform/config/playback-budgets';
 import type { PlaybackErrorCode } from '@contexts/playback/domain/playback.types';
 
 /**

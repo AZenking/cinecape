@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import type { Device, NewDevice } from '../../../database/schema';
-import { device, deviceSession } from '../../../database/schema';
-import { DomainError } from '../../../common/domain-error';
+import type { Device, NewDevice } from '@platform/database/schema';
+import { device, deviceSession } from '@platform/database/schema';
+import { DomainError } from '@platform/http-common/domain-error';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
 

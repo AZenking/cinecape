@@ -1,10 +1,10 @@
 import { Body, Controller, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
-import { CurrentSession, type SessionContext } from '../../../common/current-session.decorator';
-import { SessionGuard } from '../../../common/session.guard';
-import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
-import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
-import { strictObject } from '../../../common/strict-input/strict-schema';
+import { CurrentSession, type SessionContext } from '@platform/http-common/current-session.decorator';
+import { SessionGuard } from '@platform/http-common/session.guard';
+import { SameOriginGuard } from '@platform/http-common/same-origin/same-origin.guard';
+import { StrictBodyPipe } from '@platform/http-common/strict-input/strict-pipes';
+import { strictObject } from '@platform/http-common/strict-input/strict-schema';
 import { listSelectableProfiles, selectActiveProfile, unlockSelectionPin } from '@contexts/profile/application/profile-selection.service';
 import type { AccountSessionBody, ProfileSummaryBody } from '@contexts/identity-access/interface/account-session.dto';
 

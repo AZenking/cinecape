@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { CommonModule } from '../../common/common.module';
+import { HttpCommonModule } from '@platform/http-common/http-common.module';
 import { PublicGuideController } from '@contexts/epg/interface/public-guide.controller';
 
 /**
@@ -18,7 +18,7 @@ import { PublicGuideController } from '@contexts/epg/interface/public-guide.cont
 @Module({
   // CommonModule 提供 RateLimitGuard 的 RateLimitService(与 AuthModule 同一惯例;
   // US4 执行者越界最小修复:US6 T115 挂载守卫后全应用 boot 失败,详见最终报告)
-  imports: [CommonModule],
+  imports: [HttpCommonModule],
   controllers: [PublicGuideController],
 })
 export class EpgModule {}

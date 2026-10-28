@@ -3,11 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Database } from '../../../src/database/database';
-import { setEnvOverride } from '../../../src/config/env';
-import { loadEnv } from '../../../src/config/env.schema';
-import { IMPORT_BUDGETS } from '../../../src/config/import-budgets';
-import { DomainError } from '../../../src/common/domain-error';
+import { Database } from '@platform/database/database';
+import { setEnvOverride } from '@platform/config/env';
+import { loadEnv } from '@platform/config/env.schema';
+import { IMPORT_BUDGETS } from '@platform/config/import-budgets';
+import { DomainError } from '@platform/http-common/domain-error';
 import {
   RefreshExecutorService,
   type RefreshJobView,
@@ -43,7 +43,7 @@ const rigs: DbRig[] = [];
 const expiredFixtures: NasRootFixture[] = [];
 
 function migrationsDir(): string {
-  return path.join(process.cwd(), 'src/database/migrations');
+  return path.join(process.cwd(), 'src/platform/database/migrations');
 }
 
 function migrationSql(name: string): string {

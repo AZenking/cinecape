@@ -1,5 +1,5 @@
 import type { Request } from 'express';
-import { getConfig } from '../../config/env';
+import { getConfig } from '@platform/config/env';
 
 /**
  * 限频客户端标识(T009,005 contracts/api.md §1「公共读取每连接 IP」「代理信任

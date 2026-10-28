@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ProblemCode } from '@hmp/shared';
-import { Database } from '../../src/database/database';
+import { Database } from '@platform/database/database';
 import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
 import {
   PARENT_VERIFICATION_MAX_ATTEMPTS,
@@ -10,7 +10,7 @@ import {
   registerParentFailure,
   verifyParentPassword,
 } from '@contexts/identity-access/application/parent-verification.service';
-import type { SessionContext } from '../../src/common/current-session.decorator';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { cleanupRigs, startFreshApp } from '../helpers';
 
 /**

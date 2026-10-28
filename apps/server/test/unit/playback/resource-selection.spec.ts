@@ -13,10 +13,10 @@ import {
   type PlaybackSourceRef,
   type PlaybackWorld,
 } from '../../fixtures/playback';
-import { Database } from '../../../src/database/database';
-import { setEnvOverride } from '../../../src/config/env';
-import { loadEnv } from '../../../src/config/env.schema';
-import { createPlaybackBudgets, type PlaybackBudgets } from '../../../src/config/playback-budgets';
+import { Database } from '@platform/database/database';
+import { setEnvOverride } from '@platform/config/env';
+import { loadEnv } from '@platform/config/env.schema';
+import { createPlaybackBudgets, type PlaybackBudgets } from '@platform/config/playback-budgets';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import {
   account,
@@ -25,10 +25,10 @@ import {
   playbackSource,
   profilePolicy,
   sourceEntry,
-} from '../../../src/database/schema';
-import { DomainError } from '../../../src/common/domain-error';
+} from '@platform/database/schema';
+import { DomainError } from '@platform/http-common/domain-error';
 import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
-import type { SessionContext } from '../../../src/common/current-session.decorator';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
 import {
   PlaybackAuthorizationService,
@@ -126,7 +126,7 @@ interface ResolverRig {
 const rigs: ResolverRig[] = [];
 
 function migrationSql(name: string): string {
-  const migrationPath = path.join(process.cwd(), 'src/database/migrations', name, 'up.sql');
+  const migrationPath = path.join(process.cwd(), 'src/platform/database/migrations', name, 'up.sql');
   if (!fs.existsSync(migrationPath)) {
     throw new Error(`未找到迁移文件 ${migrationPath} —— 本测试须以 apps/server 为工作目录运行`);
   }

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { PlaybackBudgets } from '../../../config/playback-budgets';
+import type { PlaybackBudgets } from '@platform/config/playback-budgets';
 
 /**
  * 播放解析控制限频器(T031,spec 004)—— 每设备滑动窗口内存限流:

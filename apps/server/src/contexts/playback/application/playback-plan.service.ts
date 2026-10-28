@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { PlaybackBudgets } from '../../../config/playback-budgets';
+import type { PlaybackBudgets } from '@platform/config/playback-budgets';
 import { playbackErr, playbackOk, type PlaybackConversionMode, type PlaybackResult } from '@contexts/playback/domain/playback.types';
 
 /**

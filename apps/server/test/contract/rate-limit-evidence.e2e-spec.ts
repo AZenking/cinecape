@@ -10,7 +10,7 @@ import {
   type PersonalWorld,
 } from '../unit/personal/personal-world';
 import { registerPersonalPlaybackFactsPort } from '@contexts/personal-data/application/progress-clock.service';
-import { sharedRateLimitService } from '../../src/common/rate-limit/rate-limit.service';
+import { sharedRateLimitService } from '@platform/http-common/rate-limit/rate-limit.service';
 
 /**
  * T141(005 · 限频证据归档;SC-006 限频部分 / contracts/api.md §1)。

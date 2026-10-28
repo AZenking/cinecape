@@ -1,11 +1,11 @@
 import { Body, Controller, Delete, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
-import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
-import { SessionGuard } from '../../../common/session.guard';
-import { CurrentSession } from '../../../common/current-session.decorator';
-import type { SessionContext } from '../../../common/current-session.decorator';
-import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
-import { strictObject } from '../../../common/strict-input/strict-schema';
+import { SameOriginGuard } from '@platform/http-common/same-origin/same-origin.guard';
+import { SessionGuard } from '@platform/http-common/session.guard';
+import { CurrentSession } from '@platform/http-common/current-session.decorator';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
+import { StrictBodyPipe } from '@platform/http-common/strict-input/strict-pipes';
+import { strictObject } from '@platform/http-common/strict-input/strict-schema';
 import {
   readSettingsAccessStatus,
   revokeCurrentSessionGrant,

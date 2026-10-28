@@ -1,11 +1,11 @@
 import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
-import { CurrentSession } from '../../../common/current-session.decorator';
-import type { SessionContext } from '../../../common/current-session.decorator';
-import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
-import { SessionGuard } from '../../../common/session.guard';
-import { SettingsAccessGuard } from '../../../common/settings-access/settings-access.guard';
-import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
+import { CurrentSession } from '@platform/http-common/current-session.decorator';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
+import { SameOriginGuard } from '@platform/http-common/same-origin/same-origin.guard';
+import { SessionGuard } from '@platform/http-common/session.guard';
+import { SettingsAccessGuard } from '@platform/http-common/settings-access/settings-access.guard';
+import { StrictBodyPipe } from '@platform/http-common/strict-input/strict-pipes';
 import {
   getPolicy,
   replacePolicyLists,

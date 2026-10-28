@@ -8,8 +8,8 @@ import {
   PC_005_PROBLEM_CODES,
   resolveDomainProblem,
   type DomainProblemSpec,
-} from '../../../src/common/domain-error';
-import { ProblemJsonFilter } from '../../../src/common/problem-json.filter';
+} from '@platform/http-common/domain-error';
+import { ProblemJsonFilter } from '@platform/http-common/problem-json.filter';
 
 /**
  * T009(005 contracts/api.md §7「稳定错误」)—— 新增稳定码登记与渲染:

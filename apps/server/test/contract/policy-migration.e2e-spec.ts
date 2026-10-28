@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Database } from '../../src/database/database';
+import { Database } from '@platform/database/database';
 import { cleanupRigs, startFreshApp } from '../helpers';
 
 /**
@@ -114,7 +114,7 @@ function injectStage1Data(): Stage1Fixture {
 }
 
 function migrationSql(name: string, file: 'up.sql' | 'down.sql'): string {
-  const p = path.join(process.cwd(), 'src/database/migrations', name, file);
+  const p = path.join(process.cwd(), 'src/platform/database/migrations', name, file);
   if (!fs.existsSync(p)) {
     throw new Error(`未找到迁移文件 ${p}`);
   }

@@ -1,9 +1,9 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import type { ProfilePolicy } from '../../../database/schema';
-import { deviceSession, mediaItem, profile, profilePolicy } from '../../../database/schema';
-import { DomainError } from '../../../common/domain-error';
-import type { SessionContext } from '../../../common/current-session.decorator';
+import type { ProfilePolicy } from '@platform/database/schema';
+import { deviceSession, mediaItem, profile, profilePolicy } from '@platform/database/schema';
+import { DomainError } from '@platform/http-common/domain-error';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
 import { requireOwnedProfile } from '@contexts/profile/application/profile.service';

@@ -130,7 +130,7 @@ describe('GET /api/public/context(匿名公共上下文,T014)', () => {
   });
 
   it('多家庭配置损坏:503 稳定码(不伪装单家庭视图、不泄露家庭数据)', async () => {
-    const conn = (await import('../../src/database/database')).Database.db;
+    const conn = (await import('@platform/database/database')).Database.db;
     conn
       .prepare("INSERT INTO household (id, name, created_at) VALUES ('hh-corrupt-second', '多余之家', '2026-01-02T00:00:00.000Z')")
       .run();

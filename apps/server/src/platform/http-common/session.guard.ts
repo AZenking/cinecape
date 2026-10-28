@@ -1,9 +1,9 @@
 import { Injectable, type CanActivate, type ExecutionContext } from '@nestjs/common';
 import type { Request } from 'express';
 import { ProblemCode as ProblemCodeConst, SESSION_COOKIE } from '@hmp/shared';
-import { attachSessionContext, type SessionContext } from './current-session.decorator';
-import { DomainError } from './domain-error';
-import { Database } from '../database/database';
+import { attachSessionContext, type SessionContext } from '@platform/http-common/current-session.decorator';
+import { DomainError } from '@platform/http-common/domain-error';
+import { Database } from '@platform/database/database';
 import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
 
 /**

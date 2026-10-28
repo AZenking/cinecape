@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ProblemCode as ProblemCodeConst } from '@hmp/shared';
-import { Database } from '../../database/database';
-import { DomainError, PC_005_PROBLEM_CODES } from '../domain-error';
+import { Database } from '@platform/database/database';
+import { DomainError, PC_005_PROBLEM_CODES } from '@platform/http-common/domain-error';
 
 /**
  * PublicContext 解析(T009,005 contracts/api.md §1/§2、data-model.md §9)——

@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
-import { IMPORT_BUDGETS } from '../../../src/config/import-budgets';
+import { IMPORT_BUDGETS } from '@platform/config/import-budgets';
 import {
   parseXMLTV,
   XMLTV_ERROR,

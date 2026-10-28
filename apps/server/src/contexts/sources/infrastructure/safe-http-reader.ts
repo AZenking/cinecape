@@ -4,8 +4,8 @@ import https from 'node:https';
 import type { LookupFunction } from 'node:net';
 import { PassThrough } from 'node:stream';
 import type { Readable } from 'node:stream';
-import { IMPORT_BUDGETS } from '../../../config/import-budgets';
-import type { LanTarget } from '../../../config/env.schema';
+import { IMPORT_BUDGETS } from '@platform/config/import-budgets';
+import type { LanTarget } from '@platform/config/env.schema';
 
 /**
  * SSRF 安全的受控远程 HTTP 读取器(T021;research R3 权威语义):

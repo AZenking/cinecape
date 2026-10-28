@@ -22,7 +22,7 @@ import {
   type ProfileChannelFavorite,
   type ProfileViewingHistory,
   type PlaybackProgressState,
-} from '../../../src/database/schema';
+} from '@platform/database/schema';
 import type { TestRig } from '../../helpers';
 
 /**

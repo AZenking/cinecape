@@ -1,6 +1,6 @@
 import type DatabaseConstructor from 'better-sqlite3';
 import { ProblemCode } from '@hmp/shared';
-import { DomainError, createDomainError } from '../../../common/domain-error';
+import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import { incrementCatalogRevision } from '@contexts/epg/infrastructure/catalog-revision.service';
 
 /**
@@ -325,7 +325,7 @@ export function unbindBinding(db: DbHandle, input: UnbindManualBindingInput): Ma
 
 import { and, eq, gt, inArray } from 'drizzle-orm';
 import type { EpgCandidatePageDto, EpgCandidateQueryRequest, ProgrammeDto } from '@hmp/shared';
-import { epgChannel, epgProgramme, mediaSource } from '../../../database/schema';
+import { epgChannel, epgProgramme, mediaSource } from '@platform/database/schema';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 
 interface CandidateRow {

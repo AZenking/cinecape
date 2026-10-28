@@ -1,25 +1,33 @@
 {
-  // knip 配置 — 007-backend-ddd-restructure T002
-  // 入口 = 组合根（main.ts 装配、app.module.ts Nest 装配）。
-  // 注意：src/modules/**、src/common/**、src/config/**、src/database/** 与 test/**
-  // 是「旧结构/测试」，本阶段暂不纳入孤儿审计（旧代码尚未迁移，直接审计会产生海量噪音）；
-  // src/contexts/**（T008 起迁入的新树）同样暂不纳入：其导出大量被 test/** 夹具消费，
-  // 而 test/** 在 ignore 内，会产生系统性「仅测试消费」误报（T008 实测 9 条）；
-  // 待 T018 platform 迁移收口、modules 树删除后，由 T018 移除这些 ignore
-  // （含 src/contexts/**），audit:orphans 即对全量源码生效（对应 tasks.md US4 零遗留清点）。
-  // .sql、迁移等非 TS 资产位于被忽略的 src/database/migrations/**，knip 本身只分析 JS/TS。
+  // knip 配置 — 007-backend-ddd-restructure T002；T018 收口。
+  // 入口 = 组合根（app.module.ts Nest 装配；main.ts 经 package.json dev 脚本自动识别）
+  // + 迁移 CLI（migration:* 脚本自动识别）+ 测试树（spec/e2e-spec 均为 vitest 入口；
+  // setup.vitest.ts 经 vitest 插件自 setupFiles 识别）+ 规模夹具 CLI（005 T012 外部流程）。
+  // 测试不是运行时入口，但测试树是这些导出的真实消费方——把测试纳入 entry 而非
+  // ignore，使「仅被 test 消费」的导出可判定为已用，避免系统性误报
+  // （T008 曾实测 9 条，如 upsertHistoryRowForFixture）。
+  // T018 起 src/modules/**、src/common/**、src/config/**、src/database/** 旧树已消亡，
+  // src/contexts/** 与 src/platform/** 纳入正式审计（不再有目录级 ignore）。
+  // .sql 等非 TS 资产位于 src/platform/database/migrations/**，knip 本身只分析 JS/TS。
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["src/main.ts", "src/app.module.ts"],
-  "ignore": [
-    "src/modules/**",
-    "src/common/**",
-    "src/config/**",
-    "src/database/**",
-    "src/contexts/**",
-    "test/**"
+  "entry": [
+    "src/app.module.ts",
+    "test/**/*.spec.ts",
+    "test/**/*.e2e-spec.ts",
+    "test/fixtures/scale-fixture.cli.ts",
+    "test/runtime-smoke.mjs"
   ],
-  // sax 在 src/modules/imports/xmltv.parser.ts 中以「非字面量动态导入」
+  // exclude 暂缓 exports/types 类目：contexts+platform 全量纳入后 T018 收口实测
+  // 残留 23 条死导出 + 4 条死类型（跨文件零消费，如 upsertHistoryRowForFixture），
+  // 其清零属 tasks.md T031（US4 零遗留清点）；T022/T023 边界与渗漏重构会重排这些
+  // 导出，先删会造成两次返工，故本阶段不纳入门禁、T031 恢复后清零。
+  "exclude": ["exports", "types", "nsExports", "nsTypes", "duplicates"],
+  "ignoreExportsUsedInFile": true,
+  // 测试夹具/运行时冒烟以子进程调用真实 ffmpeg/ffprobe 生成与探测媒体资产，
+  // 非包管理器依赖，knip 无法静态核对 → 豁免（测试基建,非运行时入口）。
+  "ignoreBinaries": ["ffmpeg", "ffprobe"],
+  // sax 在 contexts/sources/infrastructure/xmltv.parser.ts 中以「非字面量动态导入」
   // (import('sax' as string)，绕过 TS 对无类型包的解析) 加载，knip 静态分析
-  // 无法识别该用法；在 T013 迁移前先豁免该依赖，T013 落位后同样由本文件复核。
+  // 无法识别该用法；维持豁免（T013 起文件已落位 contexts/sources）。
   "ignoreDependencies": ["sax"]
 }

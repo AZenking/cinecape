@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Database } from '../../../src/database/database';
-import { setEnvOverride } from '../../../src/config/env';
-import { loadEnv } from '../../../src/config/env.schema';
+import { Database } from '@platform/database/database';
+import { setEnvOverride } from '@platform/config/env';
+import { loadEnv } from '@platform/config/env.schema';
 import type { LoadedStagedEntry, StageEntriesResult } from '@contexts/sources/infrastructure/refresh-staging.service';
 import {
   clearStagedEntries,
@@ -366,7 +366,7 @@ describe('refresh_stage_entry 暂存持久化(refresh-staging.service;真实 SQL
   const rigs: DbRig[] = [];
 
   function migrationsDir(): string {
-    return path.join(process.cwd(), 'src/database/migrations');
+    return path.join(process.cwd(), 'src/platform/database/migrations');
   }
 
   function migrationSql(name: string): string {

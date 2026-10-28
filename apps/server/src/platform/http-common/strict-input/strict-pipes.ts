@@ -1,6 +1,6 @@
 import { type ArgumentMetadata, type PipeTransform } from '@nestjs/common';
 import type { z } from 'zod';
-import { parseStrict } from './strict-schema';
+import { parseStrict } from '@platform/http-common/strict-input/strict-schema';
 
 /**
  * 严格入参管道(T009)—— JSON body 与 query 的未知属性一律 400 VALIDATION_FAILED

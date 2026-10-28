@@ -5,11 +5,11 @@ import { Inject, Injectable, Module, type OnModuleInit } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import type DatabaseConstructor from 'better-sqlite3';
 import { and, eq, inArray } from 'drizzle-orm';
-import { createPlaybackBudgets } from '../../config/playback-budgets';
-import { getConfig } from '../../config/env';
-import type { MediaRoots } from '../../config/env.schema';
-import { Database } from '../../database/database';
-import { playbackConversion, playbackSession } from '../../database/schema';
+import { createPlaybackBudgets } from '@platform/config/playback-budgets';
+import { getConfig } from '@platform/config/env';
+import type { MediaRoots } from '@platform/config/env.schema';
+import { Database } from '@platform/database/database';
+import { playbackConversion, playbackSession } from '@platform/database/schema';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
 import { PlaybackAuthorizationService } from '@contexts/playback/application/playback-authorization.service';
@@ -57,7 +57,7 @@ import {
 } from '@contexts/personal-data/application/progress-clock.service';
 import { ProgressWriteService } from '@contexts/personal-data/application/progress-write.service';
 import type { PlaybackFinalProgressPort } from '@contexts/playback/infrastructure/playback-lifecycle.service';
-import { CommonModule } from '../../common/common.module';
+import { HttpCommonModule } from '@platform/http-common/http-common.module';
 import {
   PLAYBACK_CONVERSION_ACTIVE_STATES,
   isPlaybackStableErrorCode,
@@ -725,7 +725,7 @@ class PlaybackBootstrapper implements OnModuleInit {
 /* ------------------------------------------------------------------ */
 
 @Module({
-  imports: [CommonModule, PersonalDataModule],
+  imports: [HttpCommonModule, PersonalDataModule],
   controllers: [PlaybackController, PlaybackStreamController],
   providers: [
     // T011 仓储(类 token + 工厂;预算工厂期读取「当前」已校验 env)

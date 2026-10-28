@@ -4,8 +4,8 @@ import { Logger } from '@nestjs/common';
 import type { ExecutionContext } from '@nestjs/common';
 import { firstValueFrom, of, throwError } from 'rxjs';
 import type { MediaDto } from '@hmp/shared';
-import { redactForLog } from '../../src/common/log-redaction.util';
-import { LoggingInterceptor } from '../../src/common/logging.interceptor';
+import { redactForLog } from '@platform/http-common/log-redaction.util';
+import { LoggingInterceptor } from '@platform/http-common/logging.interceptor';
 import {
   M3U_ENTRY_MISSING_URL,
   M3U_FORMAT_INVALID,

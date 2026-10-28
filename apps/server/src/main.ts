@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { env } from './config/env';
+import { env } from '@platform/config/env';
 import { AppModule } from './app.module';
-import { precheckForStartup } from './database/precheck';
+import { precheckForStartup } from '@platform/database/precheck';
 import path from 'node:path';
 import fs from 'node:fs';
 import type { NestExpressApplication } from '@nestjs/platform-express';

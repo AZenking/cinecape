@@ -8,8 +8,8 @@ import {
   DomainError,
   type DomainProblemSpec,
   resolveDomainProblem,
-} from '../../src/common/domain-error';
-import { ProblemJsonFilter } from '../../src/common/problem-json.filter';
+} from '@platform/http-common/domain-error';
+import { ProblemJsonFilter } from '@platform/http-common/problem-json.filter';
 
 /**
  * T011(003 媒体目录单元):错误码 → RFC 9457 映射 ——

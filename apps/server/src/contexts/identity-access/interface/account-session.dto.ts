@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
-import type { Profile } from '../../../database/schema';
-import { deviceSession, profile } from '../../../database/schema';
-import type { SessionContext } from '../../../common/current-session.decorator';
+import type { Profile } from '@platform/database/schema';
+import { deviceSession, profile } from '@platform/database/schema';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';
 

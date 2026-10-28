@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import type { Response } from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SESSION_COOKIE } from '@hmp/shared';
-import { Database } from '../../src/database/database';
+import { Database } from '@platform/database/database';
 import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import { isPlaybackStableErrorCode } from '../../src/contexts/playback/domain/playback.types';
 import {

@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, ne } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import type { Profile } from '../../../database/schema';
-import { deviceSession, profile, profilePolicy } from '../../../database/schema';
-import { DomainError } from '../../../common/domain-error';
-import type { SessionContext } from '../../../common/current-session.decorator';
+import type { Profile } from '@platform/database/schema';
+import { deviceSession, profile, profilePolicy } from '@platform/database/schema';
+import { DomainError } from '@platform/http-common/domain-error';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import { revokeUnlockGrantsForProfile } from '@contexts/profile/application/pin.service';
 import { clearDeviceSessionsProfile } from '@contexts/profile/application/identity-transition';

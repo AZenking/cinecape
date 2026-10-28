@@ -1,7 +1,7 @@
 import { Injectable, type OnApplicationBootstrap } from '@nestjs/common';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
-import { deviceSession, settingsAccessGrant } from '../../../database/schema';
-import { Database } from '../../../database/database';
+import { deviceSession, settingsAccessGrant } from '@platform/database/schema';
+import { Database } from '@platform/database/database';
 import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 
 /**

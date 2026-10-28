@@ -7,8 +7,8 @@ import type { LookupAddress, LookupOptions } from 'node:dns';
 import { Transform } from 'node:stream';
 import type { Readable } from 'node:stream';
 import { Injectable } from '@nestjs/common';
-import type { LanTarget } from '../../../config/env.schema';
-import type { PlaybackBudgets } from '../../../config/playback-budgets';
+import type { LanTarget } from '@platform/config/env.schema';
+import type { PlaybackBudgets } from '@platform/config/playback-budgets';
 import type { PlaybackErrorCode } from '@contexts/playback/domain/playback.types';
 
 /**

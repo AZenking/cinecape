@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { CommonModule } from '../../common/common.module';
+import { HttpCommonModule } from '@platform/http-common/http-common.module';
 import { LivePublicController } from '@contexts/live-tv/interface/live.controller';
 
 /**
@@ -16,7 +16,7 @@ import { LivePublicController } from '@contexts/live-tv/interface/live.controlle
  *   imports: [ ..., LiveModule ]  (追加于 EpgModule 之后)
  */
 @Module({
-  imports: [CommonModule],
+  imports: [HttpCommonModule],
   controllers: [LivePublicController],
 })
 export class LiveTvModule {}

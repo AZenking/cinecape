@@ -1,8 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { account, deviceSession, profile, profilePolicy, profileProgressClock } from '../../../database/schema';
-import { DomainError, createDomainError } from '../../../common/domain-error';
-import type { SessionContext } from '../../../common/current-session.decorator';
+import { account, deviceSession, profile, profilePolicy, profileProgressClock } from '@platform/database/schema';
+import { DomainError, createDomainError } from '@platform/http-common/domain-error';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { defaultPolicyValues } from '@contexts/policy/domain/policy.rules';
 import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';

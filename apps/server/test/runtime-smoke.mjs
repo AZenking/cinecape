@@ -264,7 +264,7 @@ const password = 'Runtime-smoke-fixture-only';
 const { fetch } = globalThis;
 
 function migrate(command, dataDir = dir) {
-  const result = spawnSync(process.execPath, [...serverArgvPrefix, 'apps/server/dist/database/migrate.js', command], {
+  const result = spawnSync(process.execPath, [...serverArgvPrefix, 'apps/server/dist/platform/database/migrate.js', command], {
     cwd: root, env: { ...env, DATA_DIR: dataDir }, encoding: 'utf8',
   });
   assert.equal(result.status, 0, result.stderr);

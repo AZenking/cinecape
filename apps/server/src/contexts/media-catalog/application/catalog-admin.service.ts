@@ -1,8 +1,8 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { ProblemCode, type CandidateDto, type CandidatePageDto, type MediaDto } from '@hmp/shared';
-import type { SessionContext } from '../../../common/current-session.decorator';
-import { DomainError } from '../../../common/domain-error';
-import { catalogState, deviceSession, mediaItem } from '../../../database/schema';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
+import { DomainError } from '@platform/http-common/domain-error';
+import { catalogState, deviceSession, mediaItem } from '@platform/database/schema';
 import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
 import { loadMediaAvailabilityFacts } from '@contexts/media-catalog/infrastructure/resource-reader';

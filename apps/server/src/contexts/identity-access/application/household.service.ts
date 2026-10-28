@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import type { Account, Household, NewAccount, NewHousehold } from '../../../database/schema';
-import { account, household } from '../../../database/schema';
-import { DomainError } from '../../../common/domain-error';
+import type { Account, Household, NewAccount, NewHousehold } from '@platform/database/schema';
+import { account, household } from '@platform/database/schema';
+import { DomainError } from '@platform/http-common/domain-error';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 
 /**

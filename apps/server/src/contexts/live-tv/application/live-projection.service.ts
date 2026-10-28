@@ -5,7 +5,7 @@ import { pickCurrentNext } from '@contexts/live-tv/domain/live-time';
 import { normalizeGroupTitle, pickMainGroupLabel, type GroupTitleSource } from '@contexts/live-tv/domain/live-grouping';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { loadAvailableMediaIdSet } from '@contexts/policy/application/policy.batch-context';
-import { epgChannel, epgProgramme, manualEpgBinding, mediaItem, mediaSource, sourceEntry } from '../../../database/schema';
+import { epgChannel, epgProgramme, manualEpgBinding, mediaItem, mediaSource, sourceEntry } from '@platform/database/schema';
 
 /**
  * 公共直播批量投影(T063/T065/T066;005 data-model §8、contracts/api.md §2、research R8):

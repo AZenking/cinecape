@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ProblemCode as ProblemCodeConst } from '@hmp/shared';
-import { PublicContextService } from '../../../src/common/public-context/public-context.service';
-import { DomainError, PC_005_PROBLEM_CODES } from '../../../src/common/domain-error';
-import { Database } from '../../../src/database/database';
+import { PublicContextService } from '@platform/http-common/public-context/public-context.service';
+import { DomainError, PC_005_PROBLEM_CODES } from '@platform/http-common/domain-error';
+import { Database } from '@platform/database/database';
 import { startFreshApp, cleanupRigs, type TestRig } from '../../helpers';
 
 /**

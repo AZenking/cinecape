@@ -2,12 +2,12 @@ import { Controller, Get, Inject, Param, Query, UseGuards } from '@nestjs/common
 import { z } from 'zod';
 import type { ChannelPageDto, ChannelRowDto, ExperienceProgrammesDto, GroupPageDto, PublicMediaDto } from '@hmp/shared';
 import { ProblemCode } from '@hmp/shared';
-import { DomainError } from '../../../common/domain-error';
-import { RateLimit } from '../../../common/rate-limit/rate-limit.decorator';
-import { RateLimitGuard } from '../../../common/rate-limit/rate-limit.guard';
-import { StrictQueryPipe } from '../../../common/strict-input/strict-pipes';
-import { PublicContextService } from '../../../common/public-context/public-context.service';
-import { Database } from '../../../database/database';
+import { DomainError } from '@platform/http-common/domain-error';
+import { RateLimit } from '@platform/http-common/rate-limit/rate-limit.decorator';
+import { RateLimitGuard } from '@platform/http-common/rate-limit/rate-limit.guard';
+import { StrictQueryPipe } from '@platform/http-common/strict-input/strict-pipes';
+import { PublicContextService } from '@platform/http-common/public-context/public-context.service';
+import { Database } from '@platform/database/database';
 import { readCatalogRevision } from '@contexts/epg/infrastructure/catalog-revision.service';
 import { liveNowMs } from '@contexts/live-tv/domain/live-clock';
 import { groupKeyOf, OTHER_GROUP_LABEL } from '@contexts/live-tv/domain/live-grouping';

@@ -1,8 +1,8 @@
 import { Injectable, type CanActivate, type ExecutionContext } from '@nestjs/common';
 import type { Request } from 'express';
 import { ProblemCode } from '@hmp/shared';
-import { DomainError } from '../domain-error';
-import type { SessionContext, SessionRequest } from '../current-session.decorator';
+import { DomainError } from '@platform/http-common/domain-error';
+import type { SessionContext, SessionRequest } from '@platform/http-common/current-session.decorator';
 import { requireValidSettingsGrant } from '@contexts/settings/application/settings-access-grant.service';
 
 /**

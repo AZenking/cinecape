@@ -1,7 +1,7 @@
 import { spawn as spawnNodeProcess } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import type { PlaybackBudgets } from '../../../config/playback-budgets';
-import type { MediaRoots } from '../../../config/env.schema';
+import type { PlaybackBudgets } from '@platform/config/playback-budgets';
+import type { MediaRoots } from '@platform/config/env.schema';
 import { resolveNasMediaLocation } from '@contexts/playback/infrastructure/media-probe.service';
 import type { EmbeddedSubtitlePort } from '@contexts/playback/infrastructure/playback-subtitles.service';
 

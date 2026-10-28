@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ProblemCode } from '@hmp/shared';
-import { Database } from '../../src/database/database';
+import { Database } from '@platform/database/database';
 import {
   INITIALIZE_BODY,
   cleanupRigs,

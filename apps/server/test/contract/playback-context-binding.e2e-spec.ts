@@ -20,8 +20,8 @@ import {
 } from '../fixtures/playback';
 import { selectMainAndUnlockSettings } from '../helpers-management';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { Database } from '../../src/database/database';
-import { deviceSession } from '../../src/database/schema';
+import { Database } from '@platform/database/database';
+import { deviceSession } from '@platform/database/schema';
 
 /**
  * T045(005 US3 契约测试,先 FAIL):resolve 上下文绑定与旧 ticket/旧 context 拒绝、A→B→A 复活。

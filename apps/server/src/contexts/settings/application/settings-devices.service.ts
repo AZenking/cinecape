@@ -1,9 +1,9 @@
 import { and, desc, eq, lt, or, type SQL } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
 import type { PlaybackDelivery, PlaybackSessionState } from '@contexts/playback/domain/playback.types';
-import { device, deviceSession, playbackFailureEvent, playbackSession } from '../../../database/schema';
-import { DomainError } from '../../../common/domain-error';
-import type { SessionContext } from '../../../common/current-session.decorator';
+import { device, deviceSession, playbackFailureEvent, playbackSession } from '@platform/database/schema';
+import { DomainError } from '@platform/http-common/domain-error';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import { requireManagementRole } from '@contexts/identity-access/application/bootstrap.service';
 import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';

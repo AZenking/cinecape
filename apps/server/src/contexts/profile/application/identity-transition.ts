@@ -6,7 +6,7 @@ import {
   playbackTicket,
   profileViewingHistory,
   settingsAccessGrant,
-} from '../../../database/schema';
+} from '@platform/database/schema';
 import type { Db } from '@contexts/identity-access/infrastructure/db';
 
 /**

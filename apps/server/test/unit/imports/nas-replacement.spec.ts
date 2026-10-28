@@ -3,10 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Database } from '../../../src/database/database';
-import { setEnvOverride } from '../../../src/config/env';
-import { loadEnv } from '../../../src/config/env.schema';
-import { DomainError } from '../../../src/common/domain-error';
+import { Database } from '@platform/database/database';
+import { setEnvOverride } from '@platform/config/env';
+import { loadEnv } from '@platform/config/env.schema';
+import { DomainError } from '@platform/http-common/domain-error';
 import {
   RefreshExecutorService,
   type RefreshJobView,
@@ -32,7 +32,7 @@ const rigs: DbRig[] = [];
 const nasFixtures: NasRootFixture[] = [];
 
 function migrationSql(name: string): string {
-  const migrationPath = path.join(process.cwd(), 'src/database/migrations', name, 'up.sql');
+  const migrationPath = path.join(process.cwd(), 'src/platform/database/migrations', name, 'up.sql');
   if (!fs.existsSync(migrationPath)) {
     throw new Error(`未找到迁移文件 ${migrationPath} —— 本测试须以 apps/server 为工作目录运行`);
   }

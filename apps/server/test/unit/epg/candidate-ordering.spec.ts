@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Database } from '../../../src/database/database';
-import { setEnvOverride } from '../../../src/config/env';
-import { loadEnv } from '../../../src/config/env.schema';
+import { Database } from '@platform/database/database';
+import { setEnvOverride } from '@platform/config/env';
+import { loadEnv } from '@platform/config/env.schema';
 import { listEpgCandidates } from '@contexts/epg/application/manual-epg-binding.service';
 
 /** 候选排序(US5 反馈优化):当前/未来有节目的候选排前面,同组内 id 升序;无节目数据行由前端打「暂无节目数据」标 */
@@ -16,7 +16,7 @@ function bootstrap(): { householdId: string; epgSourceId: string } {
   setEnvOverride(loadEnv({ NODE_ENV: 'test', DATA_DIR: dataDir, DB_FILENAME: `${randomUUID()}.hmp.db`, LAN_ALLOWED_TARGETS: '127.0.0.1' }));
   Database.close();
   Database.db.exec('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY NOT NULL, applied_at TEXT NOT NULL)');
-  const root = path.join(process.cwd(), 'src/database/migrations');
+  const root = path.join(process.cwd(), 'src/platform/database/migrations');
   for (const name of ['0001_init', '0002_profile_policy', '0003_media_catalog', '0004_manual_epg_binding']) {
     Database.db.transaction(() => {
       Database.db.exec(fs.readFileSync(path.join(root, name, 'up.sql'), 'utf8'));

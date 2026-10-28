@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { ProblemCode } from '@hmp/shared';
-import { Database } from '../../src/database/database';
+import { Database } from '@platform/database/database';
 import {
   INITIALIZE_BODY,
   cleanupRigs,

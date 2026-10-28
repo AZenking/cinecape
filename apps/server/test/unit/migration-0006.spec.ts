@@ -4,15 +4,15 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import DatabaseConstructor from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { Database } from '../../src/database/database';
-import { loadEnv } from '../../src/config/env.schema';
-import { setEnvOverride } from '../../src/config/env';
-import { runMigrationCommand } from '../../src/database/migrate';
+import { Database } from '@platform/database/database';
+import { loadEnv } from '@platform/config/env.schema';
+import { setEnvOverride } from '@platform/config/env';
+import { runMigrationCommand } from '@platform/database/migrate';
 import {
   MigrationGateError,
   precheckDatabaseFile,
   precheckForStartup,
-} from '../../src/database/precheck';
+} from '@platform/database/precheck';
 
 /**
  * T008(005-pc-browsing-flow · Phase 2):0006_pc_experience 迁移与预检测试。
@@ -60,7 +60,7 @@ function applyEnv(rig: Rig): void {
 }
 
 function migrationSql(name: string, file: 'up.sql' | 'down.sql'): string {
-  const p = path.join(process.cwd(), 'src/database/migrations', name, file);
+  const p = path.join(process.cwd(), 'src/platform/database/migrations', name, file);
   return fs.readFileSync(p, 'utf8');
 }
 

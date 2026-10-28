@@ -3,7 +3,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   IMPORT_BUDGETS,
-} from '../../../src/config/import-budgets';
+} from '@platform/config/import-budgets';
 import {
   NAS_SCAN_ERROR_CODES,
   SUPPORTED_MEDIA_EXTENSIONS,

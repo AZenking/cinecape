@@ -4,7 +4,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import type { PublicMediaPageDto } from '@hmp/shared';
-import { Database } from '../../src/database/database';
+import { Database } from '@platform/database/database';
 import { cleanupPublicCatalogRigs, seedInitializedHousehold, startPublicCatalogApp } from './public-catalog.helpers';
 
 /**

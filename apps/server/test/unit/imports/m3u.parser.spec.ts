@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
-import { IMPORT_BUDGETS } from '../../../src/config/import-budgets';
+import { IMPORT_BUDGETS } from '@platform/config/import-budgets';
 import {
   M3U_BUDGET_EXCEEDED,
   M3U_DECODE_FAILED,

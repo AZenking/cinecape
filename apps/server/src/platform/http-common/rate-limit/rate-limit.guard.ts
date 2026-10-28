@@ -2,12 +2,12 @@ import { Injectable, type CanActivate, type ExecutionContext } from '@nestjs/com
 import { Reflector } from '@nestjs/core';
 import type { Request, Response } from 'express';
 import { ProblemCode as ProblemCodeConst } from '@hmp/shared';
-import { DomainError } from '../domain-error';
-import type { SessionRequest } from '../current-session.decorator';
-import { RATE_LIMIT_POLICY_METADATA_KEY } from './rate-limit.decorator';
-import type { RateLimitPolicyName } from './rate-limit.policies';
-import { RateLimitService, sharedRateLimitService } from './rate-limit.service';
-import { clientIpOf } from './client-ip.util';
+import { DomainError } from '@platform/http-common/domain-error';
+import type { SessionRequest } from '@platform/http-common/current-session.decorator';
+import { RATE_LIMIT_POLICY_METADATA_KEY } from '@platform/http-common/rate-limit/rate-limit.decorator';
+import type { RateLimitPolicyName } from '@platform/http-common/rate-limit/rate-limit.policies';
+import { RateLimitService, sharedRateLimitService } from '@platform/http-common/rate-limit/rate-limit.service';
+import { clientIpOf } from '@platform/http-common/rate-limit/client-ip.util';
 
 /**
  * 限频守卫(T009 底座,005 contracts/api.md §1)—— 与 @RateLimit(policy) 标注配对;

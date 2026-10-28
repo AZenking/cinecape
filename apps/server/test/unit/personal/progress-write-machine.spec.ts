@@ -17,9 +17,9 @@ import {
   playbackProgressState,
   playbackSession,
   profileProgressClock,
-} from '../../../src/database/schema';
+} from '@platform/database/schema';
 import { and, eq } from 'drizzle-orm';
-import { DomainError } from '../../../src/common/domain-error';
+import { DomainError } from '@platform/http-common/domain-error';
 
 /**
  * T089(005 US4 单元测试,先 FAIL 后 GREEN)—— 进度写入状态机:

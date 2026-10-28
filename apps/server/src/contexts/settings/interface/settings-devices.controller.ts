@@ -2,13 +2,13 @@ import { Body, Controller, Get, HttpCode, Param, Post, Query, Res, UseGuards } f
 import type { Response } from 'express';
 import { z } from 'zod';
 import type { PlaybackRecordPageDto } from '@contexts/settings/application/settings-devices.service';
-import { CurrentSession } from '../../../common/current-session.decorator';
-import type { SessionContext } from '../../../common/current-session.decorator';
-import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
-import { SessionGuard } from '../../../common/session.guard';
-import { SettingsAccessGuard } from '../../../common/settings-access/settings-access.guard';
-import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
-import { strictObject } from '../../../common/strict-input/strict-schema';
+import { CurrentSession } from '@platform/http-common/current-session.decorator';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
+import { SameOriginGuard } from '@platform/http-common/same-origin/same-origin.guard';
+import { SessionGuard } from '@platform/http-common/session.guard';
+import { SettingsAccessGuard } from '@platform/http-common/settings-access/settings-access.guard';
+import { StrictBodyPipe } from '@platform/http-common/strict-input/strict-pipes';
+import { strictObject } from '@platform/http-common/strict-input/strict-schema';
 import { parseBody } from '@contexts/identity-access/interface/validation';
 import { listDevices, queryDevicePlaybackRecords, revokeDevice } from '@contexts/settings/application/settings-devices.service';
 

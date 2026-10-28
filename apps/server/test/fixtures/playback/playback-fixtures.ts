@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
 import { generateToken, hashToken } from '@contexts/identity-access/infrastructure/token.service';
-import { createPlaybackBudgets } from '../../../src/config/playback-budgets';
-import { getConfig } from '../../../src/config/env';
+import { createPlaybackBudgets } from '@platform/config/playback-budgets';
+import { getConfig } from '@platform/config/env';
 import {
   account,
   device,
@@ -16,7 +16,7 @@ import {
   playbackTicket,
   profile,
   sourceEntry,
-} from '../../../src/database/schema';
+} from '@platform/database/schema';
 import {
   isPlaybackStableErrorCode,
   type PlaybackDelivery,

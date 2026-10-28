@@ -2,12 +2,12 @@ import http from 'node:http';
 import type { Readable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { loadEnv, type LanTarget } from '../../../src/config/env.schema';
+import { loadEnv, type LanTarget } from '@platform/config/env.schema';
 import {
   PLAYBACK_BUDGETS,
   createPlaybackBudgets,
   type PlaybackBudgets,
-} from '../../../src/config/playback-budgets';
+} from '@platform/config/playback-budgets';
 import type { PlaybackErrorCode } from '../../../src/contexts/playback/domain/playback.types';
 import { HlsProxyService, validateUpstreamHop } from '../../../src/contexts/playback/infrastructure/hls-proxy.service';
 import { PlaybackAssetsService } from '../../../src/contexts/playback/application/playback-assets.service';

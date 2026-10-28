@@ -1,11 +1,11 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
-import { CurrentSession } from '../../../common/current-session.decorator';
-import type { SessionContext } from '../../../common/current-session.decorator';
-import { SessionGuard } from '../../../common/session.guard';
-import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
-import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
-import { strictObject } from '../../../common/strict-input/strict-schema';
+import { CurrentSession } from '@platform/http-common/current-session.decorator';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
+import { SessionGuard } from '@platform/http-common/session.guard';
+import { SameOriginGuard } from '@platform/http-common/same-origin/same-origin.guard';
+import { StrictBodyPipe } from '@platform/http-common/strict-input/strict-pipes';
+import { strictObject } from '@platform/http-common/strict-input/strict-schema';
 import { bootstrapMainProfile, recoverMainProfilePin } from '@contexts/identity-access/application/bootstrap.service';
 import type { ProfileSummaryBody } from '@contexts/identity-access/interface/account-session.dto';
 

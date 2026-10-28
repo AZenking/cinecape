@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Database } from '../../../src/database/database';
+import { Database } from '@platform/database/database';
 import { PlaybackRepository } from '../../../src/contexts/playback/infrastructure/playback.repository';
 import { PlaybackModule } from '../../../src/contexts/playback/playback.module';
 import { cleanupRigs, startFreshApp } from '../../helpers';

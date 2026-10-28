@@ -1,5 +1,5 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { mediaItem } from '../../../database/schema';
+import { mediaItem } from '@platform/database/schema';
 import type { Db } from '@contexts/identity-access/infrastructure/db';
 
 /**

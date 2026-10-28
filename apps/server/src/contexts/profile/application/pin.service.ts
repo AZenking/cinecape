@@ -1,9 +1,9 @@
 import { eq } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { env } from '../../../config/env';
-import type { Profile } from '../../../database/schema';
-import { profile } from '../../../database/schema';
-import { DomainError } from '../../../common/domain-error';
+import { env } from '@platform/config/env';
+import type { Profile } from '@platform/database/schema';
+import { profile } from '@platform/database/schema';
+import { DomainError } from '@platform/http-common/domain-error';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
 import { verifyPassword } from '@contexts/identity-access/infrastructure/password.service';
 

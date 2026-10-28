@@ -1,7 +1,7 @@
 import { createParamDecorator, type ExecutionContext } from '@nestjs/common';
 import type { Request } from 'express';
 import { ProblemCode as ProblemCodeConst } from '@hmp/shared';
-import { DomainError } from '../domain-error';
+import { DomainError } from '@platform/http-common/domain-error';
 
 /**
  * 当前 Profile 上下文(T009,005 contracts/api.md §1 Profile 边界)——

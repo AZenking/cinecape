@@ -7,16 +7,16 @@ import {
   type SourceDto,
   type SourcePageDto,
 } from '@hmp/shared';
-import { DomainError, createDomainError } from '../../../common/domain-error';
-import type { SessionContext } from '../../../common/current-session.decorator';
-import { getConfig } from '../../../config/env';
+import { DomainError, createDomainError } from '@platform/http-common/domain-error';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
+import { getConfig } from '@platform/config/env';
 import {
   catalogState,
   deviceSession,
   mediaSource,
   sourceRefresh,
   type MediaSource,
-} from '../../../database/schema';
+} from '@platform/database/schema';
 import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import { verifyParentPassword } from '@contexts/identity-access/application/parent-verification.service';
 import {

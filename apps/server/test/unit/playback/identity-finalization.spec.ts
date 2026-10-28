@@ -10,17 +10,17 @@ import {
   type PlaybackWorld,
 } from '../../fixtures/playback';
 import { getDb } from '@contexts/identity-access/infrastructure/db';
-import { Database } from '../../../src/database/database';
+import { Database } from '@platform/database/database';
 import { selectMainAndUnlockSettings } from '../../helpers-management';
-import { getConfig } from '../../../src/config/env';
-import { createPlaybackBudgets } from '../../../src/config/playback-budgets';
+import { getConfig } from '@platform/config/env';
+import { createPlaybackBudgets } from '@platform/config/playback-budgets';
 import { hashToken } from '@contexts/identity-access/infrastructure/token.service';
 import {
   deviceSession,
   playbackSession,
   playbackTicket,
   settingsAccessGrant,
-} from '../../../src/database/schema';
+} from '@platform/database/schema';
 import {
   clearDeviceSessionsProfile,
   switchDeviceSessionProfile,
@@ -31,7 +31,7 @@ import {
   PlaybackResolverService,
   type PlaybackProbeOutcome,
 } from '../../../src/contexts/playback/application/playback-resolver.service';
-import type { SessionContext } from '../../../src/common/current-session.decorator';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 
 /**
  * T047(005 US3 单元测试,先 FAIL):身份变化事务终态化旧播放并撤票。

@@ -4,9 +4,9 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ExperienceProgrammeDto, GuideWindowDto } from '@hmp/shared';
-import { Database } from '../../../src/database/database';
-import { loadEnv } from '../../../src/config/env.schema';
-import { setEnvOverride } from '../../../src/config/env';
+import { Database } from '@platform/database/database';
+import { loadEnv } from '@platform/config/env.schema';
+import { setEnvOverride } from '@platform/config/env';
 import { loadGuideWindow } from '@contexts/epg/application/guide-window.service';
 import { pickGuideCurrent } from '@contexts/epg/domain/binding-core';
 import { programmeKeyOf } from '@contexts/epg/domain/programme-key.mapper';
@@ -48,7 +48,7 @@ beforeAll(() => {
   setEnvOverride(loadEnv({ NODE_ENV: 'test', DATA_DIR: dataDir, DB_FILENAME: 'guide-window.hmp.db' }));
   Database.close();
   Database.db.exec('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY NOT NULL, applied_at TEXT NOT NULL)');
-  const migrationsDir = path.join(process.cwd(), 'src/database/migrations');
+  const migrationsDir = path.join(process.cwd(), 'src/platform/database/migrations');
   const names = fs
     .readdirSync(migrationsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())

@@ -7,8 +7,8 @@ import {
   playbackSession,
   profileProgressClock,
   profileViewingHistory,
-} from '../../../database/schema';
-import { createDomainError } from '../../../common/domain-error';
+} from '@platform/database/schema';
+import { createDomainError } from '@platform/http-common/domain-error';
 import { readResumeFreezePosition } from '@contexts/personal-data/application/history.service';
 
 /**

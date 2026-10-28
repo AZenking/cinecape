@@ -1,8 +1,8 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { device, deviceSession, household, profile, settingsAccessGrant, account } from '../../../database/schema';
-import { DomainError, createDomainError } from '../../../common/domain-error';
-import type { SessionContext } from '../../../common/current-session.decorator';
+import { device, deviceSession, household, profile, settingsAccessGrant, account } from '@platform/database/schema';
+import { DomainError, createDomainError } from '@platform/http-common/domain-error';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 
 /**

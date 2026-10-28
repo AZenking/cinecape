@@ -1,11 +1,11 @@
 import { Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
-import { PublicContextService } from '../../../common/public-context/public-context.service';
-import { RateLimitGuard } from '../../../common/rate-limit/rate-limit.guard';
-import { RateLimit } from '../../../common/rate-limit/rate-limit.decorator';
-import { SameOriginGuard } from '../../../common/same-origin/same-origin.guard';
-import { StrictBodyPipe } from '../../../common/strict-input/strict-pipes';
-import { strictObject } from '../../../common/strict-input/strict-schema';
+import { PublicContextService } from '@platform/http-common/public-context/public-context.service';
+import { RateLimitGuard } from '@platform/http-common/rate-limit/rate-limit.guard';
+import { RateLimit } from '@platform/http-common/rate-limit/rate-limit.decorator';
+import { SameOriginGuard } from '@platform/http-common/same-origin/same-origin.guard';
+import { StrictBodyPipe } from '@platform/http-common/strict-input/strict-pipes';
+import { strictObject } from '@platform/http-common/strict-input/strict-schema';
 import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
 import { initializeDeployment } from '@contexts/identity-access/application/setup.service';
 

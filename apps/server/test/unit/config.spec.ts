@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { loadEnv } from '../../src/config/env.schema';
-import { IMPORT_BUDGETS } from '../../src/config/import-budgets';
+import { loadEnv } from '@platform/config/env.schema';
+import { IMPORT_BUDGETS } from '@platform/config/import-budgets';
 
 /** 用最小环境源直接驱动 loadEnv(不经 .env 文件与进程环境,互不污染)。 */
 function parseEnv(extra: Record<string, string>): ReturnType<typeof loadEnv> {

@@ -10,7 +10,7 @@ import {
 } from '@contexts/sources/infrastructure/refresh-staging.service';
 import { parseStoredList } from '@contexts/policy/domain/policy.rules';
 import type { XMLTVChannel, XMLTVProgramme } from '@contexts/sources/infrastructure/xmltv.parser';
-import { Database } from '../../../database/database';
+import { Database } from '@platform/database/database';
 
 /**
  * 刷新发布事务(T026/T027;data-model「发布事务」/research R5,FR-022/SC-009):

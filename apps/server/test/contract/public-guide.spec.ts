@@ -8,10 +8,10 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { GuideWindowDto } from '@hmp/shared';
 import { AppModule } from '../../src/app.module';
-import { Database } from '../../src/database/database';
-import { setEnvOverride } from '../../src/config/env';
-import { loadEnv } from '../../src/config/env.schema';
-import { sharedRateLimitService } from '../../src/common/rate-limit/rate-limit.service';
+import { Database } from '@platform/database/database';
+import { setEnvOverride } from '@platform/config/env';
+import { loadEnv } from '@platform/config/env.schema';
+import { sharedRateLimitService } from '@platform/http-common/rate-limit/rate-limit.service';
 import { saveBinding } from '@contexts/epg/application/manual-epg-binding.service';
 import {
   SCALE_FIXTURE_CREDENTIALS,
@@ -63,7 +63,7 @@ beforeAll(async () => {
   setEnvOverride(loadEnv({ NODE_ENV: 'test', DATA_DIR: dataDir, DB_FILENAME: `${randomUUID()}.hmp.db` }));
   Database.close();
   Database.db.exec('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY NOT NULL, applied_at TEXT NOT NULL)');
-  const migrationsDir = path.join(process.cwd(), 'src/database/migrations');
+  const migrationsDir = path.join(process.cwd(), 'src/platform/database/migrations');
   const names = fs
     .readdirSync(migrationsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())

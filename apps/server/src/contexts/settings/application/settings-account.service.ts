@@ -1,9 +1,9 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import type { Profile } from '../../../database/schema';
-import { account, deviceSession, profile } from '../../../database/schema';
-import { DomainError, createDomainError } from '../../../common/domain-error';
-import type { SessionContext } from '../../../common/current-session.decorator';
+import type { Profile } from '@platform/database/schema';
+import { account, deviceSession, profile } from '@platform/database/schema';
+import { DomainError, createDomainError } from '@platform/http-common/domain-error';
+import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
 import { hashPassword } from '@contexts/identity-access/infrastructure/password.service';
 import { requireManagementRole } from '@contexts/identity-access/application/bootstrap.service';

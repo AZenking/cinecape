@@ -1,10 +1,10 @@
 import { Injectable, type CanActivate, type ExecutionContext } from '@nestjs/common';
 import type { Request } from 'express';
 import { ProblemCode as ProblemCodeConst } from '@hmp/shared';
-import { Database } from '../../database/database';
-import { DomainError } from '../domain-error';
-import { attachProfileContext, type ProfileContext } from './current-profile.decorator';
-import type { SessionRequest } from '../current-session.decorator';
+import { Database } from '@platform/database/database';
+import { DomainError } from '@platform/http-common/domain-error';
+import { attachProfileContext, type ProfileContext } from '@platform/http-common/profile-context/current-profile.decorator';
+import type { SessionRequest } from '@platform/http-common/current-session.decorator';
 
 /**
  * CurrentProfileGuard(T009,005 contracts/api.md §1/§7 Profile 边界)——

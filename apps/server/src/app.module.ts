@@ -1,11 +1,10 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
-import { CommonModule } from './common/common.module';
-import { ApiSecurityHeadersInterceptor } from './common/response-headers/api-security-headers.interceptor';
-import { LoggingInterceptor } from './common/logging.interceptor';
-import { ProblemJsonFilter } from './common/problem-json.filter';
+import { PlatformModule } from '@platform/platform.module';
+import { ApiSecurityHeadersInterceptor } from '@platform/http-common/response-headers/api-security-headers.interceptor';
+import { LoggingInterceptor } from '@platform/http-common/logging.interceptor';
+import { ProblemJsonFilter } from '@platform/http-common/problem-json.filter';
 import { IdentityAccessModule } from '@contexts/identity-access/identity-access.module';
-import { HealthModule } from './modules/health/health.module';
 import { ProfileModule } from '@contexts/profile/profile.module';
 import { PolicyModule } from '@contexts/policy/policy.module';
 import { SourcesModule } from '@contexts/sources/sources.module';
@@ -17,7 +16,7 @@ import { SettingsModule } from '@contexts/settings/settings.module';
 import { PersonalDataModule } from '@contexts/personal-data/personal-data.module';
 
 @Module({
-  imports: [CommonModule, HealthModule, IdentityAccessModule, ProfileModule, PolicyModule, SourcesModule, MediaCatalogModule, EpgModule, PlaybackModule, PersonalDataModule, LiveTvModule, SettingsModule],
+  imports: [PlatformModule, IdentityAccessModule, ProfileModule, PolicyModule, SourcesModule, MediaCatalogModule, EpgModule, PlaybackModule, PersonalDataModule, LiveTvModule, SettingsModule],
   providers: [
     { provide: APP_FILTER, useClass: ProblemJsonFilter },
     // T009:所有 API 响应统一 Cache-Control: no-store + Referrer-Policy: no-referrer
