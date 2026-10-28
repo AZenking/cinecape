@@ -105,6 +105,19 @@ const SHARED_PACKAGE =
  *  （如 playback application 的 Request 类型导入），属裁决 R1b(c)「express 的
  *  node_modules 形态」覆盖面；R3（domain）现无此类边，行为不变。 */
 const FRAMEWORK_PKGS = "(?:@nestjs/|drizzle-orm|better-sqlite3|express|rxjs|@types/express)";
+
+/** 008-T014（ADR-0015 D3）：R1b 收紧后的 application 层框架放行形态——
+ *  自 FRAMEWORK_PKGS 剔除 drizzle-orm 与 better-sqlite3（数据访问实现细节，
+ *  登记 5 已由规格 008 补救清零，自此 application 值/类型导入均违规）；
+ *  @nestjs（装饰器类应用服务）、express（类型工件）与 rxjs 维持
+ *  ADR-0014 修正 2「框架禁令范围 = 领域核心」的裁决。 */
+const APP_ALLOWED_FRAMEWORK_PKGS = "(?:@nestjs/|express|rxjs|@types/express)";
+const APP_ALLOWED_FRAMEWORK_PACKAGES =
+	"^(?:\\.\\./)*node_modules/(?:\\.pnpm/[^/]+/node_modules/" +
+	APP_ALLOWED_FRAMEWORK_PKGS +
+	"|" +
+	APP_ALLOWED_FRAMEWORK_PKGS +
+	")";
 const FRAMEWORK_PACKAGES =
 	"^(?:\\.\\./)*node_modules/(?:\\.pnpm/[^/]+/node_modules/" +
 	FRAMEWORK_PKGS +
@@ -214,11 +227,18 @@ module.exports = {
 					SHARED_PACKAGE,
 					// 裁决修正②(a)：他上下文发布面（自身 index 亦无害）。
 					"^src/contexts/[^/]+/index\\.ts$",
-					// 裁决修正②(b)：platform/** 全部（config/database/http-common）。
-					"^src/platform/",
-					// 裁决修正②(c)：node 内建 + 框架包 node_modules 形态（含 @types/express）。
+					// 008-T014（ADR-0015 D3）收紧：platform 收窄为 http-common/config
+					// （错误契约/会话装饰器/配置值——application 实测消费面）；
+					// platform/database 仅保留 schema 与 drizzle 两文件的**类型锚点**
+					// （行类型 import type 的单一事实源；值形态由 audit:purity 符号级
+					// 门禁拒绝——depcruise 模块粒度无法区分 import type，双轨分工
+					// 见 ADR-0015 D3；database.ts/migrate.ts 等其余落点全禁）。
+					"^src/platform/(?:http-common|config)/",
+					"^src/platform/database/(?:schema|drizzle)\\.ts$",
+					// 裁决修正②(c)收窄（008-T014）：node 内建维持放行；
+					// 框架包放行剔除 drizzle-orm/better-sqlite3（APP_ALLOWED_*）。
 					BUILTIN_MODULES,
-					FRAMEWORK_PACKAGES,
+					APP_ALLOWED_FRAMEWORK_PACKAGES,
 				],
 			},
 		},
