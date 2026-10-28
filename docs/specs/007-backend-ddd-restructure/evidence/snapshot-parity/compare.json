@@ -1,0 +1,1460 @@
+{
+ "summary": {
+  "oldBase": "http://127.0.0.1:3901",
+  "newBase": "http://127.0.0.1:3902",
+  "steps": 65,
+  "mismatches": 0,
+  "pass": true,
+  "comparedAt": "2026-10-28T12:28:05.758Z"
+ },
+ "routes": [
+  {
+   "name": "status-pre",
+   "method": "GET",
+   "path": "/setup/status",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "initialized": false
+   },
+   "newBody": {
+    "initialized": false
+   }
+  },
+  {
+   "name": "healthz",
+   "method": "GET",
+   "path": "/healthz",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "database": "ok",
+    "status": "ok"
+   },
+   "newBody": {
+    "database": "ok",
+    "status": "ok"
+   }
+  },
+  {
+   "name": "public-context",
+   "method": "GET",
+   "path": "/public/context",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "catalogRevision": 1,
+    "displayName": null,
+    "initialized": false,
+    "language": "zh-CN",
+    "now": "<ts>",
+    "timezone": "Asia/Shanghai"
+   },
+   "newBody": {
+    "catalogRevision": 1,
+    "displayName": null,
+    "initialized": false,
+    "language": "zh-CN",
+    "now": "<ts>",
+    "timezone": "Asia/Shanghai"
+   }
+  },
+  {
+   "name": "live-groups",
+   "method": "GET",
+   "path": "/public/live/groups",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "catalogRevision": 1,
+    "items": [],
+    "now": "<ts>",
+    "timezone": "UTC"
+   },
+   "newBody": {
+    "catalogRevision": 1,
+    "items": [],
+    "now": "<ts>",
+    "timezone": "UTC"
+   }
+  },
+  {
+   "name": "live-channels",
+   "method": "GET",
+   "path": "/public/live/channels",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "catalogRevision": 1,
+    "items": [],
+    "now": "<ts>",
+    "page": 1,
+    "pageSize": 20,
+    "timezone": "UTC",
+    "total": 0
+   },
+   "newBody": {
+    "catalogRevision": 1,
+    "items": [],
+    "now": "<ts>",
+    "page": 1,
+    "pageSize": 20,
+    "timezone": "UTC",
+    "total": 0
+   }
+  },
+  {
+   "name": "public-guide",
+   "method": "GET",
+   "path": "/public/guide",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "allowedDates": [
+     "2026-10-28",
+     "2026-10-29",
+     "2026-10-30",
+     "2026-10-31",
+     "2026-11-01",
+     "2026-11-02",
+     "2026-11-03"
+    ],
+    "catalogRevision": 1,
+    "channels": [],
+    "date": "2026-10-28",
+    "from": "<ts>",
+    "now": "<ts>",
+    "page": 1,
+    "pageSize": 20,
+    "timezone": "UTC",
+    "to": "<ts>",
+    "totalChannels": 0
+   },
+   "newBody": {
+    "allowedDates": [
+     "2026-10-28",
+     "2026-10-29",
+     "2026-10-30",
+     "2026-10-31",
+     "2026-11-01",
+     "2026-11-02",
+     "2026-11-03"
+    ],
+    "catalogRevision": 1,
+    "channels": [],
+    "date": "2026-10-28",
+    "from": "<ts>",
+    "now": "<ts>",
+    "page": 1,
+    "pageSize": 20,
+    "timezone": "UTC",
+    "to": "<ts>",
+    "totalChannels": 0
+   }
+  },
+  {
+   "name": "public-media",
+   "method": "GET",
+   "path": "/public/media",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "items": [],
+    "page": 1,
+    "pageSize": 20,
+    "total": 0
+   },
+   "newBody": {
+    "items": [],
+    "page": 1,
+    "pageSize": 20,
+    "total": 0
+   }
+  },
+  {
+   "name": "public-media-bogus",
+   "method": "GET",
+   "path": "/public/media/<uuid>",
+   "oldStatus": 404,
+   "newStatus": 404,
+   "match": true,
+   "oldBody": {
+    "code": "NOT_FOUND",
+    "status": 404,
+    "title": "Not Found",
+    "type": "https://homemedia.local/problems/not-found"
+   },
+   "newBody": {
+    "code": "NOT_FOUND",
+    "status": 404,
+    "title": "Not Found",
+    "type": "https://homemedia.local/problems/not-found"
+   }
+  },
+  {
+   "name": "public-media-bogus-programmes",
+   "method": "GET",
+   "path": "/public/media/<uuid>/programmes",
+   "oldStatus": 404,
+   "newStatus": 404,
+   "match": true,
+   "oldBody": {
+    "code": "NOT_FOUND",
+    "status": 404,
+    "title": "Not Found",
+    "type": "https://homemedia.local/problems/not-found"
+   },
+   "newBody": {
+    "code": "NOT_FOUND",
+    "status": 404,
+    "title": "Not Found",
+    "type": "https://homemedia.local/problems/not-found"
+   }
+  },
+  {
+   "name": "media-guest",
+   "method": "GET",
+   "path": "/media",
+   "oldStatus": 401,
+   "newStatus": 401,
+   "match": true,
+   "oldBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   },
+   "newBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   }
+  },
+  {
+   "name": "me-favorites-guest",
+   "method": "GET",
+   "path": "/me/favorites/channels",
+   "oldStatus": 401,
+   "newStatus": 401,
+   "match": true,
+   "oldBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   },
+   "newBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   }
+  },
+  {
+   "name": "me-history-guest",
+   "method": "GET",
+   "path": "/me/history",
+   "oldStatus": 401,
+   "newStatus": 401,
+   "match": true,
+   "oldBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   },
+   "newBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   }
+  },
+  {
+   "name": "resolve-anon",
+   "method": "POST",
+   "path": "/playback/resolve",
+   "oldStatus": 401,
+   "newStatus": 401,
+   "match": true,
+   "oldBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   },
+   "newBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   }
+  },
+  {
+   "name": "playback-session-guest",
+   "method": "GET",
+   "path": "/playback/sessions/<uuid>",
+   "oldStatus": 401,
+   "newStatus": 401,
+   "match": true,
+   "oldBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   },
+   "newBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   }
+  },
+  {
+   "name": "playback-renew-guest",
+   "method": "POST",
+   "path": "/playback/sessions/<uuid>/renew",
+   "oldStatus": 401,
+   "newStatus": 401,
+   "match": true,
+   "oldBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   },
+   "newBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   }
+  },
+  {
+   "name": "playback-stream-guest",
+   "method": "GET",
+   "path": "/playback/stream/<uuid>/1/asset-x",
+   "oldStatus": 401,
+   "newStatus": 401,
+   "match": true,
+   "oldBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   },
+   "newBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   }
+  },
+  {
+   "name": "household-guest",
+   "method": "GET",
+   "path": "/household",
+   "oldStatus": 401,
+   "newStatus": 401,
+   "match": true,
+   "oldBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   },
+   "newBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   }
+  },
+  {
+   "name": "profiles-guest",
+   "method": "GET",
+   "path": "/profiles",
+   "oldStatus": 401,
+   "newStatus": 401,
+   "match": true,
+   "oldBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   },
+   "newBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   }
+  },
+  {
+   "name": "settings-access-guest",
+   "method": "GET",
+   "path": "/settings/access",
+   "oldStatus": 401,
+   "newStatus": 401,
+   "match": true,
+   "oldBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   },
+   "newBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   }
+  },
+  {
+   "name": "settings-profiles-guest",
+   "method": "GET",
+   "path": "/settings/profiles",
+   "oldStatus": 401,
+   "newStatus": 401,
+   "match": true,
+   "oldBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   },
+   "newBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   }
+  },
+  {
+   "name": "login-wrong",
+   "method": "POST",
+   "path": "/auth/login",
+   "oldStatus": 401,
+   "newStatus": 401,
+   "match": true,
+   "oldBody": {
+    "code": "INVALID_CREDENTIALS",
+    "status": 401,
+    "title": "Invalid Credentials",
+    "type": "https://homemedia.local/problems/invalid-credentials"
+   },
+   "newBody": {
+    "code": "INVALID_CREDENTIALS",
+    "status": 401,
+    "title": "Invalid Credentials",
+    "type": "https://homemedia.local/problems/invalid-credentials"
+   }
+  },
+  {
+   "name": "initialize",
+   "method": "POST",
+   "path": "/setup/initialize",
+   "oldStatus": 201,
+   "newStatus": 201,
+   "match": true,
+   "oldBody": {
+    "initialized": true
+   },
+   "newBody": {
+    "initialized": true
+   }
+  },
+  {
+   "name": "initialize-again-409",
+   "method": "POST",
+   "path": "/setup/initialize",
+   "oldStatus": 409,
+   "newStatus": 409,
+   "match": true,
+   "oldBody": {
+    "code": "INITIALIZATION_ALREADY_DONE",
+    "detail": "本部署已完成初始化",
+    "status": 409,
+    "title": "Initialization Already Done",
+    "type": "https://homemedia.local/problems/initialization-already-done"
+   },
+   "newBody": {
+    "code": "INITIALIZATION_ALREADY_DONE",
+    "detail": "本部署已完成初始化",
+    "status": 409,
+    "title": "Initialization Already Done",
+    "type": "https://homemedia.local/problems/initialization-already-done"
+   }
+  },
+  {
+   "name": "login-ok",
+   "method": "POST",
+   "path": "/auth/login",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "account": {
+     "id": "<uuid>",
+     "role": "owner",
+     "username": "parityqa"
+    },
+    "activeProfile": null,
+    "bootstrapRequired": true,
+    "expiresAt": "<ts>",
+    "householdId": "<uuid>",
+    "profileContextVersion": 1,
+    "sessionId": "<uuid>",
+    "sessionToken": "<token>"
+   },
+   "newBody": {
+    "account": {
+     "id": "<uuid>",
+     "role": "owner",
+     "username": "parityqa"
+    },
+    "activeProfile": null,
+    "bootstrapRequired": true,
+    "expiresAt": "<ts>",
+    "householdId": "<uuid>",
+    "profileContextVersion": 1,
+    "sessionId": "<uuid>",
+    "sessionToken": "<token>"
+   }
+  },
+  {
+   "name": "session",
+   "method": "GET",
+   "path": "/auth/session",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "account": {
+     "id": "<uuid>",
+     "role": "owner",
+     "username": "parityqa"
+    },
+    "activeProfile": null,
+    "bootstrapRequired": true,
+    "expiresAt": "<ts>",
+    "householdId": "<uuid>",
+    "profileContextVersion": 1,
+    "sessionId": "<uuid>"
+   },
+   "newBody": {
+    "account": {
+     "id": "<uuid>",
+     "role": "owner",
+     "username": "parityqa"
+    },
+    "activeProfile": null,
+    "bootstrapRequired": true,
+    "expiresAt": "<ts>",
+    "householdId": "<uuid>",
+    "profileContextVersion": 1,
+    "sessionId": "<uuid>"
+   }
+  },
+  {
+   "name": "household-auth",
+   "method": "GET",
+   "path": "/household",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "createdAt": "<ts>",
+    "defaultLanguage": "zh-CN",
+    "id": "<uuid>",
+    "name": "Parity QA",
+    "timezone": "Asia/Shanghai"
+   },
+   "newBody": {
+    "createdAt": "<ts>",
+    "defaultLanguage": "zh-CN",
+    "id": "<uuid>",
+    "name": "Parity QA",
+    "timezone": "Asia/Shanghai"
+   }
+  },
+  {
+   "name": "bootstrap",
+   "method": "POST",
+   "path": "/auth/bootstrap-profile",
+   "oldStatus": 201,
+   "newStatus": 201,
+   "match": true,
+   "oldBody": {
+    "avatar": null,
+    "createdAt": "<ts>",
+    "id": "<uuid>",
+    "isDefault": true,
+    "isMain": true,
+    "name": "Owner",
+    "pinProtected": true,
+    "status": "active",
+    "type": "adult",
+    "version": 1
+   },
+   "newBody": {
+    "avatar": null,
+    "createdAt": "<ts>",
+    "id": "<uuid>",
+    "isDefault": true,
+    "isMain": true,
+    "name": "Owner",
+    "pinProtected": true,
+    "status": "active",
+    "type": "adult",
+    "version": 1
+   }
+  },
+  {
+   "name": "profiles-list",
+   "method": "GET",
+   "path": "/profiles",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": [
+    {
+     "avatar": null,
+     "createdAt": "<ts>",
+     "id": "<uuid>",
+     "isDefault": true,
+     "isMain": true,
+     "name": "Owner",
+     "pinProtected": true,
+     "status": "active",
+     "type": "adult",
+     "version": 1
+    }
+   ],
+   "newBody": [
+    {
+     "avatar": null,
+     "createdAt": "<ts>",
+     "id": "<uuid>",
+     "isDefault": true,
+     "isMain": true,
+     "name": "Owner",
+     "pinProtected": true,
+     "status": "active",
+     "type": "adult",
+     "version": 1
+    }
+   ]
+  },
+  {
+   "name": "profile-unlock",
+   "method": "POST",
+   "path": "/profiles/<uuid>/unlock",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "unlocked": true
+   },
+   "newBody": {
+    "unlocked": true
+   }
+  },
+  {
+   "name": "profile-select",
+   "method": "POST",
+   "path": "/profiles/<uuid>/select",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "account": {
+     "id": "<uuid>",
+     "role": "owner",
+     "username": "parityqa"
+    },
+    "activeProfile": {
+     "avatar": null,
+     "createdAt": "<ts>",
+     "id": "<uuid>",
+     "isDefault": true,
+     "isMain": true,
+     "name": "Owner",
+     "pinProtected": true,
+     "status": "active",
+     "type": "adult",
+     "version": 1
+    },
+    "bootstrapRequired": false,
+    "expiresAt": "<ts>",
+    "householdId": "<uuid>",
+    "profileContextVersion": 2,
+    "sessionId": "<uuid>"
+   },
+   "newBody": {
+    "account": {
+     "id": "<uuid>",
+     "role": "owner",
+     "username": "parityqa"
+    },
+    "activeProfile": {
+     "avatar": null,
+     "createdAt": "<ts>",
+     "id": "<uuid>",
+     "isDefault": true,
+     "isMain": true,
+     "name": "Owner",
+     "pinProtected": true,
+     "status": "active",
+     "type": "adult",
+     "version": 1
+    },
+    "bootstrapRequired": false,
+    "expiresAt": "<ts>",
+    "householdId": "<uuid>",
+    "profileContextVersion": 2,
+    "sessionId": "<uuid>"
+   }
+  },
+  {
+   "name": "profiles-list-after-select",
+   "method": "GET",
+   "path": "/profiles",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": [
+    {
+     "avatar": null,
+     "createdAt": "<ts>",
+     "id": "<uuid>",
+     "isDefault": true,
+     "isMain": true,
+     "name": "Owner",
+     "pinProtected": true,
+     "status": "active",
+     "type": "adult",
+     "version": 1
+    }
+   ],
+   "newBody": [
+    {
+     "avatar": null,
+     "createdAt": "<ts>",
+     "id": "<uuid>",
+     "isDefault": true,
+     "isMain": true,
+     "name": "Owner",
+     "pinProtected": true,
+     "status": "active",
+     "type": "adult",
+     "version": 1
+    }
+   ]
+  },
+  {
+   "name": "settings-access-no-grant",
+   "method": "GET",
+   "path": "/settings/access",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "expiresAt": null,
+    "unlocked": false
+   },
+   "newBody": {
+    "expiresAt": null,
+    "unlocked": false
+   }
+  },
+  {
+   "name": "settings-household-no-grant",
+   "method": "GET",
+   "path": "/settings/household",
+   "oldStatus": 403,
+   "newStatus": 403,
+   "match": true,
+   "oldBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   },
+   "newBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   }
+  },
+  {
+   "name": "settings-profiles-no-grant",
+   "method": "GET",
+   "path": "/settings/profiles",
+   "oldStatus": 403,
+   "newStatus": 403,
+   "match": true,
+   "oldBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   },
+   "newBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   }
+  },
+  {
+   "name": "settings-account-no-grant",
+   "method": "GET",
+   "path": "/settings/account",
+   "oldStatus": 403,
+   "newStatus": 403,
+   "match": true,
+   "oldBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   },
+   "newBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   }
+  },
+  {
+   "name": "settings-devices-no-grant",
+   "method": "GET",
+   "path": "/settings/devices",
+   "oldStatus": 403,
+   "newStatus": 403,
+   "match": true,
+   "oldBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   },
+   "newBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   }
+  },
+  {
+   "name": "settings-sources-no-grant",
+   "method": "GET",
+   "path": "/settings/sources",
+   "oldStatus": 403,
+   "newStatus": 403,
+   "match": true,
+   "oldBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   },
+   "newBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   }
+  },
+  {
+   "name": "settings-source-roots-no-grant",
+   "method": "GET",
+   "path": "/settings/source-roots",
+   "oldStatus": 403,
+   "newStatus": 403,
+   "match": true,
+   "oldBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   },
+   "newBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   }
+  },
+  {
+   "name": "settings-policy-no-grant",
+   "method": "GET",
+   "path": "/settings/profiles/<uuid>/policy",
+   "oldStatus": 403,
+   "newStatus": 403,
+   "match": true,
+   "oldBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   },
+   "newBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   }
+  },
+  {
+   "name": "settings-candidates-no-grant",
+   "method": "POST",
+   "path": "/settings/catalog/candidates/query",
+   "oldStatus": 403,
+   "newStatus": 403,
+   "match": true,
+   "oldBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   },
+   "newBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   }
+  },
+  {
+   "name": "settings-household-patch-no-grant",
+   "method": "PATCH",
+   "path": "/settings/household",
+   "oldStatus": 403,
+   "newStatus": 403,
+   "match": true,
+   "oldBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   },
+   "newBody": {
+    "code": "SETTINGS_ACCESS_REQUIRED",
+    "detail": "设置访问未授权,请先完成设置验证",
+    "status": 403,
+    "title": "Settings Access Required",
+    "type": "https://homemedia.local/problems/settings-access-required"
+   }
+  },
+  {
+   "name": "settings-unlock",
+   "method": "POST",
+   "path": "/settings/access",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "expiresAt": "<ts>",
+    "unlocked": true
+   },
+   "newBody": {
+    "expiresAt": "<ts>",
+    "unlocked": true
+   }
+  },
+  {
+   "name": "settings-access-granted",
+   "method": "GET",
+   "path": "/settings/access",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "expiresAt": "<ts>",
+    "unlocked": true
+   },
+   "newBody": {
+    "expiresAt": "<ts>",
+    "unlocked": true
+   }
+  },
+  {
+   "name": "settings-household",
+   "method": "GET",
+   "path": "/settings/household",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "language": "zh-CN",
+    "mainProfileVersion": 1,
+    "name": "Parity QA",
+    "timezone": "Asia/Shanghai",
+    "version": 1
+   },
+   "newBody": {
+    "language": "zh-CN",
+    "mainProfileVersion": 1,
+    "name": "Parity QA",
+    "timezone": "Asia/Shanghai",
+    "version": 1
+   }
+  },
+  {
+   "name": "settings-profiles",
+   "method": "GET",
+   "path": "/settings/profiles",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": [
+    {
+     "avatar": null,
+     "createdAt": "<ts>",
+     "id": "<uuid>",
+     "isDefault": true,
+     "isMain": true,
+     "name": "Owner",
+     "pinProtected": true,
+     "status": "active",
+     "type": "adult",
+     "version": 1
+    }
+   ],
+   "newBody": [
+    {
+     "avatar": null,
+     "createdAt": "<ts>",
+     "id": "<uuid>",
+     "isDefault": true,
+     "isMain": true,
+     "name": "Owner",
+     "pinProtected": true,
+     "status": "active",
+     "type": "adult",
+     "version": 1
+    }
+   ]
+  },
+  {
+   "name": "settings-account",
+   "method": "GET",
+   "path": "/settings/account",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "id": "<uuid>",
+    "role": "owner",
+    "username": "parityqa"
+   },
+   "newBody": {
+    "id": "<uuid>",
+    "role": "owner",
+    "username": "parityqa"
+   }
+  },
+  {
+   "name": "settings-devices",
+   "method": "GET",
+   "path": "/settings/devices",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": [
+    {
+     "createdAt": "<ts>",
+     "id": "<uuid>",
+     "lastSeenAt": "<ts>",
+     "name": null,
+     "revokedAt": null,
+     "type": "web"
+    }
+   ],
+   "newBody": [
+    {
+     "createdAt": "<ts>",
+     "id": "<uuid>",
+     "lastSeenAt": "<ts>",
+     "name": null,
+     "revokedAt": null,
+     "type": "web"
+    }
+   ]
+  },
+  {
+   "name": "settings-sources",
+   "method": "GET",
+   "path": "/settings/sources",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "items": [],
+    "page": 1,
+    "pageSize": 20,
+    "total": 0
+   },
+   "newBody": {
+    "items": [],
+    "page": 1,
+    "pageSize": 20,
+    "total": 0
+   }
+  },
+  {
+   "name": "settings-source-roots",
+   "method": "GET",
+   "path": "/settings/source-roots",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": [
+    {
+     "label": "nas-main",
+     "rootKey": "nas-main"
+    }
+   ],
+   "newBody": [
+    {
+     "label": "nas-main",
+     "rootKey": "nas-main"
+    }
+   ]
+  },
+  {
+   "name": "settings-refresh-bogus",
+   "method": "GET",
+   "path": "/settings/refreshes/<uuid>",
+   "oldStatus": 404,
+   "newStatus": 404,
+   "match": true,
+   "oldBody": {
+    "code": "NOT_FOUND",
+    "status": 404,
+    "title": "Not Found",
+    "type": "https://homemedia.local/problems/not-found"
+   },
+   "newBody": {
+    "code": "NOT_FOUND",
+    "status": 404,
+    "title": "Not Found",
+    "type": "https://homemedia.local/problems/not-found"
+   }
+  },
+  {
+   "name": "settings-policy",
+   "method": "GET",
+   "path": "/settings/profiles/<uuid>/policy",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "allowUnrated": true,
+    "allowedChannelIds": [],
+    "allowedMediaIds": [],
+    "blockedMediaIds": [],
+    "maxContentLevel": 18,
+    "profileId": "<uuid>",
+    "updatedAt": "<ts>",
+    "version": 1
+   },
+   "newBody": {
+    "allowUnrated": true,
+    "allowedChannelIds": [],
+    "allowedMediaIds": [],
+    "blockedMediaIds": [],
+    "maxContentLevel": 18,
+    "profileId": "<uuid>",
+    "updatedAt": "<ts>",
+    "version": 1
+   }
+  },
+  {
+   "name": "settings-candidates-query",
+   "method": "POST",
+   "path": "/settings/catalog/candidates/query",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "items": [],
+    "page": 1,
+    "pageSize": 20,
+    "total": 0
+   },
+   "newBody": {
+    "items": [],
+    "page": 1,
+    "pageSize": 20,
+    "total": 0
+   }
+  },
+  {
+   "name": "settings-epg-binding-query",
+   "method": "POST",
+   "path": "/settings/catalog/media/<uuid>/epg-binding/query",
+   "oldStatus": 404,
+   "newStatus": 404,
+   "match": true,
+   "oldBody": {
+    "code": "NOT_FOUND",
+    "status": 404,
+    "title": "Not Found",
+    "type": "https://homemedia.local/problems/not-found"
+   },
+   "newBody": {
+    "code": "NOT_FOUND",
+    "status": 404,
+    "title": "Not Found",
+    "type": "https://homemedia.local/problems/not-found"
+   }
+  },
+  {
+   "name": "settings-epg-candidates-query",
+   "method": "POST",
+   "path": "/settings/catalog/media/<uuid>/epg-candidates/query",
+   "oldStatus": 400,
+   "newStatus": 400,
+   "match": true,
+   "oldBody": {
+    "code": "VALIDATION_FAILED",
+    "detail": "body: epgSourceId: Invalid input: expected string, received undefined",
+    "status": 400,
+    "title": "Validation Failed",
+    "type": "https://homemedia.local/problems/validation-failed"
+   },
+   "newBody": {
+    "code": "VALIDATION_FAILED",
+    "detail": "body: epgSourceId: Invalid input: expected string, received undefined",
+    "status": 400,
+    "title": "Validation Failed",
+    "type": "https://homemedia.local/problems/validation-failed"
+   }
+  },
+  {
+   "name": "settings-records-query",
+   "method": "POST",
+   "path": "/settings/devices/<uuid>/playback-records/query",
+   "oldStatus": 404,
+   "newStatus": 404,
+   "match": true,
+   "oldBody": {
+    "code": "NOT_FOUND",
+    "status": 404,
+    "title": "Not Found",
+    "type": "https://homemedia.local/problems/not-found"
+   },
+   "newBody": {
+    "code": "NOT_FOUND",
+    "status": 404,
+    "title": "Not Found",
+    "type": "https://homemedia.local/problems/not-found"
+   }
+  },
+  {
+   "name": "settings-device-revoke-bogus",
+   "method": "POST",
+   "path": "/settings/devices/<uuid>/revoke",
+   "oldStatus": 400,
+   "newStatus": 400,
+   "match": true,
+   "oldBody": {
+    "code": "VALIDATION_FAILED",
+    "detail": "body: ownerPassword: Invalid input: expected string, received undefined",
+    "status": 400,
+    "title": "Validation Failed",
+    "type": "https://homemedia.local/problems/validation-failed"
+   },
+   "newBody": {
+    "code": "VALIDATION_FAILED",
+    "detail": "body: ownerPassword: Invalid input: expected string, received undefined",
+    "status": 400,
+    "title": "Validation Failed",
+    "type": "https://homemedia.local/problems/validation-failed"
+   }
+  },
+  {
+   "name": "media-list",
+   "method": "GET",
+   "path": "/media",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "items": [],
+    "page": 1,
+    "pageSize": 20,
+    "total": 0
+   },
+   "newBody": {
+    "items": [],
+    "page": 1,
+    "pageSize": 20,
+    "total": 0
+   }
+  },
+  {
+   "name": "media-bogus",
+   "method": "GET",
+   "path": "/media/<uuid>",
+   "oldStatus": 404,
+   "newStatus": 404,
+   "match": true,
+   "oldBody": {
+    "code": "NOT_FOUND",
+    "status": 404,
+    "title": "Not Found",
+    "type": "https://homemedia.local/problems/not-found"
+   },
+   "newBody": {
+    "code": "NOT_FOUND",
+    "status": 404,
+    "title": "Not Found",
+    "type": "https://homemedia.local/problems/not-found"
+   }
+  },
+  {
+   "name": "media-bogus-programmes",
+   "method": "GET",
+   "path": "/media/<uuid>/programmes",
+   "oldStatus": 404,
+   "newStatus": 404,
+   "match": true,
+   "oldBody": {
+    "code": "NOT_FOUND",
+    "status": 404,
+    "title": "Not Found",
+    "type": "https://homemedia.local/problems/not-found"
+   },
+   "newBody": {
+    "code": "NOT_FOUND",
+    "status": 404,
+    "title": "Not Found",
+    "type": "https://homemedia.local/problems/not-found"
+   }
+  },
+  {
+   "name": "me-favorites",
+   "method": "GET",
+   "path": "/me/favorites/channels",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "items": [],
+    "nextCursor": null
+   },
+   "newBody": {
+    "items": [],
+    "nextCursor": null
+   }
+  },
+  {
+   "name": "me-history",
+   "method": "GET",
+   "path": "/me/history",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": {
+    "items": [],
+    "nextCursor": null
+   },
+   "newBody": {
+    "items": [],
+    "nextCursor": null
+   }
+  },
+  {
+   "name": "me-history-bogus",
+   "method": "GET",
+   "path": "/me/history/<uuid>",
+   "oldStatus": 200,
+   "newStatus": 200,
+   "match": true,
+   "oldBody": null,
+   "newBody": null
+  },
+  {
+   "name": "playback-session-bogus",
+   "method": "GET",
+   "path": "/playback/sessions/<uuid>",
+   "oldStatus": 404,
+   "newStatus": 404,
+   "match": true,
+   "oldBody": {
+    "code": "PLAYBACK_NOT_FOUND",
+    "detail": "播放会话不存在或不属于当前设备",
+    "status": 404,
+    "title": "Playback Not Found",
+    "type": "https://homemedia.local/problems/playback-not-found"
+   },
+   "newBody": {
+    "code": "PLAYBACK_NOT_FOUND",
+    "detail": "播放会话不存在或不属于当前设备",
+    "status": 404,
+    "title": "Playback Not Found",
+    "type": "https://homemedia.local/problems/playback-not-found"
+   }
+  },
+  {
+   "name": "logout",
+   "method": "POST",
+   "path": "/auth/logout",
+   "oldStatus": 204,
+   "newStatus": 204,
+   "match": true,
+   "oldBody": null,
+   "newBody": null
+  },
+  {
+   "name": "session-after-logout",
+   "method": "GET",
+   "path": "/auth/session",
+   "oldStatus": 401,
+   "newStatus": 401,
+   "match": true,
+   "oldBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   },
+   "newBody": {
+    "code": "SESSION_INVALID",
+    "status": 401,
+    "title": "Session Invalid",
+    "type": "https://homemedia.local/problems/session-invalid"
+   }
+  }
+ ]
+}
