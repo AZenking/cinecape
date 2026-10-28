@@ -1,8 +1,7 @@
-import { and, eq, sql } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
-import { device, deviceSession, mediaItem, profile, profilePolicy } from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
-import type { Db } from '@contexts/identity-access';
+import { policyStore } from '@contexts/policy/application/policy-store.port';
+import type { PolicyRow } from '@contexts/policy/application/policy-store.port';
 import {
   assertPolicyRowInvariant,
   evaluatePolicy,
@@ -26,6 +25,9 @@ import {
  * - 候选集为有界内存判定(10000 条以内),政策语义不进 SQL(R7);T056 实测把可用性
  *   EXISTS 改为去关联等价集合查询(loadAvailableMediaIdSet,join 链不变、无政策语义),
  *   消除 10k 候选 O(n²) 关联扫描;等价性由双跑对比测试钉住。
+ *
+ * 008-repository-extraction:db 参数传递形态收敛为 PolicyStore 端口(ADR-0015 D2;
+ * 跨上下文消费方全部为事务外纯读,已逐点核实,签名去 db 后语义不变)。
  */
 
 /** 家庭候选行(内部目录事实;不含播放地址/路径/凭据/upstream 标识) */
@@ -68,7 +70,7 @@ function policyUnavailable(detail: string): DomainError {
 }
 
 /** 存量策略行 → 判定视图;损坏(名单非法/不变量破坏)→ 503,与 loadPolicyForRead 同语义 */
-function readPolicyJudgment(row: typeof profilePolicy.$inferSelect): PolicyJudgment {
+function readPolicyJudgment(row: PolicyRow): PolicyJudgment {
   assertPolicyRowInvariant(row);
   return {
     maxContentLevel: row.maxContentLevel,
@@ -107,19 +109,10 @@ function toFacts(householdId: string, candidate: CatalogCandidateRow): MediaPoli
  * 等价守卫:batch-policy-context.spec 的双跑对比测试把本查询与
  * loadMediaAvailabilityFacts 逐 id 钉死 —— 修改任何一侧 join 链必须同步另一侧,
  * 否则测试失败。本查询不含黑/白名单与等级等政策语义,判定核心仍是 evaluatePolicy,
- * 不构成第二套规则(R7)。
+ * 不构成第二套规则(R7)。008 起 SQL 经仓储端口逐字迁移(policy-store.drizzle.ts)。
  */
-export function loadAvailableMediaIdSet(db: Db, householdId: string): Set<string> {
-  const rows = db.all<{ id: string }>(sql`
-    SELECT se.media_id AS id
-    FROM source_entry se
-    INNER JOIN media_source ms ON ms.household_id = se.household_id AND ms.id = se.source_id AND ms.enabled = 1
-    INNER JOIN playback_source ps ON ps.household_id = se.household_id AND ps.source_entry_id = se.id AND ps.media_item_id = se.media_id
-    WHERE se.household_id = ${householdId}
-      AND se.present = 1
-      AND se.media_id IS NOT NULL
-  `);
-  return new Set(rows.map((row) => row.id));
+export function loadAvailableMediaIdSet(householdId: string): Set<string> {
+  return policyStore().loadAvailableMediaIdSet(householdId);
 }
 
 /**
@@ -138,18 +131,19 @@ export function filterAllowedCandidates(
   );
 }
 
-export function loadBatchCatalogContext(db: Db, input: BatchCatalogContextInput): BatchCatalogContext {
+export function loadBatchCatalogContext(input: BatchCatalogContextInput): BatchCatalogContext {
+  const store = policyStore();
   const now = Date.now();
 
   // 1) 会话/设备信任源(重读数据库行,不信任上下文快照;撤销/过期竞态不放行)
-  const session = db.select().from(deviceSession).where(eq(deviceSession.id, input.sessionId)).get();
+  const session = store.findDeviceSession(input.sessionId);
   if (session === undefined || session.revokedAt !== null || !(Date.parse(session.expiresAt) > now)) {
     throw activeProfileRequired();
   }
   if (session.householdId !== input.householdId) {
     throw activeProfileRequired();
   }
-  const deviceRow = db.select().from(device).where(eq(device.id, session.deviceId)).get();
+  const deviceRow = store.findDevice(session.deviceId);
   if (deviceRow === undefined || deviceRow.revokedAt !== null) {
     throw activeProfileRequired();
   }
@@ -158,7 +152,7 @@ export function loadBatchCatalogContext(db: Db, input: BatchCatalogContextInput)
   if (session.activeProfileId === null) {
     throw activeProfileRequired();
   }
-  const activeProfile = db.select().from(profile).where(eq(profile.id, session.activeProfileId)).get();
+  const activeProfile = store.findProfile(session.activeProfileId);
   if (
     activeProfile === undefined ||
     activeProfile.householdId !== session.householdId ||
@@ -169,11 +163,7 @@ export function loadBatchCatalogContext(db: Db, input: BatchCatalogContextInput)
   }
 
   // 3) 最新策略(每次读取即取最新,修改后下一次请求即生效):缺失/损坏 → 503
-  const policyRow = db
-    .select()
-    .from(profilePolicy)
-    .where(and(eq(profilePolicy.householdId, session.householdId), eq(profilePolicy.profileId, activeProfile.id)))
-    .get();
+  const policyRow = store.findPolicy(session.householdId, activeProfile.id);
   if (policyRow === undefined) {
     throw policyUnavailable('策略缺失,已拒绝访问,请修复数据');
   }
@@ -181,19 +171,8 @@ export function loadBatchCatalogContext(db: Db, input: BatchCatalogContextInput)
 
   // 4) 家庭候选集:两条集合查询(候选 + 可用性标识集合)同步装载,无逐条 N+1;
   //    可用性为 resource-reader EXISTS 链的去关联等价形式(见 loadAvailableMediaIdSet)
-  const mediaRows = db
-    .select({
-      id: mediaItem.id,
-      type: mediaItem.type,
-      title: mediaItem.title,
-      description: mediaItem.description,
-      contentLevel: mediaItem.contentLevel,
-      version: mediaItem.version,
-    })
-    .from(mediaItem)
-    .where(eq(mediaItem.householdId, session.householdId))
-    .all();
-  const availableIds = loadAvailableMediaIdSet(db, session.householdId);
+  const mediaRows = store.listHouseholdMediaRows(session.householdId);
+  const availableIds = loadAvailableMediaIdSet(session.householdId);
   const candidates: CatalogCandidateRow[] = mediaRows.map((row) => ({
     id: row.id,
     type: row.type as MediaType,

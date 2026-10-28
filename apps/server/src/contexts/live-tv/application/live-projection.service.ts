@@ -158,7 +158,7 @@ export function loadChannelAssociationCore(
         : and(eq(mediaItem.householdId, householdId), eq(mediaItem.type, 'channel'), inArray(mediaItem.id, [...mediaIds])),
     )
     .all();
-  const availableIds = loadAvailableMediaIdSet(db, householdId);
+  const availableIds = loadAvailableMediaIdSet(householdId);
 
   // 2) 启用 IPTV 来源 × present 条目(一次查询同时供主分组与关联解析)
   const entryRows: SourceEntryRow[] = db

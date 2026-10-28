@@ -12,6 +12,8 @@ export default tseslint.config(
       'packages/shared/src/schema.d.ts',
       // 007-T025 证据工具(一次性采样/比对脚本,非交付代码,不入 lint 项目服务)
       'docs/specs/007-backend-ddd-restructure/evidence/snapshot-parity/*.mjs',
+      // 008-T002: 纯度门禁脚本(allowDefaultProject 上限 8,按 007 证据工具先例走 ignores)
+      'apps/server/scripts/**/*.mjs',
     ],
   },
   eslint.configs.recommended,

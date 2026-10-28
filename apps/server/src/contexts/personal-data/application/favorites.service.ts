@@ -119,7 +119,7 @@ export function listFavoriteChannels(input: {
     .where(and(eq(mediaItem.householdId, identity.householdId), sql`${mediaItem.id} IN (${sql.join(mediaIds.map((id) => sql`${id}`), sql`, `)} )`))
     .all();
   const mediaById = new Map(mediaRows.map((row) => [row.id, row] as const));
-  const availableIds = loadAvailableMediaIdSet(db, identity.householdId);
+  const availableIds = loadAvailableMediaIdSet(identity.householdId);
   const projections = new Map<string, LiveChannelProjection>(
     loadLiveChannelWindows(identity.householdId, Date.now(), { mediaIds, includeProgrammes: true }).map(
       (projection) => [projection.mediaId, projection] as const,
@@ -172,7 +172,7 @@ export function addFavoriteChannel(input: {
   if (media.type !== 'channel') {
     throw new DomainError(400, 'VALIDATION_FAILED', '仅频道可以收藏');
   }
-  const availableIds = loadAvailableMediaIdSet(db, input.householdId);
+  const availableIds = loadAvailableMediaIdSet(input.householdId);
   if (!availableIds.has(input.mediaId)) {
     throw new DomainError(400, 'VALIDATION_FAILED', '不可用频道暂不能收藏');
   }

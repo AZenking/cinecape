@@ -3,7 +3,6 @@ import { ProblemCode, type PublicContextDto, type PublicMediaDto, type PublicMed
 import { Database } from '@platform/database/database';
 import { PublicContextService } from '@platform/http-common/public-context/public-context.service';
 import { DomainError } from '@platform/http-common/domain-error';
-import { getDb } from '@contexts/identity-access';
 import { loadAvailableMediaIdSet } from '@contexts/policy';
 import { toPublicMedia, type PublicMediaRow } from '@contexts/media-catalog/domain/public-media-projection';
 
@@ -92,7 +91,7 @@ export class PublicCatalogService {
     if (!scope.initialized) {
       return { items: [], page: query.page, pageSize: query.pageSize, total: 0 };
     }
-    const availableIds = loadAvailableMediaIdSet(getDb(), scope.household.householdId);
+    const availableIds = loadAvailableMediaIdSet(scope.household.householdId);
     const rows = Database.db.prepare(MEDIA_ROWS_SQL).all(scope.household.householdId) as PublicMediaRow[];
     const availableRows: PublicMediaRow[] = [];
     for (const row of rows) {
@@ -130,7 +129,7 @@ export class PublicCatalogService {
     if (!scope.initialized) {
       throw notFound();
     }
-    const availableIds = loadAvailableMediaIdSet(getDb(), scope.household.householdId);
+    const availableIds = loadAvailableMediaIdSet(scope.household.householdId);
     if (!availableIds.has(mediaId)) {
       throw notFound();
     }

@@ -14,3 +14,6 @@
  */
 export const POLICY_BATCH_CONTEXT_PORT = Symbol('POLICY_BATCH_CONTEXT_PORT');
 export const POLICY_SERVICE_PORT = Symbol('POLICY_SERVICE_PORT');
+
+/** 008 仓储端口装配令牌（ADR-0015 D1）：policy.module 装配期绑定 Drizzle 实现到 seam。 */
+export const POLICY_STORE = Symbol('POLICY_STORE');

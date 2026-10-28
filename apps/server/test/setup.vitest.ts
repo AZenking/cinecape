@@ -10,3 +10,16 @@ import { afterEach } from 'vitest';
 afterEach(() => {
   globalThis.gc?.();
 });
+
+
+/**
+ * 008-repository-extraction(ADR-0015 D1):测试工作进程级仓储 seam 默认绑定。
+ * - 惰性 getDb 解析:跟随 Database 单例 close/重开(helpers 每测试重建库仍正确);
+ * - 内存库 rig(如 batch-policy-context.spec)在自身 createRig 中以固定句柄重绑,
+ *   后绑覆盖本默认(每个测试文件独立模块域,互不串扰);
+ * - 经 Nest AppModule 装配的 e2e 会在 PolicyModule 实例化时再次绑定同一工厂,幂等。
+ */
+import { bindPolicyStore } from '../src/contexts/policy/application/policy-store.port';
+import { drizzlePolicyStore } from '../src/contexts/policy/infrastructure/policy-store.drizzle';
+
+bindPolicyStore(drizzlePolicyStore());

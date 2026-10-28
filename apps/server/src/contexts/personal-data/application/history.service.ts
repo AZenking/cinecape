@@ -163,7 +163,7 @@ export function listHistory(input: {
     )
     .all();
   const mediaById = new Map(mediaRows.map((row) => [row.id, row] as const));
-  const availableIds = loadAvailableMediaIdSet(db, identity.householdId);
+  const availableIds = loadAvailableMediaIdSet(identity.householdId);
   return {
     items: rows.map((row) => toHistoryItem(row, mediaById.get(row.mediaId), availableIds.has(row.mediaId))),
     nextCursor,
@@ -196,7 +196,7 @@ export function getHistoryItem(input: {
     .from(mediaItem)
     .where(and(eq(mediaItem.householdId, input.householdId), eq(mediaItem.id, input.mediaId)))
     .get();
-  const availableIds = loadAvailableMediaIdSet(db, input.householdId);
+  const availableIds = loadAvailableMediaIdSet(input.householdId);
   return toHistoryItem(row, media, availableIds.has(input.mediaId));
 }
 

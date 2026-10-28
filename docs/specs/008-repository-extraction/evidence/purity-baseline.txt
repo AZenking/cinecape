@@ -1,0 +1,198 @@
+error purity: src/contexts/epg/application/epg.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, eq } from 'drizzle-orm';
+error purity: src/contexts/epg/application/epg.service.ts:16 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access';
+error purity: src/contexts/epg/application/guide-window.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, eq, inArray, sql } from 'drizzle-orm';
+error purity: src/contexts/epg/application/guide-window.service.ts:5 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access';
+error purity: src/contexts/epg/application/guide-window.service.ts:6 — 值导入禁用模块 @platform/database/schema
+    import { epgProgramme } from '@platform/database/schema';
+error purity: src/contexts/epg/application/manual-epg-binding.service.ts:326 — 值导入禁用模块 drizzle-orm
+    import { and, eq, gt, inArray } from 'drizzle-orm';
+error purity: src/contexts/epg/application/manual-epg-binding.service.ts:328 — 值导入禁用模块 @platform/database/schema
+    import { epgChannel, epgProgramme, mediaSource } from '@platform/database/schema';
+error purity: src/contexts/epg/application/manual-epg-binding.service.ts:329 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access';
+error purity: src/contexts/identity-access/application/bootstrap.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, eq } from 'drizzle-orm';
+error purity: src/contexts/identity-access/application/bootstrap.service.ts:3 — 值导入禁用模块 @platform/database/schema
+    import { account, deviceSession, profile, profilePolicy, profileProgressClock } from '@platform/database/schema';
+error purity: src/contexts/identity-access/application/bootstrap.service.ts:7 — 值引用禁用符号 getDb
+    import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
+error purity: src/contexts/identity-access/application/device.service.ts:2 — 值导入禁用模块 drizzle-orm
+    import { and, asc, eq, isNull } from 'drizzle-orm';
+error purity: src/contexts/identity-access/application/device.service.ts:5 — 值导入禁用模块 @platform/database/schema
+    import { device, deviceSession } from '@platform/database/schema';
+error purity: src/contexts/identity-access/application/device.service.ts:7 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access/infrastructure/db';
+error purity: src/contexts/identity-access/application/household.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { eq } from 'drizzle-orm';
+error purity: src/contexts/identity-access/application/household.service.ts:4 — 值导入禁用模块 @platform/database/schema
+    import { household } from '@platform/database/schema';
+error purity: src/contexts/identity-access/application/household.service.ts:6 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access/infrastructure/db';
+error purity: src/contexts/identity-access/application/parent-verification.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, eq } from 'drizzle-orm';
+error purity: src/contexts/identity-access/application/parent-verification.service.ts:3 — 值导入禁用模块 @platform/database/schema
+    import { account, parentVerificationState } from '@platform/database/schema';
+error purity: src/contexts/identity-access/application/parent-verification.service.ts:6 — 值引用禁用符号 getDb
+    import { getDb, type Db } from '@contexts/identity-access/infrastructure/db';
+error purity: src/contexts/identity-access/application/session.service.ts:3 — 值导入禁用模块 drizzle-orm
+    import { eq } from 'drizzle-orm';
+error purity: src/contexts/identity-access/application/session.service.ts:6 — 值导入禁用模块 @platform/database/schema
+    import { account, deviceSession } from '@platform/database/schema';
+error purity: src/contexts/identity-access/application/session.service.ts:9 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access/infrastructure/db';
+error purity: src/contexts/identity-access/application/setup.service.ts:4 — 值导入禁用模块 @platform/database/schema
+    import { account, household } from '@platform/database/schema';
+error purity: src/contexts/identity-access/application/setup.service.ts:6 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access/infrastructure/db';
+error purity: src/contexts/live-tv/application/live-projection.service.ts:2 — 值导入禁用模块 drizzle-orm
+    import { and, eq, inArray, sql } from 'drizzle-orm';
+error purity: src/contexts/live-tv/application/live-projection.service.ts:6 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access';
+error purity: src/contexts/live-tv/application/live-projection.service.ts:8 — 值导入禁用模块 @platform/database/schema
+    import { epgChannel, epgProgramme, manualEpgBinding, mediaItem, mediaSource, sourceEntry } from '@platform/database/schema';
+error purity: src/contexts/media-catalog/application/catalog-admin.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, eq, sql } from 'drizzle-orm';
+error purity: src/contexts/media-catalog/application/catalog-admin.service.ts:5 — 值导入禁用模块 @platform/database/schema
+    import { catalogState, deviceSession, mediaItem } from '@platform/database/schema';
+error purity: src/contexts/media-catalog/application/catalog-admin.service.ts:6 — 值引用禁用符号 getDb
+    import { getDb, verifyParentPassword, type Db } from '@contexts/identity-access';
+error purity: src/contexts/media-catalog/application/catalog.service.ts:4 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access';
+error purity: src/contexts/media-catalog/application/public-catalog.service.ts:3 — 值导入禁用模块 @platform/database/database
+    import { Database } from '@platform/database/database';
+error purity: src/contexts/media-catalog/application/public-catalog.service.ts:6 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access';
+error purity: src/contexts/personal-data/application/favorites.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, desc, eq, sql } from 'drizzle-orm';
+error purity: src/contexts/personal-data/application/favorites.service.ts:3 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access';
+error purity: src/contexts/personal-data/application/history.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, desc, eq, sql } from 'drizzle-orm';
+error purity: src/contexts/personal-data/application/history.service.ts:2 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access';
+error purity: src/contexts/personal-data/application/history.service.ts:3 — 值导入禁用模块 @platform/database/schema
+    import { mediaItem, profileViewingHistory, type ProfileViewingHistory } from '@platform/database/schema';
+error purity: src/contexts/personal-data/application/progress-clock.service.ts:2 — 值导入禁用模块 drizzle-orm
+    import { and, eq, sql } from 'drizzle-orm';
+error purity: src/contexts/personal-data/application/progress-clock.service.ts:3 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access';
+error purity: src/contexts/personal-data/application/progress-write.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, eq } from 'drizzle-orm';
+error purity: src/contexts/personal-data/application/progress-write.service.ts:2 — 值引用禁用符号 getDb
+    import { getDb, type Db } from '@contexts/identity-access';
+error purity: src/contexts/playback/application/playback-audit.service.ts:2 — 值导入禁用模块 drizzle-orm
+    import { and, eq } from 'drizzle-orm';
+error purity: src/contexts/playback/application/playback-audit.service.ts:7 — 值导入禁用模块 @platform/database/schema
+    import { mediaItem, playbackFailureEvent, playbackSource, profile, sourceEntry } from '@platform/database/schema';
+error purity: src/contexts/playback/application/playback-audit.service.ts:8 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access';
+error purity: src/contexts/playback/application/playback-authorization.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, eq } from 'drizzle-orm';
+error purity: src/contexts/playback/application/playback-authorization.service.ts:17 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access';
+error purity: src/contexts/playback/application/playback-resolver.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { eq } from 'drizzle-orm';
+error purity: src/contexts/playback/application/playback-resolver.service.ts:5 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access';
+error purity: src/contexts/playback/application/playback-resolver.service.ts:6 — 值导入禁用模块 @platform/database/schema
+    import { deviceSession, playbackSession } from '@platform/database/schema';
+error purity: src/contexts/playback/application/playback-retention.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { inArray, lt, lte } from 'drizzle-orm';
+error purity: src/contexts/playback/application/playback-retention.service.ts:4 — 值导入禁用模块 @platform/database/schema
+    import { playbackFailureEvent, playbackSession, playbackTicket } from '@platform/database/schema';
+error purity: src/contexts/playback/application/playback-retention.service.ts:5 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access';
+error purity: src/contexts/playback/application/playback-selection.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { eq } from 'drizzle-orm';
+error purity: src/contexts/playback/application/playback-selection.service.ts:6 — 值引用禁用符号 getDb
+    import { getDb } from '@contexts/identity-access';
+error purity: src/contexts/playback/application/playback-selection.service.ts:7 — 值导入禁用模块 @platform/database/schema
+    import { playbackTicket } from '@platform/database/schema';
+error purity: src/contexts/playback/application/playback-ticket.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { eq } from 'drizzle-orm';
+error purity: src/contexts/playback/application/playback-ticket.service.ts:5 — 值引用禁用符号 getDb
+    import { getDb, generateToken, hashToken } from '@contexts/identity-access';
+error purity: src/contexts/playback/application/playback-ticket.service.ts:6 — 值导入禁用模块 @platform/database/schema
+    import { deviceSession, playbackSession, playbackTicket } from '@platform/database/schema';
+error purity: src/contexts/policy/application/policy.batch-context.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, eq, sql } from 'drizzle-orm';
+error purity: src/contexts/policy/application/policy.batch-context.ts:3 — 值导入禁用模块 @platform/database/schema
+    import { device, deviceSession, mediaItem, profile, profilePolicy } from '@platform/database/schema';
+error purity: src/contexts/policy/application/policy.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, eq, inArray } from 'drizzle-orm';
+error purity: src/contexts/policy/application/policy.service.ts:4 — 值导入禁用模块 @platform/database/schema
+    import { deviceSession, mediaItem, profile, profilePolicy } from '@platform/database/schema';
+error purity: src/contexts/policy/application/policy.service.ts:7 — 值引用禁用符号 getDb
+    import { getDb, verifyParentPassword, type Db } from '@contexts/identity-access';
+error purity: src/contexts/profile/application/identity-transition.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+error purity: src/contexts/profile/application/pin.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { eq } from 'drizzle-orm';
+error purity: src/contexts/profile/application/pin.service.ts:5 — 值导入禁用模块 @platform/database/schema
+    import { profile } from '@platform/database/schema';
+error purity: src/contexts/profile/application/pin.service.ts:7 — 值引用禁用符号 getDb
+    import { getDb, verifyPassword } from '@contexts/identity-access';
+error purity: src/contexts/profile/application/profile-selection.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, eq } from 'drizzle-orm';
+error purity: src/contexts/profile/application/profile-selection.service.ts:3 — 值导入禁用模块 @platform/database/schema
+    import { deviceSession, profile } from '@platform/database/schema';
+error purity: src/contexts/profile/application/profile.service.ts:2 — 值导入禁用模块 drizzle-orm
+    import { and, eq } from 'drizzle-orm';
+error purity: src/contexts/profile/application/profile.service.ts:5 — 值导入禁用模块 @platform/database/schema
+    import { profile, profilePolicy } from '@platform/database/schema';
+error purity: src/contexts/profile/application/profile.service.ts:8 — 值引用禁用符号 getDb
+    import { getDb, type Db } from '@contexts/identity-access';
+error purity: src/contexts/settings/application/settings-access-grant.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, eq, isNull } from 'drizzle-orm';
+error purity: src/contexts/settings/application/settings-access-grant.service.ts:3 — 值导入禁用模块 @platform/database/schema
+    import { device, deviceSession, household, profile, settingsAccessGrant, account } from '@platform/database/schema';
+error purity: src/contexts/settings/application/settings-access-grant.service.ts:6 — 值引用禁用符号 getDb
+    import { getDb, type Db } from '@contexts/identity-access';
+error purity: src/contexts/settings/application/settings-access-revocation.ts:2 — 值导入禁用模块 drizzle-orm
+    import { and, eq, inArray, isNull } from 'drizzle-orm';
+error purity: src/contexts/settings/application/settings-access-revocation.ts:3 — 值导入禁用模块 @platform/database/schema
+    import { deviceSession, settingsAccessGrant } from '@platform/database/schema';
+error purity: src/contexts/settings/application/settings-access-revocation.ts:4 — 值导入禁用模块 @platform/database/database
+    import { Database } from '@platform/database/database';
+error purity: src/contexts/settings/application/settings-access-revocation.ts:5 — 值引用禁用符号 getDb
+    import { getDb, type Db } from '@contexts/identity-access';
+error purity: src/contexts/settings/application/settings-account.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, eq, isNull } from 'drizzle-orm';
+error purity: src/contexts/settings/application/settings-account.service.ts:4 — 值导入禁用模块 @platform/database/schema
+    import { account, deviceSession, profile } from '@platform/database/schema';
+error purity: src/contexts/settings/application/settings-account.service.ts:7 — 值引用禁用符号 getDb
+    import { getDb, hashPassword, requireManagementRole, type Db } from '@contexts/identity-access';
+error purity: src/contexts/settings/application/settings-devices.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, desc, eq, lt, or, type SQL } from 'drizzle-orm';
+error purity: src/contexts/settings/application/settings-devices.service.ts:4 — 值导入禁用模块 @platform/database/schema
+    import { device, deviceSession, playbackFailureEvent, playbackSession } from '@platform/database/schema';
+error purity: src/contexts/settings/application/settings-household.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { eq } from 'drizzle-orm';
+error purity: src/contexts/settings/application/settings-household.service.ts:3 — 值导入禁用模块 @platform/database/schema
+    import { household } from '@platform/database/schema';
+error purity: src/contexts/settings/application/settings-household.service.ts:6 — 值引用禁用符号 getDb
+    import { getDb, requireManagementRole, type Db } from '@contexts/identity-access';
+error purity: src/contexts/settings/application/settings-pin-verification.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, eq } from 'drizzle-orm';
+error purity: src/contexts/settings/application/settings-pin-verification.service.ts:3 — 值导入禁用模块 @platform/database/schema
+    import { account, deviceSession, household, profile } from '@platform/database/schema';
+error purity: src/contexts/settings/application/settings-pin-verification.service.ts:7 — 值引用禁用符号 getDb
+    import { getDb, verifyPassword, requireManagementRole, type Db } from '@contexts/identity-access';
+error purity: src/contexts/settings/application/settings-profiles.service.ts:1 — 值导入禁用模块 drizzle-orm
+    import { and, eq, ne } from 'drizzle-orm';
+error purity: src/contexts/settings/application/settings-profiles.service.ts:4 — 值导入禁用模块 @platform/database/schema
+    import { deviceSession, household, profile, profilePolicy } from '@platform/database/schema';
+error purity: src/contexts/sources/application/refresh-executor.service.ts:9 — 值导入禁用模块 @platform/database/database
+    import { Database } from '@platform/database/database';
+error purity: src/contexts/sources/application/refresh-publish.service.ts:13 — 值导入禁用模块 @platform/database/database
+    import { Database } from '@platform/database/database';
+error purity: src/contexts/sources/application/sources.service.ts:2 — 值导入禁用模块 drizzle-orm
+    import { and, count, eq, sql } from 'drizzle-orm';
+error purity: src/contexts/sources/application/sources.service.ts:20 — 值引用禁用符号 getDb
+    import { getDb, verifyParentPassword, type Db } from '@contexts/identity-access';
+
+✖ 98 purity violation(s)

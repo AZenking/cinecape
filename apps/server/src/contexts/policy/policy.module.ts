@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { POLICY_BATCH_CONTEXT_PORT, POLICY_SERVICE_PORT } from '@contexts/policy/policy.tokens';
+import { POLICY_BATCH_CONTEXT_PORT, POLICY_SERVICE_PORT, POLICY_STORE } from '@contexts/policy/policy.tokens';
 import { loadAvailableMediaIdSet, loadBatchCatalogContext } from '@contexts/policy/application/policy.batch-context';
 import {
   authorizeCurrentProfile,
@@ -7,6 +7,8 @@ import {
   replacePolicyLists,
   updatePolicy,
 } from '@contexts/policy/application/policy.service';
+import { bindPolicyStore } from '@contexts/policy/application/policy-store.port';
+import { drizzlePolicyStore } from '@contexts/policy/infrastructure/policy-store.drizzle';
 import type { IPolicyBatchContextService, IPolicyService } from '@contexts/policy/policy.ports';
 
 /**
@@ -19,10 +21,18 @@ import type { IPolicyBatchContextService, IPolicyService } from '@contexts/polic
  * (纯函数模块经 useValue 函数束 + satisfies 对齐 ports 接口,零行为变化;
  * 测试专用 TrustedResourceReader 注入路径不变:authorizeCurrentProfile 仍以参数
  * 传入 reader,令牌束引用同一函数);exports 仅发布令牌,消费方迁移属 T022。
+ *
+ * 008-repository-extraction(ADR-0015 D1):装配期绑定仓储 seam ——
+ * POLICY_STORE provider 实例化时经 bindPolicyStore 注入 Drizzle 实现
+ * (惰性 getDb 解析,Database 单例重开安全);不经 HTTP 暴露,不导出。
  */
 @Module({
   controllers: [],
   providers: [
+    {
+      provide: POLICY_STORE,
+      useFactory: () => bindPolicyStore(drizzlePolicyStore()),
+    },
     {
       provide: POLICY_BATCH_CONTEXT_PORT,
       useValue: { loadAvailableMediaIdSet, loadBatchCatalogContext } satisfies IPolicyBatchContextService,

@@ -1,7 +1,6 @@
 import { ProblemCode, type MediaDto, type MediaPageDto } from '@hmp/shared';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { DomainError } from '@platform/http-common/domain-error';
-import { getDb } from '@contexts/identity-access';
 import { loadBatchCatalogContext, type CatalogCandidateRow, type MediaType } from '@contexts/policy';
 
 /**
@@ -77,7 +76,7 @@ export function buildMediaPage(allowed: readonly CatalogCandidateRow[], query: L
 
 /** GET /media:先策略过滤再搜索/排序/计数/分页(research R7,不得先分页后过滤) */
 export function listMedia(context: SessionContext, query: ListMediaQuery): MediaPageDto {
-  const catalog = loadBatchCatalogContext(getDb(), {
+  const catalog = loadBatchCatalogContext({
     householdId: context.session.householdId,
     sessionId: context.session.id,
   });
@@ -86,7 +85,7 @@ export function listMedia(context: SessionContext, query: ListMediaQuery): Media
 
 /** GET /media/{mediaId}:与列表同一 allowed 集合判定;未命中 → 统一同形 404 */
 export function getMedia(context: SessionContext, mediaId: string): MediaDto {
-  const catalog = loadBatchCatalogContext(getDb(), {
+  const catalog = loadBatchCatalogContext({
     householdId: context.session.householdId,
     sessionId: context.session.id,
   });

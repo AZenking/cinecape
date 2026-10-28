@@ -9,6 +9,8 @@ import { ProblemCode } from '@hmp/shared';
 import * as schema from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
 import type { Db } from '@contexts/identity-access/infrastructure/db';
+import { bindPolicyStore } from '@contexts/policy/application/policy-store.port';
+import { drizzlePolicyStore } from '@contexts/policy/infrastructure/policy-store.drizzle';
 import {
   filterAllowedCandidates,
   loadAvailableMediaIdSet,
@@ -56,7 +58,10 @@ function createRig(): UnitRig {
     conn.exec(fs.readFileSync(upSqlPath, 'utf8'));
   }
   openConnections.push(conn);
-  return { conn, db: drizzle(conn, { schema }) };
+  const db = drizzle(conn, { schema });
+  // 008-repository-extraction:rig 句柄绑定仓储 seam(函数签名已无 db 参数,ADR-0015 D2)
+  bindPolicyStore(drizzlePolicyStore(db));
+  return { conn, db };
 }
 
 function run(conn: DatabaseConstructor.Database, sql: string, ...args: unknown[]): void {
@@ -244,7 +249,7 @@ describe('T033 批量目录上下文(单次同步装载 + evaluatePolicy 同序�
   it('单次同步读取:查询数与候选规模无关(无 N+1),返回值非 Promise(无逐条 await)', () => {
     const rig = freshRig();
     const small = countedDb(rig.db);
-    const smallContext = loadBatchCatalogContext(small.db, { householdId: 'hh-1', sessionId: 'ses-adult' });
+    const smallContext = loadBatchCatalogContext({ householdId: 'hh-1', sessionId: 'ses-adult' });
     const smallCount = small.count();
     expect((smallContext as { then?: unknown }).then).toBeUndefined();
 
@@ -266,7 +271,7 @@ describe('T033 批量目录上下文(单次同步装载 + evaluatePolicy 同序�
     }
 
     const large = countedDb(rig.db);
-    const largeContext = loadBatchCatalogContext(large.db, { householdId: 'hh-1', sessionId: 'ses-adult' });
+    const largeContext = loadBatchCatalogContext({ householdId: 'hh-1', sessionId: 'ses-adult' });
     expect(large.count()).toBe(smallCount);
     expect(smallCount).toBeLessThanOrEqual(8); // 会话/设备/档案/策略/候选/可用性 —— 常数,不随候选数增长
     expect(smallContext.candidates).toHaveLength(11);
@@ -296,7 +301,7 @@ describe('T033 批量目录上下文(单次同步装载 + evaluatePolicy 同序�
 
   it('会话/设备/档案信任源:无档案、撤销、过期、设备撤销、档案停用、跨家庭档案 → 403 ACTIVE_PROFILE_REQUIRED', () => {
     const rig = freshRig();
-    const load = (): unknown => loadBatchCatalogContext(rig.db, { householdId: 'hh-1', sessionId: 'ses-adult' });
+    const load = (): unknown => loadBatchCatalogContext({ householdId: 'hh-1', sessionId: 'ses-adult' });
 
     run(rig.conn, 'UPDATE device_session SET active_profile_id = NULL WHERE id = ?', 'ses-adult');
     expectDomainError(load, 403, ProblemCode.ACTIVE_PROFILE_REQUIRED);
@@ -325,7 +330,7 @@ describe('T033 批量目录上下文(单次同步装载 + evaluatePolicy 同序�
 
     // 调用方 householdId 与会话行不一致 → 以会话行为准拒绝
     expectDomainError(
-      () => loadBatchCatalogContext(rig.db, { householdId: 'hh-forged', sessionId: 'ses-adult' }),
+      () => loadBatchCatalogContext({ householdId: 'hh-forged', sessionId: 'ses-adult' }),
       403,
       ProblemCode.ACTIVE_PROFILE_REQUIRED,
     );
@@ -333,7 +338,7 @@ describe('T033 批量目录上下文(单次同步装载 + evaluatePolicy 同序�
 
   it('策略缺失/损坏 → 503 POLICY_UNAVAILABLE(不伪装空列表、不回落默认)', () => {
     const rig = freshRig();
-    const load = (): unknown => loadBatchCatalogContext(rig.db, { householdId: 'hh-1', sessionId: 'ses-child' });
+    const load = (): unknown => loadBatchCatalogContext({ householdId: 'hh-1', sessionId: 'ses-child' });
 
     run(rig.conn, 'DELETE FROM profile_policy WHERE profile_id = ?', 'prof-child');
     expectDomainError(load, 503, ProblemCode.POLICY_UNAVAILABLE);
@@ -351,7 +356,7 @@ describe('T033 批量目录上下文(单次同步装载 + evaluatePolicy 同序�
 
   it('过滤与 evaluatePolicy 同序:黑名单优先、未评级按 allowUnrated、频道白名单仅 channel、允许名单覆盖等级', () => {
     const rig = freshRig();
-    const child = loadBatchCatalogContext(rig.db, { householdId: 'hh-1', sessionId: 'ses-child' });
+    const child = loadBatchCatalogContext({ householdId: 'hh-1', sessionId: 'ses-child' });
     // 儿童(6,拒绝未评级,allowed∩blocked 交集,频道白名单 [ch-in]):
     // 可见 = m-low(3) + m-allow-only(名单覆盖 18 上限) + m-dual(3,双源可用) + ch-in(白名单频道)
     expect(child.profileType).toBe('child');
@@ -362,11 +367,11 @@ describe('T033 批量目录上下文(单次同步装载 + evaluatePolicy 同序�
 
     // 未评级按 allowUnrated:儿童 allowUnrated=false → 不可见;改为 true → 立即可见(名单不变)
     run(rig.conn, 'UPDATE profile_policy SET allow_unrated = 1 WHERE profile_id = ?', 'prof-child');
-    const childAllowUnrated = loadBatchCatalogContext(rig.db, { householdId: 'hh-1', sessionId: 'ses-child' });
+    const childAllowUnrated = loadBatchCatalogContext({ householdId: 'hh-1', sessionId: 'ses-child' });
     expect(candidateIds(childAllowUnrated)).toContain('m-unrated');
 
     // 成人(18,允许未评级,空名单):频道无白名单门槛;不可用候选仍被排除(可用性先于策略)
-    const adult = loadBatchCatalogContext(rig.db, { householdId: 'hh-1', sessionId: 'ses-adult' });
+    const adult = loadBatchCatalogContext({ householdId: 'hh-1', sessionId: 'ses-adult' });
     expect(adult.profileType).toBe('adult');
     expect(candidateIds(adult)).toStrictEqual([
       'ch-in',
@@ -476,7 +481,7 @@ describe('T056 性能守卫(可用性等价下推双跑对比 + 10k 过滤耗时
   it('双跑对比:集合式可用性与 resource-reader 逐行 EXISTS 对同一 id 域逐 id 一致', () => {
     const rig = freshRig();
     const canonical = loadMediaAvailabilityFacts(rig.db, { householdId: 'hh-1' });
-    const availableIds = loadAvailableMediaIdSet(rig.db, 'hh-1');
+    const availableIds = loadAvailableMediaIdSet('hh-1');
     // 同一 id 域 = 权威 Map 的全部键 ∪ 集合查询的全部值(双方向覆盖,防一侧漏报)
     const allIds = new Set([...canonical.keys(), ...availableIds]);
     expect(allIds.size).toBeGreaterThan(0);

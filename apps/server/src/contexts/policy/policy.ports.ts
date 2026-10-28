@@ -4,7 +4,6 @@
  * useValue + satisfies 对齐本文件接口）。
  */
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import type { Db } from '@contexts/identity-access';
 import type { BatchCatalogContext, BatchCatalogContextInput } from './application/policy.batch-context';
 import type {
   AuthorizationReason,
@@ -14,10 +13,11 @@ import type {
   UpdatePolicyInput,
 } from './application/policy.service';
 
-/** policy.batch-context 发布面（消费方：epg / live-tv / media-catalog / personal-data） */
+/** policy.batch-context 发布面（消费方：epg / live-tv / media-catalog / personal-data）
+ *  008：db 参数收敛为 PolicyStore 端口（ADR-0015 D2，消费方全部事务外纯读）。 */
 export interface IPolicyBatchContextService {
-  loadAvailableMediaIdSet(db: Db, householdId: string): Set<string>;
-  loadBatchCatalogContext(db: Db, input: BatchCatalogContextInput): BatchCatalogContext;
+  loadAvailableMediaIdSet(householdId: string): Set<string>;
+  loadBatchCatalogContext(input: BatchCatalogContextInput): BatchCatalogContext;
 }
 
 /** policy.service 发布面（消费方：playback 授权管线 / settings 策略契约路由） */

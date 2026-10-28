@@ -1,11 +1,11 @@
-import { and, eq, inArray } from 'drizzle-orm';
 import { ProblemCode } from '@hmp/shared';
 import type { ProfilePolicy } from '@platform/database/schema';
-import { deviceSession, mediaItem, profile, profilePolicy } from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { getDb, verifyParentPassword, type Db } from '@contexts/identity-access';
+import { verifyParentPassword } from '@contexts/identity-access';
 import { requireOwnedProfile } from '@contexts/profile';
+import { policyStore } from '@contexts/policy/application/policy-store.port';
+import type { PolicyTxStore } from '@contexts/policy/application/policy-store.port';
 import {
   assertPolicyRowInvariant,
   evaluatePolicy,
@@ -30,6 +30,9 @@ import {
  * - writePolicyLists 为服务端名单写入路径:阶段 2 夹具/运维语义保持不变(不带 options);
  *   阶段 3 T051 增加严格模式(expectedVersion 同事务校验 + 每 ID 归属/频道类型校验),
  *   供 replacePolicyLists(PUT /profiles/{id}/policy/lists)使用,两入口共享同一策略版本。
+ *
+ * 008-repository-extraction:数据访问经 PolicyStore 端口(ADR-0015 D1,查询逐字迁移至
+ * infrastructure/policy-store.drizzle.ts;事务经 withTransaction 端口,语义不变)。
  */
 
 /** PolicyDto 响应体(契约 components/schemas/PolicyDto;不返回 householdId/凭据/验证计数) */
@@ -71,13 +74,9 @@ function rowToDto(row: ProfilePolicy): PolicyDtoBody {
   };
 }
 
-function policyRowWhere(householdId: string, profileId: string) {
-  return and(eq(profilePolicy.householdId, householdId), eq(profilePolicy.profileId, profileId));
-}
-
 /** 读取并校验策略行(损坏/缺失 → 503);授权入口与 API 共用 */
 export function loadPolicyForRead(householdId: string, profileId: string): PolicyDtoBody {
-  const row = getDb().select().from(profilePolicy).where(policyRowWhere(householdId, profileId)).get();
+  const row = policyStore().findPolicy(householdId, profileId);
   if (row === undefined) {
     throw unavailable();
   }
@@ -101,8 +100,8 @@ export async function updatePolicy(profileId: string, context: SessionContext, i
   await verifyParentPassword(context, input.ownerPassword);
 
   const target = requireOwnedProfile(profileId, context);
-  return getDb().transaction((tx) => {
-    const row = tx.select().from(profilePolicy).where(policyRowWhere(target.householdId, target.id)).get();
+  return policyStore().withTransaction((tx) => {
+    const row = tx.findPolicy(target.householdId, target.id);
     if (row === undefined) {
       throw unavailable();
     }
@@ -110,26 +109,19 @@ export async function updatePolicy(profileId: string, context: SessionContext, i
     if (row.version !== input.expectedVersion) {
       throw new DomainError(409, ProblemCode.POLICY_VERSION_CONFLICT, '策略已被其他会话修改,请重新加载');
     }
-    tx
-      .update(profilePolicy)
-      .set({
-        maxContentLevel: input.policy.maxContentLevel,
-        allowUnrated: input.policy.allowUnrated ? 1 : 0,
-        version: row.version + 1,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(policyRowWhere(target.householdId, target.id))
-      .run();
-    const fresh = tx.select().from(profilePolicy).where(policyRowWhere(target.householdId, target.id)).get();
+    tx.updatePolicyRow(target.householdId, target.id, {
+      maxContentLevel: input.policy.maxContentLevel,
+      allowUnrated: input.policy.allowUnrated ? 1 : 0,
+      version: row.version + 1,
+      updatedAt: new Date().toISOString(),
+    });
+    const fresh = tx.findPolicy(target.householdId, target.id);
     if (fresh === undefined) {
       throw unavailable();
     }
     return rowToDto(fresh);
   });
 }
-
-/** 事务句柄类型(better-sqlite3 同步事务回调入参;与 sources.service 同一惯用法) */
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 /**
  * writePolicyLists 严格模式选项(T051;省略 = 阶段 2 夹具语义,行为与既有调用完全一致):
@@ -158,10 +150,11 @@ export interface ReplacePolicyListsInput {
 /**
  * 名单 ID 归属/类型校验(T051):全部 ID 必须存在于本 Household 的 media_item;
  * allowedChannelIds 的每个 ID 还必须 type=channel(缺失同样失败)。
- * 分块 IN 查询(500/批),任一非法 → 400 VALIDATION_FAILED,由事务整体回滚保证原策略不变。
+ * 分块 IN 查询经仓储端口(500/批,逐字迁移),任一非法 → 400 VALIDATION_FAILED,
+ * 由事务整体回滚保证原策略不变。
  */
 function assertListsReferenceHouseholdMedia(
-  tx: Tx,
+  tx: PolicyTxStore,
   householdId: string,
   allowedMediaIds: string[],
   blockedMediaIds: string[],
@@ -169,16 +162,9 @@ function assertListsReferenceHouseholdMedia(
 ): void {
   const typeById = new Map<string, string>();
   const uniqueIds = [...new Set([...allowedMediaIds, ...blockedMediaIds, ...channelIds])];
-  for (let start = 0; start < uniqueIds.length; start += 500) {
-    const chunk = uniqueIds.slice(start, start + 500);
-    const rows = tx
-      .select({ id: mediaItem.id, type: mediaItem.type })
-      .from(mediaItem)
-      .where(and(eq(mediaItem.householdId, householdId), inArray(mediaItem.id, chunk)))
-      .all();
-    for (const row of rows) {
-      typeById.set(row.id, row.type);
-    }
+  const rows = tx.findMediaTypesByIds(householdId, uniqueIds);
+  for (const row of rows) {
+    typeById.set(row.id, row.type);
   }
   const missing = uniqueIds.filter((id) => !typeById.has(id));
   if (missing.length > 0) {
@@ -209,8 +195,8 @@ export function writePolicyLists(
     allowedChannelIds: lists.allowedChannelIds !== undefined ? JSON.stringify(normalizeMediaIdList(lists.allowedChannelIds)) : undefined,
   };
 
-  return getDb().transaction((tx) => {
-    const row = tx.select().from(profilePolicy).where(policyRowWhere(householdId, profileId)).get();
+  return policyStore().withTransaction((tx) => {
+    const row = tx.findPolicy(householdId, profileId);
     if (row === undefined) {
       throw new DomainError(404, ProblemCode.NOT_FOUND);
     }
@@ -227,8 +213,8 @@ export function writePolicyLists(
         patch[key] = value;
       }
     }
-    tx.update(profilePolicy).set(patch).where(policyRowWhere(householdId, profileId)).run();
-    const fresh = tx.select().from(profilePolicy).where(policyRowWhere(householdId, profileId)).get();
+    tx.updatePolicyRow(householdId, profileId, patch);
+    const fresh = tx.findPolicy(householdId, profileId);
     if (fresh === undefined) {
       throw unavailable();
     }
@@ -252,7 +238,7 @@ export async function replacePolicyLists(
     throw new DomainError(403, ProblemCode.PARENT_VERIFICATION_REQUIRED, '需要主账号密码完成家长验证');
   }
   await verifyParentPassword(context, input.ownerPassword);
-  const sessionRow = getDb().select().from(deviceSession).where(eq(deviceSession.id, context.session.id)).get();
+  const sessionRow = policyStore().findDeviceSession(context.session.id);
   if (sessionRow === undefined || sessionRow.revokedAt !== null || !(Date.parse(sessionRow.expiresAt) > Date.now())) {
     throw new DomainError(401, ProblemCode.SESSION_INVALID, undefined);
   }
@@ -297,11 +283,11 @@ export async function authorizeCurrentProfile(
   mediaId: string,
   readTrustedResource: TrustedResourceReader,
 ): Promise<{ allowed: boolean; reason: AuthorizationReason }> {
-  const db = getDb();
+  const store = policyStore();
   const now = Date.now();
 
   // 1) 会话重验:行存在、未撤销、未过期
-  const sessionRow = db.select().from(deviceSession).where(eq(deviceSession.id, context.session.id)).get();
+  const sessionRow = store.findDeviceSession(context.session.id);
   if (
     sessionRow === undefined ||
     sessionRow.revokedAt !== null ||
@@ -315,7 +301,7 @@ export async function authorizeCurrentProfile(
   if (activeProfileId === null) {
     return { allowed: false, reason: 'ACTIVE_PROFILE_REQUIRED' };
   }
-  const activeProfileRow = db.select().from(profile).where(eq(profile.id, activeProfileId)).get();
+  const activeProfileRow = store.findProfile(activeProfileId);
   if (
     activeProfileRow === undefined ||
     activeProfileRow.householdId !== sessionRow.householdId ||
@@ -333,11 +319,7 @@ export async function authorizeCurrentProfile(
 
   // 4) 最新策略(损坏 → null → 判定核心按 POLICY_UNAVAILABLE 拒绝)
   let judgment: Parameters<typeof evaluatePolicy>[0] = null;
-  const policyRow = db
-    .select()
-    .from(profilePolicy)
-    .where(policyRowWhere(sessionRow.householdId, activeProfileId))
-    .get();
+  const policyRow = store.findPolicy(sessionRow.householdId, activeProfileId);
   if (policyRow !== undefined) {
     try {
       judgment = rowToDto(policyRow);

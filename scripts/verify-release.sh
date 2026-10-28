@@ -68,6 +68,8 @@ run_step "④ build(-r)" pnpm -r build
 # ④b 结构边界与零遗留审计(规格007 宪章技术约束6/7 门禁)
 run_step "④b audit:boundaries(007 结构门禁)" pnpm --filter @hmp/server audit:boundaries
 run_step "④b audit:orphans(007 零遗留门禁)" pnpm --filter @hmp/server audit:orphans
+# 008 纯度门禁(报告模式接入;T014 起 PURITY_ENFORCE 收紧为强制) — ADR-0015 D3
+run_step "④b audit:purity(008 应用层纯度,迁移期报告模式)" env PURITY_ENFORCE=0 pnpm --filter @hmp/server audit:purity
 
 # ⑤ 全量测试(server+web 全部 unit/contract/组件测试;显式 filter,不继承基础清单)
 run_step "⑤a server 全量 vitest(unit+contract)" pnpm --filter @hmp/server test

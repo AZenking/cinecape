@@ -75,7 +75,7 @@ function notFound(): DomainError {
 function loadProgrammeReadContext(householdId: string, sessionId: string): { allowed: CatalogCandidateRow[] } {
   const db = getDb();
   try {
-    return { allowed: loadBatchCatalogContext(db, { householdId, sessionId }).allowed };
+    return { allowed: loadBatchCatalogContext({ householdId, sessionId }).allowed };
   } catch (error) {
     if (!(error instanceof DomainError) || error.code !== ProblemCode.ACTIVE_PROFILE_REQUIRED) {
       throw error;
@@ -111,7 +111,7 @@ function loadProgrammeReadContext(householdId: string, sessionId: string): { all
       .from(mediaItem)
       .where(eq(mediaItem.householdId, householdId))
       .all();
-    const availableIds = loadAvailableMediaIdSet(db, householdId);
+    const availableIds = loadAvailableMediaIdSet(householdId);
     return {
       allowed: mediaRows
         .filter((row) => availableIds.has(row.id))
