@@ -12,7 +12,8 @@
  *   可 authorize→prepare→playing,旧回调与旧准备结果结构上不能起播其它内容(FR-013);
  *   取消登录/选档废弃暂存播放意图(不自动播放);退出/换档(身份键变化)废弃在途
  *   播放与会话(服务端同事务终态化,前端补发幂等 stop 仅作卫生清理);
- * - playing 态由协调器全屏挂载播放器(features/playback/player-view),不另建路由面;
+ * - playing 态由协调器以全局 Modal 挂载播放器(features/playback/player-view;009:非全屏、
+ *   路由切换不掉、遮罩/Esc 不关闭),不另建路由面;
  * - 选档成功回到原业务目标或首页(白名单内);取消清凭据与意图、返回原页面、
  *   不自动重开、不重复弹窗;返回目标仅接受本应用内部路径白名单,拒绝外部跳转
  *   (FR-010 防开放重定向);
@@ -715,8 +716,7 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
           ) : null}
         </Modal.Root>
         {/* 播放面(T055):authorize/prepare 为非阻塞浮动面板 —— FR-013「准备中换目标」
-            要求底层内容仍可点击,新目标即时取代旧意图;playing/unavailable 才全屏挂载
-            (播放器/稳定拒绝面)。退出即废弃在途请求与票据;不另建路由(见最终报告)。 */}
+            要求底层内容仍可点击,新目标即时取代旧意图(见最终报告)。 */}
         {playback !== null && (playback.phase === 'authorizing' || playback.phase === 'preparing') ? (
           <div
             data-testid="playback-preparing"
@@ -732,52 +732,73 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
             </Button>
           </div>
         ) : null}
+        {/* 播放面(T055;009 Modal 化):playing/unavailable 以全局 Modal 挂载 —— 非全屏、
+            路由切换不掉(协调器位于路由树之外,弹层随协调器状态存活,规格 009 FR-002/003)。
+            遮罩/Esc 不关闭(isDismissable=false,长时会话防误触),关闭仅经「退出」走
+            close() 统一路径(退出即废弃在途请求与票据;不另建路由,维持 005 决策)。 */}
         {playback !== null && (playback.phase === 'playing' || playback.phase === 'unavailable') ? (
-          <div
-            data-testid="playback-surface"
-            role="dialog"
-            aria-label={`播放 ${playback.target.title}`}
-            className="fixed inset-0 z-50 flex flex-col bg-black text-foreground"
+          <Modal.Root
+            isOpen
+            onOpenChange={(isOpen) => {
+              if (!isOpen) {
+                close(); // isDismissable=false 下用户路径不可达;兜底仍收敛到统一退出路径
+              }
+            }}
           >
-            <header className="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-3">
-              <h2 className="min-w-0 truncate text-base font-medium">{playback.target.title}</h2>
-              <Button size="sm" variant="ghost" onPress={close} aria-label="退出播放">
-                退出
-              </Button>
-            </header>
-            <div className="flex min-h-0 flex-1 items-center justify-center">
-              {playback.phase === 'playing' && playback.playbackUrl !== null && playback.sessionId !== null ? (
-                <PlayerView
-                  sessionId={playback.sessionId}
-                  generation={playback.playbackGeneration ?? 1}
-                  playbackUrl={playback.playbackUrl}
-                  ticketExpiresAt={playback.ticketExpiresAt ?? ''}
-                  delivery={playback.delivery}
-                  presentationStartSeconds={playback.presentationStartSeconds ?? 0}
-                  onTerminated={(message) => {
-                    dispatchWithMirror({ type: 'playPatch', intentId: playback.intentId, patch: { phase: 'unavailable', message } });
-                  }}
-                  onRenew={(url, expiresAt) => {
-                    // 续期换装:URL/到期时间更新(意图面收口;URL 不落任何持久存储)
-                    dispatchWithMirror({
-                      type: 'playPatch',
-                      intentId: playback.intentId,
-                      patch: { playbackUrl: url, ticketExpiresAt: expiresAt },
-                    });
-                  }}
-                />
-              ) : (
-                <div className="flex max-w-md flex-col items-center gap-3 px-6 text-center">
-                  <p role="alert" className="text-sm text-white/80">
-                    {playback.message ?? '该内容当前不可播放。'}
-                  </p>
-                  <Button size="sm" variant="ghost" onPress={close}>
-                    关闭
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
+            {/* Container 必须包在 Backdrop 内(T137 定位缺陷教训,同 password-confirm-modal) */}
+            <Modal.Backdrop variant="opaque" isDismissable={false}>
+              <Modal.Container placement="center" className="w-[min(94vw,1120px)]">
+                <Modal.Dialog
+                  aria-label={`播放 ${playback.target.title}`}
+                  data-testid="playback-surface"
+                  className="overflow-hidden"
+                >
+                  <Modal.Header>
+                    <Modal.Heading level={2} className="min-w-0 truncate text-base font-medium">
+                      {playback.target.title}
+                    </Modal.Heading>
+                    <Button size="sm" variant="ghost" onPress={close} aria-label="退出播放">
+                      退出
+                    </Button>
+                  </Modal.Header>
+                  <Modal.Body className="p-0">
+                    {playback.phase === 'playing' && playback.playbackUrl !== null && playback.sessionId !== null ? (
+                      <div className="aspect-video w-full bg-black">
+                        <PlayerView
+                          sessionId={playback.sessionId}
+                          generation={playback.playbackGeneration ?? 1}
+                          playbackUrl={playback.playbackUrl}
+                          ticketExpiresAt={playback.ticketExpiresAt ?? ''}
+                          delivery={playback.delivery}
+                          presentationStartSeconds={playback.presentationStartSeconds ?? 0}
+                          onTerminated={(message) => {
+                            dispatchWithMirror({ type: 'playPatch', intentId: playback.intentId, patch: { phase: 'unavailable', message } });
+                          }}
+                          onRenew={(url, expiresAt) => {
+                            // 续期换装:URL/到期时间更新(意图面收口;URL 不落任何持久存储)
+                            dispatchWithMirror({
+                              type: 'playPatch',
+                              intentId: playback.intentId,
+                              patch: { playbackUrl: url, ticketExpiresAt: expiresAt },
+                            });
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 bg-black px-6 text-center">
+                        <p role="alert" className="text-sm text-white/80">
+                          {playback.message ?? '该内容当前不可播放。'}
+                        </p>
+                        <Button size="sm" variant="ghost" onPress={close}>
+                          关闭
+                        </Button>
+                      </div>
+                    )}
+                  </Modal.Body>
+                </Modal.Dialog>
+              </Modal.Container>
+            </Modal.Backdrop>
+          </Modal.Root>
         ) : null}
       </PlayActionContext.Provider>
     </AuthActionContext.Provider>
