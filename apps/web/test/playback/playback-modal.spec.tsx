@@ -163,17 +163,22 @@ describe('009 · 播放面 Modal 化(全局弹层 · 路由切换不掉)', () =>
     expect(document.querySelector('video')).not.toBeNull();
   });
 
-  it('SC-102: 遮罩点击不关闭(isDismissable=false);「退出」按钮走统一路径卸载 Modal', async () => {
+  it('SC-102: 非模态结构——无遮罩层、外部内容无 inert/aria-hidden 包装;「退出」走统一路径', async () => {
     mockReadyWorld();
     renderAppAt('/');
     await startPlayback();
 
-    // 遮罩 = Modal.Backdrop 渲染的覆盖层;点击后播放面必须仍在
-    const backdrop = document.querySelector('.heroui-modal__backdrop, [data-overlay-portal] > div');
-    if (backdrop !== null) {
-      fireEvent.click(backdrop);
-    }
-    // Esc 同样不关闭(RAC isDismissable=false 关闭通道)
+    // 非模态(009 修正「设置入口没了」):不渲染全视口遮罩层,
+    // 弹层外内容(导航)不被打 aria-hidden/inert —— 页面保持可点可用
+    expect(document.querySelector('.modal__backdrop')).toBeNull();
+    // 导航链接本体不被 inert(点击/聚焦不被浏览器禁用) —— 设置入口可用的硬保证
+    const navHome = document.querySelector('[data-testid="nav-home"]');
+    expect(navHome?.getAttribute('inert')).toBeNull();
+    expect(navHome?.hasAttribute('aria-hidden')).toBe(false);
+    // 祖先链无整页 aria-hidden 包装(读屏可见导航与设置入口)
+    expect(navHome?.closest('[aria-hidden="true"]')).toBeNull();
+
+    // Esc 无 dismiss 通道(非模态);播放面保持
     fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(document.querySelector('[data-testid="playback-surface"]')).not.toBeNull();
     expect(document.querySelector('video')).not.toBeNull();

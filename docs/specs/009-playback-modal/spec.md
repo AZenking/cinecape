@@ -17,6 +17,18 @@
 - **FR-005 尺寸与自适配**：Dialog 宽度 `min(94vw, 1120px)` 级响应式上限；Body 为 `aspect-video` 黑底容器承载 PlayerView（`h-full w-full` 假设不变）；标题栏与 unavailable 拒绝面同容器呈现。
 - **FR-006 可访问性**：`role="dialog"` + `aria-label="播放 {标题}"`（HeroUI Dialog 原生），标题经 `Modal.Heading`；焦点圈闭于弹层（RAC 默认）。
 
+## 修正案 A（2026-10-29，「设置入口没了」事故裁决）
+
+**FR-001 修订**：播放面呈现由「HeroUI Modal 组件」修订为「**非模态浮层面板**（fixed 居中 div + HeroUI Button + 语义 token，与 preparing 浮动面板同一先例）」。裁决依据（实施实测）：
+
+1. `Modal.Backdrop`（模态链）经 react-aria `useModalOverlay` 把弹层外**全部内容 aria-hidden + inert**（`shouldUseInert: true`）——播放期间导航、身份菜单、设置入口被浏览器级禁用，直击维护者核心诉求（页面继续可用）；
+2. `Modal.Root` 为 DialogTrigger 型（Pressable 触发器语义 + 包装层），不适配无触发器的常驻受控浮层（其包装层连带引入整页 aria-hidden 包装）；
+3. `Modal.Container` 类型层面 `Exclude` 掉 `isOpen`（假定 state 来自 Root context），standalone 受控不受类型支持。
+
+宪章约束 5 合规说明：播放浮层为媒体容器（与 video.js 播放器同一豁免逻辑），非表单类模态对话框；面板内可交互控件（退出/关闭按钮）仍为 HeroUI Button，样式全部语义 token（border-border/bg-black/text-foreground），未引入第二套硬编码色值。
+
+**FR-004 修订**：防误关由「isDismissable=false」改为「非模态无 dismiss 通道」（无遮罩可点、无 Esc 处理），关闭语义不变（仅「退出」→ close()）。
+
 ## 非目标
 
 - 不改播放语义（resolve/prepare/heartbeat/进度/换票/退出路径）、不改任何 API、不改 preparing 浮动面板（已是非阻塞角标）。
