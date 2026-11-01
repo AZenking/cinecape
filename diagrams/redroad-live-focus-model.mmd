@@ -1,0 +1,20 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif", "primaryColor": "#f5f5f7", "primaryTextColor": "#1d1d1f", "primaryBorderColor": "#d2d2d7", "lineColor": "#86868b", "secondaryColor": "#e8f3ff", "tertiaryColor": "#fff2f2"}}}%%
+graph LR
+  A["直播入口"] --> B["Now Hero\n当前直播精选"]
+  B --> C["正在直播行"]
+  C --> D["接下来行"]
+  D --> E["分类频道行"]
+  E --> F["节目单入口"]
+  F --> G["节目详情面板"]
+  G --> H["播放当前频道"]
+  H --> I["全屏播放器"]
+  I --> J["返回原焦点"]
+
+  classDef anchor fill:#111111,color:#ffffff,stroke:#111111,stroke-width:2px;
+  classDef browse fill:#e8f3ff,color:#1d1d1f,stroke:#007aff,stroke-width:2px;
+  classDef detail fill:#f5f5f7,color:#1d1d1f,stroke:#d2d2d7;
+  classDef playback fill:#fff2f2,color:#1d1d1f,stroke:#ff3b30,stroke-width:2px;
+  class A,J anchor;
+  class B,C,D,E,F browse;
+  class G detail;
+  class H,I playback;

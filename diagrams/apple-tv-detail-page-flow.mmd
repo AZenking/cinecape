@@ -1,0 +1,30 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif", "primaryColor": "#111318", "primaryTextColor": "#F5F5F7", "primaryBorderColor": "#4A4A4F", "lineColor": "#8E8E93", "secondaryColor": "#23252B", "tertiaryColor": "#F5F5F7"}}}%%
+graph TD
+  A["进入节目详情"] --> B["加载 Hero 与媒体信息"]
+  B --> C{"用户目标"}
+
+  C -- "立即观看" --> D{"已登录 / 有观看资格?"}
+  D -- "否" --> E["登录 / 注册 / 选择 Profile"]
+  E --> F["播放预告或正片"]
+  D -- "是" --> F
+
+  C -- "继续看剧集" --> G["选择季"]
+  G --> H["选择集数"]
+  H --> I["播放该集"]
+
+  C -- "了解内容" --> J["展开简介 / About / 媒体信息"]
+  C -- "收藏" --> K{"已选择 Profile?"}
+  K -- "否" --> L["选择 Profile"]
+  L --> M["收藏成功"]
+  K -- "是" --> M
+
+  C -- "探索更多" --> N["预告 · Bonus · 相关推荐 · 演职员"]
+  N --> O["进入新的详情页或货架页"]
+
+  classDef start fill:#111318,stroke:#E02F3C,color:#FFFFFF,stroke-width:3px;
+  classDef decision fill:#FFF3D6,stroke:#B7791F,color:#111318;
+  classDef action fill:#23252B,stroke:#6E727C,color:#FFFFFF;
+  classDef result fill:#F5F5F7,stroke:#C7C7CC,color:#111318;
+  class A start;
+  class C,D,K decision;
+  class B,E,F,G,H,I,J,L,M,N,O action;

@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1120" viewBox="0 0 1440 1120">
+  <style>
+    .bg{fill:#0a0a0b}.surface{fill:#18181b}.surface2{fill:#202023}.default{fill:#27272a}.border{stroke:#3f3f46;stroke-width:1}.fg{fill:#f4f4f5}.muted{fill:#a1a1aa}.subtle{fill:#71717a}.primary{fill:#ef3340}.primarySoft{fill:#35191e}.focus{stroke:#ef3340;stroke-width:2;fill:none}.title{font:700 30px 'Noto Sans SC','PingFang SC',sans-serif}.h2{font:600 18px 'Noto Sans SC','PingFang SC',sans-serif}.body{font:400 14px 'Noto Sans SC','PingFang SC',sans-serif}.medium{font:500 14px 'Noto Sans SC','PingFang SC',sans-serif}.small{font:400 12px 'Noto Sans SC','PingFang SC',sans-serif}.label{font:500 11px 'Noto Sans SC','PingFang SC',sans-serif}.tiny{font:500 10px 'Noto Sans SC','PingFang SC',sans-serif}
+  </style>
+  <rect width="1440" height="1120" class="bg"/>
+
+  <!-- HeroUI-style top navigation -->
+  <rect x="0" y="0" width="1440" height="72" class="bg"/>
+  <line x1="0" y1="71.5" x2="1440" y2="71.5" class="border"/>
+  <text x="40" y="45" class="fg" style="font:700 20px 'Noto Sans SC','PingFang SC',sans-serif">redRoad</text>
+  <text x="168" y="44" class="muted medium">首页</text><text x="228" y="44" class="muted medium">点播</text><text x="288" y="44" class="muted medium">直播</text><text x="348" y="44" class="muted medium">节目单</text>
+  <rect x="1014" y="15" width="246" height="42" rx="12" class="surface border"/><text x="1030" y="42" class="muted" style="font:400 18px sans-serif">⌕</text><text x="1060" y="41" class="subtle body">搜索设置</text>
+  <circle cx="1310" cy="36" r="19" class="primarySoft"/><text x="1302" y="41" class="fg medium">林</text><text x="1340" y="41" class="muted small">客厅⌄</text>
+
+  <!-- Settings sidebar -->
+  <rect x="24" y="96" width="248" height="992" rx="16" class="surface border"/>
+  <text x="52" y="138" class="fg h2">设置</text><text x="52" y="164" class="muted small">管理家庭体验与内容来源</text>
+  <rect x="48" y="188" width="200" height="40" rx="10" class="default border"/><text x="63" y="214" class="muted" style="font:400 17px sans-serif">⌕</text><text x="90" y="213" class="subtle small">筛选设置项</text>
+  <text x="52" y="266" class="subtle label">导航</text>
+  <rect x="44" y="284" width="208" height="42" rx="10" class="primarySoft"/><rect x="44" y="284" width="3" height="42" rx="1.5" class="primary"/><text x="64" y="310" class="fg medium">全部设置</text><text x="222" y="310" class="muted small">8</text>
+  <text x="64" y="364" class="muted medium">账号与家庭</text><text x="222" y="364" class="subtle small">2</text>
+  <text x="64" y="412" class="muted medium">内容与来源</text><text x="222" y="412" class="subtle small">3</text>
+  <text x="64" y="460" class="muted medium">设备与播放</text><text x="222" y="460" class="subtle small">1</text>
+  <text x="64" y="508" class="muted medium">通用与安全</text><text x="222" y="508" class="subtle small">2</text>
+  <line x1="52" y1="548" x2="244" y2="548" class="border"/>
+  <text x="52" y="590" class="subtle label">家庭档案</text>
+  <circle cx="72" cy="632" r="20" class="primarySoft"/><text x="64" y="637" class="fg medium">林</text><text x="104" y="628" class="fg medium">客厅</text><text x="104" y="649" class="muted small">家长档案 · 已验证</text>
+  <rect x="52" y="700" width="192" height="72" rx="12" class="default"/><text x="68" y="728" class="muted small">同步状态</text><circle cx="72" cy="750" r="4" class="primary"/><text x="84" y="754" class="fg small">所有设置已同步</text>
+  <text x="52" y="1028" class="subtle small">redRoad · HeroUI v3 theme</text>
+
+  <!-- Main content -->
+  <text x="320" y="132" class="subtle small">设置  /  全部设置</text>
+  <text x="320" y="182" class="fg title">全部设置</text>
+  <text x="320" y="214" class="muted body">按使用任务整理，快速管理家庭媒体体验。</text>
+  <rect x="1168" y="126" width="204" height="38" rx="12" class="surface border"/><circle cx="1190" cy="145" r="4" class="primary"/><text x="1204" y="150" class="muted small">配置已同步 · 2 分钟前</text>
+
+  <!-- HeroUI Tabs -->
+  <rect x="320" y="252" width="1052" height="48" rx="12" class="surface border"/>
+  <rect x="330" y="260" width="112" height="32" rx="9" class="default"/><text x="364" y="281" class="fg medium">概览</text>
+  <text x="480" y="281" class="muted medium">账号与家庭</text><text x="628" y="281" class="muted medium">内容与来源</text><text x="776" y="281" class="muted medium">设备与播放</text><text x="924" y="281" class="muted medium">通用与安全</text>
+  <line x1="330" y1="297" x2="442" y2="297" class="primary"/>
+
+  <!-- Notice -->
+  <rect x="320" y="328" width="1052" height="72" rx="14" class="primarySoft border"/>
+  <circle cx="350" cy="364" r="17" class="primary"/><text x="345" y="370" class="fg medium">!</text>
+  <text x="382" y="355" class="fg medium">部分敏感设置需要家长验证</text><text x="382" y="378" class="muted small">修改档案、来源和设备权限前，会先确认当前家庭身份。</text>
+  <rect x="1194" y="348" width="142" height="34" rx="10" class="primary"/><text x="1221" y="370" class="fg medium">验证身份</text>
+
+  <!-- Group cards -->
+  <g transform="translate(320 432)">
+    <rect width="514" height="288" rx="16" class="surface border"/>
+    <text x="24" y="38" class="fg h2">账号与家庭</text><text x="24" y="62" class="muted small">身份、档案与访问安全</text><text x="452" y="42" class="primary small">2 项</text><line x1="24" y1="84" x2="490" y2="84" class="border"/>
+    <rect x="24" y="108" width="466" height="64" rx="12" class="surface2"/><circle cx="56" cy="140" r="17" class="primarySoft"/><text x="50" y="145" class="primary medium">⌂</text><text x="88" y="134" class="fg medium">账号与安全</text><text x="88" y="155" class="muted small">登录方式与家长验证</text><text x="454" y="145" class="muted" style="font:400 18px sans-serif">›</text>
+    <rect x="24" y="184" width="466" height="64" rx="12" class="surface2"/><circle cx="56" cy="216" r="17" class="primarySoft"/><text x="50" y="221" class="primary medium">◎</text><text x="88" y="210" class="fg medium">档案管理</text><text x="88" y="231" class="muted small">家庭成员与 PIN 权限</text><text x="454" y="221" class="muted" style="font:400 18px sans-serif">›</text>
+  </g>
+  <g transform="translate(858 432)">
+    <rect width="514" height="288" rx="16" class="surface border"/>
+    <text x="24" y="38" class="fg h2">内容与来源</text><text x="24" y="62" class="muted small">决定看什么、内容从哪里来</text><text x="452" y="42" class="primary small">3 项</text><line x1="24" y1="84" x2="490" y2="84" class="border"/>
+    <rect x="24" y="108" width="466" height="48" rx="12" class="surface2"/><text x="56" y="138" class="fg medium">内容策略</text><text x="454" y="138" class="muted" style="font:400 18px sans-serif">›</text>
+    <rect x="24" y="168" width="466" height="48" rx="12" class="surface2"/><text x="56" y="198" class="fg medium">来源管理</text><text x="454" y="198" class="muted" style="font:400 18px sans-serif">›</text>
+    <rect x="24" y="228" width="466" height="48" rx="12" class="surface2"/><text x="56" y="258" class="fg medium">EPG 管理</text><text x="454" y="258" class="muted" style="font:400 18px sans-serif">›</text>
+  </g>
+  <g transform="translate(320 744)">
+    <rect width="514" height="254" rx="16" class="surface border"/>
+    <text x="24" y="38" class="fg h2">设备与播放</text><text x="24" y="62" class="muted small">控制播放端与观看体验</text><text x="452" y="42" class="primary small">1 项</text><line x1="24" y1="84" x2="490" y2="84" class="border"/>
+    <rect x="24" y="108" width="466" height="64" rx="12" class="surface2"/><circle cx="56" cy="140" r="17" class="primarySoft"/><text x="50" y="145" class="primary medium">▣</text><text x="88" y="134" class="fg medium">设备管理</text><text x="88" y="155" class="muted small">授权设备与活跃会话</text><text x="454" y="145" class="muted" style="font:400 18px sans-serif">›</text>
+    <text x="24" y="214" class="subtle small">播放偏好、字幕与画质将在后续版本加入</text>
+  </g>
+  <g transform="translate(858 744)">
+    <rect width="514" height="254" rx="16" class="surface border"/>
+    <text x="24" y="38" class="fg h2">通用与安全</text><text x="24" y="62" class="muted small">系统偏好、锁定与敏感操作</text><text x="452" y="42" class="primary small">2 项</text><line x1="24" y1="84" x2="490" y2="84" class="border"/>
+    <rect x="24" y="108" width="466" height="52" rx="12" class="surface2"/><text x="56" y="140" class="fg medium">通用设置</text><text x="454" y="140" class="muted" style="font:400 18px sans-serif">›</text>
+    <rect x="24" y="172" width="466" height="52" rx="12" class="surface2"/><text x="56" y="204" class="fg medium">设置已锁定</text><rect x="366" y="187" width="76" height="22" rx="11" class="primarySoft"/><text x="383" y="202" class="primary tiny">需验证</text><text x="454" y="204" class="muted" style="font:400 18px sans-serif">›</text>
+  </g>
+
+  <!-- token callout -->
+  <rect x="1102" y="1020" width="270" height="44" rx="12" class="default border"/><text x="1120" y="1047" class="subtle small">HeroUI tokens · primary / content / focus</text>
+</svg>

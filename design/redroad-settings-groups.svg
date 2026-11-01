@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1040" viewBox="0 0 1440 1040">
+  <style>
+    .bg{fill:#0d0f13}.surface{fill:#191c22}.secondary{fill:#252932}.soft{fill:#331c20}.border{stroke:#3c414c;stroke-width:1}.fg{fill:#f2f3f5}.muted{fill:#969ba7}.accent{fill:#e02f3c}.title{font:700 28px 'Noto Sans SC','PingFang SC',sans-serif}.section{font:600 18px 'Noto Sans SC','PingFang SC',sans-serif}.cardtitle{font:600 15px 'Noto Sans SC','PingFang SC',sans-serif}.body{font:400 13px 'Noto Sans SC','PingFang SC',sans-serif}.small{font:400 12px 'Noto Sans SC','PingFang SC',sans-serif}.medium{font:500 13px 'Noto Sans SC','PingFang SC',sans-serif}.tiny{font:500 11px 'Noto Sans SC','PingFang SC',sans-serif}
+  </style>
+  <rect width="1440" height="1040" class="bg"/>
+  <line x1="0" y1="79.5" x2="1440" y2="79.5" class="border"/>
+  <text x="56" y="51" class="fg" style="font:700 21px 'Noto Sans SC','PingFang SC',sans-serif">redRoad</text>
+  <text x="174" y="50" class="muted medium">首页</text><text x="238" y="50" class="muted medium">点播</text><text x="302" y="50" class="muted medium">直播</text><text x="366" y="50" class="muted medium">节目单</text>
+  <text x="72" y="142" class="fg title">设置</text>
+  <text x="72" y="174" class="muted body">按使用任务整理设置入口，减少在系统模块之间来回寻找。</text>
+  <rect x="1156" y="122" width="212" height="36" rx="18" class="surface"/><circle cx="1176" cy="140" r="4" class="accent"/><text x="1190" y="145" class="muted small">已分组 · 8 个设置页</text>
+
+  <!-- left rail -->
+  <rect x="72" y="220" width="236" height="748" rx="16" class="surface border"/>
+  <text x="100" y="260" class="muted tiny">设置导航</text>
+  <rect x="92" y="286" width="196" height="44" rx="10" class="soft"/><rect x="92" y="286" width="3" height="44" rx="1.5" class="accent"/><text x="112" y="313" class="fg medium">全部设置</text><text x="254" y="313" class="muted small">8</text>
+  <text x="112" y="368" class="muted medium">账号与家庭</text><text x="254" y="368" class="muted small">2</text>
+  <text x="112" y="416" class="muted medium">内容与来源</text><text x="254" y="416" class="muted small">3</text>
+  <text x="112" y="464" class="muted medium">设备与播放</text><text x="254" y="464" class="muted small">1</text>
+  <text x="112" y="512" class="muted medium">通用与安全</text><text x="254" y="512" class="muted small">2</text>
+  <line x1="100" y1="556" x2="280" y2="556" class="border"/>
+  <text x="100" y="598" class="muted tiny">分组原则</text>
+  <text x="100" y="628" class="muted small">先按用户目标，再按</text><text x="100" y="650" class="muted small">管理对象与权限细分。</text>
+  <rect x="100" y="706" width="180" height="1" class="border"/>
+  <text x="100" y="748" class="muted tiny">当前档案</text><text x="100" y="778" class="fg cardtitle">客厅 · 林</text><text x="100" y="804" class="muted small">家长权限已验证</text>
+  <circle cx="106" cy="842" r="4" class="accent"/><text x="120" y="847" class="accent small">同步正常</text>
+
+  <!-- groups -->
+  <g transform="translate(340 220)">
+    <rect width="512" height="352" rx="16" class="surface border"/>
+    <rect x="24" y="24" width="44" height="44" rx="12" class="soft"/><text x="38" y="53" class="accent" style="font:600 20px sans-serif">⌂</text>
+    <text x="84" y="46" class="fg section">账号与家庭</text><text x="84" y="68" class="muted small">管理身份、家庭成员与访问安全</text><text x="454" y="48" class="accent medium">2 页</text>
+    <line x1="24" y1="92" x2="488" y2="92" class="border"/>
+    <rect x="24" y="116" width="464" height="74" rx="12" class="secondary"/><text x="48" y="148" class="fg cardtitle">账号与安全</text><text x="48" y="172" class="muted small">登录方式、家长验证与账户保护</text><text x="444" y="156" class="muted" style="font:400 18px sans-serif">›</text>
+    <rect x="24" y="206" width="464" height="74" rx="12" class="secondary"/><text x="48" y="238" class="fg cardtitle">档案管理</text><text x="48" y="262" class="muted small">家庭档案、PIN 与成员权限</text><text x="444" y="246" class="muted" style="font:400 18px sans-serif">›</text>
+  </g>
+  <g transform="translate(876 220)">
+    <rect width="492" height="352" rx="16" class="surface border"/>
+    <rect x="24" y="24" width="44" height="44" rx="12" class="soft"/><text x="38" y="53" class="accent" style="font:600 20px sans-serif">▦</text>
+    <text x="84" y="46" class="fg section">内容与来源</text><text x="84" y="68" class="muted small">决定看什么、内容从哪里来</text><text x="434" y="48" class="accent medium">3 页</text>
+    <line x1="24" y1="92" x2="468" y2="92" class="border"/>
+    <rect x="24" y="116" width="444" height="58" rx="12" class="secondary"/><text x="48" y="151" class="fg cardtitle">内容策略</text><text x="420" y="151" class="muted" style="font:400 18px sans-serif">›</text>
+    <rect x="24" y="186" width="444" height="58" rx="12" class="secondary"/><text x="48" y="221" class="fg cardtitle">来源管理</text><text x="420" y="221" class="muted" style="font:400 18px sans-serif">›</text>
+    <rect x="24" y="256" width="444" height="58" rx="12" class="secondary"/><text x="48" y="291" class="fg cardtitle">EPG 管理</text><text x="420" y="291" class="muted" style="font:400 18px sans-serif">›</text>
+  </g>
+  <g transform="translate(340 606)">
+    <rect width="512" height="352" rx="16" class="surface border"/>
+    <rect x="24" y="24" width="44" height="44" rx="12" class="soft"/><text x="37" y="53" class="accent" style="font:600 20px sans-serif">▣</text>
+    <text x="84" y="46" class="fg section">设备与播放</text><text x="84" y="68" class="muted small">控制播放端与观看体验</text><text x="454" y="48" class="accent medium">1 页</text>
+    <line x1="24" y1="92" x2="488" y2="92" class="border"/>
+    <rect x="24" y="116" width="464" height="74" rx="12" class="secondary"/><text x="48" y="148" class="fg cardtitle">设备管理</text><text x="48" y="172" class="muted small">已授权设备、活跃会话与远程退出</text><text x="444" y="156" class="muted" style="font:400 18px sans-serif">›</text>
+    <rect x="24" y="214" width="464" height="72" rx="12" class="bg border"/><text x="48" y="245" class="muted cardtitle">下一步可扩展</text><text x="48" y="269" class="muted small">播放偏好、字幕与画质</text>
+  </g>
+  <g transform="translate(876 606)">
+    <rect width="492" height="352" rx="16" class="surface border"/>
+    <rect x="24" y="24" width="44" height="44" rx="12" class="soft"/><text x="38" y="53" class="accent" style="font:600 20px sans-serif">⚙</text>
+    <text x="84" y="46" class="fg section">通用与安全</text><text x="84" y="68" class="muted small">系统偏好、锁定与敏感操作</text><text x="434" y="48" class="accent medium">2 页</text>
+    <line x1="24" y1="92" x2="468" y2="92" class="border"/>
+    <rect x="24" y="116" width="444" height="74" rx="12" class="secondary"/><text x="48" y="148" class="fg cardtitle">通用设置</text><text x="48" y="172" class="muted small">语言、主题、通知与默认行为</text><text x="420" y="156" class="muted" style="font:400 18px sans-serif">›</text>
+    <rect x="24" y="206" width="444" height="74" rx="12" class="secondary"/><text x="48" y="238" class="fg cardtitle">设置已锁定</text><text x="48" y="262" class="muted small">敏感设置需要家长验证后继续</text><text x="420" y="246" class="muted" style="font:400 18px sans-serif">›</text>
+  </g>
+</svg>
