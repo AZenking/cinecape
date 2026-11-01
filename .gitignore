@@ -52,3 +52,4 @@ apps/web/playwright-report/
 
 # server 运行时数据目录(SQLite/备份;绝不入库)
 apps/server/data/
+.gstack/
