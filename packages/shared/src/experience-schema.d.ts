@@ -1313,7 +1313,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            kind: "iptv" | "epg" | "nas";
+            kind: "iptv" | "epg" | "nas" | "vod";
             name: string;
             enabled: boolean;
             version: number;
@@ -1325,12 +1325,19 @@ export interface components {
             lastSuccessAt: string | null;
             /** Format: uuid */
             lastJobId: string | null;
+            /** @description 010 扩展（2026-10-30）：仅 kind=vod 时返回；resume=operational 为候选语义，最终续播资格需当次 resolve/probe 判定。 */
+            capabilities?: {
+                /** @enum {string} */
+                resume: "operational";
+                /** @constant */
+                requiresCurrentProbe: true;
+            };
         };
         /** @description ownerPassword 缺失/空串走 403。远程必须 remoteUrl，NAS 必须 rootKey/relativeDirectory 且无 remoteUrl；epgSourceId 仅 IPTV。跨字段校验见 api.md。 */
         B003CreateSource: {
             ownerPassword?: string;
             /** @enum {string} */
-            kind: "iptv" | "epg" | "nas";
+            kind: "iptv" | "epg" | "nas" | "vod";
             name: string;
             /** @default true */
             enabled: boolean;
@@ -1342,6 +1349,11 @@ export interface components {
             privateAccessApproved: boolean;
             /** Format: uuid */
             epgSourceId?: string | null;
+            /**
+             * @description 010 扩展（2026-10-30）：kind=vod 时必填且恒为 apple-cms-json；remoteUrl 仅接受 http(s) 根地址；严格分支 校验以 docs/specs/010-online-vod/contracts/openapi.yaml 为权威。
+             * @enum {string}
+             */
+            adapter?: "apple-cms-json";
         } & (unknown & unknown);
         B003PatchSource: {
             ownerPassword?: string;
@@ -1678,6 +1690,38 @@ export interface components {
             tracks: components["schemas"]["B004PlaybackTracks"];
             /** @description 公开稳定失败码;仅 state=failed 时出现且非空(data-model:失败码仅 failed 非空), 如 PLAYBACK_FORMAT_UNSUPPORTED / PLAYBACK_RESOURCE_UNAVAILABLE / PLAYBACK_PERFORMANCE_INSUFFICIENT / PLAYBACK_STORAGE_LIMIT / PLAYBACK_PREPARE_TIMEOUT / PLAYBACK_SEEK_TIMEOUT;不含源诊断。 */
             failureCode?: string;
+            /**
+             * @description 010 扩展（2026-10-30）：本次起播依据；intent.positionMode 映射唯一 startBasis，禁止第二次 resume 读取覆盖 carry。权威定义见 docs/specs/010-online-vod/contracts/openapi.yaml。
+             * @enum {string}
+             */
+            startBasis?: "beginning" | "target_history" | "transition_carry";
+            /**
+             * @description 010 扩展（2026-10-30）：preparing 未冻结=pending；probe 后一次计算并冻结。
+             * @enum {string}
+             */
+            resumeDisposition?: "pending" | "resume" | "beginning";
+            /**
+             * @description 010 扩展（2026-10-30）：降级从头时给出具体原因；旧历史保留直到新的有效 started。
+             * @enum {string|null}
+             */
+            resumeReason?: "accepted" | "requested_beginning" | "no_history" | "content_changed" | "continuity_changed" | "duration_changed" | "completed" | "invalid_position" | "duration_unknown" | null;
+            /** @description 010 扩展（2026-10-30）：供当前归属设备恢复/替换；首次槽不存在 revision=0/open（传输初值），持久行 revision>=1。 */
+            transitionSlot?: {
+                revision: number;
+                /** @enum {string} */
+                status: "open" | "reserved" | "consumed";
+                /** Format: uuid */
+                activeIntentId: string | null;
+                /** Format: uuid */
+                successorSessionId: string | null;
+            };
+            /**
+             * @description 010 扩展（2026-10-30）：由可信 probe/交付与可用 seek 范围产生；hls_proxy VOD 第一期仅 client 或 none，直播 none；client 仅为许可声明，前端还须检查实际 seekable 范围。
+             * @enum {string}
+             */
+            seekCapability?: "none" | "client" | "server_rebuild";
+            /** @description 010 扩展（2026-10-30）：独立 playback_started_at 已设置；仅解除 readyAt+60s 未起播回收期限，与 sessionStarted/saved/completed 分别记录。 */
+            playbackStarted?: boolean;
         };
         /** @description 播放凭据回复(仅 renew 成功返回):URL 携带 opaque ticket,访问日志必须去掉 ticket, 页面不向第三方发送 referrer;URL 不得写入 localStorage 或审计日志。 默认 5 分钟 TTL(可配置),首次 ready 后立即申请,以后到期前 60 秒续期。 */
         B004TicketReply: {
@@ -1814,6 +1858,16 @@ export interface components {
             contentLevel: number | null;
             /** @enum {string} */
             availability: "available" | "unavailable";
+            /**
+             * @description 010 扩展（2026-10-30）：媒体角色；旧记录 standalone。
+             * @enum {string}
+             */
+            detailKind?: "standalone" | "vod_title" | "vod_episode";
+            /**
+             * Format: uuid
+             * @description 010 扩展（2026-10-30）：vod_episode 的父标题媒体 ID；standalone/vod_title 为 null。
+             */
+            parentMediaId?: string | null;
         };
         Programme: {
             key: string;
@@ -1979,6 +2033,8 @@ export interface components {
             positionSeconds: number;
             durationSeconds: number | null;
             canResume: boolean;
+            /** @description 010 扩展（2026-10-30）：在线媒体 canResume 映射为候选资格时为 true，最终资格需当次 resolve/probe 判定； 静态媒体原语义不变且不返回该字段。 */
+            resumeCheckRequired?: boolean;
             revision: number;
         };
         FavoritePage: {
@@ -2006,6 +2062,16 @@ export interface components {
             /** @enum {string} */
             reason: "accepted" | "duplicate" | "stale_sample" | "superseded";
             historyRevision: number | null;
+            /** @description 010 扩展（2026-10-30）：独立会话接受视图；superseded 可 sessionAccepted=true/applied=false。 */
+            sessionAccepted?: boolean;
+            /** @description 010 扩展（2026-10-30）：最后会话接受游标（stale_sample 时供恢复）。 */
+            acceptedSampleSeq?: number;
+            /** @description 010 扩展（2026-10-30）。 */
+            acceptedPositionSeconds?: number | null;
+            /** @description 010 扩展（2026-10-30）。 */
+            acceptedGeneration?: number;
+            /** @description 010 扩展（2026-10-30）。 */
+            sessionStarted?: boolean;
         };
         ResolveRequest: {
             /** Format: uuid */
@@ -2015,7 +2081,12 @@ export interface components {
              * @enum {string}
              */
             startMode: "beginning" | "resume";
-        };
+            /**
+             * Format: uuid
+             * @description 010 扩展（2026-10-30）：过渡消费分支；出现时禁止 startMode（严格 oneOf，权威定义见 docs/specs/010-online-vod/contracts/openapi.yaml POST /playback/resolve）。
+             */
+            transitionIntentId?: string;
+        } & unknown;
         StopRequest: {
             finalProgress?: components["schemas"]["FinalProgress"];
         };

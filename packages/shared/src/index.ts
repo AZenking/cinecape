@@ -169,3 +169,9 @@ export type ResolveRequest = experienceComponents['schemas']['ResolveRequest'];
 export type StopRequest = experienceComponents['schemas']['StopRequest'];
 /** 005 contracts/openapi.yaml components/schemas/Empty */
 export type EmptyDto = experienceComponents['schemas']['Empty'];
+// 010 在线点播契约类型(独立生成产物 vod-schema.d.ts;001~005 schema 保持不变)
+// paths/operations 聚合导出仍以 001 schema.d.ts 为准(既有模式);010 多个 schema 与
+// 003/004/005 同名(PlaybackDto/Source/HistoryItem/PublicMedia/StopRequest 等),
+// 不逐个别名倒出以免冲突,统一以 Vod 命名空间入口暴露,
+// 下游经 `Vod.components['schemas']['Xxx']` / `Vod.paths['/public/vod/...']` 取用
+export type * as Vod from './vod-schema';
