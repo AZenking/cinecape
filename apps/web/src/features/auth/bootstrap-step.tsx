@@ -12,6 +12,7 @@ import { validateBootstrapInput } from '../../app/action-coordinator-core';
 import { bootstrapMainProfile } from './auth-api';
 import { FormError, FormField } from './field';
 import type { ProfileSummary } from '../../app/session-types';
+import { PinField } from '../../shared/ui';
 
 export interface BootstrapStepProps {
   formEpoch: number;
@@ -82,14 +83,11 @@ export function BootstrapStep({ formEpoch, onSuccess, onCancel }: BootstrapStepP
         autoFocus
         maxLength={50}
       />
-      <FormField
+      <PinField
         name="pin"
         label="档案 PIN(6 位数字)"
         value={pin}
         onValueChange={setPin}
-        type="password"
-        inputMode="numeric"
-        maxLength={6}
         isDisabled={busy}
         isInvalid={issues?.field === 'pin'}
         errorMessage={issues?.field === 'pin' ? issues.message : undefined}

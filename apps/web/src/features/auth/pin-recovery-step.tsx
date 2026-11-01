@@ -11,6 +11,7 @@ import { isFetchApiError } from '../../shared/fetch';
 import { validatePinInput, type FieldIssue } from '../../app/action-coordinator-core';
 import { recoverMainProfilePin } from './auth-api';
 import { FormError, FormField } from './field';
+import { PinField } from '../../shared/ui';
 
 export interface PinRecoveryStepProps {
   formEpoch: number;
@@ -71,14 +72,11 @@ export function PinRecoveryStep({ formEpoch, onSuccess, onCancel }: PinRecoveryS
       className="flex flex-col gap-4"
     >
       <p className="text-sm text-muted">通过当前账号密码重设主档案 PIN。重设后需要用新 PIN 重新验证。</p>
-      <FormField
+      <PinField
         name="newPin"
         label="新 PIN(6 位数字)"
         value={newPin}
         onValueChange={setNewPin}
-        type="password"
-        inputMode="numeric"
-        maxLength={6}
         isDisabled={busy}
         isInvalid={issues?.field === 'pin'}
         errorMessage={issues?.field === 'pin' ? issues.message : undefined}

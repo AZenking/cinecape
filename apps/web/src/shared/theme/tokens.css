@@ -30,6 +30,13 @@
 
 :root {
   color-scheme: dark;
+
+  /* 本仓库自定义别名:焦点环几何(消费方:./a11y.css 的 :focus-visible 基线与
+     T087 D-B 强化规则;video-player-skin.css 播放器控件焦点同样消费)。
+     几何 token 与主题无关,必须声明在 :root —— 若放入 .dark,切到 light 时
+     var() 失效会令整条 outline 声明回退初值(outline-style:none),焦点再次不可见。 */
+  --hmp-focus-ring-width: 2px;
+  --hmp-focus-ring-offset: 2px;
 }
 
 .dark {
@@ -41,8 +48,39 @@
 
   /* 统一焦点色跟随品牌 accent(ui.md §8「统一焦点色」;heroui 默认亦为 var(--accent)) */
   --focus: var(--accent);
+}
 
-  /* 本仓库自定义别名:焦点环几何(消费方:./a11y.css 的 :focus-visible 基线) */
-  --hmp-focus-ring-width: 2px;
-  --hmp-focus-ring-offset: 2px;
+/*
+ * 010 Online VOD 项目媒体尺度 token(T004 契约声明 / T087 D-A 接线修复)。
+ *
+ * 逐值接线自根 DESIGN.md「010 Online VOD 项目媒体尺度 token(2026-10-30 确认)」节:
+ * 不得在本文件之外另设值或增删 token;组件只允许 var() 消费,禁止裸值。
+ *
+ * 主题语义:数值 token(ratio/尺寸)与主题无关;带色 token 只引用 @heroui/styles
+ * 语义变量(--field-radius/--surface-shadow/--overlay-shadow/--background/
+ * --surface-secondary/--backdrop,定义见 themes/default/variables.css 的
+ * :root,.light 与 .dark 双块)。token 声明在根元素上、随根元素主题类一起求值,
+ * 根元素 dark/light 切换时全部重解析,两主题语义自适应,无需按色分支。
+ */
+:root {
+  /* Media aspect ratios (same in light and dark) */
+  --hmp-media-ratio-poster: 2 / 3;
+  --hmp-media-ratio-video: 16 / 9;
+
+  /* Radius / shadow reuse of existing theme tokens */
+  --hmp-media-card-radius: var(--field-radius); /* 12px = calc(var(--radius) * 1.5) */
+  --hmp-media-card-shadow: var(--surface-shadow);
+  --hmp-media-overlay-shadow: var(--overlay-shadow);
+
+  /* Player container */
+  --hmp-media-player-min-height: 13.5rem;
+  --hmp-media-player-breakpoint: 48rem;
+
+  /* Poster grid */
+  --hmp-media-poster-grid-min: 9rem;
+
+  /* Theme-following surfaces */
+  --hmp-media-letterbox: var(--background);
+  --hmp-media-poster-placeholder: var(--surface-secondary);
+  --hmp-media-scrim: var(--backdrop);
 }

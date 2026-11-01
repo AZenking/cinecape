@@ -10,7 +10,7 @@ import { useState, type ReactNode } from 'react';
 import { Alert, AlertContent, AlertDescription, AlertTitle, Button, Form } from '@heroui/react';
 import { isFetchApiError } from '../../shared/fetch';
 import { validatePinInput, type FieldIssue } from '../../app/action-coordinator-core';
-import { FormField } from '../auth/field';
+import { PinField } from '../../shared/ui';
 import type { ProfileSummary } from '../../app/session-types';
 
 export interface SelectionPinStepProps {
@@ -103,14 +103,11 @@ export function SelectionPinStep({
       <p className="text-sm text-muted">
         档案「{profile.name}」受 PIN 保护,请输入 6 位数字 PIN 完成选择。
       </p>
-      <FormField
+      <PinField
         name="pin"
         label="档案 PIN"
         value={pin}
         onValueChange={setPin}
-        type="password"
-        inputMode="numeric"
-        maxLength={6}
         isDisabled={busy}
         isInvalid={issue !== null}
         errorMessage={issue?.message}

@@ -16,7 +16,7 @@
  * - 403 SETTINGS_ACCESS_* 经 handleAccessLost 立即隐藏;重新解锁后重挂硬请求。
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Button, ListBox, Select } from '@heroui/react';
+import { Button, Input, Label, ListBox, Select, TextField } from '@heroui/react';
 import { LoadingSpinner, RetryableAlert } from '../../shared/ui';
 import { useAppMutation, useAppQuery } from '../../shared/query/hooks';
 import { queryKeys } from '../../shared/query/keys';
@@ -442,16 +442,10 @@ export function SettingsEpgPage(): ReactNode {
       <div className="flex flex-col gap-2">
         <h3 className="text-sm font-semibold text-foreground">逐频道手动匹配(仅手动;无模糊/批量)</h3>
         <div className="flex max-w-md items-end gap-2">
-          <div className="flex flex-1 flex-col gap-1">
-            <label htmlFor="epg-channel-q" className="text-sm text-muted">频道名称</label>
-            <input
-              id="epg-channel-q"
-              className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
-              value={channelSearch}
-              onChange={(event) => setChannelSearch(event.target.value)}
-              data-testid="epg-channel-q"
-            />
-          </div>
+          <TextField className="flex-1" name="epg-channel-q" value={channelSearch} onChange={setChannelSearch}>
+            <Label>频道名称</Label>
+            <Input id="epg-channel-q" data-testid="epg-channel-q" />
+          </TextField>
           <Button
             variant="primary"
             size="sm"
@@ -499,16 +493,10 @@ export function SettingsEpgPage(): ReactNode {
             ,版本 {match.binding.version}。
           </p>
           <div className="flex items-end gap-2">
-            <div className="flex flex-1 flex-col gap-1">
-              <label htmlFor="epg-candidate-q" className="text-xs text-muted">候选筛选(名称或 XMLTV ID 子串)</label>
-              <input
-                id="epg-candidate-q"
-                className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
-                value={candidateQuery}
-                onChange={(event) => setCandidateQuery(event.target.value)}
-                data-testid="epg-candidates-filter-q"
-              />
-            </div>
+            <TextField className="flex-1" name="epg-candidate-q" value={candidateQuery} onChange={setCandidateQuery}>
+              <Label>候选筛选(名称或 XMLTV ID 子串)</Label>
+              <Input id="epg-candidate-q" data-testid="epg-candidates-filter-q" />
+            </TextField>
             <Button
               variant="primary"
               size="sm"

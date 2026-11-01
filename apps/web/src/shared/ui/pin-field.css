@@ -1,0 +1,22 @@
+/* InputOTP 的可见 Slot 只作为 PIN 的视觉反馈；真实输入负责键盘、粘贴和辅助技术交互。 */
+.hmp-pin-field__slot {
+  position: relative;
+}
+
+.hmp-pin-field__slot [data-slot='input-otp-slot-value'] {
+  color: transparent;
+  font-size: 0;
+}
+
+.hmp-pin-field__slot[data-filled='true']::after {
+  align-items: center;
+  color: var(--foreground);
+  content: '•';
+  display: flex;
+  font-size: 1.25rem;
+  inset: 0;
+  justify-content: center;
+  line-height: 1;
+  pointer-events: none;
+  position: absolute;
+}

@@ -23,6 +23,12 @@
  *   public 域,公共浏览零中断);401 handler(T031)注册为 handleSessionLost
  *   ——清个人域 + 收敛 anonymous,登录引导由 ActionCoordinator 依 anonymous 态
  *   承接,每轮去重(2s)由 client.ts notifyUnauthorized 承担,无重定向循环。
+ * - 播放身份撤销收口(010 T079;playback-state §4/ui.md §2/api.md §7 I5):登出/
+ *   换档/会话失效只翻转身份事实 —— 播放泵的统一收口(stopOnce 唯一 /stop、abort
+ *   在途、不被保存阻塞)由 ActionCoordinator 的观看身份观察触发(播放面卸载 →
+ *   泵 revoke/同一 stopOnce 命令);本组件不做任何播放停止或进度补报。旧身份零
+ *   补报禁令(显式化):撤销后无任何旧身份离线重放/补报队列 —— 在途响应凭代次
+ *   丢弃,服务端身份撤销事务+watchdog 兜底清理。
  */
 import {
   createContext,
@@ -136,27 +142,34 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
 
   const logout = useCallback(async () => {
     generationRef.current += 1; // 先递增代次:在途个人/会话响应全部作废
-    try {
-      // 契约幂等 204:无论网络结果如何本地一律清空(不阻断退出)
-      // T026:经 auth-api 统一登出端点
-      await logoutRequest();
-    } catch {
-      // 忽略网络错误:本地清理照常
-    }
-    // T030(US3):同步先于身份状态更新清空个人缓存域(谓词保留 public 域);
-    // 服务端登出成功与否都执行——网络失败路径同样不得残留旧身份数据
+    // T079 身份撤销先行,不被任何保存/网络请求阻塞:本地先收敛 anonymous(域清除
+    // 严格先于身份状态可见,契约顺序不变),播放泵经协调器身份观察立即统一收口
+    // (stopOnce 唯一 /stop,abort 在途、不等待保存);登出请求此后照发,结果只
+    // 影响服务端状态。旧身份零补报禁令(显式化):撤销后本组件不做任何旧身份
+    // 离线补报/重放(进度/历史写入归属播放泵,其 stopped 后零入队/零派发/零重试),
+    // 清理由服务端登出事务+watchdog 兜底。
     purgePersonalData(queryClient);
     setSession(null);
     setNeedsReselection(false);
     setStatus('anonymous');
+    try {
+      // 契约幂等 204:无论网络结果如何本地已收敛(不阻断退出)
+      // T026:经 auth-api 统一登出端点
+      await logoutRequest();
+    } catch {
+      // 忽略网络错误:本地清理已完成(幂等登出)
+    }
   }, []);
 
   /**
    * 会话丢失(T031/FR-017):注册为全局 401 handler(client.ts QueryCache.onError
    * 的 FetchApiError(401) 分流调用)。每轮 2s 去重已在 notifyUnauthorized 内实现,
    * 此处只做收敛:递增代次(作废在途会话响应,防迟到回填)→ 清个人缓存域 →
-   * 收敛 anonymous。登录引导不经本组件路由:ActionCoordinator/identity-menu 依
-   * anonymous 态承接登录入口,401→purge→anonymous 不再发起新的认证请求,无循环。
+   * 收敛 anonymous。播放会话的统一收口(stopOnce 唯一命令)由协调器依 anonymous
+   * 收敛触发(观看身份观察 → 播放面卸载 → 泵 revoke),本 handler 不触碰播放面;
+   * 旧身份零补报(T079):无任何离线补报/重放队列。登录引导不经本组件路由:
+   * ActionCoordinator/identity-menu 依 anonymous 态承接登录入口,401→purge→
+   * anonymous 不再发起新的认证请求,无循环。
    */
   const handleSessionLost = useCallback((): void => {
     generationRef.current += 1;

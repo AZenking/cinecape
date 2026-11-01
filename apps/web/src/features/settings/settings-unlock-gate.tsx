@@ -11,10 +11,10 @@
  * - 取消:清凭据并回到原页面(onCancel 由布局注入),旧回调不得重开已取消的设置
  *   (Provider lock() 先递增代次再撤销)。
  */
-import { Form, Button, TextField, Label, Input } from '@heroui/react';
+import { Form, Button } from '@heroui/react';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { isFetchApiError } from '../../shared/fetch';
-import { LoadingSpinner } from '../../shared/ui';
+import { LoadingSpinner, PinField } from '../../shared/ui';
 import { useSettingsAccess } from './settings-access-provider';
 
 /** PIN 表单(可被意图协调器 settingsPin 弹层复用;见 settings-access-provider 接线契约) */
@@ -52,6 +52,11 @@ export function SettingsPinForm({
       .catch((cause: unknown) => {
         // 服务端 detail 仅含稳定文案/剩余次数;不回显 PIN
         setError(isFetchApiError(cause) ? (cause.detail ?? cause.title) : '验证失败,请重试');
+        // 失败即清内存凭据(与上方「成功即清」同一卫生语义)。010 回归修复(T090 遗留 2):
+        // PinField(InputOTP)槽位输入不支持「满位后整体替换」手势 —— 满位字段上再
+        // fill/选择替换会被 maxLength 截断污染(实测提交 '000001' 而非重输值),
+        // 二次验证恒 403 → 弹层永不导航;清空后重输恒从空位开始,导航契约(T079)恢复。
+        setPin('');
       })
       .finally(() => {
         setBusy(false);
@@ -70,17 +75,17 @@ export function SettingsPinForm({
         设置访问需独立验证主档案 PIN(与选档解锁相互独立;15 分钟内返回设置无需重复输入)。
       </p>
       <Form onSubmit={handleSubmit}>
-        <TextField className="w-full" value={pin} onChange={setPin} isDisabled={busy} autoComplete="off">
-          <Label>设置 PIN(6 位数字)</Label>
-          <Input name="pin" inputMode="numeric" maxLength={6} placeholder="••••••" />
-        </TextField>
+        <PinField
+          name="pin"
+          label="设置 PIN(6 位数字)"
+          value={pin}
+          onValueChange={setPin}
+          isDisabled={busy}
+          isInvalid={error !== null}
+          errorMessage={error ?? undefined}
+        />
         {/* 服务端错误为业务失败而非字段校验状态:按既有惯例以 role=alert 文字呈现
             (与 selection-pin-step 同口径;RAC FieldError 仅渲染字段校验状态) */}
-        {error !== null ? (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
-        ) : null}
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" size="sm" onPress={handleCancel} isDisabled={busy}>
             {cancelLabel}

@@ -15,8 +15,8 @@
  */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
-import { AlertDialog, Button, Form, TextField, Label, Input } from '@heroui/react';
-import { LoadingSpinner, RetryableAlert, useAppToast } from '../../shared/ui';
+import { AlertDialog, Button, Checkbox, Form, Input, Label, Radio, RadioGroup, TextField } from '@heroui/react';
+import { LoadingSpinner, PinField, RetryableAlert, useAppToast } from '../../shared/ui';
 import { useAppMutation, useAppQuery } from '../../shared/query/hooks';
 import { queryKeys } from '../../shared/query/keys';
 import { formatApiError } from '../../shared/query/error';
@@ -397,6 +397,8 @@ function CreateProfileForm({
     setPasswordOpen(true); // 下一步:独立当次密码验证
   };
 
+  const pinError = error === 'PIN 必须为 6 位数字' ? error : undefined;
+
   return (
     <Form onSubmit={handleSubmit} className="flex max-w-md flex-col gap-3 rounded border border-border p-4" aria-label="新建档案">
       <h3 className="text-sm font-semibold text-foreground">新建档案</h3>
@@ -404,26 +406,43 @@ function CreateProfileForm({
         <Label>档案名称</Label>
         <Input name="name" maxLength={50} />
       </TextField>
-      <fieldset className="flex gap-4 text-sm">
-        <legend className="text-muted">类型</legend>
-        <label className="flex items-center gap-1">
-          <input type="radio" name="profile-type" checked={type === 'child'} onChange={() => setType('child')} />
-          儿童
-        </label>
-        <label className="flex items-center gap-1">
-          <input type="radio" name="profile-type" checked={type === 'adult'} onChange={() => setType('adult')} />
-          成人
-        </label>
-      </fieldset>
-      <TextField className="w-full" value={pin} onChange={setPin}>
-        <Label>PIN(可选,6 位数字)</Label>
-        <Input name="pin" inputMode="numeric" maxLength={6} placeholder="不填则选择时无需 PIN" />
-      </TextField>
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={isDefault} onChange={(event) => setIsDefault(event.target.checked)} />
-        设为默认观看档案
-      </label>
-      {error !== null ? (
+      <RadioGroup
+        className="flex gap-4 text-sm"
+        name="profile-type"
+        value={type}
+        onChange={(value) => setType(value as 'adult' | 'child')}
+      >
+        <Label>类型</Label>
+        <Radio value="child">
+          <Radio.Content>
+            <Radio.Control><Radio.Indicator /></Radio.Control>
+            儿童
+          </Radio.Content>
+        </Radio>
+        <Radio value="adult">
+          <Radio.Content>
+            <Radio.Control><Radio.Indicator /></Radio.Control>
+            成人
+          </Radio.Content>
+        </Radio>
+      </RadioGroup>
+      <PinField
+        name="pin"
+        label="PIN(可选,6 位数字)"
+        value={pin}
+        onValueChange={setPin}
+        isRequired={false}
+        errorMessage={pinError}
+        isInvalid={pinError !== undefined}
+        description="不填则选择时无需 PIN"
+      />
+      <Checkbox isSelected={isDefault} onChange={setIsDefault}>
+        <Checkbox.Content>
+          <Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>
+          设为默认观看档案
+        </Checkbox.Content>
+      </Checkbox>
+      {error !== null && pinError === undefined ? (
         <p role="alert" className="text-sm text-danger">{error}</p>
       ) : null}
       <div className="flex justify-end gap-2">
@@ -468,6 +487,7 @@ function EditProfileForm({
 
   const dirty =
     name !== profile.name || pin !== '' || isDefault !== profile.isDefault;
+  const pinError = error === 'PIN 必须为 6 位数字' ? error : undefined;
 
   // 保存档案修改:confirmed 变更 + CAS;成功后失效档案列表回填
   const patchProfile = useAppMutation({
@@ -533,15 +553,23 @@ function EditProfileForm({
         <Label>名称</Label>
         <Input name="name" maxLength={50} />
       </TextField>
-      <TextField className="w-full" value={pin} onChange={setPin}>
-        <Label>{profile.pinProtected ? '重设 PIN(留空保持不变;主档案不可清除 PIN)' : '设置 PIN(可选,6 位数字)'}</Label>
-        <Input name="pin" inputMode="numeric" maxLength={6} />
-      </TextField>
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={isDefault} onChange={(event) => setIsDefault(event.target.checked)} />
-        设为默认观看档案
-      </label>
-      {error !== null ? (
+      <PinField
+        name="pin"
+        label={profile.pinProtected ? '重设 PIN(留空保持不变;主档案不可清除 PIN)' : '设置 PIN(可选,6 位数字)'}
+        value={pin}
+        onValueChange={setPin}
+        isRequired={false}
+        errorMessage={pinError}
+        isInvalid={pinError !== undefined}
+        description={profile.pinProtected ? '留空保持不变' : '留空则选择时无需 PIN'}
+      />
+      <Checkbox isSelected={isDefault} onChange={setIsDefault}>
+        <Checkbox.Content>
+          <Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>
+          设为默认观看档案
+        </Checkbox.Content>
+      </Checkbox>
+      {error !== null && pinError === undefined ? (
         <p role="alert" className="text-sm text-danger">{error}</p>
       ) : null}
       <div className="flex justify-end gap-2">
@@ -642,20 +670,22 @@ function TransferMainModal({
         </p>
       ) : (
         <>
-          <fieldset className="flex flex-col gap-2 text-sm">
-            <legend className="text-muted">选择新主档案</legend>
+          <RadioGroup
+            className="flex flex-col gap-2 text-sm"
+            name="transfer-target"
+            value={targetId ?? ''}
+            onChange={setTargetId}
+          >
+            <Label>选择新主档案</Label>
             {candidates.map((profile) => (
-              <label key={profile.id} className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="transfer-target"
-                  checked={targetId === profile.id}
-                  onChange={() => setTargetId(profile.id)}
-                />
-                {profile.name}(版本 {profile.version})
-              </label>
+              <Radio key={profile.id} value={profile.id}>
+                <Radio.Content>
+                  <Radio.Control><Radio.Indicator /></Radio.Control>
+                  {profile.name}(版本 {profile.version})
+                </Radio.Content>
+              </Radio>
             ))}
-          </fieldset>
+          </RadioGroup>
           {error !== null ? (
             <p role="alert" className="text-sm text-danger">{error}</p>
           ) : null}

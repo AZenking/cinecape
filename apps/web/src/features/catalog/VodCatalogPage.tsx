@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Button, Input, Label, TextField } from '@heroui/react';
 import type { PublicMediaPageDto } from '@hmp/shared';
 import { useAppQuery } from '../../shared/query/hooks';
@@ -14,13 +14,19 @@ import {
   NoMatchState,
   RetryableAlert,
 } from '../../shared/ui';
+import { OnlineSearchSection } from './online-search-section';
 
 /**
- * 基础点播目录页(T028,US1;T023 迁移:006 统一数据层;contracts/ui.md §1/§2、
- * spec.md US1 场景4/5):
- * - q/type/page 全部写入 URL 查询参数(FR-045):组件状态唯一来源是 URL,
- *   详情返回或登录取消后按原 URL 恢复原搜索、筛选与页码,不重置回第一页;
- * - 搜索/筛选变更翻回第一页(page 键省略即第一页);翻页保留 q/type;
+ * 点播入口页(T028 基础目录;010 T033 扩展媒体库/在线搜索切换,US1;
+ * T023 迁移:006 统一数据层;contracts/ui.md §1/§2、spec.md US1 场景4/5)。
+ *
+ * 010 ui.md §1:/vod 为「媒体库/在线搜索切换」,URL 保留 mode/q/searchId/cursor:
+ * - 缺省(无 mode 键)= 媒体库:q/type/page 全部写入 URL 查询参数(FR-045),
+ *   组件状态唯一来源是 URL,详情返回或登录取消后按原 URL 恢复原搜索、筛选与
+ *   页码,不重置回第一页;
+ * - `?mode=online` = 在线搜索:整页交给 OnlineSearchSection(mode/q/searchId/
+ *   cursor 驱动,零个人请求);两模式各自独立取数,互不夹带;
+ * - 库内搜索/筛选变更翻回第一页(page 键省略即第一页);翻页保留 q/type;
  * - 数据取数经 useAppQuery(public 域;signal 透传/缓存/后台刷新由数据层承担),
  *   键取自 queryKeys.public.catalog 工厂——筛选条件对象置于键末位(可序列化,
  *   同参同键、异参异键);`type` 为工厂 CatalogFilters 字段子集之外的页面级筛选,
@@ -50,7 +56,7 @@ const MEDIA_TYPE_LABELS: Record<string, string> = {
   video: '视频',
 };
 
-/** 从 URL 读取的目录条件(第一页省略 page 键;空 q/type 省略键) */
+/** 从 URL 读取的库内目录条件(第一页省略 page 键;空 q/type 省略键) */
 interface CatalogParams {
   q: string;
   type: string;
@@ -66,8 +72,38 @@ function parseParams(searchParams: URLSearchParams): CatalogParams {
   };
 }
 
+/** 媒体库/在线搜索切换(ui.md §1:URL 保留 mode;缺省 = 媒体库) */
+function ModeSwitch({ online }: { online: boolean }): ReactNode {
+  const navigate = useNavigate();
+  return (
+    <div role="group" aria-label="浏览模式" className="flex flex-wrap items-center gap-1">
+      <Button
+        size="sm"
+        variant={online ? 'ghost' : 'primary'}
+        aria-pressed={!online}
+        onPress={() => {
+          void navigate('/vod');
+        }}
+      >
+        媒体库
+      </Button>
+      <Button
+        size="sm"
+        variant={online ? 'primary' : 'ghost'}
+        aria-pressed={online}
+        onPress={() => {
+          void navigate('/vod?mode=online');
+        }}
+      >
+        在线搜索
+      </Button>
+    </div>
+  );
+}
+
 export function VodCatalogPage(): ReactNode {
   const [searchParams, setSearchParams] = useSearchParams();
+  const isOnline = searchParams.get('mode') === 'online';
   const params = parseParams(searchParams);
 
   // 搜索输入草稿:受控于本地,提交时才写入 URL(避免每键一次请求)
@@ -98,6 +134,8 @@ export function VodCatalogPage(): ReactNode {
         },
         signal,
       }),
+    // 在线模式整页交给 OnlineSearchSection,库内目录不取数(两模式互不夹带)
+    enabled: !isOnline,
   });
   const { data: pageData, isPending, isError, error, refetch } = catalogQuery;
 
@@ -134,6 +172,19 @@ export function VodCatalogPage(): ReactNode {
   // RAC Button 不依赖原生 type=submit 行为,显式 onPress 保证点击路径可用
   function submitSearch(): void {
     updateParams({ q: draft.trim(), page: 1 });
+  }
+
+  // 010 T033:?mode=online 整页渲染在线搜索区(URL 驱动,零个人请求)
+  if (isOnline) {
+    return (
+      <section className="flex flex-col gap-5">
+        <header className="flex flex-col gap-3">
+          <h1 className="text-xl font-semibold text-foreground">在线搜索</h1>
+          <ModeSwitch online />
+        </header>
+        <OnlineSearchSection />
+      </section>
+    );
   }
 
   const total = pageData?.total ?? 0;
@@ -180,6 +231,7 @@ export function VodCatalogPage(): ReactNode {
               );
             })}
           </div>
+          <ModeSwitch online={false} />
         </div>
       </header>
 

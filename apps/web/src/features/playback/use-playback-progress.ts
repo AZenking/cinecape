@@ -1,34 +1,28 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
-import { isFetchApiError, privateFetch } from '../../shared/fetch';
+import {
+  ProgressController,
+  type AcceptedCheckpoint,
+  type FinishReceiptDto,
+  type PlaybackSaveOutcome,
+} from './progress-controller';
 
 /**
- * 播放进度上报队列(T104,005 api.md §5 progress、research R7、ui/FR-019;语义=T095):
+ * 播放进度上报 hook(010 T048;语义承载见 ProgressController):
  *
- * - 首次实际 playing 上报 reason=started,并在收到 ACK 前按同一 sampleSeq/payload
- *   重试(指数退避封顶 2 秒);周期/暂停样本在确认前排队,不越过首次样本;
- * - 每 10 秒周期与暂停立即上报;seq 为会话生命周期单调序号(换轨/seek/重渲染不重置);
- * - ACK 前禁用(回弹)用户 seek 与会重建输出的音轨切换(经 canSwitchTracks/canSeek
- *   暴露给播放器层),确认后恢复执行;
- * - 未确认 started 即停止:发送空 stop 并提示未保存(不伪造 final);
- * - 断网:保留最后成功保存值,提示同步失败;网络恢复后以原 seq/payload 重试;
- * - 服务端稳定拒绝(401/403/404/409):终止重试并上报拒绝(不静默丢样本);
- * - 换档/退出:废弃在途请求(AbortController),不向旧身份回写。
+ * - ProgressController 生命周期=session:hook 仅按 sessionId 建/换控制器并桥接
+ *   React 状态面;generation 更新只调用 setPhase(只更新 phase,不重置 seq、
+ *   不触发卸载 stop 路径 —— playback-state §7);
+ * - 会话/代次身份面:sessionId 变化=身份撤销(T079),旧控制器经统一收口
+ *   (revoke=同一 stopOnce 唯一 Promise:abort 在途+立即 /stop,不等待保存),
+ *   新控制器 seq 从 1 重新开始;确认/失败/历史应用/保存三态随会话重置;
+ * - hook 面:startedAcked/canSeek/canSwitchTracks/syncFailed 语义不变,新增
+ *   historyApplied(ProgressReply.applied;superseded → false 供「他设备更新」
+ *   提示)、pauseAndFlush/stopOnce(awaitable 命令,ui.md §2)、onFinishReceipt
+ *   (T064 自然结束回执接出)、boundedSave/saveOutcome(T079 有界保存原语与
+ *   收口三态状态面 —— 保存失败/superseded/仅投递区分,供 UI 提示)。
  */
 
-/** 上报节拍与重试参数(常量;测试经全局 fetch mock 断言行为) */
-const PERIOD_MS = 10_000;
-const RETRY_MIN_MS = 500;
-const RETRY_MAX_MS = 2_000;
-
-interface QueuedSample {
-  readonly sampleSeq: number;
-  readonly payload: {
-    readonly sampleSeq: number;
-    readonly expectedGeneration: number;
-    readonly positionSeconds: number;
-    readonly reason: 'started' | 'periodic' | 'pause';
-  };
-}
+export type { AcceptedCheckpoint, FinishReceiptDto, PlaybackSaveOutcome } from './progress-controller';
 
 export interface UsePlaybackProgressOptions {
   readonly sessionId: string;
@@ -38,253 +32,173 @@ export interface UsePlaybackProgressOptions {
   readonly onUnsavedProgress?: () => void;
   /** 服务端稳定拒绝(授权/会话/冲突)时的终止提示 */
   readonly onRejected?: (message: string) => void;
+  /** 自然结束回执到达(唯一 finish 命令决议;连播资格事实唯一入口,T064) */
+  readonly onFinishReceipt?: (receipt: FinishReceiptDto) => void;
+  /** 保存收口三态变化(T079):有界保存决议/空停投递时发布,供 UI 区分提示 */
+  readonly onSaveOutcome?: (outcome: PlaybackSaveOutcome) => void;
 }
 
 export interface PlaybackProgressApi {
-  /** 首次 started 是否已确认(确认前禁用 seek 与重建输出的音轨切换) */
+  /** 首次 started 是否已确认(依据 sessionAccepted+sessionStarted;确认前禁用 seek 与重建输出的音轨切换) */
   readonly startedAcked: boolean;
   /** 断网/同步失败(保留最后成功值;恢复后原 seq/payload 重试) */
   readonly syncFailed: boolean;
+  /** 本次会话历史是否已应用(ProgressReply.applied);superseded 时 false ——
+   *  「已同步历史」成功提示的唯一依据,绝不以 2xx 充当(ui.md §2) */
+  readonly historyApplied: boolean;
   /** 用户 seek 是否放行(ACK 前 false) */
   readonly canSeek: boolean;
   /** 音轨切换等重建输出操作是否放行(ACK 前 false) */
   readonly canSwitchTracks: boolean;
-  /** 主动停止(携 finalProgress;由播放面关闭路径调用) */
+  /** 主动停止(仅标记;final 由 stopOnce/卸载兜底统一发送) */
   readonly requestStop: () => void;
+  /** 暂停并按序等待在途/排队样本全部确认,决议为精确接受 checkpoint(ui.md §2/api.md §5) */
+  readonly pauseAndFlush: () => Promise<AcceptedCheckpoint>;
+  /** 幂等停止:唯一 Promise,重复调用复用同一命令与不可变 final 载荷(ui.md §2) */
+  readonly stopOnce: () => Promise<void>;
+  /** 有界保存(T079):pauseAndFlush 竞速 ≤1s 超时即放弃,决议非严格 checkpoint;
+   *  绝不阻塞身份撤销(stopOnce/revoke 不等待本方法)。永不 reject。 */
+  readonly boundedSave: (timeoutMs?: number) => Promise<AcceptedCheckpoint>;
+  /** 最近一次保存收口三态(T079 状态面):saved/superseded/failed/delivery-only;
+   *  null=尚无收口事实。随会话身份重置。 */
+  readonly saveOutcome: PlaybackSaveOutcome | null;
 }
 
-function readPosition(video: HTMLVideoElement | null, fallback: number): number {
-  const value = video?.currentTime;
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
-}
+/** 控制器缺位(空 sessionId)时的中性 checkpoint(无接受游标) */
+const IDLE_CHECKPOINT: AcceptedCheckpoint = {
+  sessionAccepted: false,
+  acceptedSampleSeq: 0,
+  acceptedPositionSeconds: null,
+  acceptedGeneration: 0,
+};
 
-function isNetworkError(error: unknown): boolean {
-  return !(error instanceof DOMException && error.name === 'AbortError') && !isFetchApiError(error);
-}
+/** 待发终局收口(T082 StrictMode 双挂载修复;模块级单播放面语义):
+ * cleanup 同步 disposeLocal(abort 在途/摘监听/停拍 —— 「旧会话请求立即失效」契约
+ * 不变),终局命令(stopOnce 唯一 Promise)挂**微任务**延迟:StrictMode dev 的
+ * 同步 unmount→remount 在 setup 内取消之(挂载期空 stop 不再早于首帧击穿会话,
+ * e2e 实测时间线:空停先于 VHS 清单请求 → 网关 401 → 播放必中断);真实卸载/
+ * 换会话在该微任务照常收口(T079 同一 Promise/载荷零变化)。微任务在同一任务内
+ * 冲刷 —— 不用 setTimeout(真实时钟会把收口泄漏进相邻测试的 fetch mock,vitest
+ * 全量实测),也不跨任务延迟。 */
+let pendingTerminal: { sessionId: string; controller: ProgressController } | null = null;
 
 export function usePlaybackProgress(options: UsePlaybackProgressOptions): PlaybackProgressApi {
-  const { sessionId, generation, videoRef, onUnsavedProgress, onRejected } = options;
+  const { sessionId, generation, videoRef, onUnsavedProgress, onRejected, onFinishReceipt, onSaveOutcome } = options;
   const [startedAcked, setStartedAcked] = useState(false);
   const [syncFailed, setSyncFailed] = useState(false);
+  const [historyApplied, setHistoryApplied] = useState(true);
+  const [saveOutcome, setSaveOutcome] = useState<PlaybackSaveOutcome | null>(null);
 
-  // 会话内可变状态(seq 单调;换 session/generation 即整体重置)
-  const seqRef = useRef(0);
-  const inFlightRef = useRef<QueuedSample | null>(null);
-  const queueRef = useRef<QueuedSample[]>([]);
-  const ackedRef = useRef(false);
-  const lastConfirmedRef = useRef(0);
-  const lastKnownTimeRef = useRef(0);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const stoppedRef = useRef(false);
-  const periodTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const controllerRef = useRef<ProgressController | null>(null);
 
-  // 稳定回调面(父层提示回调/videoRef 经 ref 转发,监听/定时器效果不因重渲染重排:
-  // 依赖面只含 sessionId/generation —— videoRef 容器对象每次渲染重建,不得进依赖)
+  // 稳定回调面(父层提示回调/videoRef 经 ref 转发,控制器生命周期不因重渲染重排:
+  // 控制器效果依赖只含 sessionId —— videoRef 容器对象每次渲染重建,不得进依赖)
   const unsavedRef = useRef(onUnsavedProgress);
   unsavedRef.current = onUnsavedProgress;
   const rejectedRef = useRef(onRejected);
   rejectedRef.current = onRejected;
+  const finishedRef = useRef(onFinishReceipt);
+  finishedRef.current = onFinishReceipt;
+  const saveOutcomeCbRef = useRef(onSaveOutcome);
+  saveOutcomeCbRef.current = onSaveOutcome;
   const videoRefRef = useRef(videoRef);
   videoRefRef.current = videoRef;
-
-  /** 推进队列:无在途样本时取队首发送(重试同 seq/payload;确认后按序 flush) */
-  const pumpRef = useRef<() => void>(() => undefined);
+  // phase 上下文(generation 更新只 setPhase;渲染期同步,建控制器时取当前值)
+  const generationRef = useRef(generation);
+  generationRef.current = generation;
 
   useEffect(() => {
-    // 会话/代次变化:整体重置(废弃在途请求,不向旧身份回写)
-    seqRef.current = 0;
-    inFlightRef.current = null;
-    queueRef.current = [];
-    ackedRef.current = false;
-    lastConfirmedRef.current = 0;
-    lastKnownTimeRef.current = 0;
-    stoppedRef.current = false;
+    // 身份撤销/会话变化(T079):旧控制器统一收口(revoke=同一 stopOnce 唯一
+    // Promise:abort 在途+立即 /stop,不等待保存),状态面随会话重置
     setStartedAcked(false);
     setSyncFailed(false);
-    abortRef.current?.abort();
-    abortRef.current = null;
-    if (retryTimerRef.current !== null) {
-      clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
-
-    // 解引用媒体元素(videoRefRef.current = 外层 ref 容器;.current = 元素)
-    const video = videoRefRef.current?.current ?? null;
+    setHistoryApplied(true);
+    setSaveOutcome(null);
     if (sessionId === '') {
+      controllerRef.current = null;
       return;
     }
-
-    let disposed = false;
-    let retryAttempts = 0;
-
-    const send = (sample: QueuedSample, attempt: number): void => {
-      if (disposed || stoppedRef.current) {
-        return;
-      }
-      const controller = new AbortController();
-      abortRef.current = controller;
-      void privateFetch<void>(`/playback/sessions/${encodeURIComponent(sessionId)}/progress`, {
-        method: 'POST',
-        body: sample.payload,
-        signal: controller.signal,
-      })
-        .then(() => {
-          if (disposed) {
-            return;
-          }
-          // ACK(2xx,含 applied=false 的 stale/superseded:投递已确认)
-          inFlightRef.current = null;
-          retryAttempts = 0;
-          setSyncFailed(false);
-          lastConfirmedRef.current = sample.payload.positionSeconds;
-          if (sample.payload.reason === 'started' && !ackedRef.current) {
-            ackedRef.current = true;
-            setStartedAcked(true);
-          }
-          pumpRef.current();
-        })
-        .catch((error: unknown) => {
-          if (disposed || controller.signal.aborted) {
-            return;
-          }
-          if (isNetworkError(error)) {
-            // 断网:保留最后成功值,原 seq/payload 重试(退避;不推进 seq)
-            setSyncFailed(true);
-            retryTimerRef.current = setTimeout(() => {
-              retryTimerRef.current = null;
-              send(sample, attempt + 1);
-            }, Math.min(RETRY_MIN_MS * 2 ** attempt, RETRY_MAX_MS));
-            return;
-          }
-          // 服务端稳定拒绝:终止重试,上报稳定提示
-          inFlightRef.current = null;
-          if (isFetchApiError(error)) {
-            rejectedRef.current?.('进度保存已被服务端拒绝,播放将终止。');
-          }
-        });
-    };
-
-    const enqueue = (reason: QueuedSample['payload']['reason'], positionSeconds: number): void => {
-      if (stoppedRef.current || disposed) {
-        return;
-      }
-      // 在途重试中的同 seq 同载荷:去重(重试语义由 send 承担)
-      const candidate: QueuedSample = {
-        sampleSeq: seqRef.current + 1,
-        payload: { sampleSeq: seqRef.current + 1, expectedGeneration: generation, positionSeconds, reason },
-      };
-      if (inFlightRef.current !== null) {
-        // 已有在途(重试中):排队,不越过在途样本
-        queueRef.current.push(candidate);
-        return;
-      }
-      seqRef.current = candidate.sampleSeq;
-      inFlightRef.current = candidate;
-      send(candidate, retryAttempts);
-    };
-
-    pumpRef.current = () => {
-      const next = queueRef.current.shift();
-      if (next === undefined || inFlightRef.current !== null) {
-        return;
-      }
-      seqRef.current = Math.max(seqRef.current, next.sampleSeq);
-      inFlightRef.current = next;
-      send(next, retryAttempts);
-    };
-
-    const onPlaying = (): void => {
-      lastKnownTimeRef.current = readPosition(video, lastKnownTimeRef.current);
-      // 首次实际 playing 上报 started(已确认后的 playing 事件不重复上报)
-      if (!ackedRef.current && inFlightRef.current === null && seqRef.current === 0) {
-        enqueue('started', lastKnownTimeRef.current);
-      }
-    };
-    const onPause = (): void => {
-      lastKnownTimeRef.current = readPosition(video, lastKnownTimeRef.current);
-      // 暂停立即上报(未确认时入队,不越过首次样本)
-      enqueue('pause', lastKnownTimeRef.current);
-    };
-    const onSeeking = (): void => {
-      if (!ackedRef.current && video !== null) {
-        // ACK 前禁用用户 seek:回弹到确认前位置(确认后恢复执行)
-        video.currentTime = lastKnownTimeRef.current;
-      } else if (video !== null) {
-        lastKnownTimeRef.current = video.currentTime;
-      }
-    };
-    const onTimeUpdate = (): void => {
-      if (ackedRef.current && video !== null) {
-        lastKnownTimeRef.current = video.currentTime;
-      }
-    };
-    video?.addEventListener('playing', onPlaying);
-    video?.addEventListener('pause', onPause);
-    video?.addEventListener('seeking', onSeeking);
-    video?.addEventListener('timeupdate', onTimeUpdate);
-    periodTimerRef.current = setInterval(() => {
-      // 周期样本:未确认期间入队(确认后按序上报);在途重试中也排队(不越过)
-      enqueue('periodic', readPosition(video, lastKnownTimeRef.current));
-    }, PERIOD_MS);
-
+    // StrictMode dev 双挂载的同步重入:取消上一拍待发的终局命令(挂载期空 stop
+    // 不再发生)。旧控制器已 disposeLocal(挂载初态、无样本),径直新建等价安全。
+    const pending = pendingTerminal;
+    if (pending !== null && pending.sessionId === sessionId) {
+      pendingTerminal = null;
+    }
+    const controller = new ProgressController(sessionId, {
+      onStartedAcked: setStartedAcked,
+      onSyncFailed: setSyncFailed,
+      onHistoryApplied: setHistoryApplied,
+      onUnsavedProgress: () => unsavedRef.current?.(),
+      onRejected: (message) => rejectedRef.current?.(message),
+      onFinishReceipt: (receipt) => finishedRef.current?.(receipt),
+      // 三态状态面:hook 内状态 + 调用方回调双通道(T079)
+      onSaveOutcome: (outcome) => {
+        setSaveOutcome(outcome);
+        saveOutcomeCbRef.current?.(outcome);
+      },
+    });
+    controllerRef.current = controller;
+    controller.setPhase(generationRef.current);
+    controller.attach(videoRefRef.current?.current ?? null);
     return () => {
-      disposed = true;
-      video?.removeEventListener('playing', onPlaying);
-      video?.removeEventListener('pause', onPause);
-      video?.removeEventListener('seeking', onSeeking);
-      video?.removeEventListener('timeupdate', onTimeUpdate);
-      if (periodTimerRef.current !== null) {
-        clearInterval(periodTimerRef.current);
-        periodTimerRef.current = null;
+      if (controllerRef.current === controller) {
+        controllerRef.current = null;
       }
-      if (retryTimerRef.current !== null) {
-        clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = null;
-      }
-      // 卸载即停止:尽力发送(周期保存是主要异常恢复保障)
-      stoppedRef.current = true;
-      abortRef.current?.abort();
-      if (sessionId !== '') {
-        const acked = ackedRef.current;
-        const position = readPosition(videoRefRef.current.current, lastConfirmedRef.current);
-        if (acked) {
-          const finalSeq = seqRef.current + 1;
-          void privateFetch<void>(`/playback/sessions/${encodeURIComponent(sessionId)}/stop`, {
-            method: 'POST',
-            body: {
-              finalProgress: {
-                sampleSeq: finalSeq,
-                expectedGeneration: generation,
-                positionSeconds: Math.max(position, 0),
-              },
-            },
-            // 卸载路径尽力送达;失败不阻塞关闭(服务端身份变化/失联扫描兜底终态化)
-          }).catch(() => undefined);
-        } else {
-          // 未确认 started 即停止:空 stop + 提示未保存(不伪造 final)
-          void privateFetch<void>(`/playback/sessions/${encodeURIComponent(sessionId)}/stop`, {
-            method: 'POST',
-            body: {},
-          })
-            .then(() => unsavedRef.current?.())
-            .catch(() => unsavedRef.current?.());
+      // 卸载/换会话(身份撤销)统一收口(T079):同步本地回收(abort 在途/摘监听/
+      // 停拍),终局命令 stopOnce 唯一 Promise 挂微任务 —— 同步 StrictMode remount
+      // 由上方 setup 取消;真实卸载/换会话在该微任务照常收口,不等待保存。
+      controller.disposeLocal();
+      pendingTerminal = { sessionId, controller };
+      queueMicrotask(() => {
+        if (pendingTerminal !== null && pendingTerminal.controller === controller) {
+          pendingTerminal = null;
+          controller.collectTerminal();
         }
-      }
+      });
     };
-    // sessionId/generation 变化 = 会话身份变化:整段重置(含 stop flush)
-  }, [sessionId, generation]);
+    // 生命周期=session:generation 变化只经下方效果 setPhase(不发 session stop)
+  }, [sessionId]);
 
-  /** 主动停止(播放面关闭路径):同步停止周期链并由卸载清理承担 final;此处仅标记 */
+  useEffect(() => {
+    // generation 更新只更新 phase:不重置 seq、不触发卸载 stop 路径
+    controllerRef.current?.setPhase(generation);
+  }, [generation]);
+
+  /** 主动停止(播放面关闭路径):仅标记;stop 网络由 stopOnce/卸载兜底统一发送 */
   const requestStop = useCallback((): void => {
-    stoppedRef.current = true;
+    controllerRef.current?.requestStop();
   }, []);
+
+  const pauseAndFlush = useCallback(
+    (): Promise<AcceptedCheckpoint> => controllerRef.current?.pauseAndFlush() ?? Promise.resolve(IDLE_CHECKPOINT),
+    [],
+  );
+
+  const stopOnce = useCallback((): Promise<void> => {
+    const controller = controllerRef.current;
+    if (controller === null) {
+      return Promise.resolve();
+    }
+    return controller.stopOnce();
+  }, []);
+
+  const boundedSave = useCallback(
+    (timeoutMs?: number): Promise<AcceptedCheckpoint> =>
+      controllerRef.current?.boundedSave(timeoutMs) ??
+      Promise.resolve(IDLE_CHECKPOINT),
+    [],
+  );
 
   return {
     startedAcked,
     syncFailed,
+    historyApplied,
     canSeek: startedAcked,
     canSwitchTracks: startedAcked,
     requestStop,
+    pauseAndFlush,
+    stopOnce,
+    boundedSave,
+    saveOutcome,
   };
 }

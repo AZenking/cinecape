@@ -25,6 +25,25 @@
   }
 
   /*
+   * 焦点可见强化(T087 D-B 修复):上层 base 基线(无 important)会被后序层级
+   * 的 outline-style:none 压制 —— HeroUI Button 组件样式与页面工具类
+   * (focus:outline-none)都声明 outline 消失,键盘焦点指示只剩 HeroUI
+   * focus-ring 的 box-shadow 一条链,该链失效即完全不可见(T087 层1 实测)。
+   * 故在同一 base 基线处加 important 强化版:
+   *   - important 声明胜过一切层级的常规声明(components 的 outline-style:none、
+   *     utilities 的 focus:outline-none 均被压过),对 :focus-visible 与
+   *     data-focus-visible(React Aria 键盘焦点标记,含程序化聚焦时
+   *     UA :focus-visible 不命中的场景)双通道兜底;
+   *   - .hmp-player 作用域除外:video.js 皮肤(video-player-skin.css,未分层)
+   *     已为播放器控件提供同色可见焦点(内缩 offset),维持其既有设计。
+   */
+  :focus-visible:not(.hmp-player *),
+  [data-focus-visible='true']:not(.hmp-player *) {
+    outline: var(--hmp-focus-ring-width) solid var(--focus, var(--accent)) !important;
+    outline-offset: var(--hmp-focus-ring-offset) !important;
+  }
+
+  /*
    * prefers-reduced-motion 基线:偏好减少动效时收敛全局动画/过渡/平滑滚动。
    * 个别必须保留的指示性动效(如加载 Spinner)由组件自行豁免并说明。
    */

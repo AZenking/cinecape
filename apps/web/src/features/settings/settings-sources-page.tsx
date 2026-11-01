@@ -1,5 +1,5 @@
 /**
- * 来源管理页(T134,US8;FR-037;T025 数据层迁移):
+ * 来源管理页(T134,US8;FR-037;T025 数据层迁移;010 T034 叠加 vod 增量):
  * - 来源列表经 useAppQuery(settings.sources 键,硬请求 + isPending 门控 /
  *   isError RetryableAlert(formatApiError + 重试)/ 成功出主体);
  * - 创建/启停字段修改/手动导入/快照确认与丢弃均为 confirmed 变更(当次密码 +
@@ -10,21 +10,64 @@
  * - 成功发布后提供「查看内容」入口;失败提示重试并保留上次成功目录(不自动清理);
  * - 每敏感操作独立弹当次密码;409 冲突提示重读现值,不静默覆盖(失效重读);
  * - 403 SETTINGS_ACCESS_* 经 handleAccessLost 立即隐藏;重新解锁后重挂硬请求。
+ *
+ * 010 T034(US1 web 侧,叠加于既有 dirty 改动之上,零回退):
+ * - kind=vod 创建分支(remoteUrl 必填、adapter 固定 apple-cms-json 展示;
+ *   NAS/EPG 专属字段在 vod 下隐藏;创建体严格按 010 契约 VodCreateSourceRequest,
+ *   不携带 enabled/privateAccessApproved——未知字段服务端拒绝);
+ * - kind=vod 行内 capabilities 徽标(resume:operational/requiresCurrentProbe);
+ * - 「测试」→ POST /settings/sources/:id/test(当次密码)→ 结果行内展示
+ *   (reachable/compatible/reason 中文文案;纯读不写媒体,不失效任何键);
+ * - vod 启停弹层提示「定位版本递增」(启停均失效活动 locator,api.md §2);
+ * - 编辑界面不提供根地址修改入口(PATCH 根地址服务端 400 拒绝,UI 不撒谎);
+ * - 409 VOD_QUOTA_EXCEEDED 单列呈现(提示管理来源,不混入版本冲突文案);
+ *   422 SOURCE_TARGET_DENIED 呈现服务端拒绝原因(detail 为稳定脱敏文案,无 URL 回显);
+ * - 服务端拒绝优先:测试入口仅对 kind=vod 展示属体验优化,任何 4xx 响应
+ *   (含未来契约变化)均原样经弹层/页面呈现,不以按钮隐藏代替服务端拒绝。
  */
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router';
-import { Button, Form, ListBox, Select, TextField, Label, Input } from '@heroui/react';
+import { Button, Form, Input, Label, ListBox, Radio, RadioGroup, Select, TextField } from '@heroui/react';
+import type { Vod } from '@hmp/shared';
 import { LoadingSpinner, RetryableAlert } from '../../shared/ui';
 import { useAppMutation, useAppQuery } from '../../shared/query/hooks';
 import { queryKeys } from '../../shared/query/keys';
 import { formatApiError } from '../../shared/query/error';
-import { privateFetch } from '../../shared/fetch';
+import { isFetchApiError, privateFetch } from '../../shared/fetch';
 import { classifySettingsWriteError, useSettingsPolling } from './shared/access-expiry';
 import type { RefreshDto, RootDto, SourceDto, SourcePageDto } from './shared/settings-api';
 import { PasswordConfirmModal } from './shared/password-confirm-modal';
 import { useUnsavedGuard } from './shared/unsaved-guard';
 import { useSettingsAccess } from './settings-access-provider';
 import { useSettingsPageMeta } from './settings-modules';
+
+/**
+ * 010 来源 DTO 视图(005 SourceDto 的兼容扩展;010 openapi components/Source 同形):
+ * kind 增加 'vod',kind=vod 附 capabilities(api.md §2「现有来源DTO扩kind=vod及capabilities」)。
+ * 就地声明(005 settings-api.ts 保持 005 面不变,与 010 契约类型经 @hmp/shared Vod 对齐)。
+ */
+type SettingsSourceDto = Omit<SourceDto, 'kind'> & {
+  kind: SourceDto['kind'] | 'vod';
+  capabilities?: Vod.components['schemas']['VodSourceCapabilities'];
+};
+
+/** 010 来源分页(条目为 010 视图;分页字段与 005 相同) */
+type SettingsSourcePageDto = Omit<SourcePageDto, 'items'> & { items: SettingsSourceDto[] };
+
+/** POST /settings/sources/:id/test 200 响应(010 契约 SourceTestResult;纯读不写媒体) */
+type SourceTestResultDto = Vod.components['schemas']['SourceTestResult'];
+
+/** SourceTestResult.reason → 面向管理者的中文文案(服务端稳定码;不回显上游细节) */
+const VOD_TEST_REASON_LABELS: Record<'timeout' | 'invalid' | 'unavailable', string> = {
+  timeout: '探测超时',
+  invalid: '目标无效或不被许可',
+  unavailable: '上游暂不可用',
+};
+
+/** VodSourceCapabilities → 稳定字段逐字呈现(不发明能力值) */
+function formatVodCapabilities(capabilities: Vod.components['schemas']['VodSourceCapabilities']): string {
+  return `resume:${capabilities.resume} · requiresCurrentProbe:${capabilities.requiresCurrentProbe}`;
+}
 
 /** 手动导入 operationKey:客户端生成 UUID(幂等键,服务端去重) */
 function newOperationKey(): string {
@@ -49,19 +92,22 @@ export function SettingsSourcesPage(): ReactNode {
   const access = useSettingsAccess();
   const { title } = useSettingsPageMeta();
   const [creating, setCreating] = useState(false);
-  const [createdSource, setCreatedSource] = useState<SourceDto | null>(null); // 创建成功 → 「开始导入」下一步
+  const [createdSource, setCreatedSource] = useState<SettingsSourceDto | null>(null); // 创建成功 → 「开始导入」下一步
   const [jobs, setJobs] = useState<Record<string, RefreshDto>>({});
   const [confirmJob, setConfirmJob] = useState<{ job: RefreshDto; action: 'confirm' | 'discard' } | null>(null);
-  const [confirmPatch, setConfirmPatch] = useState<{ source: SourceDto; input: Record<string, unknown> } | null>(null);
-  const [importTarget, setImportTarget] = useState<SourceDto | null>(null);
+  const [confirmPatch, setConfirmPatch] = useState<{ source: SettingsSourceDto; input: Record<string, unknown> } | null>(null);
+  const [importTarget, setImportTarget] = useState<SettingsSourceDto | null>(null);
   const [importKey, setImportKey] = useState<string | null>(null);
+  // 010 T034:连通性测试(仅 kind=vod 提供入口);每来源保留最近一次结果行内展示
+  const [testResults, setTestResults] = useState<Record<string, SourceTestResultDto>>({});
+  const [testTarget, setTestTarget] = useState<SettingsSourceDto | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const sourcesQuery = useAppQuery<SourcePageDto>({
+  const sourcesQuery = useAppQuery<SettingsSourcePageDto>({
     domain: 'settings',
     queryKey: queryKeys.settings.sources(),
-    queryFn: ({ signal }) => privateFetch<SourcePageDto>('/settings/sources', { signal }),
+    queryFn: ({ signal }) => privateFetch<SettingsSourcePageDto>('/settings/sources', { signal }),
   });
 
   // 管理主体读取得到 403 SETTINGS_ACCESS_*:立即回到锁定态(解锁门随之隐藏本页)
@@ -136,15 +182,29 @@ export function SettingsSourcesPage(): ReactNode {
   });
 
   // 启停/字段修改:confirmed 变更 + 当次密码 + expectedVersion CAS
+  // (010:根地址字段不可经 PATCH 修改——服务端 400 拒绝,本页不提供修改入口)
   const patchSource = useAppMutation({
     domain: 'settings',
     feedback: 'confirmed',
     mutationFn: (vars: { sourceId: string; ownerPassword: string; input: Record<string, unknown> }) =>
-      privateFetch<SourceDto>(`/settings/sources/${vars.sourceId}`, {
+      privateFetch<SettingsSourceDto>(`/settings/sources/${vars.sourceId}`, {
         method: 'PATCH',
         body: { ownerPassword: vars.ownerPassword, ...vars.input },
       }),
     invalidate: [queryKeys.settings.sources()],
+  });
+
+  // 010 T034 连通性测试(POST /settings/sources/:id/test,当次密码;纯读不写媒体、
+  // 不失效任何查询键):成功行内展示 SourceTestResult;失败按 problem detail 呈现,
+  // 403 SETTINGS_ACCESS_* 走既有 handleAccessLost 重验证流。
+  const testSource = useAppMutation({
+    domain: 'settings',
+    feedback: 'confirmed',
+    mutationFn: (vars: { sourceId: string; ownerPassword: string }) =>
+      privateFetch<SourceTestResultDto>(`/settings/sources/${vars.sourceId}/test`, {
+        method: 'POST',
+        body: { ownerPassword: vars.ownerPassword },
+      }),
   });
 
   // 快照确认/丢弃:confirmed 变更 + 当次密码 + 任务当前版本
@@ -161,7 +221,7 @@ export function SettingsSourcesPage(): ReactNode {
 
   const sources = sourcesQuery.data?.items ?? null;
 
-  const openImport = (source: SourceDto): void => {
+  const openImport = (source: SettingsSourceDto): void => {
     setPageError(null);
     setImportKey(newOperationKey());
     setImportTarget(source);
@@ -218,6 +278,7 @@ export function SettingsSourcesPage(): ReactNode {
         <ul className="flex flex-col gap-2" data-testid="source-list">
           {sources.map((source) => {
             const job = source.lastJobId !== null ? (jobs[source.lastJobId] ?? null) : null;
+            const testResult = testResults[source.id] ?? null;
             return (
               <li key={source.id} className="flex flex-col gap-2 rounded border border-border p-3" data-testid={`source-row-${source.id}`}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -225,6 +286,15 @@ export function SettingsSourcesPage(): ReactNode {
                     <span className="truncate text-sm font-medium text-foreground">
                       {source.name}
                       <span className="ml-2 rounded bg-surface px-1.5 py-0.5 text-xs text-muted">{source.kind}</span>
+                      {/* 010 T034:kind=vod 行内能力徽标(契约字段逐字呈现) */}
+                      {source.kind === 'vod' && source.capabilities !== undefined ? (
+                        <span
+                          className="ml-2 rounded bg-surface px-1.5 py-0.5 text-xs text-muted"
+                          data-testid={`source-capabilities-${source.id}`}
+                        >
+                          {formatVodCapabilities(source.capabilities)}
+                        </span>
+                      ) : null}
                       <span className={`ml-2 text-xs ${source.enabled ? 'text-success' : 'text-danger'}`}>
                         {source.enabled ? '已启用' : '已停用'}
                       </span>
@@ -245,6 +315,21 @@ export function SettingsSourcesPage(): ReactNode {
                     >
                       {source.enabled ? '停用' : '启用'}
                     </Button>
+                    {/* 连通性测试:入口仅对 kind=vod 展示属体验优化;服务端对非 vod 一律 400,
+                        任何 4xx 响应仍原样呈现——不以按钮隐藏代替服务端拒绝(010 T034) */}
+                    {source.kind === 'vod' ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onPress={() => {
+                          setPageError(null);
+                          setTestTarget(source);
+                        }}
+                        data-testid={`source-test-${source.id}`}
+                      >
+                        测试
+                      </Button>
+                    ) : null}
                     <Button
                       variant="primary"
                       size="sm"
@@ -265,6 +350,18 @@ export function SettingsSourcesPage(): ReactNode {
                     ) : null}
                   </div>
                 </div>
+                {testResult !== null ? (
+                  <div
+                    className="flex flex-col gap-1 rounded bg-surface p-2 text-xs text-muted"
+                    data-testid={`source-test-result-${source.id}`}
+                  >
+                    <span>
+                      测试结果:{testResult.reachable ? '可达' : '不可达'} · {testResult.compatible ? '格式兼容' : '格式不兼容'}
+                      {testResult.reason !== null ? ` · 原因:${VOD_TEST_REASON_LABELS[testResult.reason]}` : ''}
+                    </span>
+                    <span>能力:{formatVodCapabilities(testResult.capabilities)}</span>
+                  </div>
+                ) : null}
                 {job !== null ? (
                   <div className="flex flex-col gap-1 rounded bg-surface p-2 text-xs text-muted" data-testid={`source-job-${source.id}`}>
                     <span>
@@ -353,10 +450,15 @@ export function SettingsSourcesPage(): ReactNode {
         }}
       />
 
-      {/* 启停/字段修改:当次密码 + expectedVersion CAS */}
+      {/* 启停/字段修改:当次密码 + expectedVersion CAS(vod 启停提示定位版本递增) */}
       <PasswordConfirmModal
         open={confirmPatch !== null}
         title="保存来源修改"
+        description={
+          confirmPatch !== null && confirmPatch.source.kind === 'vod' && confirmPatch.input.enabled !== undefined
+            ? '启停在线点播来源会使该来源的活动定位失效(定位版本递增),进行中的播放定位需重新获取。'
+            : undefined
+        }
         submitLabel="确认保存"
         onSubmit={(ownerPassword: string) => {
           if (confirmPatch === null) {
@@ -373,6 +475,11 @@ export function SettingsSourcesPage(): ReactNode {
                 access.handleAccessLost();
                 return;
               }
+              if (isFetchApiError(cause) && cause.code === 'VOD_QUOTA_EXCEEDED') {
+                // 409 配额上限 ≠ 版本冲突:按服务端 problem detail 呈现(提示管理来源)
+                setPageError(formatApiError(cause));
+                return;
+              }
               if (kind === 'conflict') {
                 setPageError('来源已被其他操作修改(版本冲突):列表已按服务端现值刷新,请重试。');
                 return; // 列表回填由 invalidate 驱动
@@ -381,6 +488,38 @@ export function SettingsSourcesPage(): ReactNode {
             });
         }}
         onClose={() => setConfirmPatch(null)}
+      />
+
+      {/* 010 T034 连通性测试:当次密码;纯读探测;结果行内展示,失败按 problem detail 呈现 */}
+      <PasswordConfirmModal
+        open={testTarget !== null}
+        title="测试来源连通性"
+        description={
+          testTarget !== null
+            ? `将对「${testTarget.name}」发起一次有界连通性/兼容性探测;纯读操作,不写入任何媒体。`
+            : ''
+        }
+        submitLabel="开始测试"
+        onSubmit={(ownerPassword: string) => {
+          if (testTarget === null) {
+            return Promise.reject(new Error('no source'));
+          }
+          const target = testTarget;
+          return testSource
+            .mutateAsync({ sourceId: target.id, ownerPassword })
+            .then((result) => {
+              setTestResults((current) => ({ ...current, [target.id]: result }));
+            })
+            .catch((cause: unknown) => {
+              const kind = classifySettingsWriteError(cause);
+              if (kind === 'access-lost') {
+                access.handleAccessLost(); // 403 SETTINGS_ACCESS_*:既有重验证流(解锁门接管)
+                return;
+              }
+              throw cause; // 400/409/422 等:弹层按 problem detail 呈现服务端拒绝
+            });
+        }}
+        onClose={() => setTestTarget(null)}
       />
 
       {/* 快照确认/丢弃:当次密码 + 任务当前版本 */}
@@ -434,11 +573,11 @@ function CreateSourceForm({
   onCreated,
   onCancel,
 }: {
-  onCreated: (source: SourceDto) => void;
+  onCreated: (source: SettingsSourceDto) => void;
   onCancel: () => void;
 }): ReactNode {
   const access = useSettingsAccess();
-  const [kind, setKind] = useState<'iptv' | 'epg' | 'nas'>('iptv');
+  const [kind, setKind] = useState<'iptv' | 'epg' | 'nas' | 'vod'>('iptv');
   const [name, setName] = useState('');
   const [remoteUrl, setRemoteUrl] = useState('');
   const [rootKey, setRootKey] = useState('');
@@ -463,21 +602,33 @@ function CreateSourceForm({
     }
   }, [kind, roots, access]);
 
-  // 创建来源:confirmed 变更(当次密码);成功后失效来源列表回填
+  // 创建来源:confirmed 变更(当次密码);成功后失效来源列表回填。
+  // 010 vod 分支:创建体严格按契约 VodCreateSourceRequest(ownerPassword/kind/name/
+  // remoteUrl/adapter),不携带 enabled/privateAccessApproved(未知字段服务端拒绝;
+  // NAS/EPG 绑定字段在 vod 下同理禁带);iptv/epg/nas 分支保持 005 面不变。
   const createSource = useAppMutation({
     domain: 'settings',
     feedback: 'confirmed',
     mutationFn: (vars: { ownerPassword: string }) =>
-      privateFetch<SourceDto>('/settings/sources', {
+      privateFetch<SettingsSourceDto>('/settings/sources', {
         method: 'POST',
-        body: {
-          ownerPassword: vars.ownerPassword,
-          kind,
-          name: name.trim(),
-          enabled: true,
-          privateAccessApproved: true,
-          ...(kind !== 'nas' ? { remoteUrl: remoteUrl.trim() } : { rootKey, relativeDirectory }),
-        },
+        body:
+          kind === 'vod'
+            ? {
+                ownerPassword: vars.ownerPassword,
+                kind,
+                name: name.trim(),
+                remoteUrl: remoteUrl.trim(),
+                adapter: 'apple-cms-json' as const,
+              }
+            : {
+                ownerPassword: vars.ownerPassword,
+                kind,
+                name: name.trim(),
+                enabled: true,
+                privateAccessApproved: true,
+                ...(kind !== 'nas' ? { remoteUrl: remoteUrl.trim() } : { rootKey, relativeDirectory }),
+              },
       }),
     invalidate: [queryKeys.settings.sources()],
   });
@@ -489,7 +640,13 @@ function CreateSourceForm({
       return;
     }
     if (kind !== 'nas' && remoteUrl.trim() === '') {
-      setError(kind === 'epg' ? 'EPG 来源必须提供 XMLTV remoteUrl' : 'IPTV 来源必须提供 remoteUrl');
+      setError(
+        kind === 'epg'
+          ? 'EPG 来源必须提供 XMLTV remoteUrl'
+          : kind === 'vod'
+            ? '在线点播来源必须提供 remoteUrl(根地址)'
+            : 'IPTV 来源必须提供 remoteUrl',
+      );
       return;
     }
     if (kind === 'nas' && (rootKey === '' || relativeDirectory === '')) {
@@ -512,36 +669,65 @@ function CreateSourceForm({
           access.handleAccessLost();
           return;
         }
-        throw cause; // 目标被拒/密码错误:弹层呈现服务端稳定文案
+        // 010 T034:其余拒绝原样上抛进弹层,按 problem detail 呈现——422
+        // SOURCE_TARGET_DENIED 显示服务端拒绝原因(detail 为稳定脱敏短语,无 URL 回显);
+        // 409 VOD_QUOTA_EXCEEDED 显示「已达上限,请管理来源」;密码错误保持弹层不关。
+        throw cause;
       });
 
   return (
     <Form onSubmit={handleSubmit} className="flex max-w-md flex-col gap-3 rounded border border-border p-4" aria-label="新建来源">
       <h3 className="text-sm font-semibold text-foreground">新建来源</h3>
-      <fieldset className="flex gap-4 text-sm">
-        <legend className="text-muted">类型</legend>
-        <label className="flex items-center gap-1">
-          <input type="radio" name="source-kind" checked={kind === 'iptv'} onChange={() => setKind('iptv')} />
-          IPTV
-        </label>
-        <label className="flex items-center gap-1">
-          <input type="radio" name="source-kind" checked={kind === 'epg'} onChange={() => setKind('epg')} />
-          EPG(XMLTV)
-        </label>
-        <label className="flex items-center gap-1">
-          <input type="radio" name="source-kind" checked={kind === 'nas'} onChange={() => setKind('nas')} />
-          NAS
-        </label>
-      </fieldset>
+      <RadioGroup
+        className="flex gap-4 text-sm"
+        name="source-kind"
+        value={kind}
+        onChange={(value) => setKind(value as 'iptv' | 'epg' | 'nas' | 'vod')}
+      >
+        <Label>类型</Label>
+        <Radio value="iptv">
+          <Radio.Content><Radio.Control><Radio.Indicator /></Radio.Control>IPTV</Radio.Content>
+        </Radio>
+        <Radio value="epg">
+          <Radio.Content><Radio.Control><Radio.Indicator /></Radio.Control>EPG(XMLTV)</Radio.Content>
+        </Radio>
+        <Radio value="nas">
+          <Radio.Content><Radio.Control><Radio.Indicator /></Radio.Control>NAS</Radio.Content>
+        </Radio>
+        {/* 010 T034:kind=vod(在线点播;Apple CMS JSON 适配器) */}
+        <Radio value="vod">
+          <Radio.Content><Radio.Control><Radio.Indicator /></Radio.Control>在线点播(VOD)</Radio.Content>
+        </Radio>
+      </RadioGroup>
       <TextField className="w-full" value={name} onChange={setName}>
         <Label>来源名称</Label>
         <Input name="name" maxLength={100} />
       </TextField>
       {kind !== 'nas' ? (
-        <TextField className="w-full" value={remoteUrl} onChange={setRemoteUrl}>
-          <Label>{kind === 'epg' ? '节目单地址(XMLTV URL)' : '播放列表地址(M3U URL)'}</Label>
-          <Input name="remoteUrl" placeholder={kind === 'epg' ? 'https://…/epg.xml' : 'http://…'} />
-        </TextField>
+        <>
+          <TextField className="w-full" value={remoteUrl} onChange={setRemoteUrl}>
+            <Label>
+              {kind === 'epg'
+                ? '节目单地址(XMLTV URL)'
+                : kind === 'vod'
+                  ? '在线点播根地址(Apple CMS URL)'
+                  : '播放列表地址(M3U URL)'}
+            </Label>
+            <Input name="remoteUrl" placeholder={kind === 'epg' ? 'https://…/epg.xml' : 'http://…'} />
+          </TextField>
+          {/* 010 T034:adapter 固定 apple-cms-json 展示(内置唯一适配器,不提供选择) */}
+          {kind === 'vod' ? (
+            <div className="flex flex-col gap-1">
+              <span className="text-sm text-muted">适配器(内置,不可更改)</span>
+              <span
+                className="rounded bg-surface px-2 py-1 text-sm text-foreground"
+                data-testid="create-vod-adapter"
+              >
+                apple-cms-json
+              </span>
+            </div>
+          ) : null}
+        </>
       ) : (
         <>
           <div className="flex flex-col gap-1">

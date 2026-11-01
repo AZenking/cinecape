@@ -11,3 +11,5 @@ export { EmptyCatalogState, NoMatchState } from './states';
 export { RetryableAlert } from './retryable-alert';
 export { AppToastRegion, useAppToast } from './toast';
 export type { AppToast } from './toast';
+export { PinField } from './pin-field';
+export type { PinFieldProps } from './pin-field';

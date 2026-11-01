@@ -10,8 +10,10 @@
  *   选档完成后继续原目标;已选档直接 authorize。播放意图绑定独立 intentId
  *   (playbackIntentSeq),reducer 内做意图守卫:准备中换目标/重复点击仅最新 intentId
  *   可 authorize→prepare→playing,旧回调与旧准备结果结构上不能起播其它内容(FR-013);
- *   取消登录/选档废弃暂存播放意图(不自动播放);退出/换档(身份键变化)废弃在途
- *   播放与会话(服务端同事务终态化,前端补发幂等 stop 仅作卫生清理);
+ *   取消登录/选档废弃暂存播放意图(不自动播放);退出/换档/关闭播放面统一收口
+ *   (T079 唯一调用点 terminatePlaybackIntent:意图废弃 → 播放面卸载 → 进度泵
+ *   stopOnce 唯一命令,playing 相位不并发第二份空 stop;身份撤销不被保存阻塞,
+ *   旧身份零补报);
  * - playing 态由协调器以全局 Modal 挂载播放器(features/playback/player-view;009:非全屏、
  *   路由切换不掉、遮罩/Esc 不关闭),不另建路由面;
  * - 选档成功回到原业务目标或首页(白名单内);取消清凭据与意图、返回原页面、
@@ -53,6 +55,12 @@ import { PinRecoveryStep } from '../features/auth/pin-recovery-step';
 import { ProfilePickerStep } from '../features/profiles/profile-picker-step';
 import { SelectionPinStep } from '../features/profiles/selection-pin-step';
 import { PlayerView } from '../features/playback/player-view';
+import { useVodTransition } from '../features/playback/use-vod-transition';
+import { VodSourceSwitcher } from '../features/playback/vod-source-switcher';
+import {
+  VodAutoplayPreferenceProvider,
+  useVodAutoplayPreference,
+} from '../features/playback/vod-autoplay-preference';
 import { SettingsPinForm } from '../features/settings/settings-unlock-gate';
 import { useSettingsAccess } from '../features/settings/settings-access-provider';
 
@@ -116,6 +124,14 @@ function currentPathTarget(): string {
 const PREPARE_POLL_MS = 500;
 const PREPARE_BUDGET_MS = 30_000;
 
+/** recover_switch 恢复窗口(010 T075;api.md §5「failed 可恢复来源仅 60s」/§6):
+ *  客户端媒体故障时刻起算的 UI 镜像(服务端 failed+60s 为权威),过期收口为
+ *  「重新播放」普通播放 —— 不自动携带过期 carry/意图,不自动循环尝试来源。 */
+const RECOVER_WINDOW_MS = 60_000;
+
+/** 换源恢复窗口相位(T075):idle=无故障;window=60s 内可 recover_switch;expired=过期 */
+type RecoverPhase = 'idle' | 'window' | 'expired';
+
 /** 稳定拒绝 → 面向观看者的提示(不含策略细节/源位置/票据等内部信息) */
 function stableRejectMessage(error: unknown): string {
   if (isFetchApiError(error)) {
@@ -152,6 +168,52 @@ function delay(ms: number): Promise<void> {
   });
 }
 
+/** 连播开关入口(010 T065;ui.md §3 关闭连播可键盘操作):播放面头部非阻塞开关 ——
+ *  关闭即本地门(收口倒计时/零意图,见 vod-autoplay-preference),消费时服务端
+ *  偏好仍重验(api.md §5);开关值持久 localStorage,状态经 Provider 全局一致。 */
+function AutoplayNextToggle(): ReactNode {
+  const { autoplayNextEnabled, setAutoplayNextEnabled } = useVodAutoplayPreference();
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      aria-label="自动连播开关"
+      aria-pressed={autoplayNextEnabled}
+      onPress={() => setAutoplayNextEnabled(!autoplayNextEnabled)}
+    >
+      {autoplayNextEnabled ? '连播:开' : '连播:关'}
+    </Button>
+  );
+}
+
+/**
+ * 换源恢复面板(010 T075;ui.md §4「媒体故障 60s recover_switch 路径」、api.md §5):
+ * unavailable 相位的 recover_switch 候选流宿主 —— 复用 T074 换源串行流与抽屉面
+ * (不退出播放器重搜),仅 action 换为 recover_switch(仅故障 failed 后 60s,窗口
+ * 归协调器)。源会话已故障终止、播放面已卸载:无存活进度泵可复用 —— 暂停确认以
+ * 「未接受」事实收口(恢复流不做 carry 暂停确认,不建第二泵、零 /progress;真要
+ * carry 时由显式确认面提交并受服务端 ledger 校验/409 SOURCE_PROGRESS_PENDING
+ * 兜底重新确认),源停止由 failed 终态与消费路径既有收口承担。
+ */
+function RecoverSwitchPanel({ sessionId, generation }: { readonly sessionId: string; readonly generation: number }): ReactNode {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const transition = useVodTransition({
+    sessionId,
+    generation,
+    videoRef,
+    action: 'recover_switch',
+    pauseAndFlush: () =>
+      Promise.resolve({ sessionAccepted: false, acceptedGeneration: 1, acceptedSampleSeq: 1, acceptedPositionSeconds: null }),
+    stopOnce: () => Promise.resolve(),
+  });
+  const openRef = useRef(transition.openDrawer);
+  openRef.current = transition.openDrawer;
+  useEffect(() => {
+    openRef.current(); // 挂载即打开恢复候选面(60s 窗口内)
+  }, []);
+  return <VodSourceSwitcher transition={transition} />;
+}
+
 export function ActionCoordinator({ children }: { children: ReactNode }): ReactNode {
   const [state, dispatch] = useReducer(coordinatorReducer, undefined, createInitialCoordinatorState);
   // 镜像 ref:每次 dispatch 同步推进,使异步回调的代次/意图守卫读到「最新」状态,
@@ -168,6 +230,35 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
   const [targetProfile, setTargetProfile] = useState<ProfileSummary | null>(null);
   /** picker 直选(无 PIN)失败提示 */
   const [selectError, setSelectError] = useState<string | null>(null);
+  // 换源恢复窗口(010 T075;F1/F2):媒体故障(onMediaFailure)注册 60s recover_switch
+  // 入口,过期收口为「重新播放」新普通播放;窗口随播放面关闭/新播放意图/身份撤销终止。
+  const [recoverPhase, setRecoverPhase] = useState<RecoverPhase>('idle');
+  const [recoverPanelOpen, setRecoverPanelOpen] = useState(false);
+  const recoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const closeRecoverWindow = useCallback((): void => {
+    if (recoverTimerRef.current !== null) {
+      clearTimeout(recoverTimerRef.current);
+      recoverTimerRef.current = null;
+    }
+    setRecoverPhase('idle');
+    setRecoverPanelOpen(false);
+  }, []);
+
+  /** 注册恢复窗口(媒体故障客户端时刻起算;重复故障重挂 60s,不叠加计时器) */
+  const armRecoverWindow = useCallback((): void => {
+    if (recoverTimerRef.current !== null) {
+      clearTimeout(recoverTimerRef.current);
+    }
+    setRecoverPhase('window');
+    setRecoverPanelOpen(false);
+    recoverTimerRef.current = setTimeout(() => {
+      recoverTimerRef.current = null;
+      // 过期:recover 入口收口,「重新播放」承载新普通播放(api.md §6 过期明确新播放)
+      setRecoverPhase('expired');
+      setRecoverPanelOpen(false);
+    }, RECOVER_WINDOW_MS);
+  }, []);
 
   // 启动期(anonymous)自动检查一次 /setup/status:未初始化弹窗配置(FR-006);
   // 状态未知(503)不自动弹窗 —— 不误判为未初始化而开放配置。
@@ -231,13 +322,51 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
   // 播放管线(T053):abandon / runPlayback / close
   // ---------------------------------------------------------------------------
 
-  /** 幂等废弃已接受的播放会话(换目标/超时/关闭时的客户端卫生;服务端语义兜底) */
+  /**
+   * 幂等废弃「无进度泵」会话(010 T079 收口:仅 authorizing/preparing/unavailable
+   * 等 PlayerView 未挂载相位 —— 客户端从未安装进度泵,空 stop 即唯一清理)。
+   * playing 相位一律由泵统一收口(stopOnce 唯一 Promise:携 final/未确认空 stop),
+   * 协调器绝不并发第二个 /stop —— 空 stop 先到终态化会话会让泵 final 成为无害
+   * no-op,丢失最终保存(T104 同款守卫,经 terminatePlaybackIntent 统一)。
+   */
   const abandonSession = useCallback((sessionId: string): void => {
     void privateFetch<void>(`/playback/sessions/${encodeURIComponent(sessionId)}/stop`, {
       method: 'POST',
       body: {},
     }).catch(() => undefined);
   }, []);
+
+  /**
+   * 播放会话统一收口(010 T079;ui.md §2「退出按钮/hook 清理不各生成一份」/
+   * playback-state §4):关闭播放面、退出登录、切档三条路径的**唯一调用点** ——
+   * 一律先废弃意图(playEnd → PlayerView 随意图面卸载 → 进度泵统一收口 stopOnce:
+   * abort 在途 + 立即 /stop,不被保存阻塞);仅「泵尚不存在」的相位才由
+   * abandonSession 补发幂等空 stop 卫生清理。身份撤销路径(退出/切档)在 playing
+   * 相位不再并发空 stop:旧实现于此双发 /stop,空 stop 先到会令泵 final 成 no-op
+   * 丢失最终保存;身份撤销后旧身份零补报(泵 stopped 后不入队/不派发/不重试,
+   * 离线无补报队列可重放 —— 服务端身份撤销事务+watchdog 兜底)。
+   */
+  const terminatePlaybackIntent = useCallback((): void => {
+    const current = stateRef.current.playback;
+    if (current === null) {
+      return;
+    }
+    closeRecoverWindow(); // 播放面收口即撤销换源恢复窗口(T075;60s 窗随意图生命周期)
+    dispatchWithMirror({ type: 'playEnd', intentId: current.intentId });
+    if (current.sessionId !== null && current.phase !== 'playing') {
+      abandonSession(current.sessionId);
+    }
+  }, [abandonSession, closeRecoverWindow]);
+
+  /**
+   * 关闭播放面(用户主动退出):统一收口唯一入口(terminatePlaybackIntent)。
+   * playing 相位的 stop 由 PlayerView 卸载时的进度泵承担(携 finalProgress /
+   * 未确认时空 stop + 未保存提示),本处不并发空 stop(T104;vod-autoplay B2 钉
+   * 播放面即时收口);authorizing/preparing/unavailable 仍走无泵幂等清理。
+   */
+  const close = useCallback((): void => {
+    terminatePlaybackIntent();
+  }, [terminatePlaybackIntent]);
 
   /**
    * 播放执行链:authorize(resolve)→ prepare(轮询,30 秒预算)→ playing(换票安装)。
@@ -375,32 +504,30 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
         return;
       }
       dispatchWithMirror({ type: 'playStart', intentId, target });
+      closeRecoverWindow(); // 新播放意图即撤销恢复窗口(T075;过期后唯一出路是显式重播)
       runPlayback(intentId, target);
     },
-    [session, runPlayback, startLogin],
+    [session, runPlayback, startLogin, closeRecoverWindow],
   );
 
   /**
-   * 关闭播放面:废弃当前意图并补发幂等 stop(用户主动退出)。
-   * T104(US4):playing 相位的 stop 由 PlayerView 卸载时的进度队列承担
-   * (携 finalProgress / 未确认时空 stop + 未保存提示),本处不再并发空 stop ——
-   * 空 stop 先到终态化会话会让 final 成为无害 no-op,丢失最终保存。其余相位
-   * (authorizing/preparing/unavailable)仍保留幂等清理;换档/退出路径同样保留
-   * (服务端身份变化事务已终态化并 flush,客户端补发仅作卫生清理)。
+   * 换源恢复过期出路(T075 F2):「重新播放」= 新普通播放 —— resolve 带 startMode,
+   * 不借过期 intent/carry(零 transitionIntentId),不自动循环尝试来源。
    */
-  const close = useCallback((): void => {
+  const replayAfterRecoverExpired = useCallback((): void => {
     const current = stateRef.current.playback;
+    closeRecoverWindow();
     if (current === null) {
       return;
     }
-    dispatchWithMirror({ type: 'playEnd', intentId: current.intentId });
-    if (current.sessionId !== null && current.phase !== 'playing') {
-      abandonSession(current.sessionId);
-    }
-  }, [abandonSession]);
+    play({ mediaId: current.target.mediaId, title: current.target.title, startMode: 'beginning' });
+  }, [closeRecoverWindow, play]);
 
-  // 退出/换档/会话撤销(身份键变化)→ 废弃在途播放意图与会话(T055;服务端同事务
-  // 已终态化并撤票,此处保证 UI 即时停止且在途请求凭代次丢弃)
+  // 退出/换档/会话撤销(身份键变化)= 身份撤销(T055 观察 + T079 统一收口):
+  // 废弃在途播放意图 → 播放面卸载 → 进度泵统一收口 stopOnce(唯一 /stop,abort
+  // 在途、不被保存阻塞;服务端身份变化事务已终态化并 flush,客户端卫生清理恰一次,
+  // 不并发第二份空 stop)。旧身份零补报:泵 stopped 后零入队/零派发/零重试(T048
+  // 守卫),本组件亦不缓存任何旧身份重放队列。
   // 观看身份观察(T055):仅「已有观看档案 → 另一档案/无档案」才废弃在途播放
   // (换档/档案停用/退出/会话撤销)。''→档案(登录/选档完成)是身份获得而非变化 ——
   // 选档完成恰恰是暂存播放续跑的起点,不得误杀;档案间切换或失档才终止播放。
@@ -409,16 +536,11 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
   useEffect(() => {
     const previous = activeProfileRef.current;
     if (previous !== '' && previous !== activeProfileId) {
-      const current = stateRef.current.playback;
-      if (current !== null) {
-        dispatchWithMirror({ type: 'playEnd', intentId: current.intentId });
-        if (current.sessionId !== null) {
-          abandonSession(current.sessionId);
-        }
-      }
+      // identity-revoked:泵统一收口(playing 相位零并发空 stop,T079)
+      terminatePlaybackIntent();
     }
     activeProfileRef.current = activeProfileId;
-  }, [activeProfileId, abandonSession]);
+  }, [activeProfileId, terminatePlaybackIntent]);
 
   // ---------------------------------------------------------------------------
   // 意图入口(布局层调用)
@@ -691,6 +813,9 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
       }}
     >
       <PlayActionContext.Provider value={{ play, close, playback }}>
+        {/* 连播开关 Provider(T065):全局播放唯一协调器挂载(ui.md §2 惯例处);
+            播放面头部开关与 PlayerView 本地门同源消费,状态全局一致 */}
+        <VodAutoplayPreferenceProvider>
         {children}
         <Modal.Root
           isOpen={open}
@@ -742,19 +867,25 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
             故浮层壳用语义 token 样式 + role="dialog",页面在播放期间全部可点可用;
             路由切换不掉不变(协调器位于路由树之外);无遮罩/Esc dismiss 通道(防误关),
             关闭仅经「退出」走 close() 统一路径。 */}
+        {/* 010 回归修复(009「播放期间页面全部可点」):宽度以视口可用高度反推 16:9 上限,
+            防止浮层在矮视口(≤720p)遮蔽头部公共导航/身份菜单(T082 Q9 导航 e2e 实测阻塞点);
+            注释原位于 section 属性列表内,为非法 JSX(T090 lint/typecheck 实测),移至合法子节点位。 */}
         {playback !== null && (playback.phase === 'playing' || playback.phase === 'unavailable') ? (
           <section
             role="dialog"
             aria-modal="false"
             aria-label={`播放 ${playback.target.title}`}
             data-testid="playback-surface"
-            className="pointer-events-auto fixed left-1/2 top-1/2 z-50 flex w-[min(94vw,1120px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-border bg-black shadow-2xl"
+            className="pointer-events-auto fixed left-1/2 top-1/2 z-50 flex w-[min(94vw,1120px,calc((100vh-12rem)*16/9))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-border bg-black shadow-2xl"
           >
             <header className="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-2">
               <h2 className="min-w-0 truncate text-base font-medium text-foreground">{playback.target.title}</h2>
-              <Button size="sm" variant="ghost" onPress={close} aria-label="退出播放">
-                退出
-              </Button>
+              <div className="flex shrink-0 items-center gap-2">
+                <AutoplayNextToggle />
+                <Button size="sm" variant="ghost" onPress={close} aria-label="退出播放">
+                  退出
+                </Button>
+              </div>
             </header>
             {playback.phase === 'playing' && playback.playbackUrl !== null && playback.sessionId !== null ? (
               <div className="aspect-video w-full bg-black">
@@ -765,6 +896,7 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
                   ticketExpiresAt={playback.ticketExpiresAt ?? ''}
                   delivery={playback.delivery}
                   presentationStartSeconds={playback.presentationStartSeconds ?? 0}
+                  onMediaFailure={armRecoverWindow}
                   onTerminated={(message) => {
                     dispatchWithMirror({ type: 'playPatch', intentId: playback.intentId, patch: { phase: 'unavailable', message } });
                   }}
@@ -779,10 +911,27 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
                 />
               </div>
             ) : (
-              <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 bg-black px-6 text-center">
+              <div className="relative flex aspect-video w-full flex-col items-center justify-center gap-3 bg-black px-6 text-center">
                 <p role="alert" className="text-sm text-white/80">
                   {playback.message ?? '该内容当前不可播放。'}
                 </p>
+                {/* 换源恢复(T075 F1;ui.md §4 媒体故障 60s recover_switch 路径):
+                    窗口内提供恢复入口,复用换源候选流(不退出播放器重搜) */}
+                {recoverPhase === 'window' && !recoverPanelOpen && playback.sessionId !== null ? (
+                  <Button size="sm" variant="ghost" onPress={() => setRecoverPanelOpen(true)}>
+                    换源恢复
+                  </Button>
+                ) : null}
+                {/* 恢复候选流宿主(recover_switch;面板挂同一 unavailable 浮层内) */}
+                {recoverPhase === 'window' && recoverPanelOpen && playback.sessionId !== null ? (
+                  <RecoverSwitchPanel sessionId={playback.sessionId} generation={playback.playbackGeneration ?? 1} />
+                ) : null}
+                {/* 60s 过期(T075 F2):recover 入口收口,「重新播放」承载新普通播放 */}
+                {recoverPhase === 'expired' ? (
+                  <Button size="sm" variant="ghost" onPress={replayAfterRecoverExpired}>
+                    重新播放
+                  </Button>
+                ) : null}
                 <Button size="sm" variant="ghost" onPress={close}>
                   关闭
                 </Button>
@@ -790,6 +939,7 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
             )}
           </section>
         ) : null}
+        </VodAutoplayPreferenceProvider>
       </PlayActionContext.Provider>
     </AuthActionContext.Provider>
   );

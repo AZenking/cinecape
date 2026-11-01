@@ -84,6 +84,22 @@ export interface Page {
 }
 
 /**
+ * 010 在线点播搜索取数输入(010 api.md §2「首次{q}或后续{searchId,cursor?},两组互斥」)。
+ *
+ * 双形状必须保留(010 T032 A1 的承载):
+ * - `{q}` = 活跃搜索期取数输入(与 searchId/cursor 互斥);
+ * - `{searchId,cursor?}` = 刷新/返回恢复期与翻页期取数输入(缺 cursor 重放第一页)。
+ * 「成功页把 searchId 写入 URL」不得改变取数输入——活跃期查询键只含 q。
+ */
+export type VodSearchInput = { q: string } | { searchId: string; cursor?: string };
+
+/** 010 稳定父详情分集查询(GET /public/media/:id/episodes;修订绑定 cursor) */
+export interface VodEpisodesQuery {
+  /** 分页游标;null = 第一页 */
+  cursor: string | null;
+}
+
+/**
  * 唯一查询键工厂。
  * 返回值均为 `as const` 只读元组,可直接用作 queryKey 与失效/清除谓词的匹配前缀。
  */
@@ -106,6 +122,17 @@ export const queryKeys = {
     liveChannels: (query: LiveChannelQuery) => ['public', 'live', 'channels', query] as const,
     /** 频道节目单 */
     epg: (query: EpgQuery) => ['public', 'epg', query] as const,
+    /**
+     * 010 在线点播搜索(T034 收编 T033 内联键;api.md §2 两组参数互斥)。
+     * input=null(无活跃搜索/无恢复目标)落 `{idle:true}` 占位——形状与 T033 基线逐字一致,
+     * 活跃期键只含 q,「写 searchId 不改变取数输入」由该双形状承载(见 VodSearchInput)。
+     */
+    vodSearch: (input: VodSearchInput | null) => ['public', 'vod', 'search', input ?? { idle: true }] as const,
+    /** 010 在线点播临时预览(titleRef 为服务端 opaque ref) */
+    vodPreview: (titleRef: string) => ['public', 'vod', 'preview', titleRef] as const,
+    /** 010 稳定父详情分集(修订绑定 cursor;缺 cursor=第一页) */
+    vodEpisodes: (parentMediaId: string, query: VodEpisodesQuery) =>
+      ['public', 'media', 'episodes', parentMediaId, query] as const,
   },
   // ── profile 域:个人数据,键必须携带 profileId(privateFetch) ──
   profile: (profileId: string) => ({
@@ -115,6 +142,13 @@ export const queryKeys = {
     history: (page: Page) => ['profile', profileId, 'history', page] as const,
     /** 单媒体观看进度 */
     progress: (id: string) => ['profile', profileId, 'progress', id] as const,
+    /**
+     * 010 在线点播父片聚合进度(T049;api.md §3 GET /me/vod/titles/:parentId/progress):
+     * TitleProgress={latest,resumeCandidate,nextEpisodeAction},身份恒由服务端从当前
+     * Session/激活 Profile 推导,键按 profileId 隔离(切档域清除按首段前缀覆盖)。
+     */
+    vodTitleProgress: (parentMediaId: string) =>
+      ['profile', profileId, 'vod', 'title-progress', parentMediaId] as const,
   }),
   // ── settings 域:管理数据,每次进入请求最新(privateFetch) ──
   settings: {

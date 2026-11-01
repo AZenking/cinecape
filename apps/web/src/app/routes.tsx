@@ -2,9 +2,10 @@
  * 路由注册表(T010 公共骨架;T026 接入 US1 页面;T086 接入 US7 设置布局)。
  *
  * 公共地址(ui.md §1,不建立 /catalog 等旧路由别名):
- * - `/` → HomePage(T027 公共区)、`/vod` → VodCatalogPage(T028)、
- *   `/media/:id` → MediaDetailPage(T029)—— 全部挂 PublicLayout,地址只用
- *   `/`、`/vod`、`/media/:id`,只改 element、不再新建布局壳;
+ * - `/` → HomePage(T027 公共区)、`/vod` → VodCatalogPage(T028;010 T033 扩展
+ *   媒体库/在线搜索切换)、`/vod/titles/:titleRef` → OnlineVodDetailPage(010
+ *   T033 在线预览/选集)、`/media/:id` → MediaDetailPage(T029;010 T033 稳定
+ *   父详情)—— 全部挂 PublicLayout,只改 element、不再新建布局壳;
  * - `/live`、`/live/guide` —— 直播和 guide 路由由 US5/US6 填充;
  * - `/settings/*` → SettingsLayout(T086):与公共观看布局职责分离(FR-028),
  *   不嵌套 PublicLayout;布局内置解锁门(最终权限由服务端 API 校验)。
@@ -20,6 +21,7 @@ import { Navigate, Route, Routes } from 'react-router';
 import { PublicLayout } from '../layouts/PublicLayout';
 import { SettingsLayout } from '../layouts/SettingsLayout';
 import { MediaDetailPage } from '../features/catalog/MediaDetailPage';
+import { OnlineVodDetailPage } from '../features/catalog/OnlineVodDetailPage';
 import { VodCatalogPage } from '../features/catalog/VodCatalogPage';
 import { HomePage } from '../features/home/HomePage';
 import { LivePage } from '../features/live/LivePage';
@@ -36,6 +38,9 @@ export function AppRoutes(): ReactNode {
       <Route element={<PublicLayout />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/vod" element={<VodCatalogPage />} />
+        {/* 010 T033(US1):在线点播临时详情(预览/选集);物化成功跳稳定 /media/:id,
+            失败不跳;游客可看、不发个人请求(contracts/ui.md §1) */}
+        <Route path="/vod/titles/:titleRef" element={<OnlineVodDetailPage />} />
         <Route path="/media/:id" element={<MediaDetailPage />} />
         {/* T067(US5):直播首页;T116(US6):/live/guide 挂真实 EPG 节目单页 */}
         <Route path="/live" element={<LivePage />} />

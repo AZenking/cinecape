@@ -11,7 +11,7 @@
  * - 授权失效立即隐藏主体,重新解锁后解锁门卸载重挂,硬请求重读最新版本。
  */
 import { useEffect, useState, type ReactNode } from 'react';
-import { Button, ListBox, Select } from '@heroui/react';
+import { Button, Checkbox, Label, ListBox, Select, TextArea, TextField } from '@heroui/react';
 import { LoadingSpinner, RetryableAlert } from '../../shared/ui';
 import { useAppMutation, useAppQuery } from '../../shared/query/hooks';
 import { queryKeys } from '../../shared/query/keys';
@@ -251,14 +251,16 @@ function PolicyEditor({ profileId }: { profileId: string }): ReactNode {
                 </Select.Popover>
               </Select>
             </div>
-            <label className="flex items-center gap-2 pb-1.5 text-sm">
-              <input
-                type="checkbox"
-                checked={draft.allowUnrated}
-                onChange={(event) => setOverrides({ ...overrides, allowUnrated: event.target.checked })}
-              />
-              允许未评级内容
-            </label>
+            <Checkbox
+              name="allowUnrated"
+              isSelected={draft.allowUnrated}
+              onChange={(selected) => setOverrides({ ...overrides, allowUnrated: selected })}
+            >
+              <Checkbox.Content>
+                <Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>
+                允许未评级内容
+              </Checkbox.Content>
+            </Checkbox>
             <Button
               variant="primary"
               size="sm"
@@ -273,16 +275,19 @@ function PolicyEditor({ profileId }: { profileId: string }): ReactNode {
           </div>
 
           <ListEditor
+            name="allowedMediaIds"
             label="媒体允许名单(每行一个媒体 ID)"
             ids={draft.allowedMediaIds}
             onChange={(ids) => setOverrides({ ...overrides, allowedMediaIds: ids })}
           />
           <ListEditor
+            name="blockedMediaIds"
             label="媒体禁止名单(每行一个媒体 ID)"
             ids={draft.blockedMediaIds}
             onChange={(ids) => setOverrides({ ...overrides, blockedMediaIds: ids })}
           />
           <ListEditor
+            name="allowedChannelIds"
             label="频道白名单(每行一个频道 ID)"
             ids={draft.allowedChannelIds}
             onChange={(ids) => setOverrides({ ...overrides, allowedChannelIds: ids })}
@@ -316,16 +321,26 @@ function PolicyEditor({ profileId }: { profileId: string }): ReactNode {
   );
 }
 
-function ListEditor({ label, ids, onChange }: { label: string; ids: string[]; onChange: (ids: string[]) => void }): ReactNode {
+function ListEditor({
+  name,
+  label,
+  ids,
+  onChange,
+}: {
+  name: string;
+  label: string;
+  ids: string[];
+  onChange: (ids: string[]) => void;
+}): ReactNode {
   return (
-    <div className="flex flex-col gap-1">
-      <label className="text-sm text-muted">{label}</label>
-      <textarea
-        className="min-h-20 rounded border border-border bg-surface p-2 font-mono text-xs text-foreground"
-        value={ids.join('\n')}
-        onChange={(event) => onChange(splitIds(event.target.value))}
-        spellCheck={false}
-      />
-    </div>
+    <TextField
+      className="w-full"
+      name={name}
+      value={ids.join('\n')}
+      onChange={(value) => onChange(splitIds(value))}
+    >
+      <Label>{label}</Label>
+      <TextArea className="min-h-20 font-mono text-xs" spellCheck={false} />
+    </TextField>
   );
 }
