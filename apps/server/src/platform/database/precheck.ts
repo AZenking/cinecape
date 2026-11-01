@@ -27,6 +27,7 @@ import { env } from '../config/env';
  * | 文件不存在,或无业务表且无 _migrations 且 user_version=0        | fresh-empty              | 允许           | 允许(readiness 503 直至迁移) |
  * | user_version=2 且 _migrations 与迁移目录全量一致                | generation2-ready        | 允许(空操作) | 允许                          |
  * | user_version=1 且 _migrations 恰为 0001~0005(0006 down 后状态)| generation2-rolled-back  | 允许(重新 up)| 拒绝(先迁移再启动)          |
+ * | user_version=2 且 _migrations 恰为 0001~0006(0007 down 后状态)| generation2-vod-rolled-back | 允许(重新 up 0007) | 拒绝(先迁移再启动)   |
  * | 有业务表或 _migrations、未到代际 2、且非上行(含旧库 uv=0)      | reject …UNSUPPORTED      | 拒绝           | 拒绝                          |
  * | 文件非 SQLite / quick_check 报错                                | reject …CORRUPT          | 拒绝           | 拒绝                          |
  * | 只读打不开(热 WAL/锁/权限)/版本记录与 user_version 不一致     | reject …STATE_UNKNOWN    | 拒绝           | 拒绝                          |
@@ -39,6 +40,9 @@ import { env } from '../config/env';
 
 /** 数据代际 2 的迁移名(up.sql 末尾设置 user_version=2) */
 const GENERATION2_MIGRATION = '0006_pc_experience';
+
+/** 在线点播迁移名(010 T014;与 0006 同属交付代际 2,up/down 均保持 user_version=2) */
+const ONLINE_VOD_MIGRATION = '0007_online_vod';
 
 /** 代际 1 完整记录(0006 down 后的 _migrations 形态;与迁移目录 0001~0005 一致) */
 const GENERATION1_MIGRATIONS = Object.freeze([
@@ -89,6 +93,7 @@ export type PrecheckVerdictKind =
   | 'fresh-empty'
   | 'generation2-ready'
   | 'generation2-rolled-back'
+  | 'generation2-vod-rolled-back'
   | 'reject';
 
 export interface PrecheckVerdict {
@@ -209,12 +214,23 @@ export function precheckDatabaseFile(dbFile: string): PrecheckVerdict {
       );
     }
 
-    // 形态二:已含代际 2 迁移记录 —— user_version 必须为 2 且记录与迁移目录全量一致
+    // 形态二:已含代际 2 迁移记录 —— user_version 必须为 2 且记录与迁移目录全量一致;
+    // 子形态:恰缺 0007(0007 down 后的「已回滚在线点播」形态,与目录-1 一致)允许重新 up
     if (applied.includes(GENERATION2_MIGRATION)) {
       if (userVersion === 2 && sameStringSet(applied, allMigrations)) {
         return {
           kind: 'generation2-ready',
           reason: '数据代际 2 就绪(user_version=2,迁移记录与目录一致)',
+        };
+      }
+      if (
+        userVersion === 2 &&
+        allMigrations.includes(ONLINE_VOD_MIGRATION) &&
+        sameStringSet(applied, allMigrations.filter((name) => name !== ONLINE_VOD_MIGRATION))
+      ) {
+        return {
+          kind: 'generation2-vod-rolled-back',
+          reason: `数据代际 2 在线点播部分已回滚(user_version=2,记录恰为除 ${ONLINE_VOD_MIGRATION} 外的目录全量);可重新应用 ${ONLINE_VOD_MIGRATION}`,
         };
       }
       return reject(
@@ -273,8 +289,10 @@ function isCorruptError(err: unknown): boolean {
 
 /**
  * 迁移入口门禁(T007):up / down / drill 在打开写连接之前调用。
- * - up/drill:允许 空库 / 代际 2 就绪(空操作)/ 代际 2 回滚后(重新 up);
- * - down:仅允许代际 2 就绪(其余形态无可回滚的 0006,或根本不允许触碰)。
+ * - up/drill:允许 空库 / 代际 2 就绪(空操作)/ 代际 2 回滚后(重新 up)/
+ *   在线点播部分回滚后(重新 up 0007);
+ * - down:允许代际 2 就绪与「0007 已回滚」形态(继续逐级 down 0006);
+ *   其余形态无可回滚对象,或根本不允许触碰。
  */
 export function evaluateMigrationGate(
   verdict: PrecheckVerdict,
@@ -283,6 +301,11 @@ export function evaluateMigrationGate(
   const base: GateDecision = { allowed: false, kind: verdict.kind, code: verdict.code, reason: verdict.reason };
   if (command === 'down') {
     if (verdict.kind === 'generation2-ready') return { ...base, allowed: true };
+    if (verdict.kind === 'generation2-vod-rolled-back') {
+      // 0007 已回滚的形态:继续 down 逐级回滚 0006(其 down 恢复 user_version=1),
+      // 与既有「代际 2 就绪可 down」同一语义链
+      return { ...base, allowed: true };
+    }
     if (verdict.kind === 'fresh-empty') {
       return { ...base, reason: '全新空库无已应用迁移,down 无可回滚对象' };
     }
@@ -292,7 +315,12 @@ export function evaluateMigrationGate(
     return base;
   }
   // up / drill
-  if (verdict.kind === 'fresh-empty' || verdict.kind === 'generation2-ready' || verdict.kind === 'generation2-rolled-back') {
+  if (
+    verdict.kind === 'fresh-empty' ||
+    verdict.kind === 'generation2-ready' ||
+    verdict.kind === 'generation2-rolled-back' ||
+    verdict.kind === 'generation2-vod-rolled-back'
+  ) {
     return { ...base, allowed: true };
   }
   return base;
@@ -305,8 +333,8 @@ export function evaluateServerGate(verdict: PrecheckVerdict): GateDecision {
     return { ...base, allowed: true, reason: `${verdict.reason};就绪门禁将保持 503 直至执行迁移` };
   }
   if (verdict.kind === 'generation2-ready') return { ...base, allowed: true };
-  if (verdict.kind === 'generation2-rolled-back') {
-    return { ...base, reason: `${verdict.reason};须先执行迁移恢复代际 2 再启动` };
+  if (verdict.kind === 'generation2-rolled-back' || verdict.kind === 'generation2-vod-rolled-back') {
+    return { ...base, reason: `${verdict.reason};须先执行迁移恢复代际 2 全量再启动` };
   }
   return base;
 }

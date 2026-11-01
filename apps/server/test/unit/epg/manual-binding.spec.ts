@@ -80,7 +80,8 @@ function bootstrapRig(extraEnv: Record<string, string> = {}): void {
   Database.close();
   Database.db.exec('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY NOT NULL, applied_at TEXT NOT NULL)');
   // 0004 已由 T068 落地(只读):manual_epg_binding 表 + media_source.epg_generation
-  for (const name of ['0001_init', '0002_profile_policy', '0003_media_catalog', '0004_manual_epg_binding']) {
+  // 010 收敛:rig 迁移清单补到 0007(schema.ts 查询面已含 0007 列,如 media_source.locator_revision)
+  for (const name of ['0001_init', '0002_profile_policy', '0003_media_catalog', '0004_manual_epg_binding', '0005_playback', '0006_pc_experience', '0007_online_vod']) {
     Database.db.transaction(() => {
       Database.db.exec(migrationSql(name));
       Database.db.prepare('INSERT INTO _migrations (name, applied_at) VALUES (?, ?)').run(name, new Date().toISOString());

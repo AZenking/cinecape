@@ -29,3 +29,16 @@ export {
   type MediaPolicyFacts,
   type MediaType,
 } from './domain/policy.rules';
+
+// —— 010 父子有效策略（T017；ADR-0006 判定顺序逐条复用 + ADR-0016 第 3 条名单目标扩展）——
+export {
+  evaluateEffectiveMediaPolicy,
+  type ChildMediaFacts,
+  type ParentChildMediaFacts,
+  type ParentChildPolicyDecision,
+  type ParentMediaFacts,
+} from './domain/effective-media-policy';
+export type {
+  EffectiveMediaPolicyInput,
+  EffectiveMediaPolicyPort,
+} from './application/effective-media-policy.port';

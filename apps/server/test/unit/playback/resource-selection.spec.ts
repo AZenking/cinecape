@@ -146,6 +146,7 @@ async function bootstrapResolverRig(prefix: string, options: { nasEnabled?: bool
   setEnvOverride(loadEnv({ NODE_ENV: 'test', DATA_DIR: dataDir, DB_FILENAME: `${randomUUID()}.hmp.db` }));
   Database.close();
   Database.db.exec('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY NOT NULL, applied_at TEXT NOT NULL)');
+  // 010 收敛:rig 迁移清单补到 0007(playback 查询面已含 0007 列,如 playback_source.locator_kind)
   for (const name of [
     '0001_init',
     '0002_profile_policy',
@@ -153,6 +154,7 @@ async function bootstrapResolverRig(prefix: string, options: { nasEnabled?: bool
     '0004_manual_epg_binding',
     '0005_playback',
     '0006_pc_experience',
+    '0007_online_vod',
   ]) {
     Database.db.transaction(() => {
       Database.db.exec(migrationSql(name));

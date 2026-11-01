@@ -12,10 +12,16 @@
   // 007-T020 起 contexts/*/index.ts 为各上下文发布面（contracts/internal-context-contracts.md：
   // R2 唯一合法跨上下文落点）——属 API 入口而非死文件；消费方迁移在 T022，故先以 entry
   // 声明其入口地位（否则生产图暂无导入方，会被误报 unused files）。
+  // 010 T090 knip 清理：src/platform/database/schema.ts 为数据层发布面（drizzle schema：
+  // 表常量 + $inferSelect/$inferInsert 行类型投影，全部经 @platform/database/schema
+  // 别名跨上下文消费）——投影类型是该表的部分约定公共 API（消费方按需 import），
+  // 对齐 contexts/*/index.ts 发布面先例以 entry 声明其入口地位；逐表删除未消费投影
+  // 会破坏 drizzle 惯例（每表恒有 Select/Insert 投影）且类型零运行时行为。
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
     "src/app.module.ts",
     "src/contexts/*/index.ts",
+    "src/platform/database/schema.ts",
     "test/**/*.spec.ts",
     "test/**/*.e2e-spec.ts",
     "test/fixtures/scale-fixture.cli.ts",

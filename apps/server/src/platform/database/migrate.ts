@@ -64,6 +64,24 @@ const EXPECTED_TABLES = [
   'profile_progress_clock',
   'playback_progress_state',
   'profile_viewing_history',
+  // 0007_online_vod(T014,010):来源/目录/个人/播放新表
+  'vod_source_config',
+  'media_relation',
+  'vod_title',
+  'vod_line',
+  'vod_episode',
+  'vod_detail_snapshot',
+  'vod_episode_sequence',
+  'vod_materialization_operation',
+  'vod_registered_candidate',
+  'profile_vod_preferences',
+  'profile_vod_preference_operation',
+  'playback_phase_observation',
+  'playback_finish_receipt',
+  'playback_next_plan',
+  'playback_input_binding',
+  'playback_transition_intent',
+  'playback_transition_slot',
   '_migrations',
 ] as const;
 
@@ -74,7 +92,7 @@ const EXPECTED_TABLES = [
  */
 const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // 0004_manual_epg_binding(ADR-0008)
-  media_source: ['epg_generation'],
+  media_source: ['epg_generation', 'locator_revision'],
   manual_epg_binding: [
     'household_id',
     'media_id',
@@ -94,6 +112,11 @@ const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
     'delivery',
     // 0006_pc_experience(T006):身份上下文版本
     'profile_context_version',
+    // 0007_online_vod(T014):独立起播标记与持久 cleanup 标记/原因/执行状态(010 data-model §10)
+    'playback_started_at',
+    'cleanup_requested',
+    'cleanup_reason',
+    'cleanup_state',
   ],
   playback_ticket: ['token_hash', 'expires_at'],
   playback_conversion: ['mode', 'state', 'cleanup_state', 'bytes_on_disk'],
@@ -102,7 +125,7 @@ const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   household: ['version', 'main_profile_version'],
   account: ['credential_version'],
   profile: ['is_main', 'pin_version', 'version'],
-  media_item: ['content_revision'],
+  media_item: ['content_revision', 'media_role'],
   source_entry: ['group_title'],
   // 0006_pc_experience(T006):五张新表关键列(对照 005 data-model §3~§7)
   settings_access_grant: [
@@ -129,6 +152,14 @@ const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
     'started',
     'last_sample_seq',
     'last_generation',
+    // 0007_online_vod(T014):会话 ledger 扩展列(对照 010 data-model §5;010 收敛:
+    // 规范命名 ledger_position/ledger_duration,别名旧列 *_seconds 已自 0007 删除)
+    'continuity_revision',
+    'ledger_position',
+    'ledger_duration',
+    'ledger_generation',
+    'ledger_accepted_at',
+    'session_started',
   ],
   profile_viewing_history: [
     'household_id',
@@ -142,6 +173,236 @@ const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
     'duration_seconds',
     'last_viewed_at',
     'revision',
+    // 0007_online_vod(T014):连续性/证据/完成扩展列(对照 010 data-model §5)
+    'continuity_revision',
+    'evidence_state',
+    'evidence_digest',
+    'completed',
+  ],
+  // 0007_online_vod(T014):17 张新表关键列(对照 010 data-model §2/§4/§5/§6/§7/§10)
+  vod_source_config: ['household_id', 'source_id', 'adapter'],
+  media_relation: ['household_id', 'parent_id', 'child_id', 'kind', 'sort_order'],
+  vod_title: [
+    'household_id',
+    'source_id',
+    'upstream_vod_id',
+    'parent_media_id',
+    'current_detail_revision',
+    'materialized_at',
+  ],
+  vod_line: ['household_id', 'title_id', 'line_key', 'display_name', 'sort_order'],
+  vod_episode: [
+    'household_id',
+    'line_id',
+    'episode_key',
+    'label',
+    'media_id',
+    'content_version_state',
+    'evidence_kind',
+    'evidence_digest',
+    'schema_version',
+    'continuity_revision',
+    'continuity_signature',
+  ],
+  vod_detail_snapshot: [
+    'household_id',
+    'title_id',
+    'revision',
+    'locator_revision',
+    'validated_private_payload',
+    'fetched_at',
+    'expires_at',
+  ],
+  vod_episode_sequence: [
+    'household_id',
+    'title_id',
+    'line_id',
+    'detail_revision',
+    'sequence_revision',
+    'episode_id',
+    'season_key',
+    'ordinal',
+    'sequence_status',
+  ],
+  vod_materialization_operation: [
+    'household_id',
+    'device_session_id',
+    'profile_id',
+    'profile_context_version',
+    'operation_key',
+    'request_digest',
+    'parent_media_id',
+    'selected_media_id',
+    'selected_content_revision',
+    'selected_continuity_revision',
+    'detail_revision',
+    'catalog_revision',
+    'result',
+    'committed_at',
+    'expires_at',
+  ],
+  vod_registered_candidate: [
+    'household_id',
+    'device_session_id',
+    'profile_id',
+    'profile_context_version',
+    'registered_candidate_ref',
+    // 010 收敛:唯一键列即规范命名 candidate_ref(别名旧列 source_candidate_ref 已自 0007 删除)
+    'candidate_ref',
+    'source_session_id',
+    'source_generation',
+    'preview_revision',
+    'target_media_id',
+    'target_content_revision',
+    'target_continuity_revision',
+    'target_detail_revision',
+    'materialization_operation_id',
+    'created_at',
+    'expires_at',
+  ],
+  profile_vod_preferences: [
+    'household_id',
+    'profile_id',
+    'autoplay_next',
+    'switch_carry_position',
+    'version',
+  ],
+  profile_vod_preference_operation: [
+    'household_id',
+    'device_session_id',
+    'profile_id',
+    'profile_context_version',
+    'operation_key',
+    'request_digest',
+    'result_json',
+    'committed_at',
+    'expires_at',
+  ],
+  playback_phase_observation: [
+    'household_id',
+    'session_id',
+    'generation',
+    'event_seq',
+    'digest',
+    'event_type',
+    'position_seconds',
+    'playback_rate',
+    'server_received_at',
+    'tail_anchor_position_seconds',
+    'tail_anchor_time',
+    'delivered_seen',
+  ],
+  playback_finish_receipt: [
+    'household_id',
+    'session_id',
+    'device_session_id',
+    'profile_context_version',
+    'generation',
+    'operation_key',
+    'request_digest',
+    // 010 收敛:规范命名 final_seq(别名旧列 final_sample_seq 已自 0007 删除)
+    'final_seq',
+    'final_session_accepted',
+    'history_applied',
+    'history_revision',
+    'session_completed',
+    'auto_next_eligible',
+    'reason',
+    'position_seconds',
+    'duration_seconds',
+    'ended_at',
+    'content_revision',
+    'continuity_revision',
+    'locator_revision',
+  ],
+  playback_next_plan: [
+    'household_id',
+    'device_session_id',
+    'profile_id',
+    'profile_context_version',
+    'from_session_id',
+    'from_generation',
+    'action',
+    'ref',
+    'target_media_id',
+    'sequence_revision',
+    'detail_revision',
+    'target_content_revision',
+    'target_continuity_revision',
+    'target_locator_revision',
+    'history_revision',
+    'history_choice_required',
+    'created_at',
+    'expires_at',
+  ],
+  playback_input_binding: [
+    'household_id',
+    'session_id',
+    'generation',
+    'playback_source_id',
+    'source_id',
+    'locator_revision',
+    'detail_revision',
+    'content_revision',
+    'continuity_revision',
+    'evidence_state',
+    'evidence_digest',
+    'resolved_input_id',
+    'resolved_at',
+    'expires_at',
+    'start_basis',
+    'frozen_start_seconds',
+    // 010 T042(freeze-NULL 缺口修复,选项 b):持久冻结标记(与 up.sql/schema.ts/database.ts 四处一致)
+    'frozen_at',
+    'cleanup_state',
+    'cleanup_requested',
+    // 010 收敛:补齐 up.sql 既有列(与 database.ts REQUIRED_COLUMNS 同源)
+    'cleanup_reason',
+  ],
+  playback_transition_slot: [
+    'household_id',
+    'from_session_id',
+    'from_generation',
+    'slot_revision',
+    'status',
+    'active_intent_id',
+    'successor_session_id',
+  ],
+  playback_transition_intent: [
+    'household_id',
+    'from_session_id',
+    'from_generation',
+    'device_session_id',
+    'profile_id',
+    'profile_context_version',
+    'action',
+    'target_media_id',
+    'target_content_revision',
+    'target_continuity_revision',
+    'target_locator_revision',
+    'match_revision',
+    'match_confidence',
+    'confirmed_ambiguous',
+    'position_mode',
+    'carry_position_seconds',
+    'carry_duration_seconds',
+    'source_ledger_seq',
+    'source_checkpoint_generation',
+    'source_checkpoint_seq',
+    'allow_earlier_accepted_position',
+    'finish_receipt_id',
+    'operation_key',
+    'request_digest',
+    'slot_revision',
+    'created_at',
+    'expires_at',
+    'status',
+    'successor_id',
+    'next_plan_id',
+    'plan_sequence_revision',
+    'plan_detail_revision',
+    'plan_history_revision',
+    'plan_history_choice_required',
   ],
 };
 
@@ -206,22 +467,104 @@ function getApplied(db: DbHandle): Set<string> {
 
 function applyUp(db: DbHandle, migration: MigrationFile): void {
   const insertApplied = db.prepare('INSERT INTO _migrations (name, applied_at) VALUES (?, ?)');
-  const run = db.transaction(() => {
-    db.exec(fs.readFileSync(migration.upPath, 'utf8'));
-    insertApplied.run(migration.name, new Date().toISOString());
-  });
-  run();
+  // 0007 起 up.sql 已改写为 FK 开启下亦逐语句零违反的 12-step 等价序列(暂存/清空/父行就位
+  // 后回填),不再依赖本 pragma;此处事务外 OFF→提交后 ON 保留为双保险(该 pragma 在事务内
+  // 不可切换),提交后对全库 foreign_key_check 复核仍是权威兜底,违反即失败
+  db.pragma('foreign_keys = OFF');
+  try {
+    const run = db.transaction(() => {
+      db.exec(fs.readFileSync(migration.upPath, 'utf8'));
+      insertApplied.run(migration.name, new Date().toISOString());
+    });
+    run();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+  const violations = db.pragma('foreign_key_check') as unknown[];
+  if (violations.length > 0) {
+    throw new Error(
+      `迁移 ${migration.name} 提交后 foreign_key_check 发现 ${violations.length} 条外键违反,拒绝接受`,
+    );
+  }
   log(`已应用 ${migration.name}`);
 }
 
 function applyDown(db: DbHandle, migration: MigrationFile): void {
   const deleteApplied = db.prepare('DELETE FROM _migrations WHERE name = ?');
-  const run = db.transaction(() => {
-    db.exec(fs.readFileSync(migration.downPath, 'utf8'));
-    deleteApplied.run(migration.name);
-  });
-  run();
+  // 同 applyUp:0007 down.sql 已是 FK 开启下零违反的等价序列,事务外 OFF→ON 仅为双保险;
+  // 提交后全量 foreign_key_check 复核(0007 重建/删列同要求)
+  db.pragma('foreign_keys = OFF');
+  try {
+    const run = db.transaction(() => {
+      db.exec(fs.readFileSync(migration.downPath, 'utf8'));
+      deleteApplied.run(migration.name);
+    });
+    run();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+  const violations = db.pragma('foreign_key_check') as unknown[];
+  if (violations.length > 0) {
+    throw new Error(
+      `迁移 ${migration.name} 回滚提交后 foreign_key_check 发现 ${violations.length} 条外键违反,拒绝接受`,
+    );
+  }
   log(`已回滚 ${migration.name}`);
+}
+
+/**
+ * 0007_online_vod 非空在线 down 保护(T014,010 data-model §8 逐字):
+ * 「down遇到在线业务非空拒绝破坏性删除……临时空库可down」。任何在线点播业务数据
+ * (17 张新表任一非空,或既有表的在线足迹:vod 来源 / 非 standalone 媒体 / vod_episode
+ * 条目 / online 定位器)存在时,回滚属破坏性删除,在应用 down.sql 之前拒绝(不做任何
+ * 修改,不删表不删列);正式回滚采用升级前一致备份 + 匹配镜像。独立副本演练(空库)放行。
+ */
+const ONLINE_VOD_DOWN_GUARD_TABLES = [
+  'vod_source_config',
+  'media_relation',
+  'vod_title',
+  'vod_line',
+  'vod_episode',
+  'vod_detail_snapshot',
+  'vod_episode_sequence',
+  'vod_materialization_operation',
+  'vod_registered_candidate',
+  'profile_vod_preferences',
+  'profile_vod_preference_operation',
+  'playback_phase_observation',
+  'playback_finish_receipt',
+  'playback_next_plan',
+  'playback_input_binding',
+  'playback_transition_intent',
+  'playback_transition_slot',
+] as const;
+
+function assertDownAllowed(db: DbHandle, migration: MigrationFile): void {
+  if (migration.name !== '0007_online_vod') return;
+  const nonEmpty: string[] = [];
+  const countRows = (sql: string): number => (db.prepare(sql).get() as { n: number }).n;
+  for (const table of ONLINE_VOD_DOWN_GUARD_TABLES) {
+    const n = countRows(`SELECT COUNT(*) AS n FROM ${table}`);
+    if (n > 0) nonEmpty.push(`${table}=${n}`);
+  }
+  const onlineSources = countRows("SELECT COUNT(*) AS n FROM media_source WHERE kind = 'vod'");
+  if (onlineSources > 0) nonEmpty.push(`media_source(kind=vod)=${onlineSources}`);
+  const vodMedia = countRows("SELECT COUNT(*) AS n FROM media_item WHERE media_role <> 'standalone'");
+  if (vodMedia > 0) nonEmpty.push(`media_item(media_role<>standalone)=${vodMedia}`);
+  const vodEntries = countRows(
+    "SELECT COUNT(*) AS n FROM source_entry WHERE identity_kind = 'vod_episode'",
+  );
+  if (vodEntries > 0) nonEmpty.push(`source_entry(identity_kind=vod_episode)=${vodEntries}`);
+  const onlineLocators = countRows(
+    "SELECT COUNT(*) AS n FROM playback_source WHERE locator_kind = 'online'",
+  );
+  if (onlineLocators > 0) nonEmpty.push(`playback_source(locator_kind=online)=${onlineLocators}`);
+  if (nonEmpty.length > 0) {
+    throw new Error(
+      `[down] 在线点播业务数据非空,拒绝破坏性回滚 0007_online_vod(${nonEmpty.join(', ')});` +
+        '正式回滚请使用升级前一致备份+匹配镜像(010 data-model §8),临时空库方可 down 演练',
+    );
+  }
 }
 
 function cmdUp(db: DbHandle, dbFile: string): void {
@@ -248,6 +591,7 @@ function cmdDown(db: DbHandle, dbFile: string): void {
     log(`无已应用迁移,无需回滚(备份: ${path.basename(backup)})`);
     return;
   }
+  assertDownAllowed(db, last);
   applyDown(db, last);
   log(`完成(备份: ${path.basename(backup)})`);
 }

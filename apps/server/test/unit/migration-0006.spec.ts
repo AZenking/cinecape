@@ -25,7 +25,7 @@ import {
  * - grant 撤销 / 活动播放恢复的完整业务行为由 T140 验证,本文件不要求。
  */
 
-/** 与生产 migrate.ts 同目录权威:全部迁移(含 0006)与旧代际(0001~0005)清单 */
+/** 与生产 migrate.ts 同目录权威:全部迁移(含 0006/0007)与旧代际(0001~0005)清单 */
 const ALL_MIGRATIONS = [
   '0001_init',
   '0002_profile_policy',
@@ -33,9 +33,13 @@ const ALL_MIGRATIONS = [
   '0004_manual_epg_binding',
   '0005_playback',
   '0006_pc_experience',
+  '0007_online_vod',
 ];
 
-const LEGACY_MIGRATIONS = ALL_MIGRATIONS.filter((name) => name !== '0006_pc_experience');
+// 0007 与 0006 同属数据代际 2(user_version 恒为 2):旧代际清单为二者均 down 后的 0001~0005
+const LEGACY_MIGRATIONS = ALL_MIGRATIONS.filter(
+  (name) => name !== '0006_pc_experience' && name !== '0007_online_vod',
+);
 
 const T0 = '2026-10-26T00:00:00.000Z';
 
@@ -298,6 +302,14 @@ describe('0006_pc_experience · 空库 up:结构逐字落地(T006)', () => {
       'last_sample_digest',
       'last_generation',
       'last_result',
+      // 0007_online_vod(T014):会话 ledger 扩展列(010 data-model §5;顺序与 up.sql ALTER 序一致;
+      // 010 收敛:规范命名 ledger_position/ledger_duration,别名旧列 *_seconds 已自 0007 本体删除)
+      'continuity_revision',
+      'ledger_position',
+      'ledger_duration',
+      'ledger_generation',
+      'ledger_accepted_at',
+      'session_started',
     ]);
     expectColumns('profile_viewing_history', [
       'household_id',
@@ -311,6 +323,11 @@ describe('0006_pc_experience · 空库 up:结构逐字落地(T006)', () => {
       'duration_seconds',
       'last_viewed_at',
       'revision',
+      // 0007_online_vod(T014):连续性/证据/完成扩展列(010 data-model §5)
+      'continuity_revision',
+      'evidence_state',
+      'evidence_digest',
+      'completed',
     ]);
     // started/last_sample_seq 默认值(0)
     const started = columnsOf('playback_progress_state').find((c) => c.name === 'started');
@@ -636,14 +653,42 @@ describe('0006_pc_experience · 数据层约束负向(复合FK/CHECK)', () => {
 });
 
 describe('0006_pc_experience · 空库 up/down/up 与 user_version(T008 drill)', () => {
-  it('up → down → up:user_version 2→1→2;down 移除全部 0006 对象且保留 0001~0005', () => {
+  it('up → down → up:down 先回滚 0007(uv 保持 2)再回滚 0006(uv→1);up 全量恢复', () => {
     const rig = newRig('hmp-0006-cycle-');
     applyEnv(rig);
     runMigrationCommand('up');
     expect(userVersion()).toBe(2);
 
+    // 第一次 down:回滚 0007(与 0006 同属代际 2,uv 保持 2);0007 对象移除、0006 对象保留
     runMigrationCommand('down');
-    expect(userVersion()).toBe(1); // down 后与旧代际一致(0006 down 恢复 1)
+    expect(userVersion()).toBe(2);
+    const tablesAfterVodDown = tableNames();
+    for (const table of [
+      'vod_source_config',
+      'vod_title',
+      'vod_episode',
+      'vod_materialization_operation',
+      'playback_input_binding',
+      'playback_transition_slot',
+      'playback_next_plan',
+      'profile_vod_preferences',
+    ]) {
+      expect(tablesAfterVodDown).not.toContain(table);
+    }
+    expect(columnsOf('media_item').map((c) => c.name)).not.toContain('media_role');
+    expect(columnsOf('playback_session').map((c) => c.name)).not.toContain('cleanup_requested');
+    expect(columnsOf('playback_progress_state').map((c) => c.name)).not.toContain('session_started');
+    // 0006 对象仍在(个人体验五表 + 扩展列)
+    expect(tablesAfterVodDown).toEqual(expect.arrayContaining(['settings_access_grant', 'profile_viewing_history']));
+    expect(columnsOf('source_entry').map((c) => c.name)).toContain('group_title');
+    const appliedAfterVodDown = (
+      Database.db.prepare('SELECT name FROM _migrations ORDER BY name').all() as { name: string }[]
+    ).map((row) => row.name);
+    expect(appliedAfterVodDown).toEqual(ALL_MIGRATIONS.filter((name) => name !== '0007_online_vod'));
+
+    // 第二次 down:回滚 0006,恢复旧代际终态(0006 down 恢复 user_version=1)
+    runMigrationCommand('down');
+    expect(userVersion()).toBe(1);
     const tables = tableNames();
     for (const table of [
       'settings_access_grant',
@@ -667,6 +712,7 @@ describe('0006_pc_experience · 空库 up/down/up 与 user_version(T008 drill)',
     runMigrationCommand('up');
     expect(userVersion()).toBe(2);
     expect(tableNames()).toContain('settings_access_grant');
+    expect(tableNames()).toContain('vod_title');
     expect(
       (Database.db.prepare('SELECT name FROM _migrations ORDER BY name').all() as { name: string }[])
         .map((row) => row.name),
@@ -777,12 +823,17 @@ describe('0006_pc_experience · 旧库只读预检与拒绝(T007)', () => {
     expect(gate.code).toBe('STORAGE_STATE_UNKNOWN');
   });
 
-  it('就绪门禁:完整 up 后 isReady=true;down 恢复 user_version=1 后 isReady=false', () => {
+  it('就绪门禁:完整 up 后 isReady=true;down 回滚 0007(uv 保持 2)与再回滚 0006(uv→1)后均 isReady=false', () => {
     const rig = newRig('hmp-0006-ready-');
     applyEnv(rig);
     runMigrationCommand('up');
     expect(userVersion()).toBe(2);
     expect(Database.isReady()).toBe(true);
+    // 第一次 down 回滚 0007:0007 结构缺失即未就绪(uv 仍为 2,同代际)
+    runMigrationCommand('down');
+    expect(userVersion()).toBe(2);
+    expect(Database.isReady()).toBe(false);
+    // 第二次 down 回滚 0006:代际标记恢复 1,同样未就绪
     runMigrationCommand('down');
     expect(userVersion()).toBe(1);
     expect(Database.isReady()).toBe(false);
