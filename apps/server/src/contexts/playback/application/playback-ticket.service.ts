@@ -49,6 +49,22 @@ export interface IssueOrRenewOptions {
   readonly at?: string;
 }
 
+/**
+ * renew 前固定输入重验端口(010 T045 报告建议的最小接线,T046 落地):结构与
+ * playback-lifecycle 的 PlaybackVodInputGuardPort 同形(装配侧传 LifecycleVodInputGuard
+ * 同一实例 —— 与 heartbeat 面共用的绑定行回读 × store assert/fail 组合);应用层不
+ * import infrastructure 类型(纯结构端口)。缺位(单测直构 3 参形态)= renew 面零重验,
+ * NAS/直播会话由 hasCurrentBinding 门跳过,旧义零变化。
+ */
+export interface RenewVodInputGuardPort {
+  /** 当前代是否存在有效固定输入绑定(无绑定 = 非 vod 会话,跳过重验) */
+  hasCurrentBinding(householdId: string, sessionId: string, generation: number): boolean;
+  /** 四维修订重验(绑定冻结修订 × 目录当前修订;失配抛 DomainError) */
+  assertCurrent(householdId: string, sessionId: string, generation: number): void;
+  /** 修订失配终止(撤交付 + failed 同提交;data-model §3「准备转failed,需新resolve」) */
+  failOnRevisionMismatch(householdId: string, sessionId: string, generation: number, reason: string): void;
+}
+
 /** 入口资产段:清单/首片资产 ID 由 T022 映射层签发,入口清单使用固定 'index' 资产名 */
 const ENTRY_ASSET_ID = 'index';
 
@@ -67,16 +83,20 @@ export class PlaybackTicketService {
     private readonly repository: PlaybackRepository,
     private readonly authorization: PlaybackAuthorizationService,
     private readonly budgets: PlaybackBudgets,
+    /** 010 T045/T046:renew 前固定输入重验桥(缺位 = renew 面零重验,旧义零变化) */
+    private readonly vodInputGuard?: RenewVodInputGuardPort,
   ) {}
 
   /**
    * 签发或续期票据(首次 ready 后申请与提前 60 秒续期共用本入口,api.md renew 行):
    *
-   * 1. authorizeControl:会话归属(非本设备统一 404 PLAYBACK_NOT_FOUND)/绑定档案仍是
+   * 1. cleanup 标记门(010 T062):cleanup_requested=1 的会话一律 409 不签发
+   *    (「标记先阻止新票/资产」;I5 标记后拒绝 renew/新资产);
+   * 2. authorizeControl:会话归属(非本设备统一 404 PLAYBACK_NOT_FOUND)/绑定档案仍是
    *    当前档案(403)/最新策略与家庭可用资源(404/503)——任一拒绝不签票;
-   * 2. revalidate:提交前重验(api.md:renew 最终提交前重验授权,防异步授权窗口变更),
+   * 3. revalidate:提交前重验(api.md:renew 最终提交前重验授权,防异步授权窗口变更),
    *    全链实时重跑,不缓存授权正结果;
-   * 3. 短事务签发(仓储 issueTicket):状态门槛 + expectedGeneration CAS + 新票新行,
+   * 4. 短事务签发(仓储 issueTicket):状态门槛 + expectedGeneration CAS + 新票新行,
    *    旧票一律不动;CAS 失败 409 PLAYBACK_GENERATION_STALE 且不写票行。
    *
    * @param sessionId          播放会话 id
@@ -90,6 +110,14 @@ export class PlaybackTicketService {
     context: SessionContext,
     options: IssueOrRenewOptions = {},
   ): Promise<TicketReply> {
+    // 010 T062:cleanup_requested 持久标记先阻止新票(I5「标记后拒绝其 renew/新资产」;
+    // data-model §10「标记先阻止新票/资产,网络和进程取消在 commit 后执行」)—— 先于
+    // 授权链:标记会话一律 409 不签发,后续授权事实恢复(如策略放行)亦不解除
+    // (撤销由清理撤销面承担);无行/未标记会话走既有授权链零变化。
+    const marked = playbackStore().findPlaybackSessionRowById(sessionId);
+    if (marked !== undefined && marked.householdId === context.session.householdId && marked.cleanupRequested === 1) {
+      throw createDomainError('PLAYBACK_NOT_READY', '会话已请求清理,不能签发新票据,请重新 resolve');
+    }
     const grant = await this.authorization.authorizeControl(context, sessionId);
     // 提交前重验:authorizeControl 与签发之间授权事实可能变化(策略收紧/会话撤销/换档案)
     await this.authorization.revalidate(
@@ -97,6 +125,32 @@ export class PlaybackTicketService {
       grant.snapshot.profileId,
       grant.snapshot.mediaId,
     );
+    // 010 T045/T046:renew 是「新交付」入口 —— 存在当前代固定输入绑定的在线 vod 会话,
+    // 签发新票前重验四维修订(定位/详情/内容/连续性);失配即撤交付 + failed 同提交
+    // (data-model §3「旧会话修订不匹配时拒绝新交付/进度,准备转failed,需新resolve」,
+    // 与 heartbeat 面 vodInputGuard 同模式;实时行代次收口,旧代由上方 CAS 拒绝链处理;
+    // 无绑定会话(NAS/直播)与未装配场景(单测 3 参直构)跳过,旧义零变化)。
+    const guard = this.vodInputGuard;
+    if (guard !== undefined) {
+      const sessionRow = playbackStore().findPlaybackSessionRowById(sessionId);
+      if (
+        sessionRow !== undefined &&
+        sessionRow.householdId === context.session.householdId &&
+        guard.hasCurrentBinding(sessionRow.householdId, sessionId, sessionRow.generation)
+      ) {
+        try {
+          guard.assertCurrent(sessionRow.householdId, sessionId, sessionRow.generation);
+        } catch {
+          guard.failOnRevisionMismatch(
+            sessionRow.householdId,
+            sessionId,
+            sessionRow.generation,
+            'renew re-verify: fixed input revision mismatch',
+          );
+          throw createDomainError('PLAYBACK_RESOURCE_UNAVAILABLE', '固定输入修订失配,会话已终止,需新 resolve');
+        }
+      }
+    }
     // 明文仅存在于本调用返回值;库中只有 sha256 hash(对齐仓储/夹具 hashToken 算法)
     const token = generateToken();
     const issued = this.repository.issueTicket(sessionId, {

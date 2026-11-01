@@ -16,6 +16,7 @@ import type {
   PlaybackProbePort,
 } from '@contexts/playback/application/playback-resolver.service';
 import { playbackErr, playbackOk, type PlaybackErrorCode, type PlaybackResult } from '@contexts/playback/domain/playback.types';
+import type { VodHlsUpstreamReader, VodDeliveryInputBySource } from '@contexts/playback/infrastructure/hls-proxy.service';
 
 /**
  * 媒体探测服务(T023,spec 004)—— ffprobe 受限子进程与可信事实提取。
@@ -51,6 +52,18 @@ import { playbackErr, playbackOk, type PlaybackErrorCode, type PlaybackResult } 
  * - 不缓存:本服务不维护任何 facts 缓存,每次调用新起 ffprobe 直读当前输入 —— 源
  *   size/mtimeNs 变化检测由 NasReaderService.statSource(T028 语义)承担,不存在
  *   「缓存了已变化输入」的面。
+ *
+ * 010 T044 增量:
+ * - PlaybackSourceLocationReader.locate 携带 locatorKind;在线判别 locator(location 恒
+ *   NULL/locator_kind='online')→ 固定输入 entryUrl(resolvedInputId 持有,不重读最新
+ *   location;网关缺位或无有效固定输入时同形 null);
+ * - MediaProbePlaybackProbePort 可选 vodProbe 面:在线 hls 输入 probe 经固定 input →
+ *   SafeUpstream 嵌套读取链(master(manifest)→variant;相对 URI 按 master 基;redirect
+ *   每跳校验由 SafeUpstream 承担),facts 携带 duration 已知/未知(endList 判定)供
+ *   T041 起点计算与 T046 DTO;probe 结果返回前 assertProbeCommitGeneration(§7「probe
+ *   后结果只可提交当前代」);未注入/非 VOD 候选恒按直播事实(hls_proxy 直播零变化);
+ * - ffmpeg 不参与在线输入 probe/交付(ffprobe 协议白名单 file,crypto 不变;ffmpeg 对
+ *   在线输入的转换安全裁决见 conversion-supervisor.service T044 增量)。
  */
 
 /* ------------------------------------------------------------------ */
@@ -526,23 +539,39 @@ export interface ProbeSourceLocator {
 
 /**
  * playback_source 只读定位器:惰性准备语句(应用装配早于迁移完成的顺序下不阻断启动),
- * 只投影 location 列;无行/无 location → null。
+ * 只投影 location/locator_kind 列;无行/无定位统一 null。
+ *
+ * T044:静态 locator(location 非空)行为零变化;在线判别 locator(location 恒 NULL、
+ * locator_kind='online')→ 固定输入 entryUrl(resolvedInputId 持有的内存 registry,
+ * 不各自重读最新 location);网关缺位或无有效固定输入 → 同形 null(不猜测地址)。
  */
 export class PlaybackSourceLocationReader implements ProbeSourceLocator {
   private statement: DatabaseConstructor.Statement | null = null;
 
-  constructor(private readonly db: DatabaseConstructor.Database) {}
+  constructor(
+    private readonly db: DatabaseConstructor.Database,
+    /** T044 固定输入网关(在线 locator → entryUrl;缺省未注入 = 静态行为零变化) */
+    private readonly vodInputs?: {
+      findDeliveryInputByPlaybackSourceId(playbackSourceId: string): VodDeliveryInputBySource | null;
+    },
+  ) {}
 
-  async locate(playbackSourceId: string): Promise<{ readonly location: string } | null> {
+  async locate(playbackSourceId: string): Promise<{ readonly location: string; readonly locatorKind: 'static' | 'online' } | null> {
     if (this.statement === null) {
-      this.statement = this.db.prepare('SELECT location FROM playback_source WHERE id = ?');
+      this.statement = this.db.prepare('SELECT location, locator_kind AS locatorKind FROM playback_source WHERE id = ?');
     }
-    const row = this.statement.get(playbackSourceId) as { location?: unknown } | undefined;
+    const row = this.statement.get(playbackSourceId) as { location?: unknown; locatorKind?: unknown } | undefined;
     const location = typeof row?.location === 'string' ? row.location : '';
-    if (location === '') {
-      return null;
+    if (location !== '') {
+      return { location, locatorKind: 'static' };
     }
-    return { location };
+    if (row?.locatorKind === 'online' && this.vodInputs !== undefined) {
+      const input = this.vodInputs.findDeliveryInputByPlaybackSourceId(playbackSourceId);
+      if (input !== null) {
+        return { location: input.entryUrl, locatorKind: 'online' };
+      }
+    }
+    return null;
   }
 }
 
@@ -593,6 +622,18 @@ export interface MediaProbePlaybackProbePortDeps {
   readonly plan: PlaybackPlanService;
   readonly locator: ProbeSourceLocator;
   readonly mediaRoots: MediaRoots;
+  /**
+   * T044:VOD 固定输入 probe 面。缺省未注入时 hls_proxy 候选恒按直播事实返回
+   * (直播/旧路径零变化);注入后,持有固定输入绑定的 hls_proxy 候选经 SafeUpstream
+   * 嵌套读取链探测(在线 hls 输入),其余 hls_proxy 候选仍按直播事实。
+   */
+  readonly vodProbe?: {
+    readonly inputs: {
+      findDeliveryInputByPlaybackSourceId(playbackSourceId: string): VodDeliveryInputBySource | null;
+      assertVodProbeCommitGeneration(householdId: string, sessionId: string, generation: number): void;
+    };
+    readonly reader: VodHlsUpstreamReader;
+  };
 }
 
 /**
@@ -613,7 +654,7 @@ export class MediaProbePlaybackProbePort implements PlaybackProbePort {
     const failureKinds: PlaybackProbeFailureKind[] = [];
     for (const candidate of candidates) {
       if (candidate.delivery === 'hls_proxy') {
-        return { playbackSourceId: candidate.playbackSourceId, delivery: 'hls_proxy', facts: LIVE_STREAM_FACTS };
+        return await this.probeHlsProxyCandidate(candidate, deadlineAtMs);
       }
       const located = await this.deps.locator.locate(candidate.playbackSourceId);
       if (located === null) {
@@ -645,6 +686,99 @@ export class MediaProbePlaybackProbePort implements PlaybackProbePort {
       };
     }
     return { error: collapseFailureKinds(failureKinds) };
+  }
+
+  /**
+   * hls_proxy 候选分派(T044):持有固定输入绑定的候选 → 在线 hls 输入 probe
+   * (SafeUpstream 嵌套读取链);其余(无绑定 = 直播/未注入 vodProbe 面)按直播事实,
+   * 行为零变化。
+   */
+  private async probeHlsProxyCandidate(candidate: PlaybackResourceCandidate, deadlineAtMs: number): Promise<PlaybackProbeOutcome> {
+    const vod = this.deps.vodProbe;
+    if (vod !== undefined) {
+      const input = vod.inputs.findDeliveryInputByPlaybackSourceId(candidate.playbackSourceId);
+      if (input !== null) {
+        return await this.probeVodFixedInput(vod, candidate, input, deadlineAtMs);
+      }
+    }
+    return { playbackSourceId: candidate.playbackSourceId, delivery: 'hls_proxy', facts: LIVE_STREAM_FACTS };
+  }
+
+  /**
+   * 在线 hls 输入 probe(固定 input;internal-ports §3「probe…均用该 ID,不各自重读
+   * 最新 location」):
+   * - 共享期限换算为台账链总时限(超期即不再发起读取);
+   * - master(manifest 级)→ 首个 variant(variant 级;相对 URI 按 master 基解析;
+   *   redirect 每跳校验由 SafeUpstream 承担);无 STREAM-INF 的清单按媒体清单直读;
+   * - duration 事实按 endList 判定:有 ENDLIST → 汇总 EXTINF 时长(已知);缺失 →
+   *   null(未知,直播形态)—— 供 T041 起点计算(未知 duration 不做历史兜底)与
+   *   T046 seekCapability(none|client)输出;
+   * - probe 结果返回前 assertProbeCommitGeneration(§7「probe 后结果只可提交当前代」;
+   *   旧代/终态/清理域稳定失败,不向 resolver 抛出 —— prepare 捕获即稳定落 failed);
+   * - 可用性语义(与 T044 前 hls_proxy probe 形态兼容):probe 是「时长事实升级」而非
+   *   起播资格闸 —— 固定输入的 SafeUpstream 读取链任何失败(预算/许可/redirect/DNS/
+   *   连接/超时/内容非可判读 HLS)都回落直播形态事实(duration=null、无轨道),不撤销
+   *   ready/交付资格;交付面首读仍逐请求经 SafeUpstream 校验链并按稳定失败码收口,
+   *   seekCapability 恒可得(none|client),服务端 seek 拒绝语义不受影响。
+   */
+  private async probeVodFixedInput(
+    vod: NonNullable<MediaProbePlaybackProbePortDeps['vodProbe']>,
+    candidate: PlaybackResourceCandidate,
+    input: VodDeliveryInputBySource,
+    deadlineAtMs: number,
+  ): Promise<PlaybackProbeOutcome> {
+    const remainingMs = deadlineAtMs - this.deps.probe.nowMs();
+    if (remainingMs <= 0) {
+      return { playbackSourceId: candidate.playbackSourceId, delivery: 'hls_proxy', facts: LIVE_STREAM_FACTS };
+    }
+    const ledger = vod.reader.createLedger({ totalTimeoutMs: remainingMs });
+    try {
+      const master = await vod.reader.readText({ url: input.entryUrl, level: 'manifest', ledger });
+      if (!master.ok) {
+        return { playbackSourceId: candidate.playbackSourceId, delivery: 'hls_proxy', facts: LIVE_STREAM_FACTS };
+      }
+      let mediaText: string;
+      if (isHlsMasterPlaylist(master.text)) {
+        // 相对 URI 按 master(redirect 收敛后的最终清单)基解析;缺变体 = 内容不可判读
+        const variantUris = parseHlsMasterVariantUris(master.text, master.finalUrl);
+        const firstVariant = variantUris[0];
+        if (firstVariant === undefined) {
+          return { playbackSourceId: candidate.playbackSourceId, delivery: 'hls_proxy', facts: LIVE_STREAM_FACTS };
+        }
+        const variant = await vod.reader.readText({ url: firstVariant, level: 'variant', ledger });
+        if (!variant.ok) {
+          return { playbackSourceId: candidate.playbackSourceId, delivery: 'hls_proxy', facts: LIVE_STREAM_FACTS };
+        }
+        mediaText = variant.text;
+      } else {
+        mediaText = master.text;
+      }
+      const parsed = parseHlsMediaDuration(mediaText);
+      if (parsed === null) {
+        // 内容不可判读为媒体清单(非 HLS 文本/空清单):回落直播形态事实,不撤销起播资格
+        return { playbackSourceId: candidate.playbackSourceId, delivery: 'hls_proxy', facts: LIVE_STREAM_FACTS };
+      }
+      // probe 结果提交前代次断言(旧代/终态/清理 → 稳定失败,不抛出)
+      try {
+        vod.inputs.assertVodProbeCommitGeneration(input.householdId, input.sessionId, input.generation);
+      } catch {
+        return { error: 'resource_unavailable' };
+      }
+      return {
+        playbackSourceId: candidate.playbackSourceId,
+        delivery: 'hls_proxy',
+        facts: {
+          durationSeconds: parsed.durationSeconds,
+          audioTracks: [],
+          subtitleTracks: [],
+        },
+      };
+    } catch {
+      // 防御:读取面意外异常同样回落直播形态事实(不向 resolver 抛出,prepare 已返回)
+      return { playbackSourceId: candidate.playbackSourceId, delivery: 'hls_proxy', facts: LIVE_STREAM_FACTS };
+    } finally {
+      ledger.dispose();
+    }
   }
 }
 
@@ -886,4 +1020,84 @@ function streamOf(handle: ProbeProcessHandle, name: 'stdout' | 'stderr'): MiniSt
     return candidate as MiniStream;
   }
   return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* 010 T044 —— 在线 hls 输入 probe 文本解析(纯函数;无网络副作用)          */
+/* ------------------------------------------------------------------ */
+
+/** 是否 master 清单(STREAM-INF 形态;否则按媒体清单判读) */
+export function isHlsMasterPlaylist(text: string): boolean {
+  return text.includes('#EXT-X-STREAM-INF');
+}
+
+/**
+ * master 清单变体 URI 提取(STREAM-INF 后继 URI 行;相对 URI 按给定基解析为绝对 ——
+ * 基为 redirect 收敛后的最终清单 URL,符合「相对 URI 按 master 基」语义)。
+ * 非法 URI 行跳过(不抛出);缺变体由调用方按格式失败收口。
+ */
+export function parseHlsMasterVariantUris(text: string, baseUrl: string): readonly string[] {
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
+  const uris: string[] = [];
+  let pendingVariant = false;
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (trimmed === '') {
+      continue;
+    }
+    if (trimmed.startsWith('#')) {
+      pendingVariant = trimmed.toUpperCase().startsWith('#EXT-X-STREAM-INF:');
+      continue;
+    }
+    if (pendingVariant) {
+      pendingVariant = false;
+      try {
+        uris.push(new URL(trimmed, baseUrl).toString());
+      } catch {
+        // 非法变体 URI 行不入列(缺变体时调用方按 format_unsupported 收口)
+      }
+    }
+  }
+  return uris;
+}
+
+/**
+ * 媒体清单时长事实(endList 判定):
+ * - 有 #EXT-X-ENDLIST → durationSeconds = EXTINF 汇总(已知时长);
+ * - 缺 ENDLIST(直播/活动窗口形态)→ durationSeconds = null(未知);
+ * - 无任何 EXTINF(非媒体清单/空清单)→ null = 不可判(调用方按格式失败收口)。
+ */
+export function parseHlsMediaDuration(text: string): {
+  readonly endList: boolean;
+  readonly durationSeconds: number | null;
+} | null {
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
+  let totalSeconds = 0;
+  let segmentCount = 0;
+  let endList = false;
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (trimmed === '') {
+      continue;
+    }
+    const upper = trimmed.toUpperCase();
+    if (upper === '#EXT-X-ENDLIST') {
+      endList = true;
+      continue;
+    }
+    if (upper.startsWith('#EXTINF:')) {
+      const raw = trimmed.slice('#EXTINF:'.length);
+      const commaIndex = raw.indexOf(',');
+      const value = Number.parseFloat(commaIndex >= 0 ? raw.slice(0, commaIndex) : raw);
+      if (!Number.isFinite(value) || value < 0) {
+        return null;
+      }
+      totalSeconds += value;
+      segmentCount += 1;
+    }
+  }
+  if (segmentCount === 0) {
+    return null;
+  }
+  return { endList, durationSeconds: endList ? totalSeconds : null };
 }

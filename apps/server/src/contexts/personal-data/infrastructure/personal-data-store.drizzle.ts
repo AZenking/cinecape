@@ -14,6 +14,10 @@
  * 事务语义原样保留：withTransaction 经 getDb().transaction 透传 —— stop 协作路径
  * （applyFinalInTransaction 在调用方 lifecycle 事务内被调用）保持 better-sqlite3
  * 嵌套事务自动 savepoint 的既有行为。
+ *
+ * 010 T040 增量:upsertHistoryRow 携带可选在线保存证据 + completed 重置(新实际活动);
+ * 新增 applyLedgerSample(会话 ledger 接受游标)与 findVodEpisodeEvidenceFacts(在线
+ * 证据事实)。既有查询逐字不变。
  */
 import { and, desc, eq, sql } from 'drizzle-orm';
 import {
@@ -23,6 +27,7 @@ import {
   profileChannelFavorite,
   profileProgressClock,
   profileViewingHistory,
+  vodEpisode,
 } from '@platform/database/schema';
 import { getDb, type Db } from '@platform/database/drizzle';
 import type {
@@ -30,6 +35,7 @@ import type {
   HistoryRow,
   HistoryUpsertInput,
   KeysetAnchor,
+  LedgerSampleApplySet,
   MediaItemRow,
   PersonalDataStore,
   PersonalDataTxStore,
@@ -37,6 +43,7 @@ import type {
   ProgressStateBookkeepingSet,
   ProgressStateInsertValues,
   ProgressStateRow,
+  VodEpisodeEvidenceFacts,
 } from '@contexts/personal-data/application/personal-data-store.port';
 
 /** 句柄来源：固定句柄（测试 rig / 事务内 tx）或惰性 getDb()（生产，单例重开安全） */
@@ -125,27 +132,44 @@ class DrizzlePersonalDataTxStore implements PersonalDataTxStore {
       .get();
   }
 
-  /** 历史写入（取得写入权 = upsert;owner 继续 = update;revision 实际更新递增） */
+  /**
+   * 历史写入(取得写入权 = upsert;owner 继续 = update;revision 实际更新递增)。
+   *
+   * 010 T040(data-model §5):写入即「新实际活动」——completed 重置 0(只由有效
+   * finish 写,新活动重置);时长 COALESCE 保留既有可信值(与 T016 HistoryTx 逐字
+   * 同语义,在线 probe 不回填/不清除全局历史时长);evidence 省略 = 静态媒体旧义
+   * (INSERT 落 NULL、UPDATE 不动),显式携带 = 在线保存证据与 ledger 同事务落库。
+   */
   upsertHistoryRow(input: HistoryUpsertInput): number {
     const existing = this.findHistoryRow(input.householdId, input.profileId, input.mediaId);
     const nextRevision = (existing?.revision ?? 0) + 1;
-    const values = {
+    const baseValues = {
       writerEpoch: input.candidateEpoch,
       writerPlaybackSessionId: input.playbackSessionId,
       lastSampleSeq: input.sampleSeq,
       contentRevision: input.contentRevision,
       positionSeconds: input.positionSeconds,
-      durationSeconds: input.trustedDuration,
       lastViewedAt: input.at,
       revision: nextRevision,
     };
+    const evidenceValues =
+      input.evidence === undefined
+        ? {}
+        : {
+            continuityRevision: input.evidence.continuityRevision,
+            evidenceState: input.evidence.evidenceState,
+            evidenceDigest: input.evidence.evidenceDigest,
+          };
     this.db()
       .insert(profileViewingHistory)
       .values({
         householdId: input.householdId,
         profileId: input.profileId,
         mediaId: input.mediaId,
-        ...values,
+        ...baseValues,
+        durationSeconds: input.trustedDuration,
+        completed: 0,
+        ...evidenceValues,
       })
       .onConflictDoUpdate({
         target: [
@@ -153,7 +177,14 @@ class DrizzlePersonalDataTxStore implements PersonalDataTxStore {
           profileViewingHistory.profileId,
           profileViewingHistory.mediaId,
         ],
-        set: values,
+        set: {
+          ...baseValues,
+          // 时长 COALESCE 保留既有可信值(与 T016 HistoryTx.upsertHistoryWithEpoch
+          // 逐字同语义;接受路径 trustedDuration 恒非 NULL,空值不清除全局时长)
+          durationSeconds: sql`COALESCE(${input.trustedDuration}, ${profileViewingHistory.durationSeconds})`,
+          completed: 0,
+          ...evidenceValues,
+        },
       })
       .run();
     return nextRevision;
@@ -174,6 +205,52 @@ class DrizzlePersonalDataTxStore implements PersonalDataTxStore {
         and(eq(playbackProgressState.householdId, householdId), eq(playbackProgressState.playbackSessionId, sessionId)),
       )
       .run();
+  }
+
+  /**
+   * 会话 ledger 接受样本推进(010 T040;SQL 与 T016 SessionLedgerTx.applyAcceptedSample
+   * 逐字同语义,仅一处差异:last_result 不清空 —— duplicate 重放依赖原始结果记忆,
+   * 由结果簿记在同事务内覆写;stale/duplicate 不走本写,零更新)。
+   */
+  applyLedgerSample(householdId: string, sessionId: string, values: LedgerSampleApplySet): void {
+    this.db()
+      .update(playbackProgressState)
+      .set({
+        lastSampleSeq: values.sampleSeq,
+        lastSampleDigest: values.sampleDigest,
+        lastGeneration: values.generation,
+        continuityRevision: values.continuityRevision,
+        ledgerPosition: values.positionSeconds,
+        ledgerDuration: values.durationSeconds,
+        ledgerGeneration: values.generation,
+        ledgerAcceptedAt: values.acceptedAt,
+        sessionStarted: sql`MAX(${playbackProgressState.sessionStarted}, ${values.sessionStarted ? 1 : 0})`,
+      })
+      .where(
+        and(eq(playbackProgressState.householdId, householdId), eq(playbackProgressState.playbackSessionId, sessionId)),
+      )
+      .run();
+  }
+
+  /** 在线子项证据事实投影(010 T040;唯一 (household, media) 投影,静态媒体 undefined) */
+  findVodEpisodeEvidenceFacts(householdId: string, mediaId: string): VodEpisodeEvidenceFacts | undefined {
+    const row = this.db()
+      .select({
+        contentVersionState: vodEpisode.contentVersionState,
+        evidenceDigest: vodEpisode.evidenceDigest,
+        continuityRevision: vodEpisode.continuityRevision,
+      })
+      .from(vodEpisode)
+      .where(and(eq(vodEpisode.householdId, householdId), eq(vodEpisode.mediaId, mediaId)))
+      .get();
+    if (row === undefined) {
+      return undefined;
+    }
+    return {
+      contentVersionState: row.contentVersionState === 'verified' ? 'verified' : 'unverified',
+      evidenceDigest: row.evidenceDigest,
+      continuityRevision: row.continuityRevision,
+    };
   }
 
   findProgressClockNextEpoch(householdId: string, profileId: string): number | undefined {

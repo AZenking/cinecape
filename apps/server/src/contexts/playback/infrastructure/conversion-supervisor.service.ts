@@ -28,6 +28,9 @@ const execFile = promisify(execFileCallback);
  *   (R4/R5:确认退出后才释放,不双占);
  * - start 返回值语义:reserve+spawn 成功后即可观察 ok({conversionId});若全部尝试无法启动,
  *   await 该结果得到稳定 err(观察时点裁决 —— 终态经仓储行/额度观察,监督为 fire-and-forget);
+ * - T044 在线输入裁决:inputChannel='online-upstream' 在 reserve 前稳定拒绝
+ *   (PLAYBACK_FORMAT_UNSUPPORTED + ONLINE_INPUT_CONVERSION_REFUSAL_REASON);缺省/
+ *   validated-local-file 沿用既有链,NAS 本地文件转换行为零变化;
  * - 暂停有界预取/节流(R8):pauseProduction 进入有界预取(默认再产 2 个目标分片时长)到量即
  *   SIGSTOP,resumeProduction SIGCONT 恢复;装配层(T031)应与 T027 看门狗
  *   enterLegitimateWait/exitLegitimateWait 对称调用以排除判罚。
@@ -99,7 +102,21 @@ export interface ConversionStartInput {
   readonly deadlineAtMs: number;
   /** 源输入路径(T031 装配提供;缺省省略 -i,参数由装配层补齐) */
   readonly inputPath?: string;
+  /**
+   * 输入通路裁决面(T044,internal-ports §3「ffmpeg 不能绕过 SafeUpstream 校验直接对
+   * 任意嵌套地址联网;通过现有受控输入代理或已验证输入通路执行,无法保证则拒绝转换,
+   * 不宣称全面兼容」):
+   * - 缺省 / 'validated-local-file' = NAS 本地已验证输入(既有行为零变化);
+   * - 'online-upstream' = 在线固定输入(无已验证本地输入通路)—— start() 明确拒绝该
+   *   转换:稳定码 PLAYBACK_FORMAT_UNSUPPORTED + 静态理由,不 reserve、不 spawn、不占
+   *   额度,不承诺全格式。
+   */
+  readonly inputChannel?: 'validated-local-file' | 'online-upstream';
 }
+
+/** 在线输入转换拒绝理由(静态脱敏文案;不含任何地址/上游细节) */
+export const ONLINE_INPUT_CONVERSION_REFUSAL_REASON =
+  '在线输入无法提供 ffmpeg 已验证本地输入通路(不得绕过 SafeUpstream 直接联网读取上游),该转换明确拒绝,不承诺全格式';
 
 /**
  * 启动观察结果:reserve+spawn 链为 fire-and-forget,结果按「await 观察时点」裁决 ——
@@ -200,6 +217,12 @@ export class ConversionSupervisorService {
     if (input.plan.mode === null) {
       // direct 交付不建转换行、不占额度(额度用例由计划层保证,此处兜底)
       return Promise.resolve(playbackErr('PLAYBACK_NOT_READY', 'direct 交付不创建转换任务'));
+    }
+    // T044 在线输入转换安全裁决:在线固定输入无已验证本地输入通路,ffmpeg 不得绕过
+    // SafeUpstream 直接对任意嵌套地址联网 —— 明确拒绝该转换(稳定码+静态理由),
+    // 不 reserve(不建行/不占额度)、不 spawn、不承诺全格式;NAS 本地文件转换零变化
+    if (input.inputChannel === 'online-upstream') {
+      return Promise.resolve(playbackErr('PLAYBACK_FORMAT_UNSUPPORTED', ONLINE_INPUT_CONVERSION_REFUSAL_REASON));
     }
     const reserved = this.deps.repository.reserveConversion({
       householdId: input.householdId,

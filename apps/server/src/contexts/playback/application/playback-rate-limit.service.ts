@@ -17,14 +17,15 @@ import type { PlaybackBudgets } from '@platform/config/playback-budgets';
  *   即拒绝,否则记录本次时刻。计数点为「通过检查」的请求(含随后被业务拒绝的请求):
  *   与常规 API 限流一致,防绕过(失败请求同样消耗配额);
  * - key = `${deviceId}\u0000${bucket}`:resolve/seek/selection 共享 'control' 桶
- *   (跨端点合并计数,契约 e2e:30 次 resolve 后第 31 个 seek 亦 429),renew 独立 'renew' 桶;
+ *   (跨端点合并计数,契约 e2e:30 次 resolve 后第 31 个 seek 亦 429),renew 独立 'renew' 桶,
+ *   010 过渡面(next-plans/transition-intents)独立 'transition_intent' 桶(10/min/DeviceSession);
  * - 进程内存态:与 AssetMap 同款语义(单实例部署;重启即清零,不影响正确性只影响瞬时配额);
  * - 内存有界:每次检查顺带修剪过期时刻;key 数超软上限时全表清扫无窗口键
  *   (设备维度键域有界,兜底防异常增长)。
  */
 
-/** 限频桶:control = resolve/seek/selection 共享;renew 独立 */
-export type PlaybackRateLimitBucket = 'control' | 'renew';
+/** 限频桶:control = resolve/seek/selection 共享;renew 独立;transition_intent = 010 过渡面独立 */
+export type PlaybackRateLimitBucket = 'control' | 'renew' | 'transition_intent';
 
 export interface PlaybackRateLimitAllow {
   readonly ok: true;
@@ -57,7 +58,12 @@ export class PlaybackRateLimitService {
    */
   acquire(deviceId: string, bucket: PlaybackRateLimitBucket, atMs: number = Date.now()): PlaybackRateLimitOutcome {
     const limit =
-      bucket === 'control' ? this.budgets.rateLimit.controlPerDevicePerMinute : this.budgets.rateLimit.renewPerMinute;
+      bucket === 'control'
+        ? this.budgets.rateLimit.controlPerDevicePerMinute
+        : bucket === 'renew'
+          ? this.budgets.rateLimit.renewPerMinute
+          : // 010 过渡桶(api §0「创建intent/测速各10/min/DeviceSession」;§7 next-plans 沿用过渡桶)
+            this.budgets.rateLimit.transitionIntentsPerDeviceSessionPerMinute;
     const key = `${deviceId}\u0000${bucket}`;
     let stamps = this.windows.get(key);
     if (stamps === undefined) {

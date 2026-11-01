@@ -24,6 +24,14 @@ import {
  *
  * 008-repository-extraction(T005):数据访问经 PersonalDataStore 端口(ADR-0015 D1,
  * 查询逐字迁移至 infrastructure/personal-data-store.drizzle.ts)。
+ *
+ * 010 T041 增量(data-model §5/§6「target_history 在 probe 后读取当前 Profile 目标
+ * 历史」「expectedHistoryRevision 比对」,api.md §7 I3):追加目标历史读取面
+ * readTargetHistory/readTargetMediaFacts(按 Profile+media 读当前历史+revision,
+ * 供 playback vod-start-position 与未来 next-plan 计划快照共用)与
+ * compareTargetHistoryRevision 比对原语(不一致返回 history-changed 信号,调用方
+ * 映射 NEXT_PLAN_CHANGED)。既有静态历史写路径与 canResume/readResumeFreezePosition
+ * 语义零变化。
  */
 
 /** 契约 HistoryItem */
@@ -166,6 +174,125 @@ export function getHistoryItem(input: {
   const media = store.findMediaRow(input.householdId, input.mediaId);
   const availableIds = loadAvailableMediaIdSet(input.householdId);
   return toHistoryItem(row, media, availableIds.has(input.mediaId));
+}
+
+/* ------------------------------------------------------------------ */
+/* 010 T041 —— 目标历史读取面(start-position / next-plan 共用)            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 目标历史快照(010 T041;按 Profile+media 读当前历史 + revision):
+ *
+ * - 供 playback vod-start-position(本次起点计算)与未来 next-plan 计划快照共用
+ *   的唯一读取面;只读,不改任何既有静态历史写路径;
+ * - contentRevision/continuityRevision 为「保存产生时快照」(data-model §3「历史
+ *   保存产生时的内容/连续性修订及证据,不能批量跟随当前状态升级」);
+ * - continuityRevision=null = 静态媒体/旧记录(0007 迁移注释「旧记录不冒充在线
+ *   continuity 证据」),调用方不得以任何当前值回填冒充;
+ * - durationSeconds 为保存产生时的可信时长;未知/非有限 → null(绝不以别源兜底
+ *   冒充保存事实);
+ * - revision 为当前持久历史版本(每次有效写入递增;无历史行时调用方按 0 口径,
+ *   与 next-plan 计划「无历史=0」同域,api.md §7 I3)。
+ */
+export interface TargetHistorySnapshot {
+  readonly mediaId: string;
+  readonly positionSeconds: number;
+  readonly durationSeconds: number | null;
+  readonly completed: boolean;
+  /** 保存产生时的内容修订快照 */
+  readonly contentRevision: number;
+  /** 保存产生时的连续性修订快照;静态媒体/旧记录 → null */
+  readonly continuityRevision: number | null;
+  /** 当前持久历史版本(>=1;无历史行时无快照,比对口径 0) */
+  readonly revision: number;
+  readonly writerEpoch: number;
+}
+
+/** 目标媒体当前事实(在线判别 + 当前修订;T041 起点计算输入面) */
+export interface TargetMediaFacts {
+  /** vod_episode 证据事实存在 = 在线媒体(线上 duration 绝不以历史兜底的判别依据) */
+  readonly online: boolean;
+  /** 当前 media_item.content_revision;行缺失 → null(防御) */
+  readonly contentRevision: number | null;
+  /** 当前在线子项连续性修订(>=1);静态媒体/子项未发布证据 → null */
+  readonly continuityRevision: number | null;
+}
+
+/** GET 当前历史快照(无历史行 → null;只读) */
+export function readTargetHistory(input: {
+  readonly householdId: string;
+  readonly profileId: string;
+  readonly mediaId: string;
+}): TargetHistorySnapshot | null {
+  const row = personalDataStore().findHistoryRow(input.householdId, input.profileId, input.mediaId);
+  if (row === undefined) {
+    return null;
+  }
+  return {
+    mediaId: row.mediaId,
+    positionSeconds: row.positionSeconds,
+    durationSeconds:
+      row.durationSeconds !== null && Number.isFinite(row.durationSeconds) && row.durationSeconds > 0
+        ? row.durationSeconds
+        : null,
+    completed: row.completed === 1,
+    contentRevision: row.contentRevision,
+    continuityRevision: row.continuityRevision,
+    revision: row.revision,
+    writerEpoch: row.writerEpoch,
+  };
+}
+
+/** GET 目标媒体当前事实(在线判别经 T040 evidence 事实投影;只读) */
+export function readTargetMediaFacts(input: { readonly householdId: string; readonly mediaId: string }): TargetMediaFacts {
+  const store = personalDataStore();
+  const facts = store.findVodEpisodeEvidenceFacts(input.householdId, input.mediaId);
+  return {
+    online: facts !== undefined,
+    contentRevision: store.findMediaContentRevision(input.householdId, input.mediaId) ?? null,
+    continuityRevision: facts?.continuityRevision ?? null,
+  };
+}
+
+/**
+ * expectedHistoryRevision 比对原语(010 T041 审查补充;api.md §7 I3):
+ * 一致 → null;不一致 → 变更信号({kind:'history-changed'}),由调用方映射
+ * NEXT_PLAN_CHANGED(probe 前后都可调用)。expectedHistoryRevision 为计划冻结时的
+ * 目标历史 revision(无历史=0);当前口径:快照在 → 快照 revision,历史行不在 → 0。
+ * 省略(undefined)= 非计划路径,不比对。
+ */
+export interface TargetHistoryChangeSignal {
+  readonly kind: 'history-changed';
+  /** 当前实际历史 revision(供响应/诊断;无历史行 = 0) */
+  readonly currentHistoryRevision: number;
+}
+
+export function compareTargetHistoryRevision(
+  snapshot: TargetHistorySnapshot | null,
+  expectedHistoryRevision: number | null | undefined,
+): TargetHistoryChangeSignal | null {
+  if (expectedHistoryRevision === undefined || expectedHistoryRevision === null) {
+    return null;
+  }
+  const currentRevision = snapshot?.revision ?? 0;
+  if (currentRevision === expectedHistoryRevision) {
+    return null;
+  }
+  return { kind: 'history-changed', currentHistoryRevision: currentRevision };
+}
+
+/**
+ * 目标历史读取端口(010 T041;playback application 经 personal-data 发布面注入,
+ * ADR-0015 D1 跨上下文端口形态 —— 实现即本文件 readTargetHistory/readTargetMediaFacts,
+ * 由组合根(playback.module,T043 接线)绑定)。
+ */
+export interface TargetHistoryReaderPort {
+  readTargetHistory(input: {
+    readonly householdId: string;
+    readonly profileId: string;
+    readonly mediaId: string;
+  }): TargetHistorySnapshot | null;
+  readTargetMediaFacts(input: { readonly householdId: string; readonly mediaId: string }): TargetMediaFacts;
 }
 
 /**

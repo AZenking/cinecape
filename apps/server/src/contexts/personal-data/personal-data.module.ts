@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MeController } from '@contexts/personal-data/interface/me.controller';
+// 010 T046:在线点播个人面控制器(装配必需最小增量 —— 控制器注册行;服务为纯函数模块)
+import { VodPersonalController } from '@contexts/personal-data/interface/vod-personal.controller';
 import { ProgressClockService } from '@contexts/personal-data/application/progress-clock.service';
 import { ProgressWriteService } from '@contexts/personal-data/application/progress-write.service';
 import { bindPersonalDataStore } from '@contexts/personal-data/application/personal-data-store.port';
@@ -34,7 +36,9 @@ import {
  * (惰性 getDb 解析,Database 单例重开安全);不经 HTTP 暴露,不导出。
  */
 @Module({
-  controllers: [MeController],
+  // 010 T046:VodPersonalController(GET /me/vod/titles/:parentId/progress;授权次序与
+  // MeController 同链 SessionGuard→CurrentProfileGuard —— 装配最小增量,行为见控制器文件头)
+  controllers: [MeController, VodPersonalController],
   providers: [
     {
       provide: PERSONAL_DATA_STORE,

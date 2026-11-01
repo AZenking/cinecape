@@ -16,13 +16,25 @@ import { PlaybackRepository } from '@contexts/playback/infrastructure/playback.r
 import { PlaybackAuthorizationService } from '@contexts/playback/application/playback-authorization.service';
 import { PlaybackTicketService, type TicketReply } from '@contexts/playback/application/playback-ticket.service';
 import { PlaybackResolverService, type PlaybackDto } from '@contexts/playback/application/playback-resolver.service';
-import { PlaybackSelectionService } from '@contexts/playback/application/playback-selection.service';
+// 010 T060:过渡消费编排(resolve 过渡分支最小接线;完整判别面归 T061)
+import { PlaybackTransitionService } from '@contexts/playback/application/playback-transition.service';
+import {
+  PlaybackSelectionService,
+  type SeekCapability,
+} from '@contexts/playback/application/playback-selection.service';
+import { playbackStore } from '@contexts/playback/application/playback-store.port';
 import { PlaybackLifecycleService } from '@contexts/playback/infrastructure/playback-lifecycle.service';
 import { PlaybackRateLimitService, type PlaybackRateLimitBucket } from '@contexts/playback/application/playback-rate-limit.service';
 import { PlaybackAuditService } from '@contexts/playback/application/playback-audit.service';
 // 007-T021:PersonalDataModule exports 已对齐令牌,注入改经发布令牌(裸导入 = 发布面契约)
 // 007-T022a:类型注解改用发布面接口 IProgressWriteService(注入值仍为实现类实例,行为零变化)
-import { PROGRESS_WRITE_PORT, type IProgressWriteService, type ProgressSampleReply } from '@contexts/personal-data';
+// 010 T046:progress 面切 applySampleDetailed(8 键 ProgressSampleOutcome;applySample 3 键旧义保留)
+import {
+  PROGRESS_WRITE_PORT,
+  type IProgressWriteService,
+  type ProgressSampleOutcome,
+  type ProgressSampleReply,
+} from '@contexts/personal-data';
 
 /**
  * 播放控制端点(T031,spec 004)—— resolve/GET session/renew/heartbeat/stop/selection/seek。
@@ -67,13 +79,29 @@ import { PROGRESS_WRITE_PORT, type IProgressWriteService, type ProgressSampleRep
  * resolve 请求契约(005 api.md §5:strict 拒绝未知字段 —— profileId/householdId/
  * startPosition 等一律 400;startMode 缺省 beginning,resume 仅点播,频道请求 resume
  * 由 resolver 依媒体类型返回 400 PLAYBACK_SEEK_UNSUPPORTED)。
+ * 010 过渡分支(api.md §4 严格 oneOf,T061 判别面):基础分支 {mediaId,startMode?} 与
+ * 过渡分支 {mediaId,transitionIntentId} 为严格互斥 union —— 两分支各自 .strict(),
+ * additionalProperties 互斥:过渡请求携 startMode、基础请求携 transitionIntentId 均
+ * 以未知字段 400(不依赖 refine 的「共现拒绝」,分支面即判别面)。
  */
-const resolveRequestSchema = z
+const resolveBaseRequestSchema = z
   .object({
     mediaId: z.string().min(1),
     startMode: z.enum(['beginning', 'resume']).optional(),
   })
   .strict();
+
+const resolveTransitionRequestSchema = z
+  .object({
+    mediaId: z.string().min(1),
+    transitionIntentId: z.string().min(1),
+  })
+  .strict();
+
+/** resolve 严格判别 union(过渡分支优先判别;导出供单元面断言互斥契约) */
+export const resolveRequestContractSchema = z.union([resolveTransitionRequestSchema, resolveBaseRequestSchema]);
+
+type ResolveRequest = z.infer<typeof resolveRequestContractSchema>;
 
 const renewRequestSchema = z
   .object({ expectedGeneration: z.number().int().min(1) })
@@ -143,6 +171,34 @@ function applyControlResponseHeaders(res: Response): void {
   res.setHeader('Referrer-Policy', 'no-referrer');
 }
 
+/**
+ * 010 T046 状态面响应(PlaybackDto HTTP 形态追加;api.md §7 I4):resolver 的
+ * PlaybackDto 类型保持既有键面(resolver 已定稿不改),在线 vod 会话的 GET 状态/renew
+ * 响应以交集扩展携带 I4 事实 —— seekCapability(none|client|server_rebuild)/
+ * playbackStarted:boolean,经 T045 sessionSeekFacts(事实来源=交付/probe 时长与
+ * playback_started_at 只读投影)。
+ */
+interface PlaybackStatusDto extends PlaybackDto {
+  readonly seekCapability?: SeekCapability;
+  readonly playbackStarted?: boolean;
+}
+
+/** renew 响应(TicketReply 同面追加;仅在线 vod 会话携带 I4 两键) */
+interface PlaybackRenewReply extends TicketReply {
+  readonly seekCapability?: SeekCapability;
+  readonly playbackStarted?: boolean;
+}
+
+/**
+ * 会话媒体是否在线点播子项(T043 判别同源:media_item.media_role='vod_episode')。
+ * 仅在线 vod 会话扩展 I4/8 键面;NAS/IPTV/直播(standalone)键面零变化 —— T019
+ * resource-selection 单测钉死 standalone preparing 状态 DTO 恰 13 键、T092 钉死
+ * progress 恰 3 键,全形态统一键面会破坏既有绿基线,故按 T043 先例「仅 vod 会话携带」。
+ */
+function isOnlineVodSession(householdId: string, mediaId: string): boolean {
+  return playbackStore().findMediaItemRowInHousehold(householdId, mediaId)?.mediaRole === 'vod_episode';
+}
+
 /* ------------------------------------------------------------------ */
 /* 写端点横切守卫(同源/CSRF + 16KiB 体限制;GET/HEAD 豁免)               */
 /* ------------------------------------------------------------------ */
@@ -209,6 +265,7 @@ export class PlaybackController {
     @Inject(PlaybackRateLimitService) private readonly rateLimit: PlaybackRateLimitService,
     @Inject(PlaybackAuditService) private readonly audit: PlaybackAuditService,
     @Inject(PROGRESS_WRITE_PORT) private readonly progressWrite: IProgressWriteService,
+    @Inject(PlaybackTransitionService) private readonly transitions: PlaybackTransitionService,
   ) {}
 
   /**
@@ -222,9 +279,24 @@ export class PlaybackController {
     @Body() body: unknown,
     @CurrentSession() context: SessionContext,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<PlaybackDto> {
-    const input = parseBody(resolveRequestSchema, body);
+  ): Promise<PlaybackDto | Record<string, unknown>> {
+    const input: ResolveRequest = parseBody(resolveRequestContractSchema, body);
     this.requireSlot(context, res, 'control');
+    // 010 T061 过渡分支(US3 完整判别面;schema 严格 union 保证分支互斥):携带
+    // transitionIntentId 时走过渡消费编排(201 consumed/200 同 intent 重放同后继,
+    // Location 同形),并发起后继 fire-and-forget 准备;审计旁路与常规 resolve 同款。
+    if ('transitionIntentId' in input) {
+      const transitioned = await this.transitions
+        .resolveTransition(context, { mediaId: input.mediaId, transitionIntentId: input.transitionIntentId })
+        .catch((error: unknown) => {
+          this.audit.recordResolveRejection(context, input.mediaId, error);
+          throw error;
+        });
+      res.status(transitioned.kind === 'replayed' ? 200 : 201);
+      res.setHeader('Location', `/api/playback/sessions/${transitioned.sessionId}`);
+      applyControlResponseHeaders(res);
+      return transitioned.dto;
+    }
     const outcome = await this.resolver
       .resolve(context, input.mediaId, { startMode: input.startMode })
       .catch((error: unknown) => {
@@ -242,7 +314,7 @@ export class PlaybackController {
     @Param('id') id: string,
     @CurrentSession() context: SessionContext,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<PlaybackDto> {
+  ): Promise<PlaybackStatusDto> {
     // 归属校验(非本设备/跨家庭/不存在统一 404 PLAYBACK_NOT_FOUND;终态行仍可查询)
     await this.authorization.authorizeControl(context, id);
     const loaded = this.repository.getSession(context.session.householdId, id);
@@ -250,10 +322,21 @@ export class PlaybackController {
       throw createDomainError(loaded.code, loaded.detail);
     }
     applyControlResponseHeaders(res);
-    return this.resolver.toDto(loaded.value);
+    // 010 T046(api.md §7 I4):在线 vod 会话追加 seekCapability/playbackStarted(经
+    // T045 sessionSeekFacts;preparing 期 delivery/duration 未定 → none/false);
+    // 其余媒体角色 DTO 键面零变化(004/005 契约回归)。
+    if (!isOnlineVodSession(context.session.householdId, loaded.value.mediaId)) {
+      return this.resolver.toDto(loaded.value);
+    }
+    const seekFacts = await this.selection.sessionSeekFacts(context.session.householdId, id);
+    return {
+      ...this.resolver.toDto(loaded.value),
+      seekCapability: seekFacts.seekCapability,
+      playbackStarted: seekFacts.playbackStarted,
+    };
   }
 
-  /** POST /playback/sessions/:id/renew:复用 session 仅换票(200 TicketReply) */
+  /** POST /playback/sessions/:id/renew:复用 session 仅换票(200 TicketReply;vod 会话附 I4 两键) */
   @Post('sessions/:id/renew')
   @HttpCode(200)
   async renew(
@@ -261,7 +344,7 @@ export class PlaybackController {
     @Body() body: unknown,
     @CurrentSession() context: SessionContext,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<TicketReply> {
+  ): Promise<PlaybackRenewReply> {
     const input = parseBody(renewRequestSchema, body);
     this.requireSlot(context, res, 'renew');
     // 换代 CAS 请求侧预检(契约 e2e:seek 换代后携旧代 expectedGeneration 的 renew 得
@@ -272,7 +355,18 @@ export class PlaybackController {
       throw createDomainError('PLAYBACK_GENERATION_STALE');
     }
     applyControlResponseHeaders(res);
-    return this.ticket.issueOrRenew(id, input.expectedGeneration, context);
+    const reply = await this.ticket.issueOrRenew(id, input.expectedGeneration, context);
+    // 010 T046(api.md §7 I4):在线 vod 会话的 renew 响应同面追加 I4 事实(TicketReply
+    // 三键原样保留;其余媒体角色零变化)。
+    if (loaded.ok && isOnlineVodSession(context.session.householdId, loaded.value.mediaId)) {
+      const seekFacts = await this.selection.sessionSeekFacts(context.session.householdId, id);
+      return {
+        ...reply,
+        seekCapability: seekFacts.seekCapability,
+        playbackStarted: seekFacts.playbackStarted,
+      };
+    }
+    return reply;
   }
 
   /** POST /playback/sessions/:id/heartbeat:15s 遥测(204;不递增 version/generation) */
@@ -300,6 +394,13 @@ export class PlaybackController {
    * 全量校验(会话/当前 Profile/资源修订/时长/generation/上下文版本,经 authorizeControl
    * 与写入状态机两层)后按 data-model §7 写入状态转换处理;限频每 DeviceSession
    * 60 次/分钟(方法级守卫位于类级 SessionGuard 之后,§1 限频次序)。
+   *
+   * 010 T046(api.md §1 ProgressReply 8 键):写入面切 applySampleDetailed(与
+   * applySample 同一编排的会话接受+历史应用全量形态),按媒体角色投影响应键面 ——
+   * 在线 vod 会话(media_role='vod_episode')返回 8 键(applied/reason/historyRevision
+   * + sessionAccepted/acceptedSampleSeq/acceptedPositionSeconds/acceptedGeneration/
+   * sessionStarted);NAS 静态/直播会话(standalone/channel 同路由)投影回既有 3 键
+   * (applied 只指历史写入旧义;T092 恰 3 键断言回归保护)。投影只裁键不改值。
    */
   @Post('sessions/:id/progress')
   @HttpCode(200)
@@ -310,12 +411,15 @@ export class PlaybackController {
     @Body() body: unknown,
     @CurrentSession() context: SessionContext,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<ProgressSampleReply> {
+  ): Promise<ProgressSampleReply | ProgressSampleOutcome> {
     const input = parseBody(progressRequestSchema, body);
     // 归属/当前 Profile/上下文版本/最新策略授权链(非本设备/跨家庭 404;换档后 404;
     // 绑定档案 ≠ 当前激活档案 403 —— api.md「服务端验证Session、当前Profile、最新策略」)
     await this.authorization.authorizeControl(context, id);
-    const reply = this.progressWrite.applySample(
+    // 媒体角色判别(T043 同源事实;会话行在授权链已验存在,mediaId 缺失防御性归 standalone)
+    const mediaId = playbackStore().findSessionMediaId(id)?.mediaId ?? '';
+    const isOnlineVod = isOnlineVodSession(context.session.householdId, mediaId);
+    const outcome = this.progressWrite.applySampleDetailed(
       {
         householdId: context.session.householdId,
         deviceSessionId: context.session.id,
@@ -324,7 +428,10 @@ export class PlaybackController {
       input,
     );
     applyControlResponseHeaders(res);
-    return reply;
+    if (isOnlineVod) {
+      return outcome;
+    }
+    return { applied: outcome.applied, reason: outcome.reason, historyRevision: outcome.historyRevision };
   }
 
   /**
@@ -333,6 +440,12 @@ export class PlaybackController {
    * 规则」):旧上下文会话已被身份变化事务终态化,重复 stop 保持幂等清理语义,不因
    * 版本失衡升级为读写拒绝。携 finalProgress 时改为 'current':身份变化之后旧上下文
    * 不允许夹带历史写入(404 同形);final 与终态在同一事务先保存后终态化(T101)。
+   *
+   * 010 T058 增量(仅响应编码面,204 状态/幂等/授权语义零变化):空体以显式 JSON
+   * Content-Type 经 res.end() 收尾 —— express res.send 对 204 恒剥离 Content-Type,
+   * supertest/superagent 对无类型空体解析为 {}(truthy),T051 D2 冻结断言「finish 先赢
+   * 后 stop 仍 204 且响应体为 falsy 空体」不可成立;带类型空体经 JSON 解析器落 ''(falsy),
+   * 语义仍为 RFC 9113 无内容(安全头已由全局拦截器在进控制器前设置)。
    */
   @Post('sessions/:id/stop')
   @HttpCode(204)
@@ -340,6 +453,7 @@ export class PlaybackController {
     @Param('id') id: string,
     @Body() body: unknown,
     @CurrentSession() context: SessionContext,
+    @Res() res: Response,
   ): Promise<void> {
     const input = parseBody(stopRequestSchema, body);
     if (input.finalProgress !== undefined) {
@@ -348,13 +462,16 @@ export class PlaybackController {
       if (!result.ok) {
         throw createDomainError(result.code, result.detail);
       }
-      return;
+    } else {
+      await this.authorization.authorizeControl(context, id, { contextVersion: 'any' });
+      const result = await this.lifecycle.stopSession(id);
+      if (!result.ok) {
+        throw createDomainError(result.code, result.detail);
+      }
     }
-    await this.authorization.authorizeControl(context, id, { contextVersion: 'any' });
-    const result = await this.lifecycle.stopSession(id);
-    if (!result.ok) {
-      throw createDomainError(result.code, result.detail);
-    }
+    res.setHeader('Content-Type', 'application/json');
+    res.status(204);
+    res.end();
   }
 
   /** PUT /playback/sessions/:id/selection:授权后原子换轨(200 PlaybackDto;无票字段) */

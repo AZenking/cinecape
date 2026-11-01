@@ -8,13 +8,40 @@ import { createPlaybackBudgets } from '@platform/config/playback-budgets';
 import { getConfig } from '@platform/config/env';
 import type { MediaRoots } from '@platform/config/env.schema';
 import { Database } from '@platform/database/database';
+import { UNIT_OF_WORK } from '@platform/database/unit-of-work';
+import { createDomainError } from '@platform/http-common/domain-error';
 import { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
 import { bindPlaybackStore, playbackStore } from '@contexts/playback/application/playback-store.port';
 import { drizzlePlaybackStore } from '@contexts/playback/infrastructure/playback-store.drizzle';
+import { drizzleVodInputStore, type VodInputStore } from '@contexts/playback/infrastructure/playback-input-store.drizzle';
+// 010 T059(US3):过渡持久端口/实现 + 只读来源上下文授权(T060 创建/取消、T061 消费首步消费)
+import { bindTransitionStore, transitionStore } from '@contexts/playback/application/playback-transition-store.port';
+import { drizzleTransitionStore } from '@contexts/playback/infrastructure/playback-transition-store.drizzle';
+import { TransitionSourceContextService } from '@contexts/playback/application/transition-source-context.service';
+// 010 T060(US3):next/manual_next 过渡编排服务与端点(计划/意图/取消/消费事务)
+import {
+  PlaybackTransitionService,
+  type TransitionCandidateFactsPort,
+  type TransitionConsumeTxPort,
+  type TransitionConsumeWorkSetStores,
+  type TransitionVodFactsPort,
+} from '@contexts/playback/application/playback-transition.service';
+// 010 T072(US4):换源候选匹配结论读面(online-vod VodCache 候选绑定单例;同模块导出
+// 后注入 —— 模块装配面,R2 经结构端口适配,不深导入 online-vod 内部类型)
+import { OnlineVodModule, VOD_CACHE } from '@contexts/online-vod';
+import { PlaybackTransitionController } from '@contexts/playback/interface/playback-transition.controller';
+// 010 T062(US3):最小清理编排与端点(api.md §7 I5;TransitionCleanupWorkSet 同事务
+// 取消/撤交付/持久标记 + 提交后幂等空 stop + 24h 保护窗扫描面挂 retention 节拍)
+import {
+  TransitionCleanupService,
+  type TransitionCleanupTxPort,
+  type TransitionCleanupWorkSetStores,
+} from '@contexts/playback/application/transition-cleanup.service';
+import { markDeliveryCleanupRequested } from '@contexts/playback/infrastructure/playback-input-store.drizzle';
 import { PLAYBACK_STORE } from '@contexts/playback/playback.tokens';
-import { PlaybackAuthorizationService } from '@contexts/playback/application/playback-authorization.service';
+import { PlaybackAuthorizationService, PLAYBACK_VOD_POLICY_GATE } from '@contexts/playback/application/playback-authorization.service';
 import { NasReaderService } from '@contexts/playback/infrastructure/nas-reader';
-import { HlsProxyService } from '@contexts/playback/infrastructure/hls-proxy.service';
+import { HlsProxyService, VodFixedInputDeliveryGateway, VodHlsUpstreamReader, vodNestedBudgetsFromPlaybackBudgets, type HlsProxyVodDeliveryRoute } from '@contexts/playback/infrastructure/hls-proxy.service';
 import { PlaybackAssetsService } from '@contexts/playback/application/playback-assets.service';
 import {
   MediaProbeService,
@@ -25,11 +52,21 @@ import {
   systemMediaProbeClock,
 } from '@contexts/playback/infrastructure/media-probe.service';
 import { PlaybackPlanService } from '@contexts/playback/application/playback-plan.service';
-import { PlaybackResolverService, type PlaybackConversionLaunchPort, type PlaybackProbeFacts, type PlaybackSessionSourcePort } from '@contexts/playback/application/playback-resolver.service';
+import { PlaybackResolverService, type PlaybackConversionLaunchPort, type PlaybackProbeFacts, type PlaybackResolverPorts, type PlaybackSessionSourcePort } from '@contexts/playback/application/playback-resolver.service';
+import {
+  PlaybackResolveWorkSetAdapter,
+  ResolverVodInputBridge,
+  VodResolvedFactsReader,
+  VodTreePolicyGate,
+  type PlaybackResolveUnitOfWork,
+  type SqliteReadHandle,
+} from '@contexts/playback/application/playback-vod-resolve.providers';
+import { VodStartPositionService } from '@contexts/playback/application/vod-start-position.service';
 import { PlaybackTicketService } from '@contexts/playback/application/playback-ticket.service';
 import {
   PlaybackSelectionService,
   type PlaybackRebuildCoordinator,
+  type PlaybackStartFactsPort,
   type PlaybackSubtitleCatalogPort,
   type PlaybackTrackFactsPort,
 } from '@contexts/playback/application/playback-selection.service';
@@ -50,6 +87,13 @@ import { PlaybackAuditService } from '@contexts/playback/application/playback-au
 import { PlaybackRetentionService } from '@contexts/playback/application/playback-retention.service';
 import { PlaybackController } from '@contexts/playback/interface/playback.controller';
 import { PlaybackStreamController } from '@contexts/playback/interface/playback-stream.controller';
+// 010 T057:相位观测服务(US3;T054 ingestObservation 持久化包装 + digest 权威 + 2Hz 会话限流)
+import { PhaseObservationService } from '@contexts/playback/application/phase-observation.service';
+import { PlaybackObservationController } from '@contexts/playback/interface/playback-observation.controller';
+// 010 T058:finish 编排服务与端点(US3;ProgressFinishWorkSet 同事务 receipt/终态原子提交)
+import { PlaybackFinishService } from '@contexts/playback/application/playback-finish.service';
+import type { PlaybackFinishProgressPort } from '@contexts/playback/application/playback-finish.service';
+import { PlaybackFinishController } from '@contexts/playback/interface/playback-finish.controller';
 // 007-T022a:跨上下文消费统一改经发布面 index.ts(裸导入);
 // ProgressClock/ProgressWrite 注入值经 PROGRESS_*_PORT 令牌(T021),类型注解改用发布面接口
 import {
@@ -57,9 +101,24 @@ import {
   PROGRESS_CLOCK_PORT,
   PROGRESS_WRITE_PORT,
   registerPersonalPlaybackFactsPort,
+  readTargetHistory,
+  readTargetMediaFacts,
   type IProgressClockService,
   type IProgressWriteService,
 } from '@contexts/personal-data';
+// T043:起点裁决纯函数经 online-vod 发布面(R2;T039 唯一权威起点语义)
+import { resolveStartPoint } from '@contexts/online-vod';
+// 010 T060:导航序列发布面类型(nextEpisodeFor 读数;纯函数经发布面,实现类不出)
+import type { EpisodeSequenceRowWithKey, SequenceNavigationStore } from '@contexts/online-vod';
+// 010 T060:计划快照冻结的行类型(工作集端口 type-only 单一事实源)
+import type {
+  NextPlanRow,
+  PlaybackSessionRow,
+  PreparingSessionInsert,
+  SessionLedgerInsertValues,
+  TransitionIntentRow,
+  TransitionSlotRow,
+} from '@contexts/playback/application/playback-work-set.port';
 import type { PlaybackFinalProgressPort } from '@contexts/playback/infrastructure/playback-lifecycle.service';
 import { HttpCommonModule } from '@platform/http-common/http-common.module';
 import {
@@ -157,6 +216,404 @@ class ResolverBackedTrackFactsPort implements PlaybackTrackFactsPort {
   factsFor(sessionId: string, generation: number): PlaybackProbeFacts | undefined {
     return this.resolver.factsFor(sessionId, generation) ?? CANONICAL_PROBE_FACTS;
   }
+}
+
+/**
+ * I4 起播标记只读投影(T045):playback_session.playback_started_at 非空事实(会话级跨
+ * generation 保留)→ selection.sessionSeekFacts 的 playbackStarted 事实来源;经 Database
+ * 只读投影直查(SessionSourceRefReader 同先例,惰性语句),不扩仓储 API 面。
+ */
+class SessionPlaybackStartFactsReader implements PlaybackStartFactsPort {
+  private statement: DatabaseConstructor.Statement | null = null;
+
+  constructor(private readonly db: DatabaseConstructor.Database) {}
+
+  playbackStarted(householdId: string, sessionId: string): boolean {
+    if (this.statement === null) {
+      this.statement = this.db.prepare(
+        'SELECT playback_started_at AS startedAt FROM playback_session WHERE household_id = ? AND id = ?',
+      );
+    }
+    const row = this.statement.get(householdId, sessionId) as { startedAt?: unknown } | undefined;
+    return typeof row?.startedAt === 'string' && row.startedAt.length > 0;
+  }
+}
+
+/**
+ * T045 vod 固定输入重验桥(lifecycle 心跳面):绑定行回读作期望基准(workSet)+ store
+ * assertCurrent/failOnRevisionMismatch(bridge)组合 —— 期望=授权基线(绑定冻结修订),
+ * 当前=目录实时修订,失配即撤交付 + failed 同提交;无绑定会话(NAS/直播)由
+ * hasCurrentBinding 门跳过重验(零变化)。
+ */
+class LifecycleVodInputGuard {
+  constructor(
+    private readonly bridge: ResolverVodInputBridge,
+    private readonly workSet: PlaybackResolveWorkSetAdapter,
+  ) {}
+
+  hasCurrentBinding(householdId: string, sessionId: string, generation: number): boolean {
+    return this.workSet.findActiveBinding(householdId, sessionId, generation) !== undefined;
+  }
+
+  assertCurrent(householdId: string, sessionId: string, generation: number): void {
+    const binding = this.workSet.findActiveBinding(householdId, sessionId, generation);
+    if (binding === undefined) {
+      throw createDomainError('PLAYBACK_NOT_READY', '该代次无有效输入绑定,不能重验固定输入');
+    }
+    this.bridge.assertCurrent({
+      householdId,
+      sessionId,
+      generation,
+      expected: {
+        locatorRevision: binding.locatorRevision,
+        detailRevision: binding.detailRevision,
+        contentRevision: binding.contentRevision,
+        continuityRevision: binding.continuityRevision,
+      },
+    });
+  }
+
+  failOnRevisionMismatch(householdId: string, sessionId: string, generation: number, reason: string): void {
+    this.bridge.failOnRevisionMismatch({ householdId, sessionId, generation, reason });
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 010 T043 装配令牌(模块内私有;resolver/authorization 端口桥)           */
+/* ------------------------------------------------------------------ */
+
+/** 固定输入绑定 store(T042 playback-input-store;每 session/generation 最多一有效绑定) */
+const PLAYBACK_VOD_INPUT_STORE: unique symbol = Symbol('PlaybackVodInputStore(T042)');
+/** 事务建档工作集(UNIT_OF_WORK 桥;session+epoch/ledger 同用例事务 + 冻结一次 + 回读) */
+const PLAYBACK_RESOLVE_WORK_SET: unique symbol = Symbol('PlaybackResolveWorkSet(T043)');
+/** 固定输入绑定端口桥(T042 store + 解析事实读取;resolver 消费面) */
+const PLAYBACK_VOD_INPUT_PORT: unique symbol = Symbol('PlaybackVodInputPort(T043)');
+/** VOD 起点计算(T041;T039 裁决经发布端口注入,beginning/resume 唯一决策入口) */
+const PLAYBACK_START_POSITION: unique symbol = Symbol('PlaybackStartPosition(T041)');
+/** VOD SafeUpstream 嵌套读取链(T044;master/variant/segment/key 各级+总量+总时限) */
+const VOD_HLS_UPSTREAM_READER: unique symbol = Symbol('VodHlsUpstreamReader(T044)');
+
+/** 过渡持久端口装配令牌(010 T059;bindTransitionStore seam,ADR-0015 D1 同款) */
+const PLAYBACK_TRANSITION_STORE: unique symbol = Symbol('PlaybackTransitionStore(T059)');
+
+/**
+ * 010 T060:过渡消费事务桥(internal-ports §2 TransitionConsumeWorkSet 的 UNIT_OF_WORK
+ * 绑定面)—— 服务声明的 stores 结构端口在本装配层落到各上下文 TxStore 工厂产物;
+ * 单一 BEGIN IMMEDIATE,工作函数抛错即整体回滚(F 组注入粒度锚 = playback/personalData
+ * 参与者触达序,见 e2e TRANSITION_CONSUME_STEPS)。
+ */
+class UnitOfWorkTransitionConsumeTx implements TransitionConsumeTxPort {
+  constructor(private readonly uow: PlaybackResolveUnitOfWork) {}
+
+  runConsumeTx(work: (stores: TransitionConsumeWorkSetStores) => void): void {
+    this.uow.run(
+      (txStores) => ({ playback: txStores.playback, personalData: txStores.personalData }),
+      (bound) => {
+        const playback = bound.playback as unknown as DrizzlePlaybackTxParticipantsShape;
+        const personalData = bound.personalData as unknown as DrizzlePersonalDataTxParticipantsShape;
+        work({
+          playback: {
+            findIntent: (householdId, intentId) => playback.findIntent(householdId, intentId),
+            findSlot: (householdId, fromSessionId, fromGeneration) => playback.findSlot(householdId, fromSessionId, fromGeneration),
+            findPlan: (householdId, nextPlanId) => playback.findPlan(householdId, nextPlanId),
+            insertPreparingSession: (values) => playback.insertPreparingSession(values),
+          },
+          personalData: {
+            findVodPreferences: (householdId, profileId) => {
+              const snapshot = personalData.findVodPreferences(householdId, profileId);
+              return { autoplayNext: snapshot.autoplayNext };
+            },
+            allocateProgressEpoch: (householdId, profileId) => personalData.allocateProgressEpoch(householdId, profileId),
+            insertLedgerRow: (values) => personalData.insertLedgerRow(values),
+          },
+        });
+      },
+      { behavior: 'immediate' },
+    );
+  }
+}
+
+/** playback 事务参与者消费子集(结构镜像;实现=DrizzlePlaybackTxParticipants) */
+interface DrizzlePlaybackTxParticipantsShape {
+  findIntent(householdId: string, intentId: string): TransitionIntentRow | undefined;
+  findSlot(householdId: string, fromSessionId: string, fromGeneration: number): TransitionSlotRow | undefined;
+  findPlan(householdId: string, nextPlanId: string): NextPlanRow | undefined;
+  insertPreparingSession(values: PreparingSessionInsert): void;
+}
+
+/** personal-data 事务参与者消费子集(结构镜像;实现=DrizzlePersonalDataTxParticipants) */
+interface DrizzlePersonalDataTxParticipantsShape {
+  findVodPreferences(householdId: string, profileId: string): { readonly autoplayNext: boolean };
+  allocateProgressEpoch(householdId: string, profileId: string): number;
+  insertLedgerRow(values: SessionLedgerInsertValues): void;
+}
+
+/**
+ * 010 T062:最小清理事务桥(internal-ports §5 TransitionCleanupWorkSet 的 UNIT_OF_WORK
+ * 绑定面)—— IntentTx 取消/SlotTx 释放/PlaybackSessionTx 后继读 + 撤交付标记
+ * (markDeliveryCleanupRequested,工作回调内调用并入同一 BEGIN IMMEDIATE)一个
+ * commit;工作函数抛错即整体回滚。会话终止不在此提交(提交后经既有生命周期端口)。
+ */
+class UnitOfWorkTransitionCleanupTx implements TransitionCleanupTxPort {
+  constructor(private readonly uow: PlaybackResolveUnitOfWork) {}
+
+  runCleanupTx(work: (stores: TransitionCleanupWorkSetStores) => void): void {
+    this.uow.run(
+      (txStores) => ({ playback: txStores.playback }),
+      (bound) => {
+        const playback = bound.playback as unknown as DrizzlePlaybackCleanupParticipantsShape;
+        work({
+          intent: {
+            findIntent: (householdId, intentId) => playback.findIntent(householdId, intentId),
+            markCancelled: (householdId, intentId) => playback.markIntentCancelled(householdId, intentId),
+          },
+          slot: {
+            findSlot: (householdId, fromSessionId, fromGeneration) => playback.findSlot(householdId, fromSessionId, fromGeneration),
+            release: (householdId, fromSessionId, fromGeneration, expectedSlotRevision) =>
+              playback.releaseSlot(householdId, fromSessionId, fromGeneration, expectedSlotRevision),
+          },
+          session: {
+            findSession: (householdId, sessionId) => {
+              const row = playback.findSession(householdId, sessionId);
+              return row === undefined
+                ? undefined
+                : { state: row.state, generation: row.generation, cleanupRequested: row.cleanupRequested };
+            },
+          },
+        });
+      },
+      { behavior: 'immediate' },
+    );
+  }
+}
+
+/** playback 事务参与者 cleanup 消费子集(结构镜像;实现=DrizzlePlaybackTxParticipants) */
+interface DrizzlePlaybackCleanupParticipantsShape {
+  findIntent(householdId: string, intentId: string): TransitionIntentRow | undefined;
+  markIntentCancelled(householdId: string, intentId: string): void;
+  findSlot(householdId: string, fromSessionId: string, fromGeneration: number): TransitionSlotRow | undefined;
+  releaseSlot(householdId: string, fromSessionId: string, fromGeneration: number, expectedSlotRevision: number): void;
+  findSession(householdId: string, sessionId: string): PlaybackSessionRow | undefined;
+}
+
+/**
+ * 010 T060:在线目录只读事实适配(计划目标确定与快照对比)—— playback 本地 SQL 只读
+ * 投影(T017 VodTreePolicyGate 同先例:目录/序列行经只读 JOIN 构造事实,禁逐集 N+1);
+ * 导航判定经 online-vod 发布面 nextEpisodeFor 纯函数(唯一权威导航语义),本类只装载
+ * 行事实。行投影列别名与 nextEpisodeFor 读数对齐(SequenceNavigationStore 结构适配;
+ * VodTitleRow/VodLineRow 为 online-vod 私有行类型,以结构面承载,不深导)。
+ */
+class TransitionVodFactsReader implements TransitionVodFactsPort {
+  /** 序列行读数(与 online-vod 发布面 EpisodeSequenceRowWithKey 同形) */
+  private static readonly SEQUENCE_WITH_KEY_SELECT = `
+    SELECT
+      s.household_id AS householdId,
+      s.title_id AS titleId,
+      s.line_id AS lineId,
+      l.line_key AS lineKey,
+      s.detail_revision AS detailRevision,
+      s.sequence_revision AS sequenceRevision,
+      s.episode_id AS episodeId,
+      e.episode_key AS episodeKey,
+      e.media_id AS mediaId,
+      s.season_key AS seasonKey,
+      s.ordinal,
+      s.sequence_status AS sequenceStatus
+    FROM vod_episode_sequence s
+    JOIN vod_line l ON l.household_id = s.household_id AND l.id = s.line_id
+    JOIN vod_episode e ON e.household_id = s.household_id AND e.id = s.episode_id
+  `;
+
+  /** nextEpisodeFor 导航读面(结构适配;列别名对齐发布面读数) */
+  readonly navigation: SequenceNavigationStore;
+
+  constructor(private readonly db: SqliteReadHandle) {
+    this.navigation = {
+      findTitle: (householdId: string, titleId: string) => this.findTitleRow(householdId, titleId),
+      listLinesByTitle: (householdId: string, titleId: string) => this.listLines(householdId, titleId),
+      findLine: (householdId: string, lineId: string) => this.findLineRow(householdId, lineId),
+      listCurrentEpisodeSequences: (householdId: string, titleId: string) => this.listCurrentSequences(householdId, { titleId }),
+      listCurrentEpisodeSequencesByLine: (householdId: string, lineId: string) => this.listCurrentSequences(householdId, { lineId }),
+    } as unknown as SequenceNavigationStore;
+  }
+
+  findEpisodeRefByMedia(householdId: string, mediaId: string): { readonly lineId: string; readonly episodeKey: string } | undefined {
+    return this.db
+      .prepare(
+        'SELECT line_id AS lineId, episode_key AS episodeKey FROM vod_episode WHERE household_id = ? AND media_id = ?',
+      )
+      .get(householdId, mediaId) as { readonly lineId: string; readonly episodeKey: string } | undefined;
+  }
+
+  findTitleIdOfLine(householdId: string, lineId: string): string | undefined {
+    const row = this.db
+      .prepare('SELECT title_id AS titleId FROM vod_line WHERE household_id = ? AND id = ?')
+      .get(householdId, lineId) as { readonly titleId: string } | undefined;
+    return row?.titleId;
+  }
+
+  currentSequenceRevision(householdId: string, titleId: string): number {
+    // 快照对比基准 = 最新已发布快照修订(与导航读数同基准;指针先行窗口内不虚高)
+    const row = this.db
+      .prepare('SELECT MAX(sequence_revision) AS rev FROM vod_episode_sequence WHERE household_id = ? AND title_id = ?')
+      .get(householdId, titleId) as { readonly rev: number | null } | undefined;
+    return row?.rev ?? 0;
+  }
+
+  titlePointerFacts(
+    householdId: string,
+    titleId: string,
+  ): { readonly detailRevision: number; readonly locatorRevision: number } | undefined {
+    // 当前指针修订 + 定位修订(当前详情快照 locator 为权威;快照缺失回退来源定位修订)
+    return this.db
+      .prepare(
+        `SELECT vt.current_detail_revision AS detailRevision,
+                COALESCE(ds.locator_revision, ms.locator_revision, 1) AS locatorRevision
+         FROM vod_title vt
+         LEFT JOIN vod_detail_snapshot ds
+           ON ds.household_id = vt.household_id AND ds.title_id = vt.id AND ds.revision = vt.current_detail_revision
+         LEFT JOIN media_source ms ON ms.household_id = vt.household_id AND ms.id = vt.source_id
+         WHERE vt.household_id = ? AND vt.id = ?`,
+      )
+      .get(householdId, titleId) as { readonly detailRevision: number; readonly locatorRevision: number } | undefined;
+  }
+
+  findTargetEpisodeRow(
+    householdId: string,
+    mediaId: string,
+  ): { readonly label: string; readonly contentRevision: number | null; readonly continuityRevision: number | null } | undefined {
+    return this.db
+      .prepare(
+        `SELECT ve.label AS label, mi.content_revision AS contentRevision, ve.continuity_revision AS continuityRevision
+         FROM vod_episode ve
+         JOIN media_item mi ON mi.household_id = ve.household_id AND mi.id = ve.media_id
+         WHERE ve.household_id = ? AND ve.media_id = ?`,
+      )
+      .get(householdId, mediaId) as
+      | { readonly label: string; readonly contentRevision: number | null; readonly continuityRevision: number | null }
+      | undefined;
+  }
+
+  /** -- SequenceNavigationStore 装载面(行→nextEpisodeFor 事实;键原样透传) -- */
+
+  private findTitleRow(householdId: string, titleId: string): unknown {
+    return this.db
+      .prepare(
+        `SELECT id, household_id AS householdId, source_id AS sourceId, upstream_vod_id AS upstreamVodId,
+                parent_media_id AS parentMediaId, current_detail_revision AS currentDetailRevision,
+                materialized_at AS materializedAt
+         FROM vod_title WHERE household_id = ? AND id = ?`,
+      )
+      .get(householdId, titleId);
+  }
+
+  private findLineRow(householdId: string, lineId: string): unknown {
+    return this.db
+      .prepare(
+        `SELECT id, household_id AS householdId, title_id AS titleId, line_key AS lineKey,
+                display_name AS displayName, sort_order AS sortOrder
+         FROM vod_line WHERE household_id = ? AND id = ?`,
+      )
+      .get(householdId, lineId);
+  }
+
+  private listLines(householdId: string, titleId: string): unknown[] {
+    return this.db
+      .prepare(
+        `SELECT id, household_id AS householdId, title_id AS titleId, line_key AS lineKey,
+                display_name AS displayName, sort_order AS sortOrder
+         FROM vod_line WHERE household_id = ? AND title_id = ? ORDER BY sort_order, id`,
+      )
+      .all(householdId, titleId) as unknown[];
+  }
+
+  /** 当前导航快照(最新已发布快照;当前详情指针下最大 sequence_revision) */
+  private listCurrentSequences(
+    householdId: string,
+    scope: { readonly titleId?: string; readonly lineId?: string },
+  ): EpisodeSequenceRowWithKey[] {
+    const byLine = scope.lineId !== undefined;
+    // 导航读数取「最新已发布快照」(MAX detail_revision 下的 MAX sequence_revision):
+    // 详情指针推进与序列发布同事务落地(生产),但快照对比/暂停窗口内指针可先行 ——
+    // 计划创建在此窗口仍按最新已发布快照导航(A4 钉面:指针推进后新计划仍 200,快照
+    // detailRevision 取当前指针值)。谓词与 T027 listLatestEpisodeSequences 同口径。
+    const sql = `${TransitionVodFactsReader.SEQUENCE_WITH_KEY_SELECT}
+       WHERE s.household_id = ? AND s.${byLine ? 'line_id = ?' : 'title_id = ?'}
+         AND s.detail_revision = (
+           SELECT MAX(x.detail_revision) FROM vod_episode_sequence x
+           WHERE x.household_id = s.household_id AND x.${byLine ? 'line_id = s.line_id' : 'title_id = s.title_id'}
+         )
+         AND s.sequence_revision = (
+           SELECT MAX(y.sequence_revision) FROM vod_episode_sequence y
+           WHERE y.household_id = s.household_id AND y.${byLine ? 'line_id = s.line_id' : 'title_id = s.title_id'}
+             AND y.detail_revision = s.detail_revision
+         )
+       ORDER BY ${byLine ? 's.ordinal, s.episode_id' : 's.line_id, s.ordinal, s.episode_id'}`;
+    return this.db.prepare(sql).all(householdId, byLine ? scope.lineId : scope.titleId) as EpisodeSequenceRowWithKey[];
+  }
+}
+
+/**
+ * 010 T072:换源候选只读事实适配(TransitionCandidateFactsPort;本地 SQL 投影 +
+ * online-vod VodCache 单例候选绑定结构读面)。登记映射/来源启用为 playback 本地
+ * SQL 只读投影(VodTreePolicyGate 先例);匹配结论是 T070 候选列表面的服务端事实,
+ * 随候选绑定载荷存于 VodCache(kind='preview' 条目,kind='candidate-binding' 载荷),
+ * 以结构面读取(pick matchConfidence/matchRuleVersion,不深导入 online-vod 内部类型;
+ * R2 落点=发布面令牌 VOD_CACHE,模块 exports 同步放开 —— 报告注记)。
+ */
+function createTransitionCandidateFactsReader(
+  db: SqliteReadHandle,
+  vodCache: unknown,
+): TransitionCandidateFactsPort {
+  type CacheView = { readonly householdId?: unknown; readonly kind?: unknown; readonly expired?: unknown; readonly payload?: unknown } | undefined;
+  const cache = vodCache as { get?: (id: string) => CacheView };  return {
+    findRegisteredCandidate: (householdId, registeredCandidateRef) =>
+      db
+        .prepare(
+          `SELECT candidate_ref AS candidateRef, source_session_id AS sourceSessionId,
+                  source_generation AS sourceGeneration, preview_revision AS previewRevision,
+                  target_media_id AS targetMediaId, target_content_revision AS targetContentRevision,
+                  target_continuity_revision AS targetContinuityRevision,
+                  target_detail_revision AS targetDetailRevision, expires_at AS expiresAt
+           FROM vod_registered_candidate WHERE household_id = ? AND registered_candidate_ref = ?`,
+        )
+        .get(householdId, registeredCandidateRef) as
+        | {
+            readonly candidateRef: string;
+            readonly sourceSessionId: string;
+            readonly sourceGeneration: number;
+            readonly previewRevision: number;
+            readonly targetMediaId: string;
+            readonly targetContentRevision: number;
+            readonly targetContinuityRevision: number;
+            readonly targetDetailRevision: number;
+            readonly expiresAt: string;
+          }
+        | undefined,
+    findCandidateMatch: (candidateRef) => {
+      const view = cache.get?.(candidateRef);
+      const payload = view?.payload as { readonly kind?: unknown; readonly matchConfidence?: unknown } | undefined;
+      if (view === undefined || view.kind !== 'preview' || view.expired === true || payload?.kind !== 'candidate-binding') {
+        return undefined;
+      }
+      if (payload.matchConfidence !== 'high' && payload.matchConfidence !== 'ambiguous' && payload.matchConfidence !== 'conflict') {
+        return undefined;
+      }
+      return { matchConfidence: payload.matchConfidence };
+    },
+    isSessionSourceEnabled: (householdId, fromSessionId) => {
+      const row = db
+        .prepare(
+          `SELECT ms.enabled AS enabled
+           FROM playback_session s
+           JOIN playback_source ps ON ps.household_id = s.household_id AND ps.id = s.playback_source_id
+           JOIN media_source ms ON ms.household_id = ps.household_id AND ms.id = ps.source_id
+           WHERE s.household_id = ? AND s.id = ?`,
+        )
+        .get(householdId, fromSessionId) as { readonly enabled: number } | undefined;
+      return row === undefined ? undefined : row.enabled === 1;
+    },
+  };
 }
 
 /** 字幕源定位:会话选定源的私有 location(playback_session → playback_source 只读投影) */
@@ -579,6 +1036,10 @@ class SessionSourceRefReader implements PlaybackSessionSourcePort {
  * resolver 转换启动端口实现(缺口1):源定位(playbackSourceId → 私有 location → 授权根内
  * absPath,media-probe 同语义校验)→ bridge.launchAndWaitFirstOutput(真实 ffmpeg 产出滚动
  * HLS 到任务目录)→ 产物资产登记(本会话本代本地产物窗口;入口 manifest=window.m3u8)。
+ *
+ * 010 T044:在线判别 locator(locatorKind='online')不经 NAS 本地路径 —— 转换请求直送
+ * 监督者安全裁决(inputChannel='online-upstream' → 稳定码 PLAYBACK_FORMAT_UNSUPPORTED +
+ * 静态理由;不 reserve/不 spawn/不占额度;ffmpeg 不绕过 SafeUpstream 联网)。
  */
 class ResolverConversionLaunchPort implements PlaybackConversionLaunchPort {
   constructor(
@@ -589,6 +1050,8 @@ class ResolverConversionLaunchPort implements PlaybackConversionLaunchPort {
       readonly locator: PlaybackSourceLocationReader;
       readonly mediaRoots: MediaRoots;
       readonly clock: SupervisorClock;
+      /** T044:在线输入转换裁决入口(start() 在 reserve 前稳定拒绝) */
+      readonly supervisor: ConversionSupervisorService;
     },
   ) {}
 
@@ -596,6 +1059,24 @@ class ResolverConversionLaunchPort implements PlaybackConversionLaunchPort {
     const located = await this.deps.locator.locate(request.playbackSourceId);
     if (located === null) {
       return playbackErr('PLAYBACK_RESOURCE_UNAVAILABLE', '播放源定位失败,无法启动转换');
+    }
+    if (located.locatorKind === 'online') {
+      // T044:在线固定输入转换安全裁决(不打开任务目录/不占转换额度)
+      return this.deps.supervisor.start({
+        householdId: request.householdId,
+        sessionId: request.sessionId,
+        generation: request.generation,
+        plan: {
+          delivery: request.delivery,
+          mode: request.plan.mode,
+          outputVideoCodec: request.plan.outputVideoCodec,
+          outputAudioCodec: request.plan.outputAudioCodec,
+          reason: request.plan.reason,
+        },
+        phase: request.phase,
+        deadlineAtMs: this.deps.clock.now() + request.deadlineMs,
+        inputChannel: 'online-upstream',
+      });
     }
     const resolved = await resolveNasMediaLocation(located.location, this.deps.mediaRoots);
     if (!resolved.ok) {
@@ -715,8 +1196,8 @@ class PlaybackBootstrapper implements OnModuleInit {
 /* ------------------------------------------------------------------ */
 
 @Module({
-  imports: [HttpCommonModule, PersonalDataModule],
-  controllers: [PlaybackController, PlaybackStreamController],
+  imports: [HttpCommonModule, PersonalDataModule, OnlineVodModule],
+  controllers: [PlaybackController, PlaybackStreamController, PlaybackObservationController, PlaybackFinishController, PlaybackTransitionController],
   providers: [
     // 008-repository-extraction(ADR-0015 D1):装配期绑定仓储 seam ——
     // PLAYBACK_STORE provider 实例化时经 bindPlaybackStore 注入 Drizzle 实现
@@ -725,31 +1206,218 @@ class PlaybackBootstrapper implements OnModuleInit {
       provide: PLAYBACK_STORE,
       useFactory: () => bindPlaybackStore(drizzlePlaybackStore()),
     },
+    // 010 T059(US3):过渡持久端口 seam —— slot/intent/receipt/next-plan 持久查询、
+    // scope 幂等、60s 固定 TTL/24h 消费结果保护、每设备 20 活计划上限淘汰(引用保护)。
+    // PLAYBACK_TRANSITION_STORE provider 实例化时经 bindTransitionStore 注入 Drizzle 实现
+    // (BEGIN IMMEDIATE 多写并入惯例;惰性 Database.db 解析,单例重开安全);不经 HTTP
+    // 暴露,不导出。消费方:T060 transition.service / T061 resolver 过渡分支 / T062 清理面。
+    {
+      provide: PLAYBACK_TRANSITION_STORE,
+      useFactory: () => bindTransitionStore(drizzleTransitionStore()),
+    },
+    // 010 T059(US3):同上下文终态只读来源授权 —— 原设备/Profile/context 校验 → 来源
+    // session 只读事实;绝不重新发源票/不复活控制授权(playback-state §5;A→B→A 不等
+    // 即 404 同形)。T060 创建/取消、T061 消费事务首步接线点。
+    {
+      provide: TransitionSourceContextService,
+      useFactory: () => new TransitionSourceContextService(transitionStore()),
+      inject: [PLAYBACK_TRANSITION_STORE],
+    },
+    // 010 T062(US3):最小清理编排 —— cleanup 端点(§7 I5:pending 取消/释放槽、consumed
+    // 唯一后继持久 cleanup_requested+撤交付同 commit、提交后幂等空 stop、重试同入口幂等)、
+    // GET 失权判定(完整 IntentReply 要求当前源/目标权限)与 24h 保护窗扫描面(挂
+    // retention 节拍/启动恢复)。终止面复用既有 PlaybackLifecycleService(生命周期发布
+    // 端口);撤交付经 markDeliveryCleanupRequested(uow 事务内并入同一提交);失权判定
+    // 与 resolve 同一授权权威(PlaybackAuthorizationService.authorizeResolve)。
+    {
+      provide: TransitionCleanupService,
+      useFactory: (
+        authorization: PlaybackAuthorizationService,
+        uow: unknown,
+        lifecycle: PlaybackLifecycleService,
+      ) =>
+        new TransitionCleanupService({
+          store: transitionStore(),
+          identity: {
+            findTrustedSession: (deviceSessionId) => {
+              const row = playbackStore().findTrustedSessionRow(deviceSessionId);
+              return row === undefined
+                ? undefined
+                : { activeProfileId: row.activeProfileId, profileContextVersion: row.profileContextVersion };
+            },
+          },
+          cleanupTx: new UnitOfWorkTransitionCleanupTx(uow as PlaybackResolveUnitOfWork),
+          entitlement: authorization,
+          deliveryRevoke: {
+            revokeDelivery: (input) => markDeliveryCleanupRequested(Database.db, input),
+          },
+          sessionTerminator: {
+            stopSession: async (sessionId) => {
+              const result = await lifecycle.stopSession(sessionId);
+              return result.ok ? { state: result.value.state } : undefined;
+            },
+          },
+        }),
+      inject: [PlaybackAuthorizationService, UNIT_OF_WORK, PlaybackLifecycleService],
+    },
+    // 010 T060(US3):next/manual_next 过渡编排 —— 计划创建(来源资格/序列目标经
+    // nextEpisodeFor 发布面/快照冻结/store cap 淘汰)、意图创建(scope 幂等/计划快照与
+    // 偏好重验)、GET/cancel(T059 store 判别直映射)、resolve 消费分支
+    // (TransitionConsumeWorkSet 事务:校验→session→epoch/ledger→consumed/后继)。
+    // 目录只读事实经本地 SQL 投影适配(VodTreePolicyGate 先例);消费事务经 UNIT_OF_WORK
+    // 桥;后继准备复用 resolver 既有 fire-and-forget 管线。
+    {
+      provide: PlaybackTransitionService,
+      useFactory: (
+        sourceContext: TransitionSourceContextService,
+        authorization: PlaybackAuthorizationService,
+        uow: unknown,
+        vodInput: unknown,
+        resolver: PlaybackResolverService,
+        repository: PlaybackRepository,
+        rateLimit: PlaybackRateLimitService,
+        vodCache: unknown,
+      ) =>
+        new PlaybackTransitionService({
+          store: transitionStore(),
+          sourceContext,
+          identity: {
+            findTrustedSession: (deviceSessionId) => {
+              const row = playbackStore().findTrustedSessionRow(deviceSessionId);
+              return row === undefined
+                ? undefined
+                : { activeProfileId: row.activeProfileId, profileContextVersion: row.profileContextVersion };
+            },
+          },
+          vodFacts: new TransitionVodFactsReader(Database.db),
+          // 010 T072(US4):换源候选只读事实 —— 登记映射/来源启用为本地 SQL 投影
+          // (VodTreePolicyGate 先例),匹配结论经 online-vod VodCache 单例候选绑定
+          // 子面(structural 读面,不深导入 online-vod 内部类型)
+          candidateFacts: createTransitionCandidateFactsReader(Database.db, vodCache),
+          personalFacts: {
+            findTargetHistory: (householdId: string, profileId: string, mediaId: string) =>
+              readTargetHistory({ householdId, profileId, mediaId }),
+          },
+          targetAuthorizer: authorization,
+          consumeTx: new UnitOfWorkTransitionConsumeTx(uow as PlaybackResolveUnitOfWork),
+          inputBinder: vodInput as ConstructorParameters<typeof PlaybackTransitionService>[0]['inputBinder'],
+          successorPreparer: resolver,
+          sessionStore: repository,
+          // 010 T061:过渡桶限频(10/min/DeviceSession;api §0「创建intent/测速各10/min」
+          // + §7 next-plans 沿用同桶)—— next-plans/transition-intents 共享独立过渡桶
+          transitionRateLimit: {
+            acquire: (deviceId: string) => rateLimit.acquire(deviceId, 'transition_intent'),
+          },
+        }),
+      inject: [
+        TransitionSourceContextService,
+        PlaybackAuthorizationService,
+        UNIT_OF_WORK,
+        PLAYBACK_VOD_INPUT_PORT,
+        PlaybackResolverService,
+        PlaybackRepository,
+        PlaybackRateLimitService,
+        VOD_CACHE,
+      ],
+    },
     // T011 仓储(类 token + 工厂;预算工厂期读取「当前」已校验 env)
     {
       provide: PlaybackRepository,
       useFactory: () => new PlaybackRepository(Database.db, createPlaybackBudgets(getConfig())),
     },
-    // T017 授权管线(policy/PIN 既有纯函数模块按惯例具名导入,不重复 provide)
+    // T017 授权管线(policy/PIN 既有纯函数模块按惯例具名导入,不重复 provide;
+    // T043:在线父子有效策略门经模块内令牌装配 —— 单测直构不注入,既有行为零变化)
     PlaybackAuthorizationService,
+    // 010 T043:在线父子树有效策略门(media-catalog 读面构造父子事实 + T017 发布端口判定)
+    {
+      provide: PLAYBACK_VOD_POLICY_GATE,
+      useFactory: () => new VodTreePolicyGate(Database.db),
+    },
+    // 010 T042/T044:固定输入绑定 store(T042 每 session/generation 最多一有效绑定;
+    // 地址不落库不打日志)。T044:经 VodFixedInputDeliveryGateway 交付面装饰 —— resolver
+    // 桥/probe/资产/代理共用同一 store 实例(无第二绑定权威),网关捕获 entryUrl 入内存
+    // 租约(resolvedInputId 持有)并提供统一消费点/代次断言/租约 renew-revoke 原语
+    // (T045 renew/watchdog 面接线缝)与 VOD 上游 URL 登记(SafeUpstream 分流依据)
+    {
+      provide: PLAYBACK_VOD_INPUT_STORE,
+      useFactory: () => new VodFixedInputDeliveryGateway(drizzleVodInputStore(), () => Database.db),
+    },
+    // 010 T044:VOD SafeUpstream 嵌套读取链(T018 NestedBudgetLedger/readNestedLevel;
+    // 预算由 playback hlsUpstream 派生,许可调用期读取 LAN_ALLOWED_TARGETS,per-rig env
+    // 与既有装配同口径;DNS stub 仅测试注入)
+    {
+      provide: VOD_HLS_UPSTREAM_READER,
+      useFactory: () => {
+        const budgets = createPlaybackBudgets(getConfig());
+        return new VodHlsUpstreamReader({
+          nestedBudgets: vodNestedBudgetsFromPlaybackBudgets(budgets),
+          timeBudgets: {
+            totalTimeoutMs: budgets.hlsUpstream.firstByteTimeoutSeconds * 1000,
+            idleTimeoutMs: budgets.hlsUpstream.idleTimeoutSeconds * 1000,
+            maxRedirects: budgets.hlsUpstream.maxRedirects,
+          },
+          allowedTargets: () => getConfig().LAN_ALLOWED_TARGETS,
+        });
+      },
+    },
+    // 010 T043:固定输入绑定端口桥(T042 store + 解析事实读取;网络/解析在事务外)
+    {
+      provide: PLAYBACK_VOD_INPUT_PORT,
+      useFactory: (store: VodInputStore) => new ResolverVodInputBridge(store, new VodResolvedFactsReader(Database.db)),
+      inject: [PLAYBACK_VOD_INPUT_STORE],
+    },
+    // 010 T043:事务建档工作集(§2「普通resolve也要把session+epoch绑定改为同一用例事务」
+    // + FR-021 freezeOnce 接缝 + 绑定行回读;UNIT_OF_WORK 为 @Global 组合根绑定)
+    {
+      provide: PLAYBACK_RESOLVE_WORK_SET,
+      useFactory: (uow: unknown) => new PlaybackResolveWorkSetAdapter(uow as PlaybackResolveUnitOfWork, Database.db),
+      inject: [UNIT_OF_WORK],
+    },
+    // 010 T041:VOD 起点计算(beginning/resume 唯一决策入口;targetHistory=personal-data
+    // 发布面值导出直绑,adjudicator=T039 resolveStartPoint 纯函数经 online-vod 发布面绑定
+    // —— R2 零深导入;staticResumeFreeze=既有续播冻结端口,静态媒体语义零变化)
+    {
+      provide: PLAYBACK_START_POSITION,
+      useFactory: (progressClock: IProgressClockService) =>
+        new VodStartPositionService({
+          targetHistory: { readTargetHistory, readTargetMediaFacts },
+          adjudicator: { resolveStartPoint },
+          staticResumeFreeze: progressClock,
+        }),
+      inject: [PROGRESS_CLOCK_PORT],
+    },
     // T020 NAS 只读安全读取器(mediaRoots 工厂期读取当前 env)
     {
       provide: NasReaderService,
       useFactory: () => new NasReaderService({ mediaRoots: getConfig().MEDIA_ROOTS }),
     },
-    // T021 HLS 上游安全代理(LAN 许可读取属请求面:readPlaylist/readAsset 调用期 getConfig())
+    // T021 HLS 上游安全代理(LAN 许可读取属请求面:readPlaylist/readAsset 调用期 getConfig();
+    // 010 T044:VOD 固定输入交付路由 —— 已登记 VOD 上游 URL 的读取分流 SafeUpstream 嵌套
+    // 读取链,其余 URL 沿用既有 LAN 许可链,直播/旧路径行为零变化)
     {
       provide: HlsProxyService,
-      useFactory: () => new HlsProxyService({ budgets: createPlaybackBudgets(getConfig()) }),
+      useFactory: (gateway: VodFixedInputDeliveryGateway, reader: VodHlsUpstreamReader) =>
+        new HlsProxyService({
+          budgets: createPlaybackBudgets(getConfig()),
+          vodDelivery: {
+            reader,
+            vodLevelOf: (upstreamUrl: string) => gateway.vodLevelOf(upstreamUrl),
+          } satisfies HlsProxyVodDeliveryRoute,
+        }),
+      inject: [PLAYBACK_VOD_INPUT_STORE, VOD_HLS_UPSTREAM_READER],
     },
-    // T022 资产映射与清单重写(entryPathPrefix = 应用全局前缀;与票据 playbackUrl 同构)
+    // T022 资产映射与清单重写(entryPathPrefix = 应用全局前缀;与票据 playbackUrl 同构;
+    // 010 T044:固定输入交付门 —— VOD 绑定域 rewritePlaylist/resolve 先 assertGeneration
+    // Deliverable(旧代 409),上游 URL 按嵌套级别登记给代理 SafeUpstream 分流)
     {
       provide: PlaybackAssetsService,
-      useFactory: () =>
+      useFactory: (gateway: VodFixedInputDeliveryGateway) =>
         new PlaybackAssetsService({
           budgets: createPlaybackBudgets(getConfig()),
           entryPathPrefix: '/api/playback/stream',
+          deliveryGate: gateway,
         }),
+      inject: [PLAYBACK_VOD_INPUT_STORE],
     },
     // T023 ffprobe 受限探测(T010 预算;缺省真实时钟与 spawn)
     {
@@ -766,21 +1434,45 @@ class PlaybackBootstrapper implements OnModuleInit {
       useFactory: () => new PlaybackPlanService({ budgets: createPlaybackBudgets(getConfig()) }),
     },
     // probe 源定位:playback_source 私有 location 只读投影
+    // (010 T044:在线判别 locator 经固定输入网关取 entryUrl —— resolvedInputId 持有,
+    // 不重读最新 location;静态 locator 行为零变化)
     {
       provide: PlaybackSourceLocationReader,
-      useFactory: () => new PlaybackSourceLocationReader(Database.db),
+      useFactory: (gateway: VodFixedInputDeliveryGateway) => new PlaybackSourceLocationReader(Database.db, gateway),
+      inject: [PLAYBACK_VOD_INPUT_STORE],
     },
     // 换代重建的会话源引用端口:playback_session → playback_source 只读投影(id+location)
     {
       provide: PLAYBACK_SESSION_SOURCE_PORT,
       useFactory: () => new SessionSourceRefReader(Database.db),
     },
-    // resolver PlaybackProbePort 真实实现绑定(probe + plan 适配)
+    // resolver PlaybackProbePort 真实实现绑定(probe + plan 适配;
+    // 010 T044:vodProbe 面 —— 在线 hls 输入 probe 经固定 input → SafeUpstream 嵌套读取链
+    // (master→variant;endList 判定 duration 已知/未知),probe 结果返回前
+    // assertProbeCommitGeneration;无固定输入绑定的 hls_proxy 候选恒按直播事实零变化)
     {
       provide: PLAYBACK_PROBE_PORT,
-      useFactory: (probe: MediaProbeService, plan: PlaybackPlanService, locator: PlaybackSourceLocationReader) =>
-        new MediaProbePlaybackProbePort({ probe, plan, locator, mediaRoots: getConfig().MEDIA_ROOTS }),
-      inject: [MediaProbeService, PlaybackPlanService, PlaybackSourceLocationReader],
+      useFactory: (
+        probe: MediaProbeService,
+        plan: PlaybackPlanService,
+        locator: PlaybackSourceLocationReader,
+        gateway: VodFixedInputDeliveryGateway,
+        reader: VodHlsUpstreamReader,
+      ) =>
+        new MediaProbePlaybackProbePort({
+          probe,
+          plan,
+          locator,
+          mediaRoots: getConfig().MEDIA_ROOTS,
+          vodProbe: { inputs: gateway, reader },
+        }),
+      inject: [
+        MediaProbeService,
+        PlaybackPlanService,
+        PlaybackSourceLocationReader,
+        PLAYBACK_VOD_INPUT_STORE,
+        VOD_HLS_UPSTREAM_READER,
+      ],
     },
     // T026 转换私有存储:rootDir=DATA_DIR(任务目录 <rootDir>/playback/<h>/<s>/<g>)
     {
@@ -808,7 +1500,9 @@ class PlaybackBootstrapper implements OnModuleInit {
       inject: [PlaybackRepository, PlaybackTaskDirectoryLedger],
     },
     // T019 resolver(probe 端口经 token 注入;转换启动/会话源引用端口经装配 token 桥接;
-    // T099/T101:进度绑定与续播冻结端口注入 —— 点播 resolve 分配 epoch + resume 冻结位置)
+    // T099/T101:进度绑定与续播冻结端口注入 —— 点播 resolve 分配 epoch + resume 冻结位置;
+    // 010 T043:起点计算/固定输入绑定/事务建档工作集端口接入 —— 在线 vod resolve 事务
+    // 建档 + probe 后冻结一次 + ready 重验,NAS/IPTV/直播路径端口缺位回退既有行为)
     {
       provide: PlaybackResolverService,
       useFactory: (
@@ -818,12 +1512,18 @@ class PlaybackBootstrapper implements OnModuleInit {
         conversionLaunch: unknown,
         sessionSource: unknown,
         progressClock: IProgressClockService,
+        startPosition: unknown,
+        vodInput: unknown,
+        resolveWorkSet: unknown,
       ) =>
         new PlaybackResolverService(repository, authorization, probePort as never, createPlaybackBudgets(getConfig()), {
           conversionLaunch: conversionLaunch as PlaybackConversionLaunchPort,
           sessionSource: sessionSource as PlaybackSessionSourcePort,
           progressBind: progressClock,
           resumePosition: progressClock,
+          startPosition: startPosition as PlaybackResolverPorts['startPosition'],
+          vodInput: vodInput as PlaybackResolverPorts['vodInput'],
+          resolveWorkSet: resolveWorkSet as PlaybackResolverPorts['resolveWorkSet'],
         }),
       inject: [
         PlaybackRepository,
@@ -834,6 +1534,10 @@ class PlaybackBootstrapper implements OnModuleInit {
         // T021:PersonalDataModule exports 已对齐令牌,类 token 不再跨上下文可见 ——
         // 注入改经 PROGRESS_CLOCK_PORT(useExisting 别名,同一实例)
         PROGRESS_CLOCK_PORT,
+        // 010 T043:起点计算/固定输入绑定/事务建档工作集
+        PLAYBACK_START_POSITION,
+        PLAYBACK_VOD_INPUT_PORT,
+        PLAYBACK_RESOLVE_WORK_SET,
       ],
     },
     // T100 可信时长装配桥(resolver probe 事实 → personal 写入状态机;注册表避免模块环)
@@ -854,11 +1558,30 @@ class PlaybackBootstrapper implements OnModuleInit {
       inject: [PlaybackResolverService],
     },
     // T018 票据(authorizeControl + revalidate + 短事务 CAS 签发)
+    // 010 T045/T046:renew 前固定输入重验桥(与 lifecycle 面共用 LifecycleVodInputGuard
+    // 模式 —— 绑定行回读 × store assert/fail;无绑定会话由 hasCurrentBinding 门跳过;
+    // 装配最小增量,服务文件头注明)
     {
       provide: PlaybackTicketService,
-      useFactory: (repository: PlaybackRepository, authorization: PlaybackAuthorizationService) =>
-        new PlaybackTicketService(repository, authorization, createPlaybackBudgets(getConfig())),
-      inject: [PlaybackRepository, PlaybackAuthorizationService],
+      useFactory: (
+        repository: PlaybackRepository,
+        authorization: PlaybackAuthorizationService,
+        vodInputBridge: ResolverVodInputBridge,
+        resolveWorkSet: PlaybackResolveWorkSetAdapter,
+      ) =>
+        new PlaybackTicketService(
+          repository,
+          authorization,
+          createPlaybackBudgets(getConfig()),
+          new LifecycleVodInputGuard(vodInputBridge, resolveWorkSet),
+        ),
+      inject: [
+        PlaybackRepository,
+        PlaybackAuthorizationService,
+        // 010 T045:vod 固定输入重验桥(store 端口 + 绑定行回读)
+        PLAYBACK_VOD_INPUT_PORT,
+        PLAYBACK_RESOLVE_WORK_SET,
+      ],
     },
     // T030 字幕(逐请求授权;locator=会话源 location 投影;embedded=受限 ffmpeg demux)
     {
@@ -879,7 +1602,9 @@ class PlaybackBootstrapper implements OnModuleInit {
       inject: [PlaybackAuthorizationService, PLAYBACK_TRACK_FACTS_PORT, NasReaderService],
     },
     // T028 生命周期(storage 端口组合 assets/ledger 释放;私有根 DATA_DIR/playback;
-    // T101:progressFinal 端口 = personal 写入状态机 —— stop final 与终态同事务协作)
+    // T101:progressFinal 端口 = personal 写入状态机 —— stop final 与终态同事务协作;
+    // 010 T045:vodInputGuard = vod 固定输入心跳重验桥(绑定行回读 × store assert/fail),
+    // 无绑定会话(NAS/直播)由 hasCurrentBinding 门跳过,零变化)
     {
       provide: PlaybackLifecycleService,
       useFactory: (
@@ -890,6 +1615,8 @@ class PlaybackBootstrapper implements OnModuleInit {
         assets: PlaybackAssetsService,
         ledger: PlaybackTaskDirectoryLedger,
         progressWrite: IProgressWriteService,
+        vodInputBridge: ResolverVodInputBridge,
+        resolveWorkSet: PlaybackResolveWorkSetAdapter,
       ) =>
         new PlaybackLifecycleService({
           repository,
@@ -898,6 +1625,7 @@ class PlaybackBootstrapper implements OnModuleInit {
           budgets: createPlaybackBudgets(getConfig()),
           privateRootDir: path.join(getConfig().DATA_DIR, 'playback'),
           progressFinal: progressWrite satisfies PlaybackFinalProgressPort,
+          vodInputGuard: new LifecycleVodInputGuard(vodInputBridge, resolveWorkSet),
           storage: {
             releaseSession: async (householdId: string, sessionId: string): Promise<void> => {
               await storage.releaseSession(householdId, sessionId);
@@ -918,6 +1646,9 @@ class PlaybackBootstrapper implements OnModuleInit {
         PlaybackTaskDirectoryLedger,
         // T021:同上 —— PersonalDataModule 令牌 exports,注入改经 PROGRESS_WRITE_PORT
         PROGRESS_WRITE_PORT,
+        // 010 T045:vod 固定输入重验桥(store 端口 + 绑定行回读)
+        PLAYBACK_VOD_INPUT_PORT,
+        PLAYBACK_RESOLVE_WORK_SET,
       ],
     },
     // 转换装配桥接(换代协同 + 看门狗/监督者/暂停配对;转换交付入口 launchAndWaitFirstOutput())
@@ -947,7 +1678,8 @@ class PlaybackBootstrapper implements OnModuleInit {
         PlaybackAssetsService,
       ],
     },
-    // resolver 转换启动端口(缺口1):源定位 → bridge.launchAndWaitFirstOutput → 产物窗口登记
+    // resolver 转换启动端口(缺口1):源定位 → bridge.launchAndWaitFirstOutput → 产物窗口登记;
+    // 010 T044:在线判别 locator 的转换直送监督者安全裁决(inputChannel='online-upstream')
     {
       provide: PLAYBACK_CONVERSION_LAUNCH_PORT,
       useFactory: (
@@ -955,6 +1687,7 @@ class PlaybackBootstrapper implements OnModuleInit {
         ledger: PlaybackTaskDirectoryLedger,
         assets: PlaybackAssetsService,
         locator: PlaybackSourceLocationReader,
+        supervisor: ConversionSupervisorService,
       ) =>
         new ResolverConversionLaunchPort({
           bridge,
@@ -963,10 +1696,19 @@ class PlaybackBootstrapper implements OnModuleInit {
           locator,
           mediaRoots: getConfig().MEDIA_ROOTS,
           clock: systemMediaProbeClock(),
+          supervisor,
         }),
-      inject: [PlaybackConversionBridge, PlaybackTaskDirectoryLedger, PlaybackAssetsService, PlaybackSourceLocationReader],
+      inject: [
+        PlaybackConversionBridge,
+        PlaybackTaskDirectoryLedger,
+        PlaybackAssetsService,
+        PlaybackSourceLocationReader,
+        ConversionSupervisorService,
+      ],
     },
-    // T029 selection/seek(事实端口 + 字幕目录 + 换代协同端口 + 重回准备端口注入)
+    // T029 selection/seek(事实端口 + 字幕目录 + 换代协同端口 + 重回准备端口注入;
+    // 010 T045:vodInput store = 在线 vod 换代 CAS 权威,startFacts = I4 起播标记只读投影
+    // —— 无绑定会话(NAS/直播)与端口缺位形态回退既有路径,零变化)
     {
       provide: PlaybackSelectionService,
       useFactory: (
@@ -976,6 +1718,7 @@ class PlaybackBootstrapper implements OnModuleInit {
         subtitleCatalog: PlaybackSubtitleCatalogPort,
         rebuildCoordinator: PlaybackRebuildCoordinator,
         resolver: PlaybackResolverService,
+        vodInput: VodInputStore,
       ) =>
         new PlaybackSelectionService({
           repository,
@@ -985,6 +1728,9 @@ class PlaybackBootstrapper implements OnModuleInit {
           rebuildCoordinator,
           // 缺口2:换代提交后经 resolver.prepareRebuild 重回 ready(fire-and-forget)
           reprepare: resolver,
+          // 010 T045:store 换代 CAS 权威 + I4 起播事实(只读投影)
+          vodInput,
+          startFacts: new SessionPlaybackStartFactsReader(Database.db),
           budgets: createPlaybackBudgets(getConfig()),
         }),
       inject: [
@@ -994,6 +1740,7 @@ class PlaybackBootstrapper implements OnModuleInit {
         PlaybackSubtitlesService,
         PlaybackConversionBridge,
         PlaybackResolverService,
+        PLAYBACK_VOD_INPUT_STORE,
       ],
     },
     // T031 解析控制限频(每设备滑动窗口;预算数值权威 playback-budgets.rateLimit)
@@ -1001,14 +1748,52 @@ class PlaybackBootstrapper implements OnModuleInit {
       provide: PlaybackRateLimitService,
       useFactory: () => new PlaybackRateLimitService(createPlaybackBudgets(getConfig())),
     },
+    // 010 T057 相位观测服务(US3):UNIT_OF_WORK 桥(BEGIN IMMEDIATE 同步事务;事务内
+    // 身份/归属/代次/phase/交付重验 + T054 ingestObservation 锚语义落行 + playing 与
+    // playback_started_at 同事务 CAS)—— 会话 2Hz 限流桶为服务内存态(120/min/session,
+    // api.md §0),观测面限流不占 playback-budgets;T058 finish 判定的观测读取经
+    // 同一服务/参与者读面复用。
+    {
+      provide: PhaseObservationService,
+      useFactory: (uow: unknown) =>
+        new PhaseObservationService(
+          uow as ConstructorParameters<typeof PhaseObservationService>[0],
+        ),
+      inject: [UNIT_OF_WORK],
+    },
+    // 010 T058 finish 编排服务(US3):ProgressFinishWorkSet 同事务(uow BEGIN IMMEDIATE;
+    // 事务内身份/归属重验 → resolveFinishInvocation 分支 → evaluate 分支「final 先校验
+    // (evaluateFinish 纯闸门)→ personal-data 状态机接受 final/ledger/epoch 历史(savepoint
+    // 嵌套,T101 既有协作面)→ 观测 flush 尾段判定 → receipt → ended → 输入待清理」一个
+    // commit,硬错误整次回滚)—— progressFinal 经 PROGRESS_WRITE_PORT 发布面注入
+    // (IProgressWriteService.applyFinalInTransaction 结构满足协作端口);可信 duration 取
+    // ledger 已接受样本记录的同一事实(progress_state.ledger_duration,T092 seam 注入对
+    // finish 自然生效);GET finish-result 为同服务只读编排(原设备/原上下文,404 同形)。
+    {
+      provide: PlaybackFinishService,
+      useFactory: (uow: unknown, progressWrite: IProgressWriteService) =>
+        new PlaybackFinishService({
+          uow: uow as ConstructorParameters<typeof PlaybackFinishService>[0]['uow'],
+          progressFinal: progressWrite satisfies PlaybackFinishProgressPort,
+        }),
+      inject: [UNIT_OF_WORK, PROGRESS_WRITE_PORT],
+    },
     // 启动引导:recoverOnBoot → readyToAcceptConversions → start()(onModuleInit)
     PlaybackBootstrapper,
     // T043 审计:resolve 拒绝旁路落 failure_event(controller catch 接入;零依赖纯服务)
     PlaybackAuditService,
-    // T045 每日保留清理(预算工厂期读取「当前」已校验 env;时钟缺省真实系统时钟)
+    // T045 每日保留清理(预算工厂期读取「当前」已校验 env;时钟缺省真实系统时钟;
+    // 010 T045:vodInput store = 未起播 60s 固定期限回收的持久原语,本服务持节拍调度;
+    // 010 T062:transitionCleanup = 过渡清理扫描面,挂启动恢复首拍 + watchdog 节拍)
     {
       provide: PlaybackRetentionService,
-      useFactory: () => new PlaybackRetentionService({ budgets: createPlaybackBudgets(getConfig()) }),
+      useFactory: (vodInput: VodInputStore, transitionCleanup: TransitionCleanupService) =>
+        new PlaybackRetentionService({
+          budgets: createPlaybackBudgets(getConfig()),
+          vodInput,
+          transitionCleanup,
+        }),
+      inject: [PLAYBACK_VOD_INPUT_STORE, TransitionCleanupService],
     },
   ],
   exports: [
@@ -1031,6 +1816,10 @@ class PlaybackBootstrapper implements OnModuleInit {
     PlaybackConversionBridge,
     PlaybackAuditService,
     PlaybackRetentionService,
+    // 010 T057:相位观测服务(T058 finish 判定复用读面;限流桶随服务实例存续)
+    PhaseObservationService,
+    // 010 T058:finish 编排服务(仅本模块控制器消费;receipt/终态原子提交编排)
+    PlaybackFinishService,
   ],
 })
 export class PlaybackModule {}

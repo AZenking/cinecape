@@ -41,6 +41,14 @@ import type { PlaybackErrorCode } from '@contexts/playback/domain/playback.types
  * - 超限失败:单清单 URI > maxUrisPerPlaylist(10000)或 (household,session,generation)
  *   总资产 > maxUrisPerPlaylist × maxPlaylistNestingDepth → 稳定失败
  *   PLAYBACK_FORMAT_UNSUPPORTED(与 URI 数/嵌套/循环/DRM/大小同映射,规约提案)。
+ *
+ * 010 T044 增量(可选 deliveryGate 注入;缺省未注入 = 旧行为零变化):
+ * - 资产交付统一经固定输入交付门:rewritePlaylist/resolve 在固定输入域先
+ *   assertGenerationDeliverable(旧代 409 PLAYBACK_GENERATION_STALE/终态/cleanup,
+ *   data-model §6/playback-state §7);NAS/IPTV/直播无绑定行,分支不触达;
+ * - 固定输入域重写/入口登记时把上游 URL 按嵌套级别登记到交付门(manifest/variant/
+ *   segment/key),HlsProxyService 据此把 VOD 读取分流 SafeUpstream 嵌套读取链
+ *   (不透传任意上游地址);URL 仅在私有登记面流转,不进 DTO/日志。
  */
 
 /** 资产类别:manifest=入口清单(固定 'index');playlist=子清单;segment/key/map/subtitle 同 HLS 语义 */
@@ -135,6 +143,29 @@ export interface ResolveLocalAssetResult {
   /** 产物目录内的绝对文件路径(词法已校验,仅白名单文件名) */
   readonly path: string;
   readonly kind: LocalAssetKind;
+}
+
+/**
+ * VOD 固定输入交付门(T044;结构端口,装配由 playback.module 注入网关实现):
+ * - isFixedInputDelivery:该 (家庭,会话,代) 是否为固定输入交付域(playback_input_binding
+ *   行存在);NAS/IPTV/直播会话恒 false → 本服务全部增量分支不触达(行为零变化);
+ * - assertGenerationDeliverable:交付资格断言(旧代 409 PLAYBACK_GENERATION_STALE /
+ *   终态 / cleanupRequested);仅固定输入域被调用;
+ * - registerVodUpstreamUrls:登记本代 VOD 上游 URL 及嵌套读取级别(代理按其把 VOD
+ *   读取分流到 SafeUpstream 嵌套链;URL 私有流转,不落日志/DTO);
+ * - forgetGeneration/forgetSession:换代/会话释放清扫(URL 索引 TTL 不超 session)。
+ */
+export interface PlaybackAssetDeliveryGate {
+  isFixedInputDelivery(householdId: string, sessionId: string, generation: number): boolean;
+  assertGenerationDeliverable(householdId: string, sessionId: string, generation: number): void;
+  registerVodUpstreamUrls(
+    householdId: string,
+    sessionId: string,
+    generation: number,
+    entries: readonly { readonly url: string; readonly level: 'manifest' | 'variant' | 'segment' | 'key' }[],
+  ): void;
+  forgetGeneration(householdId: string, sessionId: string, generation: number): void;
+  forgetSession(householdId: string, sessionId: string): void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -389,6 +420,9 @@ export class PlaybackAssetsService {
   private readonly budgets: PlaybackBudgets;
   private readonly entryPathPrefix: string;
 
+  /** VOD 固定输入交付门(T044;缺省未注入 = 全部增量分支不触达,旧行为零变化) */
+  private readonly deliveryGate: PlaybackAssetDeliveryGate | undefined;
+
   /** 内存资产注册表(AssetMap):同进程内有效,重启失效 */
   readonly registry: PlaybackAssetRegistry;
 
@@ -400,9 +434,17 @@ export class PlaybackAssetsService {
    */
   private readonly localWindows = new Map<string, string>();
 
-  constructor(deps: { budgets: PlaybackBudgets; entryPathPrefix?: string }) {
+  constructor(
+    deps: {
+      budgets: PlaybackBudgets;
+      entryPathPrefix?: string;
+      /** T044:固定输入交付门(装配注入网关;单测直构缺省未注入 → 行为零变化) */
+      deliveryGate?: PlaybackAssetDeliveryGate;
+    },
+  ) {
     this.budgets = deps.budgets;
     this.entryPathPrefix = deps.entryPathPrefix ?? DEFAULT_ENTRY_PATH_PREFIX;
+    this.deliveryGate = deps.deliveryGate;
     this.registry = new PlaybackAssetRegistry(deps.budgets);
   }
 
@@ -417,6 +459,12 @@ export class PlaybackAssetsService {
    *   depth≥4、循环、登记超限 → PLAYBACK_FORMAT_UNSUPPORTED(reason 静态脱敏)。
    */
   async rewritePlaylist(input: RewritePlaylistInput): Promise<RewritePlaylistResult> {
+    // T044:固定输入域交付资格断言(旧代 409 PLAYBACK_GENERATION_STALE/终态/cleanup;
+    // 仅 VOD 绑定域生效 —— NAS/IPTV/直播重写路径零变化)。DomainError 直接上抛,由
+    // 全局 Problem 过滤器渲染 409。
+    if (this.deliveryGate?.isFixedInputDelivery(input.householdId, input.sessionId, input.generation)) {
+      this.deliveryGate.assertGenerationDeliverable(input.householdId, input.sessionId, input.generation);
+    }
     const hls = this.budgets.hlsUpstream;
     const formatFailure = (reason: string): RewritePlaylistResult => ({
       ok: false,
@@ -555,6 +603,22 @@ export class PlaybackAssetsService {
       base.toString(),
       new Set(entries.map((entry) => entry.assetId)),
     );
+    // T044:固定输入域登记本清单及其引用资产的上游 URL(嵌套级别)——代理据此把 VOD
+    // 读取分流到 SafeUpstream 嵌套读取链(不透传任意上游地址)
+    if (this.deliveryGate?.isFixedInputDelivery(input.householdId, input.sessionId, input.generation)) {
+      this.deliveryGate.registerVodUpstreamUrls(input.householdId, input.sessionId, input.generation, [
+        { url: base.toString(), level: 'variant' },
+        ...entries.map((entry) => ({
+          url: entry.upstreamUrl,
+          level:
+            entry.kind === 'playlist'
+              ? ('variant' as const)
+              : entry.kind === 'key'
+                ? ('key' as const)
+                : ('segment' as const),
+        })),
+      ]);
+    }
 
     return {
       ok: true,
@@ -562,14 +626,24 @@ export class PlaybackAssetsService {
     };
   }
 
-  /** 五元组解析(注册表唯一对外读取入口;不接受任意 URL/路径参数) */
+  /** 五元组解析(注册表唯一对外读取入口;不接受任意 URL/路径参数形态) */
   resolve(householdId: string, sessionId: string, generation: number, assetId: string): ResolveAssetResult | undefined {
+    // T044:固定输入域交付资格断言(旧代资产 409;仅 VOD 绑定域生效)
+    if (this.deliveryGate?.isFixedInputDelivery(householdId, sessionId, generation)) {
+      this.deliveryGate.assertGenerationDeliverable(householdId, sessionId, generation);
+    }
     return this.registry.resolve(householdId, sessionId, generation, assetId);
   }
 
   /** 入口清单登记('index'/manifest):会话 ready 前由解析层/网关调用一次 */
   registerEntry(householdId: string, sessionId: string, generation: number, upstreamUrl: string): void {
     this.registry.registerEntry(householdId, sessionId, generation, upstreamUrl);
+    // T044:固定输入域登记入口清单上游 URL(manifest 级;代理入口读取走 SafeUpstream)
+    if (this.deliveryGate?.isFixedInputDelivery(householdId, sessionId, generation)) {
+      this.deliveryGate.registerVodUpstreamUrls(householdId, sessionId, generation, [
+        { url: upstreamUrl, level: 'manifest' },
+      ]);
+    }
   }
 
   /* ---------------- 本地产物窗口(转换交付;缺口1) ---------------- */
@@ -651,6 +725,8 @@ export class PlaybackAssetsService {
   releaseGeneration(householdId: string, sessionId: string, generation: number): void {
     this.registry.releaseGeneration(householdId, sessionId, generation);
     this.localWindows.delete(localWindowKey(householdId, sessionId, generation));
+    // T044:VOD 上游 URL 索引随代清扫(TTL 不超 session)
+    this.deliveryGate?.forgetGeneration(householdId, sessionId, generation);
   }
 
   releaseSession(householdId: string, sessionId: string): void {
@@ -661,6 +737,8 @@ export class PlaybackAssetsService {
         this.localWindows.delete(key);
       }
     }
+    // T044:VOD 上游 URL 索引随会话清扫
+    this.deliveryGate?.forgetSession(householdId, sessionId);
   }
 
   /* ---------------- 内部工具 ---------------- */

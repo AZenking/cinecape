@@ -154,6 +154,13 @@ export function createPlaybackBudgets(env: Env) {
       controlPerDevicePerMinute: 30,
       /** renew 每会话每分钟 */
       renewPerMinute: 10,
+      /**
+       * 010 过渡面(010 contracts/api.md §0「创建intent/测速各10/min/DeviceSession」;
+       * §7 next-plans「沿用过渡10/min限流」):next-plans 与 transition-intents 共享
+       * 同一过渡桶,按 DeviceSession 计数。数值权威 = 本文件(词表扩桶归
+       * playback-rate-limit.service 的 'transition_intent' 桶)。
+       */
+      transitionIntentsPerDeviceSessionPerMinute: 10,
     },
   };
 }

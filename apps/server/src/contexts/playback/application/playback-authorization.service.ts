@@ -11,10 +11,36 @@ import {
 import { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
 import {
   playbackStore,
+  type MediaItemRow,
   type ProfileRow,
   type TrustedSessionRow,
 } from '@contexts/playback/application/playback-store.port';
 import type { PlaybackDelivery } from '@contexts/playback/domain/playback.types';
+
+/**
+ * 在线父子有效策略门注入令牌(T043):实现 = playback.module 装配的
+ * VodTreePolicyGate(media-catalog 读面构造父子事实 + T017 evaluateEffectiveMediaPolicy
+ * 发布端口判定);单测以 `new PlaybackAuthorizationService(repository)` 直构时不注入,
+ * 既有授权链路行为零变化。
+ */
+export const PLAYBACK_VOD_POLICY_GATE = Symbol('PLAYBACK_VOD_POLICY_GATE');
+
+/**
+ * 在线父子树有效策略判定端口(T017 复用;T043 resolve 授权接入)。
+ * 输入仅为服务端事实(household/profile/mediaId),父子事实由实现经目录读面构造 ——
+ * 普通查询不构造实体(端口契约);判定失败/映射损坏以「不可用/拒绝」归一,不泄露内部。
+ */
+export interface PlaybackVodPolicyGatePort {
+  evaluateOnlineTreePolicy(input: {
+    readonly householdId: string;
+    readonly profileId: string;
+    readonly mediaId: string;
+  }): { /** 策略/事实读取不可用(503 fail-closed 形态) */
+    readonly policyAvailable: boolean;
+    /** 父轴或目标子轴任一拒绝(404 同形) */
+    readonly allowed: boolean;
+  };
+}
 
 /**
  * 播放内部授权管线(T017,spec 004)—— resolve/控制/提交前重验共用的单一信任源:
@@ -215,25 +241,24 @@ function buildGrant(
 export class PlaybackAuthorizationService {
   // 显式 token:契约测试管线(vitest/esbuild)不产出 design:paramtypes 元数据,
   // 类 provider 的依赖解析必须自带 @Inject(行为与生产 tsc 装配完全一致)
-  constructor(@Inject(PlaybackRepository) private readonly repository: PlaybackRepository) {}
+  constructor(
+    @Inject(PlaybackRepository) private readonly repository: PlaybackRepository,
+    /** T043 可选装配:在线父子有效策略门(单测直构缺省不注入 → 既有行为零变化) */
+    @Inject(PLAYBACK_VOD_POLICY_GATE) private readonly vodPolicyGate?: PlaybackVodPolicyGatePort,
+  ) {}
 
   /**
    * resolve 授权(认证→档案/PIN→策略→家庭可用资源;同步完成,不等待 probe)。
    * 通过返回授权与排序候选(快照携带授权时刻 profileContextVersion,resolve 落库捕获);
    * 任一环节失败抛稳定 DomainError,调用方不得创建播放会话。
+   * T043:在线媒体追加「父子有效策略门」(身份/策略检查后;有效等级=父子取严,FR-010)
+   * 与「父项 400 VOD_EPISODE_REQUIRED 选集错误」(不尝试找父播放资源,api.md §4)。
    */
   async authorizeResolve(context: SessionContext, mediaId: string): Promise<PlaybackAuthorizationGrant> {
     const trusted = this.verifyTrustedSession(context.session.id, context);
     const activeProfile = this.requireActiveProfileRow(trusted);
-    const { candidates, mediaType } = await this.authorizeMediaAndCollectCandidates(trusted, mediaId);
-    return buildGrant(
-      trusted,
-      activeProfile.id,
-      mediaId,
-      candidates,
-      mediaType,
-      this.currentContextVersion(trusted.session.id),
-    );
+    const { candidates, mediaType } = await this.authorizeMediaAndCollectCandidates(trusted, activeProfile.id, mediaId);
+    return buildGrant(trusted, activeProfile.id, mediaId, candidates, mediaType, this.currentContextVersion(trusted.session.id));
   }
 
   /**
@@ -260,7 +285,7 @@ export class PlaybackAuthorizationService {
     }
     const activeProfile = this.requireActiveProfileRow(trusted);
     this.assertBoundProfileCurrent(loaded.value.profileId, trusted, activeProfile);
-    const { candidates, mediaType } = await this.authorizeMediaAndCollectCandidates(trusted, loaded.value.mediaId);
+    const { candidates, mediaType } = await this.authorizeMediaAndCollectCandidates(trusted, activeProfile.id, loaded.value.mediaId);
     return buildGrant(
       trusted,
       activeProfile.id,
@@ -285,7 +310,7 @@ export class PlaybackAuthorizationService {
     }
     const activeProfile = this.requireActiveProfileRow(trusted);
     this.assertBoundProfileCurrent(profileId, trusted, activeProfile);
-    const { candidates, mediaType } = await this.authorizeMediaAndCollectCandidates(trusted, mediaId);
+    const { candidates, mediaType } = await this.authorizeMediaAndCollectCandidates(trusted, activeProfile.id, mediaId);
     return buildGrant(
       trusted,
       activeProfile.id,
@@ -395,20 +420,68 @@ export class PlaybackAuthorizationService {
   /** 策略链(委托 authorizeCurrentProfile,实时最新策略)+ 资源候选收集(503/404 分形) */
   private async authorizeMediaAndCollectCandidates(
     trusted: SessionContext,
+    profileId: string,
     mediaId: string,
   ): Promise<{ candidates: PlaybackResourceCandidate[]; mediaType: MediaPolicyFacts['type'] }> {
     // 缺失策略行的惰性默认回填(FR-002:默认值用于创建与回填;经真实创建路径的档案
     // 必有默认策略行,直落库/恢复场景的首欢授权补齐同一默认)——回填后走同一判定链;
     // 已存在(含损坏)行不触碰:损坏行仍由判定核心按 POLICY_UNAVAILABLE fail-closed。
     this.backfillDefaultPolicyRow(trusted);
-    const decision = await authorizeCurrentProfile(trusted, mediaId, (householdId, mediaIdToRead) =>
-      this.readTrustedMediaFacts(householdId, mediaIdToRead),
-    );
+    // 目录行一次读取(媒体角色/类型/等级同源;T043 在线父子门与媒体类型判定共用)
+    let mediaRow: MediaItemRow | undefined;
+    const decision = await authorizeCurrentProfile(trusted, mediaId, (householdId, mediaIdToRead) => {
+      mediaRow = playbackStore().findMediaItemRowInHousehold(householdId, mediaIdToRead);
+      return this.mediaRowToPolicyFacts(mediaRow);
+    });
     if (!decision.allowed) {
       throw policyDenialToError(decision.reason);
     }
-    const mediaType = this.readTrustedMediaType(trusted.session.householdId, mediaId);
+    // T043(身份/策略检查后,api.md §4「父项 400 VOD_EPISODE_REQUIRED 在身份/策略检查
+    // 后判,不尝试找父播放资源」):
+    // - 父项(vod_title):授权后的选集错误,稳定 400,不进入资源候选收集;
+    // - 在线子项(vod_episode):父子有效策略门(有效等级 = 父子取严,FR-010;发布端口
+    //   复用,父子事实由实现经 media-catalog 读面构造 —— 不把普通查询构造实体)。
+    //   不可用 → 503 POLICY_UNAVAILABLE;任一轴拒绝 → 404 同形(不泄露判定轴)。
+    const mediaRole = mediaRow?.mediaRole ?? 'standalone';
+    if (mediaRole === 'vod_title') {
+      throw new DomainError(400, ProblemCode.VOD_EPISODE_REQUIRED, '该媒体为父级标题,请选择具体分集播放');
+    }
+    if (mediaRole === 'vod_episode' && this.vodPolicyGate !== undefined) {
+      const verdict = this.vodPolicyGate.evaluateOnlineTreePolicy({
+        householdId: trusted.session.householdId,
+        profileId,
+        mediaId,
+      });
+      if (!verdict.policyAvailable) {
+        throw new DomainError(503, ProblemCode.POLICY_UNAVAILABLE, '策略或目录事实缺失,已拒绝访问');
+      }
+      if (!verdict.allowed) {
+        throw createDomainError('MEDIA_NOT_FOUND');
+      }
+    }
+    if (mediaRow === undefined) {
+      // 授权已放行后理论上不可达;防御性归一 MEDIA_NOT_FOUND 同形
+      throw createDomainError('MEDIA_NOT_FOUND');
+    }
+    const mediaType = mediaRow.type as MediaPolicyFacts['type'];
     return { candidates: this.collectCandidates(trusted.session.householdId, mediaId), mediaType };
+  }
+
+  /** 目录行 → 策略判定事实(既有 readTrustedMediaFacts 同形投影; householdEnabled 恒 true) */
+  private mediaRowToPolicyFacts(row: MediaItemRow | undefined): MediaPolicyFacts | null {
+    if (row === undefined) {
+      // 库内无行/跨家庭 → null(与不存在统一不可区分,由判定核心归一 RESOURCE_UNAVAILABLE)
+      return null;
+    }
+    const type = row.type as MediaPolicyFacts['type'];
+    return {
+      householdId: row.householdId,
+      mediaId: row.id,
+      type,
+      channelId: type === 'channel' ? row.id : null,
+      contentLevel: row.contentLevel,
+      householdEnabled: true,
+    };
   }
 
   /** 目标媒体类型(授权已放行后的读取;仅用于 startMode 透传校验,不下发客户端) */
@@ -456,28 +529,6 @@ export class PlaybackAuthorizationService {
     } catch {
       // 竞态下另一请求已回填/约束拒绝:交由随后的判定链以库内事实裁决
     }
-  }
-
-  /**
-   * 可信资源事实读取器:仅以会话家庭为查询键;库内无行/跨家庭 → null(与不存在统一不可
-   * 区分,由判定核心归一 RESOURCE_UNAVAILABLE)。householdEnabled 恒为 true:资源可用性
-   * 由资源阶段以「无源同形 404」判定(T037 裁决 ①),不折叠进策略事实 —— 策略拒绝(404)
-   * 与零可用资源(404 同形)对客户端不可区分,不互相掩盖也不泄露家庭资源面。
-   */
-  private readTrustedMediaFacts(householdId: string, mediaId: string): MediaPolicyFacts | null {
-    const row = playbackStore().findMediaItemRowInHousehold(householdId, mediaId);
-    if (row === undefined) {
-      return null;
-    }
-    const type = row.type as MediaPolicyFacts['type'];
-    return {
-      householdId: row.householdId,
-      mediaId: row.id,
-      type,
-      channelId: type === 'channel' ? row.id : null,
-      contentLevel: row.contentLevel,
-      householdEnabled: true,
-    };
   }
 
   /**

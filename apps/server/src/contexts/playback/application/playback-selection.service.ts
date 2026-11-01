@@ -6,6 +6,7 @@ import { playbackStore } from '@contexts/playback/application/playback-store.por
 import type { PlaybackAuthorizationService } from '@contexts/playback/application/playback-authorization.service';
 import type { PlaybackDto, PlaybackProbeFacts } from '@contexts/playback/application/playback-resolver.service';
 import type { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
+import type { VodInputStore } from '@contexts/playback/infrastructure/playback-input-store.drizzle';
 import {
   terminalGuardCode,
   type PlaybackDelivery,
@@ -60,6 +61,17 @@ import {
  *    轨道不属于已探测事实/字幕可选词表 → 400 SELECTION_INVALID(事实缺失时 fail-closed);
  * 4. revalidate(提交前重验,防异步授权窗口变更);
  * 5. 仓储短事务提交:CAS(version 必填 + generation 以读取时值强化)失败 409 且零写入。
+ *
+ * T045 增量(010 在线 vod,旧 NAS/直播路径零变化):
+ * - 换代写者分流:当前代存在有效固定输入绑定(playback_input_binding)的在线 vod 会话,
+ *   seek/换轨换代改以固定输入 store 的 advanceGenerationWithRebind 为唯一 CAS 权威 ——
+ *   代次 CAS + 新绑定同 resolved_input_id + 旧代撤销同事务(data-model §6「新代沿用输入,
+ *   不暗换最新地址」);仓储 beginRebuild 的 generation 推进与 store 换绑不可叠加(两写者
+ *   同代推进即代次+2/绑定错代),故 vod 分支不经 beginRebuild:会话保持活动态、位置以
+ *   heartbeat 通道落目标、「失败前无变化」(store 条件 CAS 失败即零持久变化)、终态会话
+ *   由预检守卫拒绝(「失败后新代 failed 不倒退」)、个人 ledger seq 不被触碰(不归零);
+ * - I4 事实面:seekCapability(none|client|server_rebuild)/playbackStarted 由
+ *   sessionSeekFacts() 输出(事实来源=probe/交付与 playback_started_at;DTO 输出归 T046)。
  */
 
 /* ------------------------------------------------------------------ */
@@ -99,6 +111,49 @@ export interface PlaybackRebuildCoordinator {
  */
 export interface PlaybackRepreparePort {
   prepareRebuild(householdId: string, sessionId: string, generation: number): void;
+}
+
+/* ------------------------------------------------------------------ */
+/* I4 事实面(api.md §7 I4:起播确认与 U2 定位能力;DTO 输出归 T046)        */
+/* ------------------------------------------------------------------ */
+
+/** U2 定位能力:none=不可定位;client=客户端媒体 API 定位;server_rebuild=服务端换代重建 */
+export type SeekCapability = 'none' | 'client' | 'server_rebuild';
+
+/** I4 事实面:能力由可信 probe/交付与可用 seek 范围产生;起播事实为 session 级标记 */
+export interface SessionSeekFacts {
+  readonly seekCapability: SeekCapability;
+  readonly playbackStarted: boolean;
+}
+
+/**
+ * 起播标记只读投影端口(playback_session.playback_started_at 非空事实;会话级跨 generation
+ * 保留,服务端重建不重置)。装配桥归 module(经 Database 只读投影,与 SessionSourceRefReader
+ * 同先例);缺位时 playbackStarted 恒 false(单测直构形态)。
+ */
+export interface PlaybackStartFactsPort {
+  playbackStarted(householdId: string, sessionId: string): boolean;
+}
+
+/**
+ * I4 定位能力推导(纯函数,确定性;无时钟/随机):
+ * - 直播(duration=null 或交付缺失)恒 none(含 delivery 直播形态);
+ * - hls_proxy:第一期仅 client(已知 duration,客户端确认可定位范围后拖动)或 none ——
+ *   服务端 POST seek 对 hls_proxy 的拒绝保留(F3/T045 审查补充);
+ * - direct/转换族:现有受支持交付 → server_rebuild(POST seek 可用,调用原 CAS 接口
+ *   推进 generation、绑定同输入及撤销旧代)。
+ */
+export function deriveSeekCapability(input: {
+  readonly delivery: PlaybackDelivery | null;
+  readonly durationSeconds: number | null;
+}): SeekCapability {
+  if (input.delivery === null || input.durationSeconds === null || !Number.isFinite(input.durationSeconds)) {
+    return 'none';
+  }
+  if (input.delivery === 'hls_proxy') {
+    return 'client';
+  }
+  return 'server_rebuild';
 }
 
 /* ------------------------------------------------------------------ */
@@ -187,6 +242,14 @@ export interface PlaybackSelectionServiceDeps {
   readonly rebuildCoordinator?: PlaybackRebuildCoordinator;
   /** 换代重回准备(resolver.prepareRebuild;缺位 = 无重回路径,会话停留 preparing) */
   readonly reprepare?: PlaybackRepreparePort;
+  /**
+   * T045 在线 vod 固定输入 store(换代 CAS 权威):存在当前代绑定的会话,seek/换轨换代
+   * 经 advanceGenerationWithRebind(generation CAS + 同 input 新绑定 + 旧代撤销);
+   * 缺位(单测直构)或会话无绑定(NAS/直播)时回退既有 beginRebuild 路径(零变化)。
+   */
+  readonly vodInput?: VodInputStore;
+  /** T045 起播标记只读投影(I4 playbackStarted 事实;缺位 = 恒 false) */
+  readonly startFacts?: PlaybackStartFactsPort;
   readonly budgets: PlaybackBudgets;
 }
 
@@ -220,6 +283,17 @@ export class PlaybackSelectionService {
     this.assertSeekable(session, facts, input.positionSeconds);
     // 提交前重验(api.md:seek 最终提交前重验授权,防异步授权窗口变更)
     await this.revalidate(context, session);
+    // T045 在线 vod 分支(store 换代 CAS 权威;失败前无变化;NAS/直播回退既有路径)
+    const vodAdvanced = await this.advanceVodGeneration(session, input.positionSeconds, input.at);
+    if (vodAdvanced !== null) {
+      const timeline = computeSeekTimeline({
+        positionSeconds: input.positionSeconds,
+        durationSeconds: facts.durationSeconds,
+        delivery: session.delivery,
+        keyframeIntervalSeconds: this.deps.budgets.timeline.targetSegmentSeconds,
+      });
+      return { session: vodAdvanced, dto: this.buildDto(vodAdvanced, facts, timeline) };
+    }
     const rebuilt = this.deps.repository.beginRebuild(sessionId, {
       cas: { expectedVersion: input.expectedVersion, expectedGeneration: session.generation },
       positionSeconds: input.positionSeconds,
@@ -291,6 +365,23 @@ export class PlaybackSelectionService {
     await this.revalidate(context, session);
 
     if (audioChanged) {
+      // T045 在线 vod 分支(与 seek 同一 store 换代 CAS 权威;音轨重建不暗换输入):
+      // vod 会话的音轨换代不经 beginRebuild(避免与其 generation 推进叠加),轨选择事实
+      // 不落 session.audio_track_id 列(无代内非换代写入口;交付面以同 input 重建为准)
+      const vodAdvanced = await this.advanceVodGeneration(
+        session,
+        input.positionSeconds,
+        input.at,
+      );
+      if (vodAdvanced !== null) {
+        const timeline = computeSeekTimeline({
+          positionSeconds: input.positionSeconds ?? session.positionSeconds,
+          durationSeconds: facts.durationSeconds,
+          delivery: session.delivery,
+          keyframeIntervalSeconds: this.deps.budgets.timeline.targetSegmentSeconds,
+        });
+        return { session: vodAdvanced, dto: this.buildDto(vodAdvanced, facts, timeline) };
+      }
       const rebuilt = this.deps.repository.beginRebuild(sessionId, {
         cas: { expectedVersion: input.expectedVersion, expectedGeneration: session.generation },
         ...(input.positionSeconds !== undefined ? { positionSeconds: input.positionSeconds } : {}),
@@ -345,6 +436,32 @@ export class PlaybackSelectionService {
       presentationStartSeconds: 0,
     };
     return { session: switched.value, dto: this.buildDto(switched.value, facts, timeline) };
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* I4 事实面(T046 DTO 接线点)                                          */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * session 状态查询的事实面(api.md §7 I4):seekCapability + playbackStarted。
+   * 事实来源 = 会话行实时读取(交付/状态)+ 当前代可信 probe 事实(时长权威)+
+   * playback_started_at 只读投影;本方法只产出事实,不改 PlaybackDto 形状
+   * (playback/interface 与 DTO 输出归 T046;终态会话仍可查询同面 —— GET 同义)。
+   */
+  async sessionSeekFacts(householdId: string, sessionId: string): Promise<SessionSeekFacts> {
+    const loaded = this.deps.repository.getSession(householdId, sessionId);
+    if (!loaded.ok) {
+      throw playbackErrToDomainError(loaded);
+    }
+    const session = loaded.value;
+    const facts = this.deps.facts.factsFor(sessionId, session.generation);
+    return {
+      seekCapability: deriveSeekCapability({
+        delivery: session.delivery,
+        durationSeconds: facts?.durationSeconds ?? null,
+      }),
+      playbackStarted: this.deps.startFacts?.playbackStarted(householdId, sessionId) ?? false,
+    };
   }
 
   /* ---------------------------------------------------------------- */
@@ -464,6 +581,57 @@ export class PlaybackSelectionService {
     if (!Number.isFinite(positionSeconds) || positionSeconds < 0) {
       throw new DomainError(400, ProblemCode.VALIDATION_FAILED, '播放位置必须为有限非负数');
     }
+  }
+
+  /**
+   * T045 在线 vod 换代(store 单一 CAS 权威;seek/换轨共用):
+   * 仅当装配了 vodInput 且当前代存在有效固定输入绑定时接管换代 ——
+   * advanceGenerationWithRebind 一次完成「generation CAS + 新绑定同 resolved_input_id +
+   * 旧代撤销/cleanup 标记」(同事务;data-model §6);其失败(代次回退/陈旧 CAS/无绑定)
+   * 即整体零持久变化(「失败前无变化」),异常原样上抛由预检/HTTP 面收口。成功后:
+   * - 位置落目标以 heartbeat 通道承载(活动态合法;CAS 对齐换代后 version,不递增
+   *   version/generation;竞态失败不回滚已提交换代,position 由客户端下一拍心跳收敛);
+   * - 旧票撤销卫生层与被替代代次转换取消沿用既有管线(api.md「旧票立即失效」/不瞬时双占);
+   * - 会话不经 preparing:同 input 新代交付事实已齐(绑定/源/交付代际沿用),无重回准备
+   *   窗口(resolver.prepareRebuild 以 preparing 为门,不触发);final/观测等按代失效由
+   *   各消费面的实时 generation CAS 承担(陈旧代事件静默丢弃)。
+   * 无绑定(NAS/直播)或端口缺位返回 null → 调用方回退既有 beginRebuild 路径(零变化)。
+   */
+  private async advanceVodGeneration(
+    session: PlaybackSessionView,
+    positionSeconds: number | undefined,
+    at: string | undefined,
+  ): Promise<PlaybackSessionView | null> {
+    const vodInput = this.deps.vodInput;
+    if (vodInput === undefined) {
+      return null;
+    }
+    const bound = await vodInput.inputForDelivery(session.householdId, session.id, session.generation).catch(() => null);
+    if (bound === null) {
+      return null; // 无固定输入绑定 = NAS/直播会话:既有路径零变化
+    }
+    await vodInput.advanceGenerationWithRebind({
+      householdId: session.householdId,
+      sessionId: session.id,
+      expectedGeneration: session.generation,
+      nextGeneration: session.generation + 1,
+    });
+    if (positionSeconds !== undefined) {
+      // heartbeat 不递增 version/generation(位置面与换绑面无叠加);CAS 以换代后 version 对齐
+      this.deps.repository.heartbeat(session.id, {
+        cas: { expectedVersion: session.version + 1 },
+        positionSeconds,
+        ...(at !== undefined ? { at } : {}),
+      });
+    }
+    this.revokeSessionTickets(session.householdId, session.id);
+    await this.cancelSuperseded(session.id, session.generation);
+    const reloaded = this.deps.repository.getSession(session.householdId, session.id);
+    if (!reloaded.ok) {
+      // 换代已提交后读回失败属意外(行被并发删除);按领域错误上抛,不伪造旧视图
+      throw playbackErrToDomainError(reloaded);
+    }
+    return reloaded.value;
   }
 
   /** 换代协同:取消被替代代次的在途转换;投递失败不阻断换代(额度由仓储全局计数兜底) */

@@ -98,6 +98,20 @@ export interface PlaybackFinalProgressPort {
   }): ProgressSampleReply | null;
 }
 
+/**
+ * VOD 固定输入重验端口(T045;装配桥归 module:绑定行回读作期望基准 + store
+ * assertCurrent/failOnRevisionMismatch 组合)。缺位(单测直构)或会话无当前代绑定
+ * (NAS/直播)时心跳/控制面零变化。
+ */
+export interface PlaybackVodInputGuardPort {
+  /** 当前代是否存在有效固定输入绑定(无绑定 = 非 vod 会话,跳过重验) */
+  hasCurrentBinding(householdId: string, sessionId: string, generation: number): boolean;
+  /** 四维修订重验(绑定冻结修订 × 目录当前修订;失配抛 DomainError) */
+  assertCurrent(householdId: string, sessionId: string, generation: number): void;
+  /** 修订失配终止(撤交付 + failed 同提交;data-model §3「准备转failed,需新resolve」) */
+  failOnRevisionMismatch(householdId: string, sessionId: string, generation: number, reason: string): void;
+}
+
 export interface PlaybackLifecycleDeps {
   readonly repository: PlaybackRepository;
   readonly authorization: PlaybackRevalidatePort;
@@ -113,6 +127,8 @@ export interface PlaybackLifecycleDeps {
   readonly privateRootDir?: string;
   /** stop final 协作端口(T101;缺位时 stopSessionWithFinal 退化为普通 stop) */
   readonly progressFinal?: PlaybackFinalProgressPort;
+  /** T045 vod 固定输入重验桥(缺位 = 心跳面零重验,NAS/直播零变化) */
+  readonly vodInputGuard?: PlaybackVodInputGuardPort;
 }
 
 export interface LifecycleHeartbeatOptions {
@@ -175,11 +191,33 @@ export class PlaybackLifecycleService implements OnApplicationShutdown {
    * 心跳:更新 last_heartbeat_at(可携带位置推进与暂停意图),绝不递增 version/generation。
    * CAS 基准取读取时刻的行版本:seek/字幕切换并发窗口内的一次冲突由客户端下一拍心跳
    * 自然覆盖(失联阈值 45 秒容忍 2 个缺失节拍,不因单次 VERSION_CONFLICT 误回收)。
+   *
+   * T045 在线 vod 重验(T043「renew/心跳前补 assertCurrent」建议在心跳面的落点):
+   * 进度遥测写点前对存在当前代固定输入绑定的会话重验四维修订 —— 失配即撤交付 + failed
+   * 同提交(data-model §3「旧会话修订不匹配时拒绝进度,准备转failed,需新 resolve」),
+   * 心跳不再为失配会话续命;heartbeat 只触 last_heartbeat_at,未起播 60s 固定期限
+   * (锚点 created_at)不因心跳延长(data-model §9「heartbeat/renew 不续命」)。
+   * 重验以实时行代次收口:换代窗口内携旧代的 finalize/观测事件由 heartbeat 写侧
+   * version CAS 拒绝,不因心跳复活旧代(finalizeVodStart 按代失效消费面)。
    */
   heartbeat(sessionId: string, options: LifecycleHeartbeatOptions = {}): PlaybackResult<PlaybackSessionView> {
     const row = this.readSessionRow(sessionId);
     if (row === undefined) {
       return playbackErr('PLAYBACK_NOT_FOUND', '播放会话不存在');
+    }
+    const guard = this.deps.vodInputGuard;
+    if (guard !== undefined && guard.hasCurrentBinding(row.householdId, sessionId, row.generation)) {
+      try {
+        guard.assertCurrent(row.householdId, sessionId, row.generation);
+      } catch {
+        guard.failOnRevisionMismatch(
+          row.householdId,
+          sessionId,
+          row.generation,
+          'heartbeat re-verify: fixed input revision mismatch',
+        );
+        return playbackErr('PLAYBACK_RESOURCE_UNAVAILABLE', '固定输入修订失配,会话已终止');
+      }
     }
     return this.deps.repository.heartbeat(sessionId, {
       cas: { expectedVersion: row.version },
@@ -270,6 +308,28 @@ export class PlaybackLifecycleService implements OnApplicationShutdown {
       throw new Error(`markFailure 需要稳定失败码,收到:${String(failureCode)}`);
     }
     return this.reclaim(sessionId, { to: 'failed', failureCode }, options);
+  }
+
+  /**
+   * finish 提交后的终态结算(010 T058 增量;internal-ports §2「任务取消/回收在 commit
+   * 后、可恢复标记驱动,不能持写锁等 ffmpeg」):finish 工作集事务已把会话终态化
+   * (ended + cleanup_requested=pending 持久标记),此处补齐与 stop 路径同款的提交后
+   * 清理面 —— 取消该会话全部活动转换 + 会话级去重安排延迟清理。
+   *
+   * 与 stop 竞争双向语义(playback-state §4)的本侧落点:
+   * - finish 先赢后 stop 仅清理:后到 stop 经 reclaim 终态守卫幂等 204(零回执副作用),
+   *   本结算面已在 finish commit 后执行,资源面不重复占用;
+   * - stop 先赢后 finish 只登记 not_completed receipt:终态由 stop 提交,本方法仅由
+   *   finish 控制器在「finish 成功提交」后调用,不改写任何终态事实(幂等可重入:
+   *   无活动转换零取消;cleanupScheduled 去重只排一次延迟清理)。
+   */
+  async settleAfterFinishCommit(sessionId: string): Promise<void> {
+    const row = this.readSessionRow(sessionId);
+    if (row === undefined) {
+      return;
+    }
+    await this.cancelSessionConversions(sessionId);
+    this.scheduleCleanup(row.householdId, sessionId);
   }
 
   /**

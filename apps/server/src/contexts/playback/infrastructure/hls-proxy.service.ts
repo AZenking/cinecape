@@ -4,12 +4,34 @@ import https from 'node:https';
 import net from 'node:net';
 import type { LookupFunction } from 'node:net';
 import type { LookupAddress, LookupOptions } from 'node:dns';
-import { Transform } from 'node:stream';
+import { PassThrough, Transform } from 'node:stream';
 import type { Readable } from 'node:stream';
+import type DatabaseConstructor from 'better-sqlite3';
 import { Injectable } from '@nestjs/common';
 import type { LanTarget } from '@platform/config/env.schema';
 import type { PlaybackBudgets } from '@platform/config/playback-budgets';
 import type { PlaybackErrorCode } from '@contexts/playback/domain/playback.types';
+import {
+  createNestedBudgetLedger,
+  openRemoteSource,
+  readNestedLevel,
+  RemoteReadFailure,
+} from '@platform/upstream/safe-upstream-reader';
+import type {
+  NestedBudgetLedger,
+  UpstreamClock,
+  UpstreamDnsResolver,
+  UpstreamNestedBudgets,
+  UpstreamNestedLevel,
+  UpstreamTimeBudgets,
+} from '@platform/upstream/safe-upstream.port';
+import type {
+  VodInputRevisionExpectation,
+  VodInputStore,
+  VodReclaimableSessionRow,
+  VodResolvedInputFacts,
+} from '@contexts/playback/infrastructure/playback-input-store.drizzle';
+import type { StartBasis } from '@contexts/playback/application/playback-work-set.port';
 
 /**
  * HLS 上游安全代理(T021,spec 004)—— 应用层受控 HTTP 读取与每跳精确许可校验。
@@ -44,6 +66,18 @@ import type { PlaybackErrorCode } from '@contexts/playback/domain/playback.types
  *   PLAYBACK_RESOURCE_UNAVAILABLE;本层不做清单内容判别(畸形/DRM 属 T022 重写层)。
  *   流中途错误以 Error.code='PLAYBACK_RESOURCE_UNAVAILABLE' 交付(供 T031 映射失败码),
  *   绝不在字节流内注入 JSON。
+ *
+ * 010 T044 增量(文件尾「VOD 固定输入交付面」):
+ * - VodFixedInputDeliveryGateway:T042 store 交付面装饰器(装配单实例,resolver 桥共用)
+ *   —— io seam 捕获 entryUrl 入内存租约(resolvedInputId 持有)、inputForDelivery 统一
+ *   消费点、assertVodGenerationDeliverable/assertVodProbeCommitGeneration(仅 VOD 绑定
+ *   域生效)、租约 renew/revoke 原语(T045 renew/watchdog 面接缝)、VOD 上游 URL 登记;
+ * - VodHlsUpstreamReader:SafeUpstream 嵌套读取链(T018 NestedBudgetLedger/readNestedLevel;
+ *   master/variant/segment/key 各级+总量+总时限;相对 URI 按清单基解析;redirect 每跳校验);
+ * - HlsProxyService 可选 vodDelivery 路由:已登记 VOD 上游 URL 的读取分流 SafeUpstream 链,
+ *   未注入/未登记 URL 沿用既有 LAN 许可链(直播/旧路径行为零变化);
+ * - deriveHlsProxySeekCapability:seekCapability 事实来源(none|client),T046 DTO 输出
+ *   接线点;服务端 seek 拒绝(400 PLAYBACK_SEEK_UNSUPPORTED)保持既有语义。
  */
 
 /** 读失败 reason 全部为静态脱敏文案:不含上游 URL/主机/路径/上游错误细节。 */
@@ -286,8 +320,18 @@ type OpenOutcome =
 export class HlsProxyService {
   private readonly budgets: PlaybackBudgets;
 
-  constructor(deps: { budgets: PlaybackBudgets }) {
+  /** VOD 固定输入交付路由(T044;注入后已登记 VOD 上游 URL 的读取走 SafeUpstream 嵌套链) */
+  private readonly vodDelivery: HlsProxyVodDeliveryRoute | undefined;
+
+  constructor(
+    deps: {
+      budgets: PlaybackBudgets;
+      /** T044:VOD 固定输入交付路由;缺省未注入 = 既有 LAN 许可读取链(直播/旧路径零变化) */
+      vodDelivery?: HlsProxyVodDeliveryRoute;
+    },
+  ) {
     this.budgets = deps.budgets;
+    this.vodDelivery = deps.vodDelivery;
   }
 
   /** 单跳校验实例入口(与独立纯函数同实现;供 T031 在网关层复用) */
@@ -301,6 +345,31 @@ export class HlsProxyService {
    * { finalUrl, text, contentType }(仅此三键,不含任何上游响应头)。
    */
   async readPlaylist(url: string, options: HlsProxyReadOptions = {}): Promise<HlsProxyRead<HlsPlaylistContent>> {
+    // T044:已登记 VOD 固定输入交付域的上游 URL → SafeUpstream 嵌套读取链(T018 语义;
+    // 每跳许可/重定向/DNS 重绑防护/字节与总时限预算);其余 URL 沿用既有 LAN 许可链
+    // (直播/旧路径行为零变化)
+    const vodLevel = this.vodDelivery?.vodLevelOf(url) ?? null;
+    if (this.vodDelivery !== undefined && vodLevel !== null) {
+      const ledger = this.vodDelivery.reader.createLedger();
+      try {
+        const read = await this.vodDelivery.reader.readText({
+          url,
+          level: vodLevel,
+          ledger,
+          allowedTargets: options.allowedTargets,
+          signal: options.signal,
+        });
+        if (!read.ok) {
+          return readFailure<HlsPlaylistContent>('PLAYBACK_RESOURCE_UNAVAILABLE', read.reason);
+        }
+        return {
+          ok: true,
+          value: { finalUrl: read.finalUrl, text: read.text, contentType: read.contentType },
+        };
+      } finally {
+        ledger.dispose();
+      }
+    }
     const opened = await this.openWithRedirects(url, options.allowedTargets ?? [], options.signal);
     if (!opened.ok) {
       return readFailure<HlsPlaylistContent>(opened.code, opened.reason);
@@ -361,6 +430,27 @@ export class HlsProxyService {
    * 返回流附带空闲超时(socket 空闲即毁连)。消费方断开(destroy/signal)即取消上游。
    */
   async readAsset(url: string, options: HlsAssetReadOptions): Promise<HlsProxyRead<HlsAssetContent>> {
+    // T044:VOD 固定输入交付域 → SafeUpstream 受控流(segment/key 按嵌套级别预算;
+    // ledger 生命周期随流收口)。非 VOD URL 沿用既有链(行为零变化)。
+    const vodLevel = this.vodDelivery?.vodLevelOf(url) ?? null;
+    if (this.vodDelivery !== undefined && vodLevel !== null) {
+      const ledger = this.vodDelivery.reader.createLedger();
+      const opened = await this.vodDelivery.reader.openStream({
+        url,
+        level: vodLevel,
+        ledger,
+        allowedTargets: options.allowedTargets,
+        signal: options.signal,
+      });
+      if (!opened.ok) {
+        ledger.dispose();
+        return readFailure<HlsAssetContent>('PLAYBACK_RESOURCE_UNAVAILABLE', opened.reason);
+      }
+      return {
+        ok: true,
+        value: { stream: opened.stream, contentType: opened.contentType },
+      };
+    }
     const hls = this.budgets.hlsUpstream;
     const maxBytes = options.kind === 'key' ? hls.maxKeyBytes : hls.maxSegmentBytes;
     const opened = await this.openWithRedirects(url, options.allowedTargets ?? [], options.signal);
@@ -548,4 +638,627 @@ export class HlsProxyService {
       });
     };
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* 010 T044 —— VOD 固定输入交付面(resolvedInputId 租约 + SafeUpstream)    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 固定输入交付事实(T044;internal-ports §3「probe、HLS代理、ffmpeg输入/seek 均用该
+ * ID,不各自重读最新 location」)。entryUrl 为私有入口地址:只在本值对象与内存租约
+ * 之间流转,绝不进入 DTO/日志/任何持久行(T042 store 同口径)。
+ */
+export interface VodDeliveryInput {
+  /** 私有不透明输入 ID(T042 绑定行持有;交付统一消费点) */
+  readonly resolvedInputId: string;
+  /** 私有入口地址(⚠️ 仅经受控交付面/SafeUpstream 消费) */
+  readonly entryUrl: string;
+}
+
+/** 按 playbackSourceId 反查的固定输入交付事实(probe/入口注册/在线转换裁决用) */
+export interface VodDeliveryInputBySource extends VodDeliveryInput {
+  readonly householdId: string;
+  readonly sessionId: string;
+  readonly generation: number;
+}
+
+/** 输入租约状态(T045 renew 面消费;T044 只暴露事实,过期强制策略不在此收口) */
+export type VodInputLeaseState = 'active' | 'expired' | 'revoked' | 'unknown';
+
+/** 内存租约记录(playback registry 会话引用/租约的 T044 交付侧镜像;不落库不打日志) */
+interface VodInputLeaseRecord {
+  readonly resolvedInputId: string;
+  readonly entryUrl: string;
+  readonly leaseSeconds: number;
+  leaseExpiresAtMs: number;
+  revoked: boolean;
+}
+
+/** 嵌套读取级别登记(上游 URL → 级别;代理按其路由 SafeUpstream 预算) */
+export type VodUpstreamLevel = UpstreamNestedLevel;
+
+/**
+ * T044 固定输入交付网关 —— T042 store 的交付面装饰器(装配单实例:resolver 桥与
+ * probe/资产/代理共用同一 store,不产生第二绑定权威):
+ *
+ * - entryUrl 捕获:装饰 resolveVodInput/bindFixedInput 的 io.resolveUpstream seam,
+ *   解析事实经此经过时以 resolvedInputId 为键记入内存租约表(setIfAbsent:并发首个
+ *   落定者持有;输赢双方共享同一 resolvedInputId,不产生第二入口);
+ * - 统一消费点:findDeliveryInput(h,s,g) = store.inputForDelivery(绑定行 →
+ *   resolvedInputId)⊕ 内存租约 entryUrl —— 不重读最新 location(§3);
+ * - 代次/交付资格:assertVodGenerationDeliverable / assertVodProbeCommitGeneration
+ *   仅在存在 VOD 绑定行时委派 T042 face(旧代 409 / 终态 / cleanup);NAS/IPTV/直播
+ *   会话无绑定行 → no-op(旧交付行为零变化);
+ * - 租约:renewInputLease/revokeInputLease 与 resolvedInputId 生命周期挂接
+ *   (T045 renew/watchdog 面接线点;T044 不实现节拍调度,仅留缝);
+ * - VOD 上游 URL 登记:rewritePlaylist/registerEntry 将本代上游地址按嵌套级别登记,
+ *   HlsProxyService 据此把 VOD 读取分流到 SafeUpstream 嵌套链;换代/会话释放即清扫。
+ */
+export class VodFixedInputDeliveryGateway implements VodInputStore {
+  private readonly store: VodInputStore;
+  private readonly handleSource: () => DatabaseConstructor.Database;
+  private readonly nowMs: () => number;
+
+  /** resolvedInputId → 租约(entryUrl 私有持有;T042 registry 的交付侧消费面) */
+  private readonly leases = new Map<string, VodInputLeaseRecord>();
+
+  /** VOD 上游 URL → (代次键, 嵌套级别);代理分流与 SafeUpstream 预算路由依据 */
+  private readonly upstreamLevels = new Map<string, { readonly key: string; readonly level: VodUpstreamLevel }>();
+
+  constructor(
+    store: VodInputStore,
+    handleSource: () => DatabaseConstructor.Database,
+    nowMs: () => number = Date.now,
+  ) {
+    this.store = store;
+    this.handleSource = handleSource;
+    this.nowMs = nowMs;
+  }
+
+  /* ---------- T042 store 委派(resolve/bind 装饰 entryUrl 捕获) ---------- */
+
+  async resolveVodInput(
+    command: { householdId: string; sessionId: string; generation: number; sourceId: string },
+    io: { resolveUpstream: () => Promise<VodResolvedInputFacts> },
+  ): Promise<{ resolvedInputId: string }> {
+    let captured: VodResolvedInputFacts | null = null;
+    const result = await this.store.resolveVodInput(command, {
+      resolveUpstream: async () => {
+        const facts = await io.resolveUpstream();
+        captured = facts;
+        return facts;
+      },
+    });
+    // 首个落定者持有(并发 resolve 输赢双方共享同一 resolvedInputId;setIfAbsent
+    // 不覆盖已登记入口,避免输家事实污染赢家入口)
+    if (captured !== null) {
+      this.recordLease(result.resolvedInputId, captured);
+    }
+    return result;
+  }
+
+  async bindFixedInput(
+    command: {
+      householdId: string;
+      sessionId: string;
+      generation: number;
+      sourceId: string;
+      startBasis: StartBasis;
+    },
+    io: { resolveUpstream: () => Promise<VodResolvedInputFacts> },
+  ): Promise<{ bindingId: string }> {
+    let captured: VodResolvedInputFacts | null = null;
+    const result = await this.store.bindFixedInput(command, {
+      resolveUpstream: async () => {
+        const facts = await io.resolveUpstream();
+        captured = facts;
+        return facts;
+      },
+    });
+    if (captured !== null) {
+      // 防御:bind 幂等重入(绑定已存在,io 未触达)时 captured 恒 null;新绑定分支
+      // 回读绑定行 resolved_input_id 登记入口(resolveVodInput 已登记则 setIfAbsent 保先)
+      const row = this.findBindingRow(command.householdId, command.sessionId, command.generation);
+      if (row !== undefined) {
+        this.recordLease(row.resolvedInputId, captured);
+      }
+    }
+    return result;
+  }
+
+  async inputForDelivery(householdId: string, sessionId: string, generation: number): Promise<{ resolvedInputId: string }> {
+    return this.store.inputForDelivery(householdId, sessionId, generation);
+  }
+
+  async replaceUnacceptedProbeInput(command: {
+    householdId: string;
+    sessionId: string;
+    generation: number;
+    nextInputId: string;
+  }): Promise<void> {
+    await this.store.replaceUnacceptedProbeInput(command);
+  }
+
+  assertFixedInputCurrent(command: {
+    householdId: string;
+    sessionId: string;
+    generation: number;
+    expected: VodInputRevisionExpectation;
+  }): void {
+    this.store.assertFixedInputCurrent(command);
+  }
+
+  failSessionOnRevisionMismatch(command: { householdId: string; sessionId: string; generation: number; reason: string }): void {
+    this.store.failSessionOnRevisionMismatch(command);
+  }
+
+  async advanceGenerationWithRebind(command: {
+    householdId: string;
+    sessionId: string;
+    expectedGeneration: number;
+    nextGeneration: number;
+  }): Promise<void> {
+    await this.store.advanceGenerationWithRebind(command);
+  }
+
+  /* ---------- 交付资格断言(仅 VOD 绑定域生效;其余域 no-op 零变化) ---------- */
+
+  assertGenerationDeliverable(householdId: string, sessionId: string, generation: number): void {
+    this.store.assertGenerationDeliverable(householdId, sessionId, generation);
+  }
+
+  assertProbeCommitGeneration(householdId: string, sessionId: string, generation: number): void {
+    this.store.assertProbeCommitGeneration(householdId, sessionId, generation);
+  }
+
+  /** VOD 交付资格断言(无绑定行 = 非 VOD 域,直接放行;有绑定行 = T042 全量资格面) */
+  assertVodGenerationDeliverable(householdId: string, sessionId: string, generation: number): void {
+    if (!this.isFixedInputDelivery(householdId, sessionId, generation)) {
+      return;
+    }
+    this.assertGenerationDeliverable(householdId, sessionId, generation);
+  }
+
+  /** probe 结果提交代次断言(§7「probe 后结果只可提交当前代」;同上仅 VOD 域生效) */
+  assertVodProbeCommitGeneration(householdId: string, sessionId: string, generation: number): void {
+    if (!this.isFixedInputDelivery(householdId, sessionId, generation)) {
+      return;
+    }
+    this.assertProbeCommitGeneration(householdId, sessionId, generation);
+  }
+
+  /* ---------- T045/T062/T081 watchdog 扫描面委派(计划内红保持) ---------- */
+
+  async listReclaimableUnstartedReadySessions(input: { nowMs: number }): Promise<VodReclaimableSessionRow[]> {
+    return this.store.listReclaimableUnstartedReadySessions(input);
+  }
+
+  async reclaimExpiredUnstartedReadySession(input: {
+    householdId: string;
+    sessionId: string;
+    nowMs: number;
+  }): Promise<{ reclaimed: boolean }> {
+    return this.store.reclaimExpiredUnstartedReadySession(input);
+  }
+
+  /* ---------- 统一消费点(绑定行 ⊕ 内存租约;不重读最新 location) ---------- */
+
+  /**
+   * 交付输入查询:无绑定行 / 入口未登记 / 已撤销 → null(NAS/IPTV/直播会话恒 null,
+   * 调用方回落既有交付路径);命中返回 resolvedInputId + 私有 entryUrl。
+   */
+  findDeliveryInput(householdId: string, sessionId: string, generation: number): VodDeliveryInput | null {
+    const row = this.findBindingRow(householdId, sessionId, generation);
+    if (row === undefined) {
+      return null;
+    }
+    const lease = this.leases.get(row.resolvedInputId);
+    if (lease === undefined || lease.revoked) {
+      return null;
+    }
+    return { resolvedInputId: row.resolvedInputId, entryUrl: lease.entryUrl };
+  }
+
+  /** 按 playbackSourceId 反查活动固定输入(prepare probe / 网关入口注册 / 转换裁决) */
+  findDeliveryInputByPlaybackSourceId(playbackSourceId: string): VodDeliveryInputBySource | null {
+    if (playbackSourceId === '') {
+      return null;
+    }
+    const row = this.handleSource()
+      .prepare(
+        `SELECT b.household_id AS householdId, b.session_id AS sessionId, b.generation AS generation,
+                b.resolved_input_id AS resolvedInputId
+         FROM playback_input_binding b
+         JOIN playback_session s ON s.household_id = b.household_id AND s.id = b.session_id
+         WHERE b.playback_source_id = ? AND b.cleanup_requested = 0 AND b.generation = s.generation
+         ORDER BY (s.state = 'preparing') DESC, b.resolved_at DESC
+         LIMIT 1`,
+      )
+      .get(playbackSourceId) as
+      | { readonly householdId: string; readonly sessionId: string; readonly generation: number; readonly resolvedInputId: string }
+      | undefined;
+    if (row === undefined) {
+      return null;
+    }
+    const lease = this.leases.get(row.resolvedInputId);
+    if (lease === undefined || lease.revoked) {
+      return null;
+    }
+    return {
+      householdId: row.householdId,
+      sessionId: row.sessionId,
+      generation: row.generation,
+      resolvedInputId: row.resolvedInputId,
+      entryUrl: lease.entryUrl,
+    };
+  }
+
+  /** 是否 VOD 固定输入交付域(绑定行存在;NAS/IPTV/直播恒 false → 旧路径零变化) */
+  isFixedInputDelivery(householdId: string, sessionId: string, generation: number): boolean {
+    return this.findDeliveryInput(householdId, sessionId, generation) !== null;
+  }
+
+  /* ---------- 租约(T045 renew/watchdog 面接线缝;T044 不做节拍调度) ---------- */
+
+  /**
+   * 输入租约续期(T045 renew 面接线点):以记录内 leaseSeconds 延展 expiresAt。
+   * 未知 resolvedInputId / 已撤销返回 false;renew 面若涉及 lifecycle 归 T045,此处只提供原语。
+   */
+  renewInputLease(resolvedInputId: string, options: { readonly atMs?: number } = {}): boolean {
+    const lease = this.leases.get(resolvedInputId);
+    if (lease === undefined || lease.revoked) {
+      return false;
+    }
+    lease.leaseExpiresAtMs = (options.atMs ?? this.nowMs()) + lease.leaseSeconds * 1000;
+    return true;
+  }
+
+  /** 输入租约撤销(T045 换代/清理面接线点):撤销后 findDeliveryInput 恒 null */
+  revokeInputLease(resolvedInputId: string): boolean {
+    const lease = this.leases.get(resolvedInputId);
+    if (lease === undefined || lease.revoked) {
+      return false;
+    }
+    lease.revoked = true;
+    return true;
+  }
+
+  /** 租约状态观测(T045 过期策略决策输入;T044 不强制过期拒交付) */
+  leaseStateOf(resolvedInputId: string, options: { readonly atMs?: number } = {}): VodInputLeaseState {
+    const lease = this.leases.get(resolvedInputId);
+    if (lease === undefined) {
+      return 'unknown';
+    }
+    if (lease.revoked) {
+      return 'revoked';
+    }
+    return (options.atMs ?? this.nowMs()) >= lease.leaseExpiresAtMs ? 'expired' : 'active';
+  }
+
+  /* ---------- VOD 上游 URL 登记(HlsProxyService SafeUpstream 分流依据) ---------- */
+
+  /** 批量登记本代上游 URL 及嵌套级别(rewritePlaylist/registerEntry 调用;幂等覆盖) */
+  registerVodUpstreamUrls(
+    householdId: string,
+    sessionId: string,
+    generation: number,
+    entries: readonly { readonly url: string; readonly level: VodUpstreamLevel }[],
+  ): void {
+    const key = generationKey(householdId, sessionId, generation);
+    for (const entry of entries) {
+      if (entry.url === '') {
+        continue;
+      }
+      this.upstreamLevels.set(entry.url, { key, level: entry.level });
+    }
+  }
+
+  /** 上游 URL 的嵌套级别(未登记 / 非 VOD 域 → null = 既有读取链) */
+  vodLevelOf(upstreamUrl: string): VodUpstreamLevel | null {
+    return this.upstreamLevels.get(upstreamUrl)?.level ?? null;
+  }
+
+  /** 换代清扫(TTL 不超 session;同 resolvedInputId 跨代复用,租约表不随代清除) */
+  forgetGeneration(householdId: string, sessionId: string, generation: number): void {
+    const key = generationKey(householdId, sessionId, generation);
+    for (const [url, registration] of [...this.upstreamLevels.entries()]) {
+      if (registration.key === key) {
+        this.upstreamLevels.delete(url);
+      }
+    }
+  }
+
+  /** 会话清扫(生命周期终态/清理面接线) */
+  forgetSession(householdId: string, sessionId: string): void {
+    const prefix = `${householdId}\u0000${sessionId}\u0000`;
+    for (const [url, registration] of [...this.upstreamLevels.entries()]) {
+      if (registration.key.startsWith(prefix)) {
+        this.upstreamLevels.delete(url);
+      }
+    }
+  }
+
+  /* ---------- 内部工具 ---------- */
+
+  private recordLease(resolvedInputId: string, facts: VodResolvedInputFacts): void {
+    if (this.leases.has(resolvedInputId)) {
+      return;
+    }
+    this.leases.set(resolvedInputId, {
+      resolvedInputId,
+      entryUrl: facts.entryUrl,
+      leaseSeconds: facts.leaseSeconds,
+      leaseExpiresAtMs: this.nowMs() + facts.leaseSeconds * 1000,
+      revoked: false,
+    });
+  }
+
+  private findBindingRow(
+    householdId: string,
+    sessionId: string,
+    generation: number,
+  ): { readonly resolvedInputId: string } | undefined {
+    return this.handleSource()
+      .prepare('SELECT resolved_input_id AS resolvedInputId FROM playback_input_binding WHERE household_id = ? AND session_id = ? AND generation = ?')
+      .get(householdId, sessionId, generation) as { readonly resolvedInputId: string } | undefined;
+  }
+}
+
+/** 代次键(与资产注册表/网关清扫同族分隔符) */
+function generationKey(householdId: string, sessionId: string, generation: number): string {
+  return `${householdId}\u0000${sessionId}\u0000${String(generation)}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* SafeUpstream 嵌套读取链(T018 NestedBudgetLedger/readNestedLevel)      */
+/* ------------------------------------------------------------------ */
+
+/** 由播放预算派生 VOD 嵌套预算(各级/总量/总时限;数值权威 playback-budgets hlsUpstream) */
+export function vodNestedBudgetsFromPlaybackBudgets(budgets: PlaybackBudgets): UpstreamNestedBudgets {
+  const hls = budgets.hlsUpstream;
+  return {
+    perLevelMaxBytes: {
+      manifest: hls.maxPlaylistBytes,
+      variant: hls.maxPlaylistBytes,
+      segment: hls.maxSegmentBytes,
+      key: hls.maxKeyBytes,
+    },
+    // 链总量:清单嵌套上限 × 单清单上限 + 单分片 + key(同一链不重复计满片预算即可覆盖
+    // master→variant→segment→key 全级;超总量即台账中止)
+    totalMaxBytes: hls.maxSegmentBytes + hls.maxPlaylistBytes * hls.maxPlaylistNestingDepth,
+    totalTimeoutMs: (hls.firstByteTimeoutSeconds + hls.idleTimeoutSeconds) * 1000,
+  };
+}
+
+/** 上游失败 → 稳定脱敏文案(静态词表;不含 URL/主机/上游错误细节) */
+function upstreamFailureReason(error: unknown): string {
+  if (error instanceof RemoteReadFailure) {
+    switch (error.code) {
+      case 'SOURCE_TARGET_DENIED':
+        return '上游地址未获精确许可';
+      case 'SOURCE_REDIRECT_LIMIT':
+        return '重定向跳数超预算';
+      case 'SOURCE_BUDGET_EXCEEDED':
+        return '上游读取超出预算';
+      case 'SOURCE_IDLE_TIMEOUT':
+        return '上游数据空闲超时';
+      case 'SOURCE_DNS_INVALID':
+        return '上游 DNS 解析失败';
+      case 'SOURCE_ABORTED':
+        return '上游读取已中止';
+      case 'SOURCE_REMOTE_UNREACHABLE':
+        return '上游连接失败';
+      default:
+        return '上游读取失败';
+    }
+  }
+  return '上游读取失败';
+}
+
+/** probe 失败分类用:稳定码原样暴露(不脱敏码本身;文案仍脱敏) */
+function upstreamFailureCode(error: unknown): string | null {
+  return error instanceof RemoteReadFailure ? error.code : null;
+}
+
+/** 简易中止信号组合(嵌套台账 signal ⊕ 外部 signal;读取结束后解除监听) */
+function combineAbortSignalsLocal(signals: readonly (AbortSignal | undefined)[]): { signal: AbortSignal; dispose(): void } {
+  const active = signals.filter((signal): signal is AbortSignal => signal !== undefined);
+  const controller = new AbortController();
+  if (active.some((signal) => signal.aborted)) {
+    controller.abort();
+    return { signal: controller.signal, dispose: () => undefined };
+  }
+  const listeners = active.map((signal) => {
+    const forward = (): void => {
+      controller.abort();
+    };
+    signal.addEventListener('abort', forward, { once: true });
+    return { signal, forward };
+  });
+  return {
+    signal: controller.signal,
+    dispose: (): void => {
+      for (const { signal, forward } of listeners) {
+        signal.removeEventListener('abort', forward);
+      }
+    },
+  };
+}
+
+/** 资产流包装:台账记账 + 源错误稳定码化 + 上游连接随流收口 */
+function wrapUpstreamAssetStream(
+  opened: { readonly stream: Readable; close(): Promise<void> },
+  ledger: NestedBudgetLedger,
+  byteBudget: number,
+): Readable {
+  const limited = new PassThrough();
+  const closeUpstream = (): void => {
+    void opened.close().catch(() => undefined);
+    opened.stream.destroy();
+    ledger.dispose();
+  };
+  limited.on('close', closeUpstream);
+  let chargedBytes = 0;
+  opened.stream.on('data', (chunk: Buffer) => {
+    chargedBytes += chunk.length;
+    if (chargedBytes > byteBudget || !ledger.charge(chunk.length)) {
+      limited.destroy(codedError('上游读取超出嵌套预算'));
+      return;
+    }
+    if (!limited.write(chunk)) {
+      opened.stream.pause();
+    }
+  });
+  limited.on('drain', () => {
+    opened.stream.resume();
+  });
+  opened.stream.on('end', () => {
+    limited.end();
+  });
+  opened.stream.on('error', () => {
+    // 稳定码化后向消费方传播(不透传上游错误细节;T012 脱敏边界)
+    limited.destroy(codedError('上游读取中断'));
+  });
+  return limited;
+}
+
+export interface VodHlsUpstreamReaderDeps {
+  /** 嵌套预算(各级/总量/总时限;缺省 vodNestedBudgetsFromPlaybackBudgets 派生) */
+  readonly nestedBudgets: UpstreamNestedBudgets;
+  /** 单次读取时间/重定向预算(每跳独立连接并重新校验) */
+  readonly timeBudgets: UpstreamTimeBudgets;
+  /** 读取链缺省精确许可(调用期读取;缺省空列表 = 默认拒绝) */
+  readonly allowedTargets?: () => readonly LanTarget[];
+  /** 注入 DNS 解析(测试 stub);缺省系统解析 */
+  readonly resolver?: UpstreamDnsResolver;
+  /** 注入时钟(测试);缺省真实时间 */
+  readonly clock?: UpstreamClock;
+}
+
+/**
+ * T044 VOD SafeUpstream 嵌套读取器 —— 清单/片段/key 的已验证输入通路:
+ * - 全部读取经 T018 SafeUpstream 语义(协议白名单/拒绝类别/部署精确许可/每跳 DNS
+ *   重解析与重绑防护/每跳重定向重校验/字节与总时限预算),不直接透传任意上游地址;
+ * - 嵌套预算经 NestedBudgetLedger/readNestedLevel:master(manifest)→variant→
+ *   segment→key 各级单响应上限 + 链累计总量 + 链总时限,超限即中止拒绝;
+ * - 失败只回静态脱敏文案(不含 URL/主机/上游错误细节)。
+ */
+export class VodHlsUpstreamReader {
+  private readonly deps: VodHlsUpstreamReaderDeps;
+
+  constructor(deps: VodHlsUpstreamReaderDeps) {
+    this.deps = deps;
+  }
+
+  /** 嵌套预算台账(probe 链跨级共用;交付单资产可各自建账;totalTimeoutMs 可按剩余期限收紧) */
+  createLedger(options: { readonly signal?: AbortSignal; readonly totalTimeoutMs?: number } = {}): NestedBudgetLedger {
+    const budgets =
+      options.totalTimeoutMs !== undefined && options.totalTimeoutMs < this.deps.nestedBudgets.totalTimeoutMs
+        ? { ...this.deps.nestedBudgets, totalTimeoutMs: options.totalTimeoutMs }
+        : this.deps.nestedBudgets;
+    return createNestedBudgetLedger(budgets, { signal: options.signal, clock: this.deps.clock });
+  }
+
+  /** 有界全量读取清单文本(readNestedLevel:级别/台账余量双重预算 + 中止贯穿) */
+  async readText(input: {
+    readonly url: string;
+    readonly level: VodUpstreamLevel;
+    readonly ledger: NestedBudgetLedger;
+    readonly allowedTargets?: readonly LanTarget[];
+    readonly signal?: AbortSignal;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly text: string;
+        readonly finalUrl: string;
+        readonly contentType: string | null;
+      }
+    | { readonly ok: false; readonly reason: string; readonly failureCode: string | null }
+  > {
+    try {
+      const read = await readNestedLevel(input.ledger, input.level, input.url, {
+        allowedTargets: input.allowedTargets ?? this.defaultAllowedTargets(),
+        maxBytes: Math.min(input.ledger.levelBudget(input.level), input.ledger.remainingBytes),
+        timeBudgets: this.deps.timeBudgets,
+        signal: input.signal,
+        resolver: this.deps.resolver,
+        clock: this.deps.clock,
+      });
+      return {
+        ok: true,
+        text: read.bytes.toString('utf8'),
+        finalUrl: read.finalUrl,
+        contentType: read.contentType,
+      };
+    } catch (error) {
+      return { ok: false, reason: upstreamFailureReason(error), failureCode: upstreamFailureCode(error) };
+    }
+  }
+
+  /** 打开受控资产流(SafeUpstream open + 台账记账 + 稳定码错误;消费方断开即取消上游) */
+  async openStream(input: {
+    readonly url: string;
+    readonly level: VodUpstreamLevel;
+    readonly ledger: NestedBudgetLedger;
+    readonly allowedTargets?: readonly LanTarget[];
+    readonly signal?: AbortSignal;
+  }): Promise<
+    | { readonly ok: true; readonly stream: Readable; readonly contentType: string | null }
+    | { readonly ok: false; readonly reason: string; readonly failureCode: string | null }
+  > {
+    const byteBudget = Math.min(input.ledger.levelBudget(input.level), input.ledger.remainingBytes);
+    const combined = combineAbortSignalsLocal([input.ledger.signal, input.signal]);
+    try {
+      const opened = await openRemoteSource(input.url, {
+        allowedTargets: input.allowedTargets ?? this.defaultAllowedTargets(),
+        maxBytes: byteBudget,
+        timeBudgets: this.deps.timeBudgets,
+        signal: combined.signal,
+        resolver: this.deps.resolver,
+        clock: this.deps.clock,
+      });
+      // 流生命周期收口台账(消费方 destroy/正常 end 即 dispose;限额/中止由台账 signal 贯穿)
+      const stream = wrapUpstreamAssetStream({ stream: opened.stream, close: opened.close }, input.ledger, byteBudget);
+      return { ok: true, stream, contentType: opened.contentType };
+    } catch (error) {
+      combined.dispose();
+      input.ledger.dispose();
+      return { ok: false, reason: upstreamFailureReason(error), failureCode: upstreamFailureCode(error) };
+    }
+  }
+
+  private defaultAllowedTargets(): readonly LanTarget[] {
+    return this.deps.allowedTargets?.() ?? [];
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 交付路由面与 seekCapability 事实(api.md §7 I4)                        */
+/* ------------------------------------------------------------------ */
+
+/** HlsProxyService 的 VOD 固定输入交付路由(模块装配注入;缺省未注入 = 既有链) */
+export interface HlsProxyVodDeliveryRoute {
+  /** 上游 URL 的嵌套级别(未登记/非 VOD 域 → null) */
+  vodLevelOf(upstreamUrl: string): VodUpstreamLevel | null;
+  /** SafeUpstream 嵌套读取链 */
+  readonly reader: VodHlsUpstreamReader;
+}
+
+/** hls_proxy VOD 定位能力事实(I4:第一期仅 client|none;直播恒 none) */
+export type HlsProxySeekCapability = 'none' | 'client';
+
+/**
+ * seekCapability 事实来源(T046 DTO 输出接线点):可信 probe/交付事实的已知时长。
+ * - client:已知 duration(可信 probe endList 判定出确定时长)——仅声明服务端许可,
+ *   前端还须检查实际 seekable 范围(I4 原文);
+ * - none:时长未知(endList 缺失/直播)。
+ * 服务端 seek 拒绝(400 PLAYBACK_SEEK_UNSUPPORTED)保持既有语义,hls_proxy 不因
+ * client 能力开放服务端重建(I4:hls_proxy VOD 第一期仅 client|none)。
+ */
+export function deriveHlsProxySeekCapability(input: {
+  readonly durationSeconds: number | null | undefined;
+}): HlsProxySeekCapability {
+  const duration = input.durationSeconds;
+  return typeof duration === 'number' && Number.isFinite(duration) && duration > 0 ? 'client' : 'none';
 }

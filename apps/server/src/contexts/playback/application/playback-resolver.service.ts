@@ -5,6 +5,16 @@ import { playbackStore } from '@contexts/playback/application/playback-store.por
 import type { PlaybackAuthorizationService, PlaybackResourceCandidate } from '@contexts/playback/application/playback-authorization.service';
 import type { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
 import type { PlaybackProgressBindPort, PlaybackResumePositionPort } from '@contexts/personal-data';
+import type { InputBindingRow, StartBasis } from '@contexts/playback/application/playback-work-set.port';
+import type {
+  VodFrozenStartPoint,
+  VodResumeDispositionReason,
+  VodRequestedStartMode,
+  VodStartPointDecision,
+  VodStartPositionContext,
+  VodTransitionCarrySnapshot,
+} from '@contexts/playback/application/vod-start-position.service';
+import { nearEndHintOf } from '@contexts/playback/application/vod-start-position.service';
 import type {
   MarkPlayingInput,
   PlaybackDelivery,
@@ -186,6 +196,127 @@ export interface PlaybackSessionSourcePort {
   locateSessionSource(sessionId: string): Promise<{ readonly playbackSourceId: string; readonly location: string } | null>;
 }
 
+/**
+ * VOD 固定输入修订期望面(ready 重验输入;省略维度不参与失配判定。
+ * 与 T042 store 的 VodInputRevisionExpectation 结构镜像,application 不深导 infrastructure)
+ */
+export interface PlaybackVodInputRevisionExpectation {
+  readonly locatorRevision?: number;
+  readonly detailRevision?: number | null;
+  readonly contentRevision?: number;
+  readonly continuityRevision?: number | null;
+}
+
+/**
+ * 固定输入绑定端口(T042 playback-input-store 的 resolver 消费子集;装配桥接归
+ * playback.module/providers)。语义即 data-model §6:每 session/generation 最多一有效
+ * 绑定;frozen_start_seconds NULL 直到 probe;start_basis 三值;解析事实在事务外。
+ */
+export interface PlaybackResolverVodInputPort {
+  /**
+   * 幂等固定输入绑定:解析事实恰一次(同一闭包)→ resolveVodInput 幂等固定 →
+   * bindFixedInput 确认 start_basis(冻结前可修正,冻结后绑定行事实不可变)。
+   */
+  bindFixedInput(input: {
+    readonly householdId: string;
+    readonly sessionId: string;
+    readonly generation: number;
+    readonly mediaId: string;
+    readonly playbackSourceId: string;
+    readonly sourceId: string;
+    readonly startBasis: StartBasis;
+  }): Promise<{ readonly bindingId: string }>;
+  /** ready 重验:固定输入四维修订失配检测(绑定冻结修订 × 期望修订 × 目录当前修订) */
+  assertCurrent(input: {
+    readonly householdId: string;
+    readonly sessionId: string;
+    readonly generation: number;
+    readonly expected: PlaybackVodInputRevisionExpectation;
+  }): void;
+  /** 修订失配终止:撤交付 + failed 同提交(data-model §3「准备转failed,需新resolve」) */
+  failOnRevisionMismatch(input: {
+    readonly householdId: string;
+    readonly sessionId: string;
+    readonly generation: number;
+    readonly reason: string;
+  }): void;
+}
+
+/**
+ * 事务建档工作集端口(internal-ports §2;装配桥接归 playback.module/providers):
+ * 普通 resolve 的 session + epoch/ledger 同用例事务(避免 createSession 先成功而后
+ * bind 失败的半建档)+ FR-021 冻结一次接缝 + 绑定行回读。
+ */
+export interface PlaybackResolveWorkSetPort {
+  /** 事务建档:preparing session + epoch 分配 + 完整 ledger 首次建档(同 commit;失败整体回滚) */
+  createSessionWithLedger(input: {
+    readonly householdId: string;
+    readonly deviceSessionId: string;
+    readonly deviceId: string;
+    readonly profileId: string;
+    readonly mediaId: string;
+    readonly profileContextVersion: number;
+    readonly at?: string;
+  }): { readonly sessionId: string; readonly generation: number; readonly version: number };
+  /** 冻结一次(FR-021):freezeOnce 经事务工作集 InputBindingTx(frozen_at 守卫,仅首冻结落值) */
+  freezeStartOnce(input: {
+    readonly householdId: string;
+    readonly bindingId: string;
+    readonly decision: VodStartPointDecision;
+  }): void;
+  /** 绑定行回读(冻结值/start_basis 透传与重验期望基准);无行 undefined */
+  findActiveBinding(householdId: string, sessionId: string, generation: number): InputBindingRow | undefined;
+}
+
+/** vod 起点决策跟踪面(DTO 起点形态;T041 决策 + 绑定行冻结回读的代内视图) */
+interface PlaybackSessionStartView {
+  readonly generation: number;
+  readonly startBasis: 'beginning' | 'target_history' | 'transition_carry';
+  readonly resumeDisposition: 'pending' | 'resume' | 'beginning';
+  readonly resumeReason: VodResumeDispositionReason | null;
+}
+
+/** vod 会话 finalize 上下文(resolve 建档产物;prepare 消费) */
+interface PlaybackVodFinalizeContext {
+  readonly generation: number;
+  readonly bindingId: string;
+  readonly mediaId: string;
+  readonly requestedMode: 'beginning' | 'resume';
+  readonly deviceSessionId: string;
+}
+
+/**
+ * 过渡后继 finalize 上下文(T061;消费事务提交后由 prepareTransitionSuccessor 登记,
+ * probe 后消费,按代失效):
+ * - positionMode 即用户对计划快照的显式选择:probe 后唯一重验 = 目标历史 revision
+ *   (expectedHistoryRevision,intent 冻结的计划快照)vs 当前历史(T041
+ *   computeStartPosition 带 expectedHistoryRevision,内部经 compareTargetHistoryRevision)
+ *   —— 漂移即准备失败:会话 failed(注册词表修订冲突族,客户端/HTTP 面映射
+ *   NEXT_PLAN_CHANGED;不复活源、不用新位置替换用户确认,I3 全语义);
+ * - 冻结值(FR-021 冻结一次,frozen_at 守卫):beginning 恒 0;target_history 为消费
+ *   时刻目标历史位置 —— 重验通过(revision 相等)即与 probe 时刻历史读取一致,冻结后
+ *   历史更新不改起点;不以 T039 资格降级覆盖显式选择(资格降级属普通 resolve resume
+ *   语义,过渡消费不复用,避免以资格降级覆盖用户选择)。
+ */
+interface PlaybackTransitionFinalizeContext {
+  readonly generation: number;
+  readonly bindingId: string;
+  readonly mediaId: string;
+  readonly profileId: string;
+  readonly startBasis: 'beginning' | 'target_history' | 'transition_carry';
+  /** 消费时刻冻结起点(target_history=目标历史位置;transition_carry=intent 冻结的 carry 快照位置;beginning 恒 0) */
+  readonly frozenStartSeconds: number;
+  /** 计划冻结历史 revision(target_history probe 后重验基准;undefined = 非计划路径不比对) */
+  readonly expectedHistoryRevision?: number;
+  /**
+   * US4 carry 快照透传(T073;T072 消费事务的 intent 冻结快照 —— positionMode=carry
+   * 时经后继准备端口透传,probe 后由过渡终段原样交 T041 computeStartPosition 入口;
+   * 缺省 = 端口面仅透传 frozenStartSeconds(T072 定稿形态),终段以派生最小快照进
+   * 入口 —— checkpoint 精确性已由 T072 消费事务复核,身份字段不参与任何裁决)。
+   */
+  readonly carry?: VodTransitionCarrySnapshot;
+}
+
 /** resolver 可选装配端口(缺位时转换族 fail-closed 于 RESOURCE_UNAVAILABLE,绝不假 ready) */
 export interface PlaybackResolverPorts {
   readonly conversionLaunch?: PlaybackConversionLaunchPort;
@@ -202,6 +333,29 @@ export interface PlaybackResolverPorts {
    * 缺位时恒为 0(从头)。
    */
   readonly resumePosition?: PlaybackResumePositionPort;
+  /**
+   * VOD 起点计算端口(T041/T073,US2/US4):beginning/resume/target_history 唯一起点
+   * 决策入口(T039 裁决经端口注入)+ transition_carry(carry 快照在场判别,T072 消费
+   * 事务的 intent 冻结快照消费);与 resolveWorkSet/vodInput 联合缺位时回退既有 T101
+   * 静态冻结路径。
+   */
+  readonly startPosition?: {
+    computeStartPosition(
+      context: VodStartPositionContext,
+      command: {
+        readonly mediaId: string;
+        readonly requestedMode: VodRequestedStartMode;
+        readonly probeDurationSeconds?: number | null;
+        readonly expectedHistoryRevision?: number;
+        readonly carry?: VodTransitionCarrySnapshot;
+        readonly frozen?: VodFrozenStartPoint | null;
+      },
+    ): VodStartPointDecision;
+  };
+  /** 固定输入绑定端口(T042 store 桥;见 PlaybackResolverVodInputPort) */
+  readonly vodInput?: PlaybackResolverVodInputPort;
+  /** 事务建档工作集端口(§2;见 PlaybackResolveWorkSetPort) */
+  readonly resolveWorkSet?: PlaybackResolveWorkSetPort;
 }
 
 /** probe 失败分类 → 稳定失败码(映射表集中一处) */
@@ -239,6 +393,14 @@ export interface PlaybackDto {
   };
   /** 仅 failed 态出现(契约 failureCode?) */
   readonly failureCode?: string;
+  /**
+   * 010 起点形态(api.md §1 追加字段;T043/T041 决策面):仅本会话存在起点跟踪
+   * (在线 vod resolve)时下发 —— preparing 未冻结 = pending;冻结后透传绑定行
+   * start_basis 与决策处置。NAS/IPTV/直播会话不携带,既有 DTO 面零变化。
+   */
+  readonly startBasis?: 'beginning' | 'target_history' | 'transition_carry';
+  readonly resumeDisposition?: 'pending' | 'resume' | 'beginning';
+  readonly resumeReason?: VodResumeDispositionReason | null;
 }
 
 export interface PlaybackDtoOptions {
@@ -286,6 +448,12 @@ export class PlaybackResolverService {
   private readonly startModeBySession = new Map<string, 'beginning' | 'resume'>();
   /** 已冻结的起播位置(按代失效;ready 提交仅重验,不改已冻结输出) */
   private readonly presentationStartBySession = new Map<string, { generation: number; seconds: number }>();
+  /** 起点决策视图(010 T043:DTO startBasis/resumeDisposition/resumeReason;按代失效) */
+  private readonly startViewBySession = new Map<string, PlaybackSessionStartView>();
+  /** vod finalize 上下文(resolve 建档产物;prepare 消费,按代失效) */
+  private readonly vodFinalizeBySession = new Map<string, PlaybackVodFinalizeContext>();
+  /** 过渡后继 finalize 上下文(T061;prepareTransitionSuccessor 登记,probe 后消费,按代失效) */
+  private readonly transitionFinalizeBySession = new Map<string, PlaybackTransitionFinalizeContext>();
 
   constructor(
     private readonly repository: PlaybackRepository,
@@ -305,41 +473,110 @@ export class PlaybackResolverService {
    * 服务端事实,不接受客户端身份/位置声明);resume 位置冻结属 US4,不在本路径实现。
    */
   async resolve(context: SessionContext, mediaId: string, options: ResolveOptions = {}): Promise<ResolveOutcome> {
-    // 1. 授权(同步,不等待 probe);拒绝在此抛出 —— 之后才允许建 session
+    // 1. 授权(同步,不等待 probe);拒绝在此抛出 —— 之后才允许建 session。
+    //    T043:授权内已按序完成「身份/档案/PIN → 最新策略 → 在线父子有效策略门 →
+    //    父项 400 VOD_EPISODE_REQUIRED(选集错误,不尝试找父播放资源)」
     const grant = await this.authorization.authorizeResolve(context, mediaId);
     // 1.5 startMode 透传校验(005 api.md §5:resume 仅点播;频道请求 resume 稳定 400)
     if (options.startMode === 'resume' && grant.mediaType === 'channel') {
       throw createDomainError('PLAYBACK_SEEK_UNSUPPORTED', '直播频道不支持续播定位');
     }
+    // T043:在线 vod 判别(服务端目录事实;授权快照面不携带角色 —— NAS/IPTV/直播与
+    // 未装配场景走既有路径零变化)
+    const mediaRole =
+      playbackStore().findMediaItemRowInHousehold(grant.snapshot.householdId, grant.snapshot.mediaId)?.mediaRole ?? 'standalone';
+    const isVodEpisode = mediaRole === 'vod_episode' && grant.mediaType !== 'channel';
+    const requestedMode: 'beginning' | 'resume' = options.startMode ?? 'beginning';
     // 2. 建 preparing session(身份绑定取授权快照的服务端事实,非请求声明;
-    //    profile_context_version 一次性捕获 —— 此后不可变,由控制链路每次重验)
-    const created = this.repository.createSession({
-      householdId: grant.snapshot.householdId,
-      deviceSessionId: grant.snapshot.deviceSessionId,
-      deviceId: grant.snapshot.deviceId,
-      profileId: grant.snapshot.profileId,
-      mediaId: grant.snapshot.mediaId,
-      profileContextVersion: grant.snapshot.profileContextVersion,
-      at: options.at,
-    });
-    if (!created.ok) {
-      throw playbackErrToDomainError(created);
-    }
-    const session = created.value;
-    // 2.5 进度绑定(T099,005 US4):点播 resolve 接受时在短事务分配递增 epoch 并创建
-    // playback_progress_state(candidate_epoch/content_revision/profile_context_version),
-    // 不写可见历史 —— 历史仅首次有效 started 后产生;直播(channel)不分配不绑定。
-    if (grant.mediaType !== 'channel' && this.ports.progressBind !== undefined) {
-      this.ports.progressBind.bindVodResolveCandidate({
+    //    profile_context_version 一次性捕获 —— 此后不可变,由控制链路每次重验)。
+    //    T043(internal-ports §2):在线 vod resolve 以「session + epoch/ledger 同用例
+    //    事务」建档,避免 createSession 先成功而后绑定失败的半建档;NAS/IPTV/直播
+    //    与未装配场景走既有路径(行为零变化)。
+    let session: PlaybackSessionView;
+    if (isVodEpisode && this.ports.resolveWorkSet !== undefined) {
+      const created = this.ports.resolveWorkSet.createSessionWithLedger({
         householdId: grant.snapshot.householdId,
+        deviceSessionId: grant.snapshot.deviceSessionId,
+        deviceId: grant.snapshot.deviceId,
         profileId: grant.snapshot.profileId,
         mediaId: grant.snapshot.mediaId,
-        playbackSessionId: session.id,
         profileContextVersion: grant.snapshot.profileContextVersion,
+        at: options.at,
       });
+      const loaded = this.repository.getSession(grant.snapshot.householdId, created.sessionId);
+      if (!loaded.ok) {
+        throw playbackErrToDomainError(loaded);
+      }
+      session = loaded.value;
+    } else {
+      const created = this.repository.createSession({
+        householdId: grant.snapshot.householdId,
+        deviceSessionId: grant.snapshot.deviceSessionId,
+        deviceId: grant.snapshot.deviceId,
+        profileId: grant.snapshot.profileId,
+        mediaId: grant.snapshot.mediaId,
+        profileContextVersion: grant.snapshot.profileContextVersion,
+        at: options.at,
+      });
+      if (!created.ok) {
+        throw playbackErrToDomainError(created);
+      }
+      session = created.value;
+      // 2.5 进度绑定(T099,005 US4):点播 resolve 接受时在短事务分配递增 epoch 并创建
+      // playback_progress_state(candidate_epoch/content_revision/profile_context_version),
+      // 不写可见历史 —— 历史仅首次有效 started 后产生;直播(channel)不分配不绑定。
+      if (grant.mediaType !== 'channel' && this.ports.progressBind !== undefined) {
+        this.ports.progressBind.bindVodResolveCandidate({
+          householdId: grant.snapshot.householdId,
+          profileId: grant.snapshot.profileId,
+          mediaId: grant.snapshot.mediaId,
+          playbackSessionId: session.id,
+          profileContextVersion: grant.snapshot.profileContextVersion,
+        });
+      }
     }
     // 2.6 起播模式记录(resume 冻结在 probe 后;本会话生命周期内不再改变)
-    this.startModeBySession.set(session.id, options.startMode ?? 'beginning');
+    this.startModeBySession.set(session.id, requestedMode);
+    // 2.7 固定输入绑定(T042 store;data-model §6):在线 vod resolve 建唯一有效绑定
+    // (start_basis 随请求落座,frozen_start_seconds NULL 直到 probe);绑定不可建
+    // (定位/来源缺失)时会话转 failed(不悬挂半建档)并稳定上抛,需新 resolve。
+    if (isVodEpisode && this.ports.vodInput !== undefined) {
+      const candidate = grant.candidates[0];
+      try {
+        const bound = await this.ports.vodInput.bindFixedInput({
+          householdId: grant.snapshot.householdId,
+          sessionId: session.id,
+          generation: session.generation,
+          mediaId: grant.snapshot.mediaId,
+          playbackSourceId: candidate?.playbackSourceId ?? '',
+          sourceId: candidate?.sourceId ?? '',
+          startBasis: requestedMode === 'resume' ? 'target_history' : 'beginning',
+        });
+        this.vodFinalizeBySession.set(session.id, {
+          generation: session.generation,
+          bindingId: bound.bindingId,
+          mediaId: grant.snapshot.mediaId,
+          requestedMode,
+          deviceSessionId: grant.snapshot.deviceSessionId,
+        });
+      } catch (error) {
+        this.repository.failSession(session.id, {
+          cas: { expectedVersion: session.version, expectedGeneration: session.generation },
+          failureCode: 'PLAYBACK_RESOURCE_UNAVAILABLE',
+          at: options.at,
+        });
+        throw error;
+      }
+    }
+    // 2.8 起点形态跟踪(010 api.md §1:preparing 未冻结 = pending;冻结后透传决策)
+    if (isVodEpisode) {
+      this.startViewBySession.set(session.id, {
+        generation: session.generation,
+        startBasis: requestedMode === 'resume' ? 'target_history' : 'beginning',
+        resumeDisposition: 'pending',
+        resumeReason: null,
+      });
+    }
     // 3. fire-and-forget 异步准备(总期限共享:单次端口调用携带全部候选与同一 30s 期限)
     const deadlineMs = options.deadlineMs ?? this.budgets.watchdog.prepareTimeoutSeconds * 1000;
     void this.prepare(grant.snapshot.householdId, grant.snapshot.profileId, session.id, session.generation, session.version, grant.candidates, deadlineMs, options.at);
@@ -369,11 +606,40 @@ export class PlaybackResolverService {
       // CAS 基准 = 建档时刻:probe 窗口内发生 stop/seek/换轨(换代)则本结果作废
       const cas = { expectedVersion: version, expectedGeneration: generation };
       if (isProbeSuccess(outcome)) {
-        // resume 冻结(T101):可信 probe 完成后、任何转换输出启动或 direct 输出安装之前,
-        // 服务端重读当前 Profile 最新有效历史,按资源修订与可信 duration 冻结本次
-        // presentationStartSeconds(无有效位置则 0;不删除旧历史)。ready 提交仅重验
-        // 身份/修订/generation,不改变已冻结输出;冻结后另一设备的后续观看不悄悄改位置。
-        if ((this.startModeBySession.get(sessionId) ?? 'beginning') === 'resume' && this.ports.resumePosition !== undefined) {
+        // 起点冻结:probe 成功后、任何转换输出启动或 direct 输出安装之前完成。
+        // T043 vod 会话:computeStartPosition(T041/T039 唯一裁决)→ FR-021 freezeOnce
+        // (事务工作集;frozen_at 守卫只冻结一次)→ ready 重验(Profile/context/locator/
+        // content/continuity 经 assertFixedInputCurrent + 绑定行回读,CAS 由 markReady
+        // 承担)—— 失败不默默重绑、不二次历史覆盖;静态会话沿用既有 T101 冻结读取
+        // (静态媒体原续播行为零变化)。
+        const finalize = this.vodFinalizeBySession.get(sessionId);
+        if (
+          finalize !== undefined &&
+          finalize.generation === generation &&
+          this.ports.startPosition !== undefined &&
+          this.ports.resolveWorkSet !== undefined &&
+          this.ports.vodInput !== undefined
+        ) {
+          const finalized = await this.finalizeVodStart({
+            householdId,
+            profileId,
+            sessionId,
+            generation,
+            version,
+            cas,
+            at,
+            facts: outcome.facts,
+            playbackSourceId: outcome.playbackSourceId,
+            finalize,
+          });
+          if (!finalized) {
+            return;
+          }
+        } else if ((this.startModeBySession.get(sessionId) ?? 'beginning') === 'resume' && this.ports.resumePosition !== undefined) {
+          // resume 冻结(T101):可信 probe 完成后,服务端重读当前 Profile 最新有效历史,
+          // 按资源修订与可信 duration 冻结本次 presentationStartSeconds(无有效位置则 0;
+          // 不删除旧历史)。ready 提交仅重验身份/修订/generation,不改变已冻结输出;
+          // 冻结后另一设备的后续观看不悄悄改位置。
           const seconds = this.ports.resumePosition.readResumeFreeze({
             householdId,
             profileId,
@@ -381,6 +647,25 @@ export class PlaybackResolverService {
             probeDurationSeconds: outcome.facts.durationSeconds,
           });
           this.presentationStartBySession.set(sessionId, { generation, seconds });
+        }
+        // T061 过渡后继起点终段:probe 成功后、转换输出启动/direct 输出安装之前 ——
+        // target_history 以计划快照历史 revision 重验当前历史(漂移 → 会话 failed,
+        // NEXT_PLAN_CHANGED 语义)+ FR-021 冻结一次(beginning 冻结 0 / target_history
+        // 冻结消费时刻位置)。失败(已稳定 failed)即静默返回,不继续 ready。
+        const transitionFinalize = this.transitionFinalizeBySession.get(sessionId);
+        if (transitionFinalize !== undefined && transitionFinalize.generation === generation) {
+          const finalized = await this.finalizeTransitionStart({
+            householdId,
+            sessionId,
+            generation,
+            cas,
+            at,
+            facts: outcome.facts,
+            finalize: transitionFinalize,
+          });
+          if (!finalized) {
+            return;
+          }
         }
         if (isConversionDelivery(outcome.delivery)) {
           // 缺口1:plan 为转换/remux → probe 完成后进入「启动转换」阶段(30 秒共享总期限
@@ -415,7 +700,48 @@ export class PlaybackResolverService {
           // facts 派生的 duration 与轨道占位:轨道事实由 probe 提供;本任务先落
           // duration 与 delivery/source(轨道 ID 结构按 data-model/契约;
           // 默认音轨/字幕的会话选择写入属 T029/T030 语义,此处不猜)
+          const readyFinalize = this.vodFinalizeBySession.get(sessionId);
+          if (
+            readyFinalize !== undefined &&
+            this.ports.vodInput !== undefined &&
+            this.ports.resolveWorkSet !== undefined
+          ) {
+            // T043 ready 固定输入重验(markReady 后会话已携带选定源,目录 JOIN 完整):
+            // 期望 = 绑定行冻结修订回读(授权基线),当前 = 目录实时修订 —— 定位/详情/
+            // 内容/连续性任一漂移即撤交付 + failed 同提交(不静默重绑、不复活旧源,
+            // 需新 resolve;data-model §3);CAS 由 markReady 承担。
+            try {
+              const binding = this.ports.resolveWorkSet.findActiveBinding(householdId, sessionId, generation);
+              this.ports.vodInput.assertCurrent({
+                householdId,
+                sessionId,
+                generation,
+                expected:
+                  binding === undefined
+                    ? {}
+                    : {
+                        locatorRevision: binding.locatorRevision,
+                        detailRevision: binding.detailRevision,
+                        contentRevision: binding.contentRevision,
+                        continuityRevision: binding.continuityRevision,
+                      },
+              });
+            } catch {
+              this.ports.vodInput.failOnRevisionMismatch({
+                householdId,
+                sessionId,
+                generation,
+                reason: 'ready re-verify: fixed input revision mismatch',
+              });
+              this.factsBySession.delete(sessionId);
+              this.vodFinalizeBySession.delete(sessionId);
+              this.transitionFinalizeBySession.delete(sessionId);
+              return;
+            }
+          }
           this.factsBySession.set(sessionId, { generation, facts: outcome.facts });
+          this.vodFinalizeBySession.delete(sessionId);
+          this.transitionFinalizeBySession.delete(sessionId);
         }
         // marked 失败 = 会话已被生命周期/换代接管:静默丢弃,不覆盖新状态
         return;
@@ -426,6 +752,8 @@ export class PlaybackResolverService {
       this.repository.failSession(sessionId, { cas, failureCode: probeFailureToCode(outcome.error), at });
       // 失败后事实缓存不保留(无事实)
       this.factsBySession.delete(sessionId);
+      this.vodFinalizeBySession.delete(sessionId);
+      this.transitionFinalizeBySession.delete(sessionId);
     } catch {
       // 防御:端口异常/仓储意外错误不得成为未处理拒绝;会话停留 preparing,
       // 由生命周期(T028)的失联/超时兜底回收
@@ -436,6 +764,134 @@ export class PlaybackResolverService {
   private sessionMediaIdOf(sessionId: string): string {
     const row = playbackStore().findSessionMediaId(sessionId);
     return row?.mediaId ?? '';
+  }
+
+  /**
+   * 事件循环让渡(准备段 fire-and-forget 持久化与 201 接受响应的排序纪律):
+   * 在线候选 probe 即时成功时,本 prepare 与 resolve 的响应写在同一事件循环轮内
+   * 完成于微任务相位 —— 让渡两个 setImmediate 相位,使「201 接受形态」先于冻结
+   * 持久化对客户端可观察(frozen_start_seconds NULL 直到 probe 的可观察面;准备段
+   * 本就不在 resolve 响应路径上,不延迟接受)。
+   */
+  private yieldAfterAcceptedResponse(): Promise<void> {
+    return new Promise((resolve) => {
+      setImmediate(() => {
+        setImmediate(resolve);
+      });
+    });
+  }
+
+  /**
+   * vod 会话起点终段(T043;probe 成功后、ready 提交前的 fire-and-forget 段):
+   * 1. Profile/context 重验(revalidate 全链 + T051 上下文版本)—— 失败稳定码落会话;
+   * 2. computeStartPosition(T041 唯一入口;probe facts 为本次可信时长,线上 duration
+   *    不从历史兜底)—— history-changed → 会话 failed(HTTP 409 NEXT_PLAN_CHANGED
+   *    映射归过渡消费面 T061,本失败码为已注册词表内的修订冲突族);carry-not-wired →
+   *    RESOURCE_UNAVAILABLE 稳定失败(防御面:普通 resolve 只产 beginning/resume,
+   *    carry 走过渡后继 finalizeTransitionStart 的快照透传,T073);
+   * 3. 冻结前最终 start_basis 校正(幂等;冻结后绑定行事实不可变)→ freezeOnce
+   *    (FR-021;frozen_at 守卫仅首冻结落值,NULL 起点亦属合法冻结);
+   * 4. 绑定行回读透传(frozen_start_seconds/start_basis;已冻结值不再被第二次历史
+   *    读取覆盖,另一设备后续观看/偏好/时长微漂移不改变已冻结起点)。
+   * 任何失败路径不抛出(调用方已返回);返回 false 表示会话已稳定失败,调用方静默返回。
+   */
+  private async finalizeVodStart(input: {
+    readonly householdId: string;
+    readonly profileId: string;
+    readonly sessionId: string;
+    readonly generation: number;
+    readonly version: number;
+    readonly cas: { readonly expectedVersion: number; readonly expectedGeneration: number };
+    readonly at?: string;
+    readonly facts: PlaybackProbeFacts;
+    readonly playbackSourceId: string;
+    readonly finalize: PlaybackVodFinalizeContext;
+  }): Promise<boolean> {
+    const startPosition = this.ports.startPosition;
+    const resolveWorkSet = this.ports.resolveWorkSet;
+    const vodInput = this.ports.vodInput;
+    // 编译期窄化(调用方已判非空;防御性早退保持调用形态单一)
+    if (startPosition === undefined || resolveWorkSet === undefined || vodInput === undefined) {
+      return true;
+    }
+    await this.yieldAfterAcceptedResponse();
+    // 1. Profile 重验(授权链全量:会话/档案/PIN/策略/资源当前事实)——失败不虚报就绪
+    try {
+      await this.authorization.revalidate(input.finalize.deviceSessionId, input.profileId, input.finalize.mediaId);
+    } catch {
+      this.repository.failSession(input.sessionId, { cas: input.cas, failureCode: 'PLAYBACK_RESOURCE_UNAVAILABLE', at: input.at });
+      this.factsBySession.delete(input.sessionId);
+      this.vodFinalizeBySession.delete(input.sessionId);
+      return false;
+    }
+    // 2. Context 重验(T051:绑定档案上下文版本必须仍等于 DeviceSession 当前版本)
+    if (!this.identityContextCurrent(input.sessionId)) {
+      this.repository.failSession(input.sessionId, { cas: input.cas, failureCode: 'PLAYBACK_RESOURCE_UNAVAILABLE', at: input.at });
+      this.factsBySession.delete(input.sessionId);
+      this.vodFinalizeBySession.delete(input.sessionId);
+      return false;
+    }
+    // 3. 起点决策(T041/T039 唯一裁决;expectedHistoryRevision 为计划路径入参 ——
+    //    普通 resolve 无计划不比对,T061 过渡消费接线)
+    const decision = startPosition.computeStartPosition(
+      { householdId: input.householdId, profileId: input.profileId },
+      {
+        mediaId: input.finalize.mediaId,
+        requestedMode: input.finalize.requestedMode,
+        probeDurationSeconds: input.facts.durationSeconds,
+      },
+    );
+    if (decision.kind === 'history-changed') {
+      // 计划目标历史已变化:会话 failed,不复活源、不用新位置替换用户确认(T041 审查补充)
+      this.repository.failSession(input.sessionId, { cas: input.cas, failureCode: 'PLAYBACK_VERSION_CONFLICT', at: input.at });
+      this.factsBySession.delete(input.sessionId);
+      this.vodFinalizeBySession.delete(input.sessionId);
+      return false;
+    }
+    if (decision.kind === 'carry-not-wired') {
+      // 防御:普通 resolve 不产 transition_carry 请求(carry 走过渡后继快照透传,T073);
+      // 非预期直呼按稳定失败收口,不猜 carry 起点
+      this.repository.failSession(input.sessionId, { cas: input.cas, failureCode: 'PLAYBACK_RESOURCE_UNAVAILABLE', at: input.at });
+      this.factsBySession.delete(input.sessionId);
+      this.vodFinalizeBySession.delete(input.sessionId);
+      return false;
+    }
+    // 4. 冻结前最终 basis 校正(幂等;probe 冻结前可修正,冻结后绑定行事实不可变)
+    try {
+      await vodInput.bindFixedInput({
+        householdId: input.householdId,
+        sessionId: input.sessionId,
+        generation: input.generation,
+        mediaId: input.finalize.mediaId,
+        playbackSourceId: input.playbackSourceId,
+        sourceId: '',
+        startBasis: decision.startBasis,
+      });
+    } catch {
+      this.repository.failSession(input.sessionId, { cas: input.cas, failureCode: 'PLAYBACK_RESOURCE_UNAVAILABLE', at: input.at });
+      this.factsBySession.delete(input.sessionId);
+      this.vodFinalizeBySession.delete(input.sessionId);
+      return false;
+    }
+    // 5. 冻结一次(FR-021):仅 computed 决策产生冻结;frozen_at 守卫重复调用吸收
+    resolveWorkSet.freezeStartOnce({
+      householdId: input.householdId,
+      bindingId: input.finalize.bindingId,
+      decision,
+    });
+    // 6. 绑定行回读透传(frozen_start_seconds/start_basis;不二次历史覆盖)
+    const binding = resolveWorkSet.findActiveBinding(input.householdId, input.sessionId, input.generation);
+    this.startViewBySession.set(input.sessionId, {
+      generation: input.generation,
+      startBasis: (binding?.startBasis ?? decision.startBasis) as PlaybackSessionStartView['startBasis'],
+      resumeDisposition: decision.disposition,
+      resumeReason: decision.resumeReason,
+    });
+    this.presentationStartBySession.set(input.sessionId, {
+      generation: input.generation,
+      seconds: binding?.frozenStartSeconds ?? decision.startSeconds,
+    });
+    return true;
   }
 
   /**
@@ -511,6 +967,211 @@ export class PlaybackResolverService {
       // 同代事实缓存(轨道词表/时长):与 direct 同语义,换代后由 carryFactsForward 迁移
       this.factsBySession.set(input.sessionId, { generation: input.generation, facts: input.facts });
     }
+  }
+
+  /**
+   * T061 过渡后继准备(消费事务提交后由 transition.service 经装配端口 fire-and-forget
+   * 调用;T060 最小接线的精化面)——
+   * 1. 登记 201 形态起点视图(positionMode 即 startBasis;preparing 未冻结 = pending,
+   *    冻结移至 probe 后,对齐 data-model §6「frozen_start_seconds NULL 直到 probe」);
+   * 2. 登记过渡 finalize 上下文(probe 后消费:target_history 以计划快照历史 revision
+   *    重验当前历史,漂移即准备失败;beginning 冻结 0);
+   * 3. 复用既有 fire-and-forget prepare 管线(probe→ready/failed;CAS 基准=建档代/版;
+   *    不进 vodFinalize 复审 —— 普通续播资格裁决属普通 resolve 语义,过渡不复用)。
+   * 不重消费旧槽/不建第二会话:会话行由消费事务创建,本方法只做准备编排;任何失败路径
+   * 不向调用方抛出(fire-and-forget)。
+   */
+  async prepareTransitionSuccessor(input: {
+    readonly householdId: string;
+    readonly profileId: string;
+    readonly sessionId: string;
+    readonly generation: number;
+    readonly version: number;
+    readonly bindingId: string;
+    readonly mediaId: string;
+    readonly deviceSessionId: string;
+    readonly candidates: readonly PlaybackResourceCandidate[];
+    readonly startBasis: 'beginning' | 'target_history' | 'transition_carry';
+    /** 消费时刻冻结起点(target_history=目标历史位置;transition_carry=intent 冻结 carry 快照位置;beginning 恒 0) */
+    readonly frozenStartSeconds?: number;
+    /**
+     * US4 carry 快照透传(T073;T072 消费事务的 intent 冻结快照,positionMode=carry
+     * 时必携):probe 后原样交 T041 computeStartPosition carry 路径(三互斥入参判别,
+     * 直构决策面由此消除);缺省时过渡终段以 frozenStartSeconds 派生最小快照(见
+     * PlaybackTransitionFinalizeContext.carry)。
+     */
+    readonly carry?: VodTransitionCarrySnapshot;
+    /** 计划冻结历史 revision(T061 I3:probe 后对当前历史重验;undefined = 非计划路径) */
+    readonly expectedHistoryRevision?: number;
+    readonly deadlineMs?: number;
+    readonly at?: string;
+  }): Promise<void> {
+    this.startViewBySession.set(input.sessionId, {
+      generation: input.generation,
+      startBasis: input.startBasis,
+      resumeDisposition: 'pending',
+      resumeReason: null,
+    });
+    this.transitionFinalizeBySession.set(input.sessionId, {
+      generation: input.generation,
+      bindingId: input.bindingId,
+      mediaId: input.mediaId,
+      profileId: input.profileId,
+      startBasis: input.startBasis,
+      frozenStartSeconds: input.frozenStartSeconds ?? 0,
+      ...(input.startBasis === 'target_history' && input.expectedHistoryRevision !== undefined
+        ? { expectedHistoryRevision: input.expectedHistoryRevision }
+        : {}),
+      ...(input.startBasis === 'transition_carry' && input.carry !== undefined ? { carry: input.carry } : {}),
+    });
+    const deadlineMs = input.deadlineMs ?? this.budgets.watchdog.prepareTimeoutSeconds * 1000;
+    await this.prepare(
+      input.householdId,
+      input.profileId,
+      input.sessionId,
+      input.generation,
+      input.version,
+      input.candidates,
+      deadlineMs,
+      input.at,
+    );
+  }
+
+  /**
+   * 过渡后继起点终段(T061;probe 成功后、转换输出启动或 direct 输出安装前的
+   * fire-and-forget 段,时序复用 T043 finalizeVodStart 先例)——
+   * 1. target_history 漂移重验(I3「target_history 在 probe 后仍读取当前历史」):
+   *    T041 computeStartPosition 带 expectedHistoryRevision(过渡快照,经
+   *    compareTargetHistoryRevision)—— 漂移 → 会话 failed(注册词表修订冲突族
+   *    PLAYBACK_VERSION_CONFLICT;HTTP/客户端面映射 409 NEXT_PLAN_CHANGED:会话 failed
+   *    不复活源、不用新位置替换用户确认,api §7 I3/ui.md「probe后历史变化导致失败,
+   *    提示重新选择」),不冻结、不 ready;probe 未知 duration 按 E1 语义透传(未知不作
+   *    失败、不从历史兜底,冻结值与时长无关)。beginning 不重验(T041 同语义:显式从头
+   *    不受计划历史变化影响)。
+   * 2. 唯一起点决策 + FR-021 冻结一次(frozen_at 守卫,重复调用吸收):beginning 经
+   *    T041 computeStartPosition 冻结 0;target_history 冻结消费时刻目标历史位置
+   *    (重验通过 = revision 相等 = 与 probe 时刻读取一致);transition_carry 自 T073
+   *    起同样经 T041 唯一入口(intent 冻结 carry 快照透传,直构决策面消除);三者皆
+   *    不以 T039 资格降级覆盖用户显式选择。
+   * 3. 绑定行回读透传(frozen_start_seconds/start_basis;已冻结值不被第二次读取覆盖)。
+   * 任何失败路径不抛出(调用方已返回);返回 false 表示会话已稳定失败,调用方静默返回。
+   */
+  private async finalizeTransitionStart(input: {
+    readonly householdId: string;
+    readonly sessionId: string;
+    readonly generation: number;
+    readonly cas: { readonly expectedVersion: number; readonly expectedGeneration: number };
+    readonly at?: string;
+    readonly facts: PlaybackProbeFacts;
+    readonly finalize: PlaybackTransitionFinalizeContext;
+  }): Promise<boolean> {
+    const startPosition = this.ports.startPosition;
+    const resolveWorkSet = this.ports.resolveWorkSet;
+    // 编译期窄化(调用方已判非空;装配缺位时按既有管线继续,不冻结 —— 单测装配面)
+    if (startPosition === undefined || resolveWorkSet === undefined) {
+      return true;
+    }
+    await this.yieldAfterAcceptedResponse();
+    const finalize = input.finalize;
+    let currentHistoryRevision = 0;
+    if (finalize.startBasis === 'target_history' && finalize.expectedHistoryRevision !== undefined) {
+      // 1. probe 后历史重验(T041 唯一入口;内部 compareTargetHistoryRevision 经过渡快照)
+      const gate = startPosition.computeStartPosition(
+        { householdId: input.householdId, profileId: finalize.profileId },
+        {
+          mediaId: finalize.mediaId,
+          requestedMode: 'target_history',
+          // E1:probe 未知 duration 恒原样透传(不做历史时长兜底;重验只看 revision)
+          probeDurationSeconds: input.facts.durationSeconds,
+          expectedHistoryRevision: finalize.expectedHistoryRevision,
+        },
+      );
+      if (gate.kind === 'history-changed') {
+        // 计划目标历史在消费后、probe 后已变化:会话 failed(NEXT_PLAN_CHANGED 语义),
+        // 不冻结、不用新位置替换用户确认、不复活源(源保持 ended 终态)
+        this.repository.failSession(input.sessionId, { cas: input.cas, failureCode: 'PLAYBACK_VERSION_CONFLICT', at: input.at });
+        this.factsBySession.delete(input.sessionId);
+        this.transitionFinalizeBySession.delete(input.sessionId);
+        return false;
+      }
+      if (gate.kind === 'computed') {
+        currentHistoryRevision = gate.historyRevision;
+      }
+    }
+    // 2. 唯一起点决策 + 冻结一次(FR-021):beginning 经 T041 冻结 0(显式从头);
+    //    target_history 冻结消费时刻位置(重验已通过,起点与 probe 时刻历史读取一致);
+    //    transition_carry 改经 T041 computeStartPosition 唯一入口(T073 直构决策面消除:
+    //    intent 冻结 carry 快照透传,入参判别一途 —— 快照在场即 carry 路径,T072 消费事务
+    //    已复核 checkpoint 精确性,起点=精确接受游标位置原样透出;不读目标历史、不做容差
+    //    降级、不以 T039 资格裁决覆盖,与既有直构决策逐字段同形 → 行为零变化,e2e C1/C4
+    //    frozen=240 钉面保持)
+    const decision: VodStartPointDecision =
+      finalize.startBasis === 'target_history'
+        ? {
+            kind: 'computed',
+            startBasis: 'target_history',
+            disposition: 'resume',
+            resumeReason: 'accepted',
+            startSeconds: finalize.frozenStartSeconds,
+            nearEnd: nearEndHintOf(finalize.frozenStartSeconds, input.facts.durationSeconds),
+            historyRevision: currentHistoryRevision,
+          }
+        : finalize.startBasis === 'transition_carry'
+          ? startPosition.computeStartPosition(
+              { householdId: input.householdId, profileId: finalize.profileId },
+              {
+                mediaId: finalize.mediaId,
+                requestedMode: 'transition_carry',
+                // E1 语义同规:probe 未知 duration 恒原样透传(nearEnd 提示面,不资格判定)
+                probeDurationSeconds: input.facts.durationSeconds,
+                // carry 快照透传(T072 intent 冻结快照):端口面未透传全快照(T072 定稿面仅
+                // frozenStartSeconds)时以派生最小快照进入口 —— 位置即消费时刻冻结值;
+                // checkpoint 身份缺省 null,不参与任何裁决(精确性归 T072 消费事务)
+                carry:
+                  finalize.carry ??
+                  {
+                    carryPositionSeconds: finalize.frozenStartSeconds,
+                    carryDurationSeconds: null,
+                    sourceCheckpoint: null,
+                  },
+              },
+            )
+          : startPosition.computeStartPosition(
+              { householdId: input.householdId, profileId: finalize.profileId },
+              {
+                mediaId: finalize.mediaId,
+                requestedMode: 'beginning',
+                probeDurationSeconds: input.facts.durationSeconds,
+              },
+            );
+    if (decision.kind !== 'computed') {
+      // 防御:beginning/carry(快照在场)决策不受计划历史影响,不产出 history-changed
+      // (T041 语义;carry 快照缺席时入口以 carry-not-wired 稳定拒绝,本路径恒携快照);
+      // 非预期信号按稳定失败收口,不悬挂 preparing
+      this.repository.failSession(input.sessionId, { cas: input.cas, failureCode: 'PLAYBACK_RESOURCE_UNAVAILABLE', at: input.at });
+      this.factsBySession.delete(input.sessionId);
+      this.transitionFinalizeBySession.delete(input.sessionId);
+      return false;
+    }
+    resolveWorkSet.freezeStartOnce({
+      householdId: input.householdId,
+      bindingId: finalize.bindingId,
+      decision,
+    });
+    // 3. 绑定行回读透传(frozen_start_seconds/start_basis;不二次历史覆盖)
+    const binding = resolveWorkSet.findActiveBinding(input.householdId, input.sessionId, input.generation);
+    this.startViewBySession.set(input.sessionId, {
+      generation: input.generation,
+      startBasis: (binding?.startBasis ?? decision.startBasis) as PlaybackSessionStartView['startBasis'],
+      resumeDisposition: decision.disposition,
+      resumeReason: decision.resumeReason,
+    });
+    this.presentationStartBySession.set(input.sessionId, {
+      generation: input.generation,
+      seconds: binding?.frozenStartSeconds ?? decision.startSeconds,
+    });
+    this.transitionFinalizeBySession.delete(input.sessionId);
+    return true;
   }
 
   /**
@@ -625,6 +1286,18 @@ export class PlaybackResolverService {
     const frozen = this.presentationStartBySession.get(session.id);
     const presentationStartSeconds =
       frozen !== undefined && frozen.generation === session.generation ? frozen.seconds : 0;
+    // 010 起点形态(api.md §1;T043/T041):仅起点受跟踪的会话(在线 vod resolve)下发
+    // —— preparing 未冻结 = pending,冻结后透传绑定行 basis 与决策处置;NAS/IPTV/直播
+    // 会话不携带,既有 DTO 键面零变化(004/005 契约回归)
+    const startView = this.startViewBySession.get(session.id);
+    const startViewFields =
+      startView !== undefined && startView.generation === session.generation
+        ? {
+            startBasis: startView.startBasis,
+            resumeDisposition: startView.resumeDisposition,
+            resumeReason: startView.resumeReason,
+          }
+        : {};
     const dto: PlaybackDto = {
       id: session.id,
       state: session.state,
@@ -644,6 +1317,7 @@ export class PlaybackResolverService {
         subtitles: facts ? [...facts.subtitleTracks] : [],
       },
       ...(session.failureCode !== null ? { failureCode: session.failureCode } : {}),
+      ...startViewFields,
     };
     return dto;
   }
