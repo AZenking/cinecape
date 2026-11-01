@@ -9918,6 +9918,7 @@ components:
             - iptv
             - epg
             - nas
+            - vod
         name:
           type: string
         enabled:
@@ -9943,6 +9944,23 @@ components:
             - string
             - 'null'
           format: uuid
+        capabilities:
+          type: object
+          additionalProperties: false
+          description: >-
+            010 扩展（2026-10-30）：仅 kind=vod 时返回；resume=operational 为候选语义，最终续播资格需当次
+            resolve/probe 判定。
+          required:
+            - resume
+            - requiresCurrentProbe
+          properties:
+            resume:
+              type: string
+              enum:
+                - operational
+            requiresCurrentProbe:
+              type: boolean
+              const: true
       required:
         - id
         - kind
@@ -9966,6 +9984,7 @@ components:
             - iptv
             - epg
             - nas
+            - vod
         name:
           type: string
           minLength: 1
@@ -9992,6 +10011,13 @@ components:
             - string
             - 'null'
           format: uuid
+        adapter:
+          type: string
+          enum:
+            - apple-cms-json
+          description: >-
+            010 扩展（2026-10-30）：kind=vod 时必填且恒为 apple-cms-json；remoteUrl 仅接受 http(s) 根地址；严格分支
+            校验以 docs/specs/010-online-vod/contracts/openapi.yaml 为权威。
       required:
         - kind
         - name
@@ -11041,6 +11067,83 @@ components:
             公开稳定失败码;仅 state=failed 时出现且非空(data-model:失败码仅 failed 非空), 如 PLAYBACK_FORMAT_UNSUPPORTED /
             PLAYBACK_RESOURCE_UNAVAILABLE / PLAYBACK_PERFORMANCE_INSUFFICIENT / PLAYBACK_STORAGE_LIMIT /
             PLAYBACK_PREPARE_TIMEOUT / PLAYBACK_SEEK_TIMEOUT;不含源诊断。
+        startBasis:
+          type: string
+          enum:
+            - beginning
+            - target_history
+            - transition_carry
+          description: >-
+            010 扩展（2026-10-30）：本次起播依据；intent.positionMode 映射唯一 startBasis，禁止第二次 resume 读取覆盖
+            carry。权威定义见 docs/specs/010-online-vod/contracts/openapi.yaml。
+        resumeDisposition:
+          type: string
+          enum:
+            - pending
+            - resume
+            - beginning
+          description: 010 扩展（2026-10-30）：preparing 未冻结=pending；probe 后一次计算并冻结。
+        resumeReason:
+          type:
+            - string
+            - 'null'
+          enum:
+            - accepted
+            - requested_beginning
+            - no_history
+            - content_changed
+            - continuity_changed
+            - duration_changed
+            - completed
+            - invalid_position
+            - duration_unknown
+            - null
+          description: 010 扩展（2026-10-30）：降级从头时给出具体原因；旧历史保留直到新的有效 started。
+        transitionSlot:
+          type: object
+          additionalProperties: false
+          description: >-
+            010 扩展（2026-10-30）：供当前归属设备恢复/替换；首次槽不存在 revision=0/open（传输初值），持久行
+            revision>=1。
+          required:
+            - revision
+            - status
+            - activeIntentId
+            - successorSessionId
+          properties:
+            revision:
+              type: integer
+              minimum: 0
+            status:
+              type: string
+              enum:
+                - open
+                - reserved
+                - consumed
+            activeIntentId:
+              type:
+                - string
+                - 'null'
+              format: uuid
+            successorSessionId:
+              type:
+                - string
+                - 'null'
+              format: uuid
+        seekCapability:
+          type: string
+          enum:
+            - none
+            - client
+            - server_rebuild
+          description: >-
+            010 扩展（2026-10-30）：由可信 probe/交付与可用 seek 范围产生；hls_proxy VOD 第一期仅 client 或 none，直播
+            none；client 仅为许可声明，前端还须检查实际 seekable 范围。
+        playbackStarted:
+          type: boolean
+          description: >-
+            010 扩展（2026-10-30）：独立 playback_started_at 已设置；仅解除 readyAt+60s 未起播回收期限，与
+            sessionStarted/saved/completed 分别记录。
     B004TicketReply:
       type: object
       description: >-
@@ -11299,6 +11402,19 @@ components:
           enum:
             - available
             - unavailable
+        detailKind:
+          type: string
+          enum:
+            - standalone
+            - vod_title
+            - vod_episode
+          description: 010 扩展（2026-10-30）：媒体角色；旧记录 standalone。
+        parentMediaId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: 010 扩展（2026-10-30）：vod_episode 的父标题媒体 ID；standalone/vod_title 为 null。
       required:
         - id
         - type
@@ -11795,6 +11911,11 @@ components:
           minimum: 0
         canResume:
           type: boolean
+        resumeCheckRequired:
+          type: boolean
+          description: >-
+            010 扩展（2026-10-30）：在线媒体 canResume 映射为候选资格时为 true，最终资格需当次 resolve/probe 判定；
+            静态媒体原语义不变且不返回该字段。
         revision:
           type: integer
           minimum: 1
@@ -11899,6 +12020,26 @@ components:
             - integer
             - 'null'
           minimum: 1
+        sessionAccepted:
+          type: boolean
+          description: 010 扩展（2026-10-30）：独立会话接受视图；superseded 可 sessionAccepted=true/applied=false。
+        acceptedSampleSeq:
+          type: integer
+          minimum: 1
+          description: 010 扩展（2026-10-30）：最后会话接受游标（stale_sample 时供恢复）。
+        acceptedPositionSeconds:
+          type:
+            - number
+            - 'null'
+          minimum: 0
+          description: 010 扩展（2026-10-30）。
+        acceptedGeneration:
+          type: integer
+          minimum: 1
+          description: 010 扩展（2026-10-30）。
+        sessionStarted:
+          type: boolean
+          description: 010 扩展（2026-10-30）。
       required:
         - applied
         - reason
@@ -11916,8 +12057,27 @@ components:
             - beginning
             - resume
           default: beginning
+        transitionIntentId:
+          type: string
+          format: uuid
+          description: >-
+            010 扩展（2026-10-30）：过渡消费分支；出现时禁止 startMode（严格 oneOf，权威定义见
+            docs/specs/010-online-vod/contracts/openapi.yaml POST /playback/resolve）。
       required:
         - mediaId
+      allOf:
+        - if:
+            type: object
+            required:
+              - transitionIntentId
+            properties:
+              transitionIntentId:
+                type: string
+            additionalProperties: false
+          then:
+            not:
+              required:
+                - startMode
     StopRequest:
       type: object
       additionalProperties: false

@@ -135,3 +135,21 @@ POST `/playback/sessions/{sessionId}/stop` body=`{finalProgress?:{sampleSeq,expe
 openapi.yaml包含005最终目标操作、复用的004播放/媒体操作和迁入settings的既有DTO。以本文件和data-model.md覆盖新的授权/进度语义；机器契约不能仅凭security字段表达主Profile/PIN，操作描述与x-access补充其要求。
 
 001自动登录初始化与旧管理路径、003策略过滤的观看目录、004“详情不可见则无入口”的展示要求，由005提出替代；004受控播放、资源交付、转换/字幕能力及15秒heartbeat仍保留。旧heartbeat明确不直接写个人历史，新progress与finalProgress是新增个人业务，不静默改变heartbeat含义。所有替代仍需新ADR接受与领域/旧规格显式同步后才能实施。
+
+## 9. 010 扩展（2026-10-30）
+
+> **T089 核对注记（2026-10-31）**：本节所列扩展已与 `docs/specs/010-online-vod/contracts/openapi.yaml`（已生成并接入 `pnpm gen:types`）逐项核对一致；上述端点/DTO/问题码均已按 010 契约实现并有契约测试覆盖（`apps/server/test/contract/online-vod-*.e2e-spec.ts`，730/730 全绿）。`ProgressResult` 追加字段的实现形态为 010 `ProgressReply`（恰 8 键在线投影；静态/直播会话保持 005 恰 3 键投影，见 010 playback-state.md）。
+
+功能010（online-vod，[specs/010-online-vod](../010-online-vod/spec.md)，ADR-0016）沿用005目标契约并做如下增量；权威字段/端点/错误语义见 `docs/specs/010-online-vod/contracts/api.md`（Accepted，2026-10-30 冻结）与同目录 `contracts/openapi.yaml`。未列出的005字段/端点严格不变。
+
+对005已定义形状的字段级扩展（同形对象上追加，均为010目标必填/按语义可选，openapi.yaml 中以 optional 属性表达以不破坏既有消费者）：
+
+- `B003Source`（GET/POST/PATCH /settings/sources 返回）：`kind` 枚举增加 `vod`；追加 `capabilities:{resume:operational,requiresCurrentProbe:true}`（仅 kind=vod 返回）。`POST /settings/sources` 新增 kind=vod 分支（name+http(s) remoteUrl+adapter=apple-cms-json；限10启用源；openapi.yaml 的严格分支校验以010为权威）；`PATCH` 增加规则：根地址字段拒绝、改名不失效活动locator、启停均失效（010约束，无新字段）。
+- 新端点 `POST /settings/sources/{sourceId}/test`：`{ownerPassword}` → `200 {reachable,compatible,capabilities,reason:null|timeout|invalid|unavailable}`；Settings+当次密码；不写媒体。
+- `PublicMedia`（GET /public/media、/public/media/{id} 及 HistoryItem.media 等引用处）：追加 `detailKind:standalone|vod_title|vod_episode` 与 `parentMediaId:null|string`。
+- `ResolveRequest`（POST /playback/resolve）：追加 `transitionIntentId` 分支，出现时禁止 `startMode`（严格 oneOf；010 openapi.yaml 为权威定义）。响应 PlaybackDto 见下。
+- `ProgressResult`（POST /playback/sessions/{id}/progress）：保留 `applied` 旧义，追加 `sessionAccepted,acceptedSampleSeq,acceptedPositionSeconds,acceptedGeneration,sessionStarted`（独立会话接受视图）。
+- `HistoryItem`（GET /me/history 及 /{mediaId}）：在线媒体 `canResume` 映射为候选资格并追加 `resumeCheckRequired=true`；静态媒体原语义不变、不返回该字段。
+- `B004PlaybackDto`：追加 `startBasis:beginning|target_history|transition_carry`、`resumeDisposition:pending|resume|beginning`、`resumeReason`（null|accepted|requested_beginning|no_history|content_changed|continuity_changed|duration_changed|completed|invalid_position|duration_unknown）、`transitionSlot:{revision,status:open|reserved|consumed,activeIntentId,successorSessionId}`、`seekCapability:none|client|server_rebuild`、`playbackStarted`。`transitionSlot.revision=0/open` 仅是"无持久行"时的传输初值。
+
+仅属010的端点与DTO只在010契约中定义（005不重复声明）：`GET /public/vod/search`、`GET /public/vod/titles/{titleRef}`、`GET /public/media/{mediaId}/episodes`、`POST /vod/materializations`、`GET/PATCH /me/vod/preferences`、`GET /me/vod/titles/{parentId}/progress`、`POST /playback/sessions/{id}/observations`、`POST /playback/sessions/{id}/finish`、`GET /playback/sessions/{id}/finish-result`、`GET /vod/switch-candidates`、`POST /vod/switch-probes`、`POST /playback/next-plans`、`POST /playback/transition-intents`、`GET /playback/transition-intents/{id}`、`.../cancel`、`.../cleanup`，以及 PublicVodCard/SearchPage/VodPreview/Materialized/StableEpisodes/HistorySummary/TitleProgress/Preferences/ProgressReply/FinishReceipt/SwitchCandidate/ProbeResult/IntentReply/NextPlanReply 等。010新问题码：VOD_SEARCH_EXPIRED(410)、VOD_PREVIEW_EXPIRED(410)、VOD_DETAIL_CHANGED(409)、VOD_MATERIALIZATION_STALE(409)、VOD_QUOTA_EXCEEDED(409)、IDEMPOTENCY_CONFLICT(409)、TRANSITION_SLOT_CONFLICT(409)、TRANSITION_EXPIRED(410)、NEXT_PLAN_CHANGED(409)、NEXT_PLAN_EXPIRED(410)、VOD_NEXT_UNAVAILABLE(404)、SOURCE_PROGRESS_PENDING(409)、SOURCE_NOT_TERMINAL(409)、FINISH_ALREADY_RECORDED(409)、VOD_EPISODE_REQUIRED(400)。stop 仍 204 无 body。

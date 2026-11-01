@@ -63,3 +63,29 @@ export const queryKeys = {
 | `settings` | 恒过期（每次最新） | 挂载必取、加载态呈现 | 登出 / 401 → 取消并移除 |
 
 （具体数值参数与库内 API 映射见 research.md 决策 D2、D4。）
+
+## 补记（T089，2026-10-31）：010 在线点播键（T034/T080 遗留同步）
+
+010 实施在键工厂追加了以下键（实现见 `apps/web/src/shared/query/keys.ts`，契约规则 1–6 全部适用；此处补记本文件遗漏）：
+
+```ts
+// ── public 域 ──
+public: {
+  // 010 在线点播搜索(T034 收编内联键;api.md §2 两组参数互斥):
+  // input=null 落 {idle:true} 占位,活跃期键只含 q ——「写 searchId 不改变取数输入」
+  vodSearch:   (input: VodSearchInput | null) => ['public', 'vod', 'search', input ?? { idle: true }],
+  // 010 临时预览(titleRef 为服务端 opaque ref)
+  vodPreview:  (titleRef: string)            => ['public', 'vod', 'preview', titleRef],
+  // 010 稳定父详情分集(修订绑定 cursor;缺 cursor=第一页)
+  vodEpisodes: (parentMediaId: string, query: VodEpisodesQuery)
+                                            => ['public', 'media', 'episodes', parentMediaId, query],
+},
+// ── profile 域(个人键携带 profileId;010 api.md §3 GET /me/vod/titles/:parentId/progress)──
+profile: (profileId: string) => ({
+  // TitleProgress={latest,resumeCandidate,nextEpisodeAction};身份恒由服务端推导,
+  // 切档域清除按 'profile' 首段前缀覆盖
+  vodTitleProgress: (parentMediaId: string) => ['profile', profileId, 'vod', 'title-progress', parentMediaId],
+}),
+```
+
+键面行为有组件级钉面：`apps/web/test/vod-identity-guards.spec.tsx`（游客零个人键/普通路由不清理全局会话）、`apps/web/test/online-vod-catalog.spec.tsx`（经键工厂消费 vod 键）。

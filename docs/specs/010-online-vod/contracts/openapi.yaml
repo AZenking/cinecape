@@ -1,0 +1,3394 @@
+openapi: 3.1.0
+info:
+  title: Online VOD Playback & Transitions
+  version: 0.1.0-proposed
+  description: >-
+    010 target contract only; Accepted 2026-10-30 (contracts/api.md frozen, T002). Same OpenAPI 3.1.0
+    style/security/naming as 005-pc-browsing-flow; 010 is an extension of that contract. Paths, DTO fields
+    and error semantics not declared here are inherited from 004/005 strictly unchanged (GET session state /
+    renew / seek / selection / heartbeat / stream assets keep their 004/005 inputs; their PlaybackDto gains
+    the 010 extension fields declared in this file and mirrored as optional fields in 005). api.md §0–§7
+    remain the authority for authorization order, transaction ordering and failure semantics; this file adds
+    no field that api.md does not define.
+servers:
+  - url: /api
+security:
+  - SessionCookie: []
+  - SessionBearer: []
+paths:
+  /settings/sources:
+    get:
+      operationId: vod_settings_listSources
+      summary: listSources (010 view)
+      description: >-
+        010 extends the 005 source DTO with kind=vod and capabilities. Settings guard required; only
+        Settings can read sources. Pagination identical to 005 (page/pageSize).
+      x-access: settings
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourcePage'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/SettingsForbidden403'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+        '503':
+          $ref: '#/components/responses/StorageNotReady503'
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+    post:
+      operationId: vod_settings_createVodSource
+      summary: createVodSource
+      description: >-
+        Settings + 当次 ownerPassword；201。010 仅新增 kind=vod 分支：name + remoteUrl(http(s) 根地址并校验) +
+        adapter=apple-cms-json；iptv/epg/nas 仍按 005 定义。限 10 启用源，超额 409 VOD_QUOTA_EXCEEDED。密码缺失/空串/错误走
+        403，锁定 423；授权错误不包装为业务结果。Settings 沿用 005 独立请求体上限（非 16KiB 通用写上限）。
+      x-access: settings-password
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Source'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/SettingsForbidden403'
+        '409':
+          $ref: '#/components/responses/VodQuotaExceeded409'
+        '423':
+          $ref: '#/components/responses/Locked423'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+        '503':
+          $ref: '#/components/responses/StorageNotReady503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VodCreateSourceRequest'
+  /settings/sources/{sourceId}:
+    patch:
+      operationId: vod_settings_patchSource
+      summary: patchSource (010 rules)
+      description: >-
+        Settings + 当次 ownerPassword + CAS(expectedVersion)。010 约束：根地址字段（remoteUrl 等）拒绝 400；改名不失效活动
+        locator，启停均使 locator 失效（locator_revision+1 防 ABA）。跨家庭/不存在 404 同形。
+      x-access: settings-password
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Source'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/SettingsForbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/StateConflict409'
+        '423':
+          $ref: '#/components/responses/Locked423'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+        '503':
+          $ref: '#/components/responses/StorageNotReady503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VodPatchSourceRequest'
+      parameters:
+        - $ref: '#/components/parameters/SourceIdPath'
+  /settings/sources/{sourceId}/test:
+    post:
+      operationId: vod_settings_testSource
+      summary: testSource
+      description: >-
+        Settings + 当次 ownerPassword。对配置源做可达/兼容/能力探测；不写媒体、不建目录。授权错误不能包装为测试结果（密码
+        缺失/错误 403，锁定 423）。有界请求，超时/无效/不可用以 reason 表达。
+      x-access: settings-password
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceTestResult'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/SettingsForbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '423':
+          $ref: '#/components/responses/Locked423'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+        '503':
+          $ref: '#/components/responses/StorageNotReady503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceTestRequest'
+      parameters:
+        - $ref: '#/components/parameters/SourceIdPath'
+  /public/vod/search:
+    get:
+      operationId: vod_publicSearch
+      summary: vodPublicSearch
+      description: >-
+        Public、无 cookie 过滤、不设身份 cookie。首次 {q:1–100} 或后续 {searchId, cursor?}，两组互斥（同给 400）；
+        缺 cursor 重放第一页。每页 20，正常 next 页 partial=false；全源失败 502，全部超时 504。固定来源轮转缓冲、按
+        (source,VOD ID) 去重、同 cursor 并发合并；已生成页重放不变；10min/最多 2000 结果；ref 失效 410
+        VOD_SEARCH_EXPIRED（保留 q 重新搜索）。限流：在线搜索 20/min/IP（公共查询总桶 120/min/IP 之内）。搜索不物化、
+        不建个人记录。
+      x-access: public
+      security: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchPage'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '410':
+          $ref: '#/components/responses/VodSearchExpired410'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+        '502':
+          $ref: '#/components/responses/UpstreamFailed502'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout504'
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: 首次搜索关键词；与 searchId 互斥。
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: searchId
+          in: query
+          required: false
+          description: 后续翻页搜索 ID；与 q 互斥。
+          schema:
+            type: string
+            minLength: 1
+        - name: cursor
+          in: query
+          required: false
+          description: 上一响应 nextCursor 原样回传；仅与 searchId 同用。
+          schema:
+            type: string
+            minLength: 1
+  /public/vod/titles/{titleRef}:
+    get:
+      operationId: vod_publicTitlePreview
+      summary: vodPublicTitlePreview
+      description: >-
+        Public。200 VodPreview；ref 失效 410 VOD_PREVIEW_EXPIRED；跨家庭/伪造 404 同形。预算：最多 20 线路/单线
+        2000 集/合计 5000 集/4MiB，超体积与超条目一律 422 整次失败（VOD_DETAIL_TOO_LARGE）。预览不物化、不建个人记录；
+        每家庭 1000 个活预览，超额拒绝或淘汰最早过期项。禁源/配置失配先失效缓存再拒绝旧页。
+      x-access: public
+      security: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VodPreview'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '410':
+          $ref: '#/components/responses/VodPreviewExpired410'
+        '422':
+          $ref: '#/components/responses/VodDetailTooLarge422'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+      parameters:
+        - $ref: '#/components/parameters/TitleRefPath'
+  /public/media:
+    get:
+      operationId: vod_publicMediaList
+      summary: publicMediaList (010 view)
+      description: >-
+        原 005 参数与响应分页；010 行为扩展：vod 条目只展示已物化且可用父项（detailKind=vod_title），不重复铺子项；
+        NAS/IPTV 行为保留。公共读取不根据 cookie 过滤内容。
+      x-access: public
+      security: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicMediaPage'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+        '503':
+          $ref: '#/components/responses/StorageNotReady503'
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - channel
+              - movie
+              - series
+              - episode
+              - video
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+  /public/media/{mediaId}:
+    get:
+      operationId: vod_publicMediaDetail
+      summary: publicMediaDetail (010 view)
+      description: >-
+        005 公共媒体详情；010 扩展 PublicMedia 追加 detailKind:standalone|vod_title|vod_episode 与
+        parentMediaId:null|string。无个人信息、无播放 URL。
+      x-access: public
+      security: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicMedia'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+      parameters:
+        - $ref: '#/components/parameters/MediaIdPath'
+  /public/media/{mediaId}/episodes:
+    get:
+      operationId: vod_publicMediaEpisodes
+      summary: vodPublicMediaEpisodes
+      description: >-
+        Public。200 StableEpisodes，每页总计 100 子项；修订绑定 cursor，详情变化 409 VOD_DETAIL_CHANGED（重读并明确
+        重选，不复用旧位置）；非父媒体 400；不可用/不存在/跨家庭 404 同形。线路可跨页重复，消费者按 lineRef 聚合。
+      x-access: public
+      security: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StableEpisodes'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/VodDetailChanged409'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+      parameters:
+        - $ref: '#/components/parameters/MediaIdPath'
+        - name: cursor
+          in: query
+          required: false
+          description: 不透明游标，绑定详情修订。
+          schema:
+            type: string
+            minLength: 1
+  /vod/materializations:
+    post:
+      operationId: vod_materialize
+      summary: vodMaterialize
+      description: >-
+        Profile 鉴权。请求严格 oneOf：titleRef+episodeRef 分支 或 candidateRef 分支。物化来源/预览/策略事实与新增净
+        配额在同一短事务检查，资源和幂等结果同提交。先查成功重放（同成功 key 200 replayed=true），再要求预览有效；首次
+        key 201；稳定 key 已存在可复用 ID。同 key 异摘要 409 IDEMPOTENCY_CONFLICT；新操作预览变化 409
+        VOD_DETAIL_CHANGED；过期 410 VOD_PREVIEW_EXPIRED；满额 409 VOD_QUOTA_EXCEEDED；旧结果目标内容/连续性变化 409
+        VOD_MATERIALIZATION_STALE；候选绑定冲突 404。幂等 scope=家庭/DeviceSession/contextVersion，目标 24h 受回收
+        保护；当前权限失效拒绝而非仍返成功。写 body<=16KiB。
+      x-access: profile
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Same operationKey successful replay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Materialized'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '201':
+          description: First successful materialization for this operationKey
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Materialized'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/VodMaterializationConflict409'
+        '410':
+          $ref: '#/components/responses/VodPreviewExpired410'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+        '503':
+          $ref: '#/components/responses/StorageNotReady503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaterializationRequest'
+  /me/vod/preferences:
+    get:
+      operationId: vod_getPreferences
+      summary: vodGetPreferences
+      description: >-
+        Profile 鉴权；200 Preferences。未有持久行返回默认 true/true/version=0（传输初值），不偷偷写公共状态。
+      x-access: profile
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preferences'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+        '503':
+          $ref: '#/components/responses/StorageNotReady503'
+    patch:
+      operationId: vod_patchPreferences
+      summary: vodPatchPreferences
+      description: >-
+        Profile 鉴权。{expectedVersion>=0, autoplayNext?, switchCarryPosition?, operationKey:UUID}，至少一个偏好
+        字段。CAS 不符 409；成功 key 24h 重放返回原响应、不再更新版本（先重验当前身份）；异 digest 409
+        IDEMPOTENCY_CONFLICT。写 body<=16KiB。
+      x-access: profile
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preferences'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '409':
+          $ref: '#/components/responses/VodPreferencesConflict409'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+        '503':
+          $ref: '#/components/responses/StorageNotReady503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VodPreferencesPatchRequest'
+  /me/vod/titles/{parentId}/progress:
+    get:
+      operationId: vod_titleProgress
+      summary: vodTitleProgress
+      description: >-
+        Profile 鉴权；200 TitleProgress。不存在父 404；自己的不可用历史仍能作为 latest 摘要，不泄露其他 Profile。
+      x-access: profile
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TitleProgress'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+      parameters:
+        - $ref: '#/components/parameters/ParentIdPath'
+  /me/history:
+    get:
+      operationId: vod_historyList
+      summary: historyList (010 view)
+      description: >-
+        继承 005 分页与授权；010 在 HistoryItem 上为在线媒体追加 resumeCheckRequired=true（canResume 映射为候选资格），
+        静态媒体原语义不变、不返回该字段。
+      x-access: profile
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoryPage'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+  /me/history/{mediaId}:
+    get:
+      operationId: vod_historyProgress
+      summary: historyProgress (010 view)
+      description: >-
+        继承 005：HistoryItem 或 200 null（没有个人记录）；已不可用也只返回该 Profile 自己的摘要。010 的候选续播
+        语义经 HistoryItem.resumeCheckRequired 表达。
+      x-access: profile
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success (HistoryItem or null)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/HistoryItem'
+                  - type: 'null'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+      parameters:
+        - $ref: '#/components/parameters/MediaIdPath'
+  /playback/resolve:
+    post:
+      operationId: vod_playbackResolve
+      summary: vodPlaybackResolve
+      description: >-
+        请求严格 oneOf：基础 {mediaId, startMode?:beginning|resume（默认 beginning）} 或 过渡
+        {mediaId, transitionIntentId}；过渡分支禁止 startMode 字段。201 仍仅表示接受（无票）+Location；相同已消费
+        intent 重放 200 同后继当前状态，不重建。父项 400 VOD_EPISODE_REQUIRED 在身份/策略检查后判定，不尝试找父播放
+        资源。intent.positionMode 映射唯一 startBasis：carry 来自冻结 ledger，target_history 在 probe 后读当前
+        Profile 目标历史并冻结一次，beginning=0；禁止第二次 resume 读取覆盖 carry；目标时长/匹配不兼容回退 beginning
+        并有 reason。发票仍走 renew。resolve 沿用 004 控制桶限流；写 body<=16KiB。
+      x-access: playback
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Consumed transition intent replay; same successor current state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackDto'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '201':
+          description: Accepted; no ticket in this response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackDto'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+            Location:
+              $ref: '#/components/headers/LocationPlaybackSession'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/ResolveConflict409'
+        '410':
+          description: >-
+            410 TRANSITION_EXPIRED（intent 未消费过期，用户重新发起、不自动携带过期 carry）或 NEXT_PLAN_EXPIRED
+            （绑定计划过期）。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+        '503':
+          $ref: '#/components/responses/StorageNotReady503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VodResolveRequest'
+  /playback/sessions/{sessionId}/progress:
+    post:
+      operationId: vod_saveProgress
+      summary: saveProgress (010 ProgressReply)
+      description: >-
+        005 语义保留：applied 只指历史写入；reason=accepted|duplicate|stale_sample|superseded。010 追加独立会话接受
+        视图：sessionAccepted/acceptedSampleSeq/acceptedPositionSeconds/acceptedGeneration/sessionStarted；
+        superseded 可 sessionAccepted=true/applied=false；duplicate 返回原存储结果不再写；stale_sample
+        sessionAccepted=false 并返回最后会话接受游标供恢复。seq 跨 generation 单调。限流 60/min/DeviceSession；
+        写 body<=16KiB。
+      x-access: playback
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProgressReply'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/ProgressConflict409'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+        '503':
+          $ref: '#/components/responses/StorageNotReady503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProgressSample'
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+  /playback/sessions/{sessionId}/observations:
+    post:
+      operationId: vod_recordObservation
+      summary: vodRecordObservation
+      description: >-
+        Profile/授权/交付/phase 检查；观测不写历史/epoch。同 seq 同载荷重放，冲突 409、陈旧 accepted=false；
+        每 session 最高 2Hz（正常 playing 每 1s）。回复 playbackStarted=true 表示服务器在当前身份/策略、generation、
+        ready/playing/paused 及受控交付事实均有效时接受了 playing 观测并原子设置独立 playback_started_at：仅解除
+        readyAt+60s 未起播期限，不设置 sessionStarted、不写 ledger/history、不授予完成/carry 资格；收到 HTTP 确认后
+        UI 才视为解除等待。限流 phase 观测独立 120/min/session；写 body<=16KiB。
+      x-access: playback
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationReply'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/ObservationConflict409'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ObservationSample'
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+  /playback/sessions/{sessionId}/finish:
+    post:
+      operationId: vod_finishPlayback
+      summary: vodFinishPlayback
+      description: >-
+        200 FinishReceipt；同 payload 重放（replayed=true），不在终态升级；硬非法 400/409 整次回滚。无证据不等于接口
+        失败（可 ended=true/autoNextEligible=false）。finish/progress/stop 共用 payload 摘要与 seq 领域机但不同
+        operation 身份；收到 finish 后停周期链并等待已分配样本完成，不让 final 先越过未决 started。final 使用本次样本，
+        最后 10 秒周期缺失不单独拒绝。same operationKey 异 payload 409；operationKey 必须为 UUID；session 只有一份不可
+        变 finish 结果；已有 receipt 且新 key 不同则 409 FINISH_ALREADY_RECORDED（附恢复路径而不重算）；旧 stop 先赢时
+        首次 finish 只登记 stopped_elsewhere receipt 而不写新 final。finish 重放先校验身份/归属再读 receipt，不要求
+        活动态。写 body<=16KiB。
+      x-access: playback
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinishReceipt'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/FinishConflict409'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+        '503':
+          $ref: '#/components/responses/StorageNotReady503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinishRequest'
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+  /playback/sessions/{sessionId}/finish-result:
+    get:
+      operationId: vod_getFinishResult
+      summary: vodGetFinishResult
+      description: >-
+        200 FinishReceipt|null；只当前原设备/原上下文可读，用于丢响应恢复；跨上下文/跨设备/不存在 404 同形，禁止跨
+        上下文读旧结果。不要求活动态（finish 重放先校验身份/归属再读 receipt）。
+      x-access: playback
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success (FinishReceipt or null)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/FinishReceipt'
+                  - type: 'null'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+  /playback/sessions/{sessionId}/stop:
+    post:
+      operationId: vod_stopPlayback
+      summary: vodStopPlayback
+      description: >-
+        保留 005 body 及行为，仍 204 无 body。无 auto-next 资格；先赢的 stop 使后到 finish 返回 not_completed 且不补
+        写 final；已终态的重复 stop 保持 204。无权读取 receipt 时只允许既有最小空 stop 清理。
+      x-access: playback
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '204':
+          description: Stopped (no body)
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/ProgressConflict409'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StopRequest'
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+  /vod/switch-candidates:
+    get:
+      operationId: vod_listSwitchCandidates
+      summary: vodListSwitchCandidates
+      description: >-
+        Profile + 原设备上下文。200 {items:SwitchCandidate[], nextCursor:null|string, partial, reasons}；同线/跨源
+        候选只含元数据，服务端从来源标题构造搜索，不接任意 q/URL；source 内部 ID/位置不下发。failed 可恢复来源仅 60s。
+        需原 fromSessionId 的 current generation。写参数经 query，无 body。
+      x-access: playback
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwitchCandidatePage'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+      parameters:
+        - name: fromSessionId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: expectedGeneration
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+  /vod/switch-probes:
+    post:
+      operationId: vod_probeSwitchCandidates
+      summary: vodProbeSwitchCandidates
+      description: >-
+        Profile 鉴权。200 {items:ProbeResult[]}；逐候选先做预览有效与策略检查，再有界请求：单候选 3s/1MiB、全次 5s、
+        内部并发 3。candidateRefs 1–3 个。无票/无历史。限流 10/min/DeviceSession；写 body<=16KiB。
+      x-access: playback
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProbeResults'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SwitchProbeRequest'
+  /playback/next-plans:
+    post:
+      operationId: vod_createNextPlan
+      summary: vodCreateNextPlan
+      description: >-
+        Profile 鉴权、来源资格及目标策略检查后 200 NextPlanReply；无确定下一集 404 VOD_NEXT_UNAVAILABLE（停止连播）。
+        只生成有界服务端计划：不建播放/epoch/历史，不占 slot，不测速。计划按设备/Profile/context/来源代次/action 绑定，
+        TTL 60s 固定；倒计时开始前取计划，选择历史时使用同一快照，超期 410 NEXT_PLAN_EXPIRED 并重新展示。每设备最多
+        20 活计划，按最早过期淘汰。限流沿用过渡 10/min/DeviceSession；写 body<=16KiB；no-store。
+      x-access: playback
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NextPlanReply'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '404':
+          $ref: '#/components/responses/VodNextUnavailable404'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NextPlanRequest'
+  /playback/transition-intents:
+    post:
+      operationId: vod_createTransitionIntent
+      summary: vodCreateTransitionIntent
+      description: >-
+        IntentRequest 严格 oneOf（next/manual_next 或 switch/recover_switch）。201 IntentReply；新 key 复用已有
+        pending 同选择可 200；不同选择必须以同 POST 新 operationKey+expectedSlotRevision 显式 replace（旧 intent 标
+        superseded）。冲突 409 TRANSITION_SLOT_CONFLICT；创建均验证计划/候选与当前序列、详情、历史 revision 及偏好：
+        任一变化 409 NEXT_PLAN_CHANGED（重新展示并确认，不静默消费）；计划过期 410 NEXT_PLAN_EXPIRED。carry 须提供
+        sourceCheckpoint，且事务读取的当前代 ledger 必须精确等于该游标，否则 409 SOURCE_PROGRESS_PENDING；选择更早
+        位置须 allowEarlierAcceptedPosition=true + 该游标 + 新 operationKey。创建/消费均不发票。限流 10/min/
+        DeviceSession；写 body<=16KiB。slot 消费后任何新 key 也 409 并附原后继引用（仅原上下文可见）；同 key 重放不续
+        TTL。
+      x-access: playback
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Same operationKey replay / reuse of existing pending intent with identical choice
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntentReply'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '201':
+          description: Intent created (pending)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntentReply'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/TransitionIntentConflict409'
+        '410':
+          $ref: '#/components/responses/NextPlanExpired410'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+        '503':
+          $ref: '#/components/responses/StorageNotReady503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IntentRequest'
+  /playback/transition-intents/{intentId}:
+    get:
+      operationId: vod_getTransitionIntent
+      summary: vodGetTransitionIntent
+      description: >-
+        当前上下文归属（A→B→A 的 contextVersion 不等即 404）。200 IntentReply（consumed 含 successorSessionId）；过期
+        未消费 410（不误作可重新消费）。完整 IntentReply 要求当前源/目标权限；失权时不返回完整结果——使用
+        POST /playback/transition-intents/{id}/cleanup 最小清理入口，不借 GET 发票、不返回播放票。
+      x-access: playback
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntentReply'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '410':
+          $ref: '#/components/responses/TransitionExpired410'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+      parameters:
+        - $ref: '#/components/parameters/IntentIdPath'
+  /playback/transition-intents/{intentId}/cancel:
+    post:
+      operationId: vod_cancelTransitionIntent
+      summary: vodCancelTransitionIntent
+      description: >-
+        body={}。200 {outcome, successorSessionId, slotRevision}。取消与消费 CAS 竞争：取消赢则 intent 取消不能消费；
+        消费赢则返回 successorSessionId（仅原上下文可见），协调器显式 stop 不需要的后继。取消已经输给消费返回 successor；
+        找回后继失败/ended 仍返回终态，不能再次消费造新播放。
+      x-access: playback
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransitionCancelReply'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmptyActionRequest'
+      parameters:
+        - $ref: '#/components/parameters/IntentIdPath'
+  /playback/transition-intents/{intentId}/cleanup:
+    post:
+      operationId: vod_cleanupTransitionIntent
+      summary: vodCleanupTransitionIntent
+      description: >-
+        body={}。200 {outcome:cancelled|already_cancelled|cleanup_pending|stopped}。仅清理授权分支（I5）：仅当前有效
+        DeviceSession、原 Profile 及完全相同 contextVersion 可用；跨家庭/设备/Profile/旧 context 及不存在均 404。该
+        分支不要求源或目标当前内容策略放行，不返回目标 ID、元数据、位置或票据；不写 final/history、不重建、不重消费。
+        事务内 pending 则取消/释放槽，consumed 则为唯一已关联后继写持久 cleanup_requested 并拒绝其 renew/新资产、投递
+        幂等空 stop；已终态仍清理资源。失败/重启扫描重试；GET 完整结果被拒或响应丢失时重试同入口；不依赖已知
+        successorSessionId。context 变更后禁止调用（由撤销处理与持久 cleanup 扫描负责）；不能放宽原 stop/control 鉴权。
+        写 body<=16KiB。
+      x-access: playback
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransitionCleanupReply'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            Referrer-Policy:
+              $ref: '#/components/headers/ReferrerPolicyNoReferrer'
+        '400':
+          $ref: '#/components/responses/BadRequest400'
+        '401':
+          $ref: '#/components/responses/Unauthorized401'
+        '403':
+          $ref: '#/components/responses/ProfileForbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '429':
+          $ref: '#/components/responses/RateLimited429'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmptyActionRequest'
+      parameters:
+        - $ref: '#/components/parameters/IntentIdPath'
+components:
+  schemas:
+    Problem:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        code:
+          type: string
+          description: >-
+            公开稳定错误码；010 新增 VOD_SEARCH_EXPIRED(410)/VOD_PREVIEW_EXPIRED(410)/VOD_DETAIL_CHANGED(409)/
+            VOD_MATERIALIZATION_STALE(409)/VOD_QUOTA_EXCEEDED(409)/IDEMPOTENCY_CONFLICT(409)/
+            TRANSITION_SLOT_CONFLICT(409)/TRANSITION_EXPIRED(410)/NEXT_PLAN_CHANGED(409)/NEXT_PLAN_EXPIRED(410)/
+            VOD_NEXT_UNAVAILABLE(404)/SOURCE_PROGRESS_PENDING(409)/SOURCE_NOT_TERMINAL(409)/
+            FINISH_ALREADY_RECORDED(409)/VOD_EPISODE_REQUIRED(400)，并继承 004/005 既有码。
+      required:
+        - title
+        - status
+        - code
+    PublicVodCard:
+      type: object
+      additionalProperties: false
+      description: 公共 VOD 卡片；无源配置 ID。
+      required:
+        - titleRef
+        - title
+        - year
+        - sourceLabel
+        - posterRef
+      properties:
+        titleRef:
+          type: string
+          minLength: 1
+          description: 不透明标题引用；不得携带可解码的上游 URL。
+        title:
+          type: string
+        year:
+          type:
+            - string
+            - 'null'
+        sourceLabel:
+          type: string
+        posterRef:
+          type: 'null'
+    VodSearchSource:
+      type: object
+      additionalProperties: false
+      required:
+        - sourceRef
+        - status
+        - hasMore
+      properties:
+        sourceRef:
+          type: string
+          minLength: 1
+          description: 不透明来源引用；无源配置 ID。
+        status:
+          type: string
+          enum:
+            - ok
+            - empty
+            - timeout
+            - invalid
+            - unavailable
+        hasMore:
+          type: boolean
+    SearchPage:
+      type: object
+      additionalProperties: false
+      description: 搜索页；已生成页重放不变，未抓取实时上游不承诺完整快照。
+      required:
+        - searchId
+        - items
+        - sources
+        - nextCursor
+        - partial
+        - reasons
+        - expiresAt
+      properties:
+        searchId:
+          type: string
+          minLength: 1
+          description: 不透明搜索 ID；10min/最多 2000 结果。
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/PublicVodCard'
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/VodSearchSource'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+        partial:
+          type: boolean
+          description: 正常 next 页 partial=false；部分源失败/超时为 true 并填 reasons。
+        reasons:
+          type: array
+          items:
+            type: string
+        expiresAt:
+          type: string
+          format: date-time
+    VodPreviewEpisode:
+      type: object
+      additionalProperties: false
+      required:
+        - episodeRef
+        - label
+        - status
+        - reason
+      properties:
+        episodeRef:
+          type: string
+          minLength: 1
+          description: 不透明集引用；不得携带可解码的上游 URL。
+        label:
+          type: string
+        status:
+          type: string
+          enum:
+            - candidate
+            - unsupported
+        reason:
+          type:
+            - string
+            - 'null'
+          enum:
+            - identity_ambiguous
+            - format_unsupported
+            - null
+    VodPreviewLine:
+      type: object
+      additionalProperties: false
+      required:
+        - lineRef
+        - name
+        - episodes
+      properties:
+        lineRef:
+          type: string
+          minLength: 1
+        name:
+          type: string
+        episodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/VodPreviewEpisode'
+    VodPreview:
+      type: object
+      additionalProperties: false
+      description: >-
+        预览快照；预算最多 20 线路/单线 2000 集/合计 5000 集/4MiB，超体积与超条目一律 422 整次失败。预览不物化、
+        不建个人记录。
+      required:
+        - titleRef
+        - title
+        - description
+        - year
+        - sourceLabel
+        - posterRef
+        - previewRevision
+        - fetchedAt
+        - expiresAt
+        - lines
+      properties:
+        titleRef:
+          type: string
+          minLength: 1
+        title:
+          type: string
+        description:
+          type:
+            - string
+            - 'null'
+        year:
+          type:
+            - string
+            - 'null'
+        sourceLabel:
+          type: string
+        posterRef:
+          type: 'null'
+        previewRevision:
+          type: integer
+          minimum: 1
+        fetchedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/VodPreviewLine'
+    TitleEpisodeMaterializationRequest:
+      type: object
+      additionalProperties: false
+      description: 标题/集分支；titleRef+episodeRef 均来自当前有效预览。
+      required:
+        - titleRef
+        - episodeRef
+        - previewRevision
+        - operationKey
+      properties:
+        titleRef:
+          type: string
+          minLength: 1
+        episodeRef:
+          type: string
+          minLength: 1
+        previewRevision:
+          type: integer
+          minimum: 1
+        operationKey:
+          type: string
+          format: uuid
+    CandidateMaterializationRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        候选分支（I1）；candidateRef 为服务端签发的不透明候选引用，服务端记录绑定家庭/原设备/Profile/context/来源
+        session/generation/预览修订与准确 title/episode 键；不要求前端推导 titleRef/episodeRef。
+      required:
+        - candidateRef
+        - previewRevision
+        - operationKey
+      properties:
+        candidateRef:
+          type: string
+          minLength: 1
+        previewRevision:
+          type: integer
+          minimum: 1
+        operationKey:
+          type: string
+          format: uuid
+    MaterializationRequest:
+      oneOf:
+        - $ref: '#/components/schemas/TitleEpisodeMaterializationRequest'
+        - $ref: '#/components/schemas/CandidateMaterializationRequest'
+    Materialized:
+      type: object
+      additionalProperties: false
+      description: >-
+        revision 为提交时值，不表示当前仍未变化。candidate 分支返回不可变的已登记映射引用 registeredCandidateRef
+        （intent.targetCandidateRef 使用它，previewRevision 仍须匹配）；普通分支两者为 null。
+      required:
+        - parentMediaId
+        - mediaId
+        - detailRevision
+        - catalogRevision
+        - replayed
+        - candidateRef
+        - registeredCandidateRef
+      properties:
+        parentMediaId:
+          type: string
+          format: uuid
+        mediaId:
+          type: string
+          format: uuid
+        detailRevision:
+          type: integer
+          minimum: 1
+        catalogRevision:
+          type: integer
+          minimum: 1
+        replayed:
+          type: boolean
+        candidateRef:
+          type:
+            - string
+            - 'null'
+        registeredCandidateRef:
+          type:
+            - string
+            - 'null'
+    StableEpisodeItem:
+      type: object
+      additionalProperties: false
+      required:
+        - mediaId
+        - label
+        - availability
+        - sequenceOrdinal
+      properties:
+        mediaId:
+          type: string
+          format: uuid
+        label:
+          type: string
+        availability:
+          type: string
+          enum:
+            - candidate
+            - unavailable
+        sequenceOrdinal:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+          description: 确定序列序号；ambiguous/special 或缺序为 null。
+    StableEpisodeLine:
+      type: object
+      additionalProperties: false
+      required:
+        - lineRef
+        - name
+        - episodes
+      properties:
+        lineRef:
+          type: string
+          minLength: 1
+        name:
+          type: string
+        episodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/StableEpisodeItem'
+    StableEpisodes:
+      type: object
+      additionalProperties: false
+      description: >-
+        稳定分页；修订绑定 cursor，详情变化 409 VOD_DETAIL_CHANGED。线路可跨页重复，消费者按 lineRef 聚合，不能把每页
+        线路当新线；每页总计 100 子项。稳定详情失败可返回旧完整快照+stale=true；成功明确删除不能 stale 复活。
+      required:
+        - parentMediaId
+        - detailRevision
+        - fetchedAt
+        - stale
+        - lines
+        - nextCursor
+      properties:
+        parentMediaId:
+          type: string
+          format: uuid
+        detailRevision:
+          type: integer
+          minimum: 1
+        fetchedAt:
+          type: string
+          format: date-time
+        stale:
+          type: boolean
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/StableEpisodeLine'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+    HistorySummary:
+      type: object
+      additionalProperties: false
+      description: >-
+        在线媒体历史摘要；canAttemptResume 仅候选资格，最终续播资格在本次 resolve/probe 后由 startBasis/
+        resumeDisposition 判定，finish/auto-next 资格由尾段观测在 finish 时独立判定，三者互不替代。
+      required:
+        - mediaId
+        - parentMediaId
+        - lineLabel
+        - episodeLabel
+        - lastViewedAt
+        - positionSeconds
+        - durationSeconds
+        - completed
+        - canAttemptResume
+        - resumeReason
+        - resumeConfidence
+        - revision
+      properties:
+        mediaId:
+          type: string
+          format: uuid
+        parentMediaId:
+          type: string
+          format: uuid
+        lineLabel:
+          type: string
+        episodeLabel:
+          type: string
+        lastViewedAt:
+          type: string
+          format: date-time
+        positionSeconds:
+          type: number
+          minimum: 0
+        durationSeconds:
+          type:
+            - number
+            - 'null'
+          minimum: 0
+        completed:
+          type: boolean
+        canAttemptResume:
+          type: boolean
+        resumeReason:
+          type:
+            - string
+            - 'null'
+          enum:
+            - unavailable
+            - content_changed
+            - continuity_changed
+            - completed
+            - invalid_position
+            - duration_unknown
+            - null
+        resumeConfidence:
+          type: string
+          enum:
+            - operational
+            - verified
+            - none
+        revision:
+          type: integer
+          minimum: 1
+    NextEpisodeAction:
+      type: object
+      additionalProperties: false
+      required:
+        - mediaId
+        - label
+      properties:
+        mediaId:
+          type: string
+          format: uuid
+        label:
+          type: string
+    TitleProgress:
+      type: object
+      additionalProperties: false
+      description: >-
+        无记录三个 null；latest 取最近实际记录；resumeCandidate 取最近未完成且可候选的本 Profile 子项，无适合项 null；
+        下一集 action 来自 latest 的确定序列，不自动播放。
+      required:
+        - latest
+        - resumeCandidate
+        - nextEpisodeAction
+      properties:
+        latest:
+          oneOf:
+            - $ref: '#/components/schemas/HistorySummary'
+            - type: 'null'
+        resumeCandidate:
+          oneOf:
+            - $ref: '#/components/schemas/HistorySummary'
+            - type: 'null'
+        nextEpisodeAction:
+          oneOf:
+            - $ref: '#/components/schemas/NextEpisodeAction'
+            - type: 'null'
+    Preferences:
+      type: object
+      additionalProperties: false
+      required:
+        - autoplayNext
+        - switchCarryPosition
+        - version
+      properties:
+        autoplayNext:
+          type: boolean
+        switchCarryPosition:
+          type: boolean
+        version:
+          type: integer
+          minimum: 0
+          description: 未有持久行时传输初值 0；持久行 version>=1，服务端绝不写入 0 作为持久版本。
+    VodPreferencesPatchRequest:
+      type: object
+      additionalProperties: false
+      description: 至少一个偏好字段；expectedVersion 为读到的 Preferences.version（未有行=0）。
+      required:
+        - expectedVersion
+        - operationKey
+      anyOf:
+        - required:
+            - autoplayNext
+        - required:
+            - switchCarryPosition
+      properties:
+        expectedVersion:
+          type: integer
+          minimum: 0
+        autoplayNext:
+          type: boolean
+        switchCarryPosition:
+          type: boolean
+        operationKey:
+          type: string
+          format: uuid
+    ProgressSample:
+      type: object
+      additionalProperties: false
+      description: 与 005 同形；seq 跨 generation 单调。
+      required:
+        - sampleSeq
+        - expectedGeneration
+        - positionSeconds
+        - reason
+      properties:
+        sampleSeq:
+          type: integer
+          minimum: 1
+        expectedGeneration:
+          type: integer
+          minimum: 1
+        positionSeconds:
+          type: number
+          minimum: 0
+        reason:
+          type: string
+          enum:
+            - started
+            - periodic
+            - pause
+    ProgressReply:
+      type: object
+      additionalProperties: false
+      description: >-
+        applied 保留旧义（只指历史写入）。superseded 可 sessionAccepted=true/applied=false；duplicate 返回原存储结果
+        不再次写；stale_sample sessionAccepted=false 并返回最后会话接受游标（acceptedSampleSeq/acceptedGeneration/
+        acceptedPositionSeconds）供恢复。
+      required:
+        - applied
+        - reason
+        - historyRevision
+        - sessionAccepted
+        - acceptedSampleSeq
+        - acceptedPositionSeconds
+        - acceptedGeneration
+        - sessionStarted
+      properties:
+        applied:
+          type: boolean
+        reason:
+          type: string
+          enum:
+            - accepted
+            - duplicate
+            - stale_sample
+            - superseded
+        historyRevision:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+        sessionAccepted:
+          type: boolean
+        acceptedSampleSeq:
+          type: integer
+          minimum: 1
+        acceptedPositionSeconds:
+          type:
+            - number
+            - 'null'
+          minimum: 0
+        acceptedGeneration:
+          type: integer
+          minimum: 1
+        sessionStarted:
+          type: boolean
+    FinalProgress:
+      type: object
+      additionalProperties: false
+      required:
+        - sampleSeq
+        - expectedGeneration
+        - positionSeconds
+      properties:
+        sampleSeq:
+          type: integer
+          minimum: 1
+        expectedGeneration:
+          type: integer
+          minimum: 1
+        positionSeconds:
+          type: number
+          minimum: 0
+    FinishRequest:
+      type: object
+      additionalProperties: false
+      description: finish operationKey 必须为 UUID；同 operationKey 异 payload 409。
+      required:
+        - operationKey
+        - finalProgress
+        - cause
+      properties:
+        operationKey:
+          type: string
+          format: uuid
+        finalProgress:
+          $ref: '#/components/schemas/FinalProgress'
+        cause:
+          type: string
+          enum:
+            - natural_end
+    FinishReceipt:
+      type: object
+      additionalProperties: false
+      description: >-
+        没有权限不返回 receipt；session 只有一份不可变 finish 结果。无证据不等于接口失败（可 ended=true/
+        autoNextEligible=false）；旧 stop 先赢时首次 finish 只登记 stopped_elsewhere receipt 而不写新 final。
+      required:
+        - sessionId
+        - generation
+        - ended
+        - finalSessionAccepted
+        - historyApplied
+        - historyRevision
+        - sessionCompleted
+        - autoNextEligible
+        - reason
+        - positionSeconds
+        - durationSeconds
+        - endedAt
+        - replayed
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        generation:
+          type: integer
+          minimum: 1
+        ended:
+          type: boolean
+        finalSessionAccepted:
+          type: boolean
+        historyApplied:
+          type: boolean
+        historyRevision:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+        sessionCompleted:
+          type: boolean
+        autoNextEligible:
+          type: boolean
+        reason:
+          type: string
+          enum:
+            - completed
+            - stale_final
+            - no_tail_observation
+            - not_started
+            - no_duration
+            - not_completed
+            - stopped_elsewhere
+        positionSeconds:
+          type:
+            - number
+            - 'null'
+          minimum: 0
+        durationSeconds:
+          type:
+            - number
+            - 'null'
+          minimum: 0
+        endedAt:
+          type: string
+          format: date-time
+          description: 旧 stop 先赢时取原终态时刻。
+        replayed:
+          type: boolean
+    StopRequest:
+      type: object
+      additionalProperties: false
+      description: 保留 005 body 及行为；仍 204 无 body。
+      properties:
+        finalProgress:
+          $ref: '#/components/schemas/FinalProgress'
+      required: []
+    ObservationSample:
+      type: object
+      additionalProperties: false
+      description: 播放观测；不写个人历史/epoch；每 session 最高 2Hz。
+      required:
+        - eventSeq
+        - expectedGeneration
+        - event
+        - positionSeconds
+        - playbackRate
+      properties:
+        eventSeq:
+          type: integer
+          minimum: 1
+          description: 每 generation 独立。
+        expectedGeneration:
+          type: integer
+          minimum: 1
+        event:
+          type: string
+          enum:
+            - playing
+            - pause
+            - seeking
+            - seeked
+            - waiting
+            - ratechange
+            - error
+        positionSeconds:
+          type: number
+          minimum: 0
+        playbackRate:
+          type: number
+          minimum: 0.5
+          maximum: 2
+    ObservationReply:
+      type: object
+      additionalProperties: false
+      description: >-
+        playbackStarted=true 表示已接受 playing 观测并原子设置独立 playback_started_at：仅解除 readyAt+60s 未起播
+        期限，不设置 sessionStarted、不写 ledger/history、不授予完成/carry 资格；无 playing/无交付、仅 heartbeat/
+        renew 不解除期限。
+      required:
+        - accepted
+        - lastEventSeq
+        - playbackStarted
+      properties:
+        accepted:
+          type: boolean
+          description: 同 seq 同载荷重放返回原结果；陈旧样本 accepted=false。
+        lastEventSeq:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+          description: 当前已接受最大 eventSeq；尚无接受事件为 null。
+        playbackStarted:
+          type: boolean
+    NextPlanRequest:
+      type: object
+      additionalProperties: false
+      description: 只生成有界服务端计划；不建播放/epoch/历史，不占 slot，不测速。
+      required:
+        - fromSessionId
+        - expectedGeneration
+        - action
+      properties:
+        fromSessionId:
+          type: string
+          format: uuid
+        expectedGeneration:
+          type: integer
+          minimum: 1
+        action:
+          type: string
+          enum:
+            - next
+            - manual_next
+    NextPlanReply:
+      type: object
+      additionalProperties: false
+      description: >-
+        服务端确定的下一集计划快照；TTL 60s 固定（expiresAt），倒计时开始前取计划，选择历史时使用同一快照；超期 410
+        NEXT_PLAN_EXPIRED。historyChoiceRequired=true 仅表示 UI 必须显式选择后才可提交 intent，不构成授权。
+      required:
+        - nextPlanRef
+        - targetMediaId
+        - label
+        - sequenceRevision
+        - detailRevision
+        - historyRevision
+        - historyChoiceRequired
+        - history
+        - expiresAt
+      properties:
+        nextPlanRef:
+          type: string
+          minLength: 1
+          description: 不透明计划引用；绑定服务端确定的目标、序列/详情修订及目标历史 revision。
+        targetMediaId:
+          type: string
+          format: uuid
+        label:
+          type: string
+        sequenceRevision:
+          type: integer
+          minimum: 1
+        detailRevision:
+          type: integer
+          minimum: 1
+        historyRevision:
+          type: integer
+          minimum: 0
+          description: 目标历史 revision 快照；无历史=0（仅快照语义，非持久历史 revision）。
+        historyChoiceRequired:
+          type: boolean
+        history:
+          oneOf:
+            - $ref: '#/components/schemas/HistorySummary'
+            - type: 'null'
+        expiresAt:
+          type: string
+          format: date-time
+    SequentialNextIntentRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        next/manual_next 分支：不接受 historyChoiceConfirmed 或客户端目标 ID。nextPlanRef 绑定服务端确定的目标、
+        序列/详情修订及目标历史 revision；positionMode 表示用户对该快照的位置选择。自动 next 要求 finish 资格和当前
+        偏好；manual_next 不要求偏好/完成。创建及消费均验证计划：目标/序列或目标历史变化 409 NEXT_PLAN_CHANGED。
+      required:
+        - fromSessionId
+        - expectedGeneration
+        - action
+        - nextPlanRef
+        - positionMode
+        - expectedSlotRevision
+        - operationKey
+      properties:
+        fromSessionId:
+          type: string
+          format: uuid
+        expectedGeneration:
+          type: integer
+          minimum: 1
+        action:
+          type: string
+          enum:
+            - next
+            - manual_next
+        nextPlanRef:
+          type: string
+          minLength: 1
+        positionMode:
+          type: string
+          enum:
+            - beginning
+            - target_history
+        expectedSlotRevision:
+          type: integer
+          minimum: 0
+          description: 客户端持有的 transitionSlot.revision（无持久行=0）。
+        operationKey:
+          type: string
+          format: uuid
+    SourceCheckpoint:
+      type: object
+      additionalProperties: false
+      description: >-
+        carry 的冻结来源游标；事务读取的当前代 ledger 必须精确等于该游标，否则 409 SOURCE_PROGRESS_PENDING。未接受
+        样本不作为 checkpoint；ledger 已前进则重新展示/确认，不自动挑另一个旧位置。
+      required:
+        - expectedGeneration
+        - sampleSeq
+      properties:
+        expectedGeneration:
+          type: integer
+          minimum: 1
+        sampleSeq:
+          type: integer
+          minimum: 1
+    SwitchIntentRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        switch/recover_switch 分支。target 必须可验证候选（registeredCandidateRef，previewRevision 仍须匹配；目标需
+        物化先调用 materializations；intent 只接受已登记目标的候选映射）。high 可 carry；ambiguous 需
+        confirmedAmbiguous=true 且具体候选集；conflict 只 beginning/target_history 且不能继承源位置。若目标需物化先
+        调用 materializations。carry 必须提供 sourceCheckpoint、不接用户 position；beginning/target_history 禁止
+        sourceCheckpoint 与 allowEarlierAcceptedPosition 字段。pause 丢响应先按原 seq/载荷重试恢复。
+      required:
+        - fromSessionId
+        - expectedGeneration
+        - action
+        - targetCandidateRef
+        - previewRevision
+        - positionMode
+        - confirmedAmbiguous
+        - expectedSlotRevision
+        - operationKey
+      properties:
+        fromSessionId:
+          type: string
+          format: uuid
+        expectedGeneration:
+          type: integer
+          minimum: 1
+        action:
+          type: string
+          enum:
+            - switch
+            - recover_switch
+        targetCandidateRef:
+          type: string
+          minLength: 1
+        previewRevision:
+          type: integer
+          minimum: 1
+        positionMode:
+          type: string
+          enum:
+            - carry
+            - target_history
+            - beginning
+        confirmedAmbiguous:
+          type: boolean
+        sourceCheckpoint:
+          $ref: '#/components/schemas/SourceCheckpoint'
+        allowEarlierAcceptedPosition:
+          type: boolean
+          description: >-
+            用户明确确认已显示的接受游标后以新 operationKey、该游标及 true 提交；仍须精确相等；不自动挑另一个旧位置。
+        expectedSlotRevision:
+          type: integer
+          minimum: 0
+        operationKey:
+          type: string
+          format: uuid
+      allOf:
+        - if:
+            type: object
+            properties:
+              positionMode:
+                const: carry
+            required:
+              - positionMode
+            additionalProperties: false
+          then:
+            required:
+              - sourceCheckpoint
+        - if:
+            type: object
+            properties:
+              positionMode:
+                enum:
+                  - beginning
+                  - target_history
+            required:
+              - positionMode
+            additionalProperties: false
+          then:
+            not:
+              anyOf:
+                - required:
+                    - sourceCheckpoint
+                - required:
+                    - allowEarlierAcceptedPosition
+    IntentRequest:
+      oneOf:
+        - $ref: '#/components/schemas/SequentialNextIntentRequest'
+        - $ref: '#/components/schemas/SwitchIntentRequest'
+    IntentReply:
+      type: object
+      additionalProperties: false
+      description: >-
+        不返回原始地址；消费前不返回播放票（发票仍走 renew）。TTL 60s 自 createdAt 固定计时，重放不续 TTL；已消费不按
+        TTL 丢重放映射，至少 24h 保留。
+      required:
+        - id
+        - fromSessionId
+        - fromGeneration
+        - action
+        - targetMediaId
+        - positionMode
+        - matchConfidence
+        - slotRevision
+        - status
+        - expiresAt
+        - successorSessionId
+      properties:
+        id:
+          type: string
+          format: uuid
+        fromSessionId:
+          type: string
+          format: uuid
+        fromGeneration:
+          type: integer
+          minimum: 1
+        action:
+          type: string
+          enum:
+            - next
+            - manual_next
+            - switch
+            - recover_switch
+        targetMediaId:
+          type: string
+          format: uuid
+        positionMode:
+          type: string
+          enum:
+            - beginning
+            - target_history
+            - carry
+        matchConfidence:
+          type: string
+          enum:
+            - high
+            - ambiguous
+            - conflict
+        slotRevision:
+          type: integer
+          minimum: 1
+          description: intent 绑定的 slot revision；持久行 revision>=1。
+        status:
+          type: string
+          enum:
+            - pending
+            - cancelled
+            - superseded
+            - expired
+            - consumed
+        expiresAt:
+          type: string
+          format: date-time
+        successorSessionId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: 消费前 null。
+    TransitionCancelReply:
+      type: object
+      additionalProperties: false
+      required:
+        - outcome
+        - successorSessionId
+        - slotRevision
+      properties:
+        outcome:
+          type: string
+          enum:
+            - cancelled
+            - already_cancelled
+            - superseded
+            - expired
+            - already_consumed
+        successorSessionId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: 取消输给消费时返回原后继引用（仅原上下文可见）。
+        slotRevision:
+          type: integer
+          minimum: 1
+    TransitionCleanupReply:
+      type: object
+      additionalProperties: false
+      description: 仅清理分支的最小结果；不返回目标 ID、元数据、位置或票据。
+      required:
+        - outcome
+      properties:
+        outcome:
+          type: string
+          enum:
+            - cancelled
+            - already_cancelled
+            - cleanup_pending
+            - stopped
+    VodResolveRequest:
+      oneOf:
+        - $ref: '#/components/schemas/VodResolveBasisRequest'
+        - $ref: '#/components/schemas/VodResolveTransitionRequest'
+    VodResolveBasisRequest:
+      type: object
+      additionalProperties: false
+      description: 基础分支；startMode 缺省 beginning。resume 仅点播；频道请求 resume 沿用 004/005 400。
+      required:
+        - mediaId
+      properties:
+        mediaId:
+          type: string
+          format: uuid
+          description: 目标媒体标识；不可见媒体（被禁/跨家庭/无源）与不存在同形 404。
+        startMode:
+          type: string
+          enum:
+            - beginning
+            - resume
+          default: beginning
+    VodResolveTransitionRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        过渡消费分支；禁止 startMode 字段（严格 oneOf，不得与基础分支混用）。intent.positionMode 映射唯一 startBasis；
+        相同已消费 intent 重放返回 200 同后继当前状态。
+      required:
+        - mediaId
+        - transitionIntentId
+      properties:
+        mediaId:
+          type: string
+          format: uuid
+        transitionIntentId:
+          type: string
+          format: uuid
+    SwitchCandidate:
+      type: object
+      additionalProperties: false
+      description: 换源候选；source 内部 ID/位置不下发，仅元数据。
+      required:
+        - candidateRef
+        - title
+        - label
+        - year
+        - season
+        - versionLabel
+        - sourceLabel
+        - lineLabel
+        - matchConfidence
+        - matchReasons
+        - previewRevision
+        - expiresAt
+      properties:
+        candidateRef:
+          type: string
+          minLength: 1
+          description: 不透明候选引用；服务端记录绑定，不得携带可解码上游 URL。
+        title:
+          type: string
+        label:
+          type: string
+        year:
+          type:
+            - string
+            - 'null'
+        season:
+          type:
+            - string
+            - 'null'
+        versionLabel:
+          type:
+            - string
+            - 'null'
+        sourceLabel:
+          type: string
+        lineLabel:
+          type: string
+        matchConfidence:
+          type: string
+          enum:
+            - high
+            - ambiguous
+            - conflict
+        matchReasons:
+          type: array
+          items:
+            type: string
+        previewRevision:
+          type: integer
+          minimum: 1
+        expiresAt:
+          type: string
+          format: date-time
+    SwitchCandidatePage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - nextCursor
+        - partial
+        - reasons
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SwitchCandidate'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+        partial:
+          type: boolean
+        reasons:
+          type: array
+          items:
+            type: string
+    ProbeResult:
+      type: object
+      additionalProperties: false
+      description: >-
+        名称是首清单/有限首片延迟，不宣称带宽/画质；单候选 3s/1MiB、全次 5s、内部并发 3；无票/无历史。
+      required:
+        - candidateRef
+        - status
+        - latencyMs
+        - checkedAt
+      properties:
+        candidateRef:
+          type: string
+          minLength: 1
+        status:
+          type: string
+          enum:
+            - reachable
+            - timeout
+            - incompatible
+            - unavailable
+        latencyMs:
+          type:
+            - number
+            - 'null'
+          minimum: 0
+        checkedAt:
+          type: string
+          format: date-time
+    ProbeResults:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProbeResult'
+    SwitchProbeRequest:
+      type: object
+      additionalProperties: false
+      description: 逐候选先做预览有效与策略检查，再有界探测；无票/无历史。
+      required:
+        - fromSessionId
+        - expectedGeneration
+        - candidateRefs
+      properties:
+        fromSessionId:
+          type: string
+          format: uuid
+        expectedGeneration:
+          type: integer
+          minimum: 1
+        candidateRefs:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items:
+            type: string
+            minLength: 1
+            description: 不透明候选引用；来自当前 switch-candidates 结果。
+    EmptyActionRequest:
+      type: object
+      description: 请求体必须为空对象。
+      additionalProperties: false
+      maxProperties: 0
+    VodSourceCapabilities:
+      type: object
+      additionalProperties: false
+      description: kind=vod 来源能力；resume=operational 仍只是候选语义，最终资格需当次 probe 判定。
+      required:
+        - resume
+        - requiresCurrentProbe
+      properties:
+        resume:
+          type: string
+          enum:
+            - operational
+        requiresCurrentProbe:
+          type: boolean
+          const: true
+    Source:
+      type: object
+      additionalProperties: false
+      description: 005 来源 DTO 的 010 视图：kind 增加 vod，kind=vod 返回 capabilities。仅脱敏概览，无 raw URL。
+      required:
+        - id
+        - kind
+        - name
+        - enabled
+        - version
+        - epgSourceId
+        - locationLabel
+        - lastSuccessAt
+        - lastJobId
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+            - iptv
+            - epg
+            - nas
+            - vod
+        name:
+          type: string
+        enabled:
+          type: boolean
+        version:
+          type: integer
+          minimum: 1
+        epgSourceId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        locationLabel:
+          type: string
+          description: 脱敏主机标签或 rootKey；不含地址路径/query/userinfo。
+        lastSuccessAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        lastJobId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        capabilities:
+          $ref: '#/components/schemas/VodSourceCapabilities'
+    SourcePage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - total
+        - page
+        - pageSize
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Source'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+    VodCreateSourceRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        010 新增 kind=vod 分支：根 URL 只接受 http(s) 并校验；限 10 启用源。ownerPassword 缺失/空串/错误走 403，
+        锁定 423。iptv/epg/nas 分支仍按 005 B003CreateSource 定义。
+      required:
+        - kind
+        - name
+        - remoteUrl
+        - adapter
+      properties:
+        ownerPassword:
+          type: string
+          format: password
+          writeOnly: true
+        kind:
+          type: string
+          enum:
+            - vod
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        remoteUrl:
+          type: string
+          format: uri
+          pattern: ^https?://
+          writeOnly: true
+        adapter:
+          type: string
+          enum:
+            - apple-cms-json
+    VodPatchSourceRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        010 约束：根地址字段拒绝（400）；改名不失效活动 locator，启停均使 locator 失效。CAS expectedVersion。
+      required:
+        - expectedVersion
+      properties:
+        ownerPassword:
+          type: string
+          format: password
+          writeOnly: true
+        expectedVersion:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        enabled:
+          type: boolean
+    SourceTestRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - ownerPassword
+      properties:
+        ownerPassword:
+          type: string
+          format: password
+          writeOnly: true
+          description: Settings 当次密码；缺失/错误 403，锁定 423；不回显、不落日志。
+    SourceTestResult:
+      type: object
+      additionalProperties: false
+      description: 不写媒体；授权错误不能包装为测试结果。
+      required:
+        - reachable
+        - compatible
+        - capabilities
+        - reason
+      properties:
+        reachable:
+          type: boolean
+        compatible:
+          type: boolean
+        capabilities:
+          $ref: '#/components/schemas/VodSourceCapabilities'
+        reason:
+          type:
+            - string
+            - 'null'
+          enum:
+            - timeout
+            - invalid
+            - unavailable
+            - null
+    PublicMedia:
+      type: object
+      additionalProperties: false
+      description: >-
+        005 PublicMedia 精确字段 + 010 扩展 detailKind/parentMediaId。公共目录/详情只返回 available；个人数据关联
+        摘要可返回 unavailable。posterRef 仅认可的同源资源或 null。
+      required:
+        - id
+        - type
+        - title
+        - description
+        - posterRef
+        - contentLevel
+        - availability
+        - detailKind
+        - parentMediaId
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum:
+            - channel
+            - movie
+            - series
+            - episode
+            - video
+        title:
+          type: string
+        description:
+          type:
+            - string
+            - 'null'
+        posterRef:
+          type:
+            - string
+            - 'null'
+        contentLevel:
+          type:
+            - integer
+            - 'null'
+          minimum: 0
+          maximum: 18
+        availability:
+          type: string
+          enum:
+            - available
+            - unavailable
+        detailKind:
+          type: string
+          enum:
+            - standalone
+            - vod_title
+            - vod_episode
+          description: 010 扩展；旧记录 standalone。
+        parentMediaId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: vod_episode 的父标题 ID；standalone/vod_title 为 null。
+    PublicMediaPage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - page
+        - pageSize
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicMedia'
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+        total:
+          type: integer
+          minimum: 0
+    HistoryItem:
+      type: object
+      additionalProperties: false
+      description: 005 HistoryItem + 010 扩展 resumeCheckRequired（仅在线媒体为 true）。
+      required:
+        - media
+        - lastViewedAt
+        - positionSeconds
+        - durationSeconds
+        - canResume
+        - revision
+      properties:
+        media:
+          $ref: '#/components/schemas/PublicMedia'
+        lastViewedAt:
+          type: string
+          format: date-time
+        positionSeconds:
+          type: number
+          minimum: 0
+        durationSeconds:
+          type:
+            - number
+            - 'null'
+          minimum: 0
+        canResume:
+          type: boolean
+          description: >-
+            005 语义（静态媒体原义不变）；对在线媒体映射为候选资格并追加 resumeCheckRequired=true。
+        resumeCheckRequired:
+          type: boolean
+          description: 010 扩展；在线媒体候选资格标记，最终资格需当次 resolve/probe 判定；静态媒体不返回。
+        revision:
+          type: integer
+          minimum: 1
+    HistoryPage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - nextCursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/HistoryItem'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+    PlaybackSessionState:
+      type: string
+      description: 004/005 播放会话状态机（不新增 completed 播放状态；完成资格在 finish receipt）。
+      enum:
+        - preparing
+        - ready
+        - playing
+        - paused
+        - ended
+        - failed
+        - interrupted
+    PlaybackDelivery:
+      type:
+        - string
+        - 'null'
+      description: 004/005 交付模式；探测/格式计划完成前为 null。
+      enum:
+        - direct
+        - hls_proxy
+        - remux
+        - audio_transcode
+        - video_transcode
+        - null
+    PlaybackTrackAudio:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - label
+        - language
+        - default
+      properties:
+        id:
+          type: string
+          minLength: 1
+        label:
+          type: string
+        language:
+          type: string
+        default:
+          type: boolean
+    PlaybackTrackSubtitle:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - label
+        - language
+      properties:
+        id:
+          type: string
+          minLength: 1
+        label:
+          type: string
+        language:
+          type: string
+    PlaybackTracks:
+      type: object
+      additionalProperties: false
+      description: 探测未完成时 audio/subtitles 均为空数组。
+      required:
+        - audio
+        - subtitles
+      properties:
+        audio:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaybackTrackAudio'
+        subtitles:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaybackTrackSubtitle'
+    TransitionSlot:
+      type: object
+      additionalProperties: false
+      description: >-
+        供当前归属设备恢复/替换；首次槽不存在 revision=0/open（传输初值），任何持久行 revision>=1。
+      required:
+        - revision
+        - status
+        - activeIntentId
+        - successorSessionId
+      properties:
+        revision:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum:
+            - open
+            - reserved
+            - consumed
+        activeIntentId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        successorSessionId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+    PlaybackDto:
+      type: object
+      additionalProperties: false
+      description: >-
+        继承 004/005 状态 DTO（B004PlaybackDto 同形），无新增源 URL；010 追加 startBasis/resumeDisposition/
+        resumeReason/transitionSlot/seekCapability/playbackStarted。票字段仍只有 renew 返回，普通 GET/resolve 不发票。
+        preparing 未冻结时 resumeDisposition=pending。
+      required:
+        - id
+        - state
+        - version
+        - generation
+        - desiredPaused
+        - delivery
+        - positionSeconds
+        - durationSeconds
+        - timelineOffsetSeconds
+        - presentationStartSeconds
+        - ticketExpiresAt
+        - playbackUrl
+        - tracks
+        - startBasis
+        - resumeDisposition
+        - resumeReason
+        - transitionSlot
+        - seekCapability
+        - playbackStarted
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 播放会话 ID。
+        state:
+          $ref: '#/components/schemas/PlaybackSessionState'
+        version:
+          type: integer
+          minimum: 1
+          description: 会话编辑 version（CAS 依据）。
+        generation:
+          type: integer
+          minimum: 1
+          description: 会话编辑代次；旧代次票立即失效。
+        desiredPaused:
+          type: boolean
+        delivery:
+          $ref: '#/components/schemas/PlaybackDelivery'
+        positionSeconds:
+          type: number
+          minimum: 0
+          description: 当前/目标播放位置（影片逻辑时间，秒）。
+        durationSeconds:
+          type:
+            - number
+            - 'null'
+          minimum: 0
+          description: 影片逻辑时长（秒）；直播/未知为 null，未知时长可播放但不承诺进度/续播。
+        timelineOffsetSeconds:
+          type: number
+        presentationStartSeconds:
+          type: number
+          minimum: 0
+          description: 冻结起点；续播/carry/client seek 定位的逻辑输出 offset。
+        ticketExpiresAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: 除 renew 响应外为 null。
+        playbackUrl:
+          type:
+            - string
+            - 'null'
+          description: 除 renew 响应外为 null；同源相对路径，无源地址。
+        tracks:
+          $ref: '#/components/schemas/PlaybackTracks'
+        failureCode:
+          type: string
+          description: 公开稳定失败码；仅 state=failed 时出现且非空，含 010 新注册码；不含源诊断。
+        startBasis:
+          type: string
+          enum:
+            - beginning
+            - target_history
+            - transition_carry
+          description: 010 扩展；intent.positionMode 映射唯一 startBasis，禁止第二次 resume 覆盖 carry。
+        resumeDisposition:
+          type: string
+          enum:
+            - pending
+            - resume
+            - beginning
+          description: 010 扩展；preparing 未冻结=pending；probe 后一次计算并冻结。
+        resumeReason:
+          type:
+            - string
+            - 'null'
+          enum:
+            - accepted
+            - requested_beginning
+            - no_history
+            - content_changed
+            - continuity_changed
+            - duration_changed
+            - completed
+            - invalid_position
+            - duration_unknown
+            - null
+          description: 010 扩展；降级从头时给出具体原因，旧历史保留直到新的有效 started。
+        transitionSlot:
+          $ref: '#/components/schemas/TransitionSlot'
+        seekCapability:
+          type: string
+          enum:
+            - none
+            - client
+            - server_rebuild
+          description: >-
+            010 扩展（U2）；由可信 probe/交付与可用 seek 范围产生。hls_proxy VOD 第一期仅 client 或 none，保留现有
+            POST seek 拒绝 hls_proxy；直播 none。client=许可声明，前端还须检查实际 seekable 范围；能力/范围不满足时
+            不显示可用拖动入口。
+        playbackStarted:
+          type: boolean
+          description: >-
+            010 扩展（I4）；独立 playback_started_at 已设置。仅解除未起播回收期限，与 sessionStarted/saved/completed
+            分别记录。
+  responses:
+    BadRequest400:
+      description: >-
+        400 VALIDATION_FAILED —— JSON 语法错误/未知字段拒绝/非有限数值/超范围/互斥参数同给/请求体超过 16KiB；
+        resolve 父项在身份/策略检查后 400 VOD_EPISODE_REQUIRED；非父媒体 episodes 400。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    Unauthorized401:
+      description: 401 SESSION_INVALID —— 认证失败（无会话/失效/设备撤销）。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    ProfileForbidden403:
+      description: 403 ACTIVE_PROFILE_REQUIRED —— 无当前有效 Profile；不返回策略明细。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    SettingsForbidden403:
+      description: >-
+        403 Settings guard 未通过/设置 PIN 缺失（SETTINGS_PIN_REQUIRED/SETTINGS_ACCESS_REQUIRED）或当次密码
+        缺失/错误（PARENT_VERIFICATION_*）；授权错误不包装为测试结果。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    NotFound404:
+      description: >-
+        404 —— 不存在/跨家庭/跨设备/非本设备会话/旧上下文（A→B→A 的 contextVersion 不等）/策略拒绝媒体/候选绑定
+        冲突统一同形，不泄露存在性与原因差异。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    Locked423:
+      description: 423 —— PIN/密码验证锁定窗口内。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    RateLimited429:
+      description: >-
+        429 —— 超出对应桶（公共 120/min/IP、在线搜索另 20/min/IP、phase 观测 120/min/session、progress
+        60/min/DeviceSession、intent/测速/next-plans 10/min/DeviceSession、resolve/控制沿用 004 桶）；所有桶有 TTL
+        与全局数量上限，资源忙返回 429 不堆无界队列；超缓存/工作队列上限明确 429。
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfterSeconds'
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    StorageNotReady503:
+      description: 503 —— 存储代际不支持/策略损坏/依赖未就绪。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    UpstreamFailed502:
+      description: 502 —— 搜索全源失败等上游失败；详细上游错误/地址/凭据不公开。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    GatewayTimeout504:
+      description: 504 —— 上游全部超时/总期限超限。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    VodSearchExpired410:
+      description: 410 VOD_SEARCH_EXPIRED —— 搜索/游标失效；保留 q 重新搜索。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    VodPreviewExpired410:
+      description: 410 VOD_PREVIEW_EXPIRED —— 预览/候选引用过期；重新预览；新 key 不得使用过期原候选。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    VodDetailTooLarge422:
+      description: 422 —— 详情/预览超体积（4MiB）与超条目（20 线路/单线 2000/合计 5000）一律整次失败。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    VodDetailChanged409:
+      description: 409 VOD_DETAIL_CHANGED —— 详情/预览修订变化；重读并明确重选，不复用旧位置。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    VodMaterializationConflict409:
+      description: >-
+        409 IDEMPOTENCY_CONFLICT（同 key 异摘要）/ VOD_DETAIL_CHANGED（新操作预览变化）/ VOD_QUOTA_EXCEEDED（满额，
+        管理来源/配额、不删除个人历史）/ VOD_MATERIALIZATION_STALE（旧结果目标内容/连续性变化）。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    VodQuotaExceeded409:
+      description: 409 VOD_QUOTA_EXCEEDED —— 启用源满 10 个等净配额超限；管理来源/配额，不删除个人历史。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    VodPreferencesConflict409:
+      description: 409 VERSION_CONFLICT（CAS expectedVersion 不符）或 IDEMPOTENCY_CONFLICT（同 operationKey 异摘要）。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    StateConflict409:
+      description: 409 —— VERSION_CONFLICT/状态冲突（如来源 CAS expectedVersion 不符）。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    VodNextUnavailable404:
+      description: 404 VOD_NEXT_UNAVAILABLE —— 无确定下一集，停止连播。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    NextPlanChanged409:
+      description: >-
+        409 NEXT_PLAN_CHANGED —— 序列/详情/目标历史与计划快照不一致；重新取计划、展示目标及历史并重新确认，不重新
+        计算后静默消费，不消耗槽且不建后继。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    NextPlanExpired410:
+      description: >-
+        410 NEXT_PLAN_EXPIRED —— 计划超期（TTL 60s）；重新取计划、展示目标及历史并重新确认；不自动携带过期 carry。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    TransitionIntentConflict409:
+      description: >-
+        409 TRANSITION_SLOT_CONFLICT（slot 重放以 (operationKey,digest) 幂等：同 key 重放返回原结果不续 TTL，
+        consumed 槽任何新 key 409 并附原后继引用）/ NEXT_PLAN_CHANGED / SOURCE_PROGRESS_PENDING /
+        IDEMPOTENCY_CONFLICT（同 operationKey 异摘要）。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    TransitionExpired410:
+      description: >-
+        410 TRANSITION_EXPIRED —— intent 未消费过期（TTL 60s 自 createdAt 固定计时）；用户重新发起，不误作可重新
+        消费，不自动携带过期 carry。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    ResolveConflict409:
+      description: >-
+        409 —— 过渡消费：SOURCE_NOT_TERMINAL（来源未终态，不消耗 intent）/ SOURCE_PROGRESS_PENDING（冻结 ledger
+        与游标不精确相等）/ NEXT_PLAN_CHANGED（计划快照变化）。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    ProgressConflict409:
+      description: >-
+        409 —— 既有码：PLAYBACK_GENERATION_STALE / PROGRESS_SAMPLE_CONFLICT（同 seq 异 payload，不消耗 seq）/
+        PROGRESS_RESOURCE_CHANGED / PROGRESS_NOT_READY；重新读取会话/重建播放，禁止篡改重试原载荷。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    FinishConflict409:
+      description: >-
+        409 —— FINISH_ALREADY_RECORDED（已有 receipt 且新 key 不同，附恢复路径而不重算）/ 同 operationKey 异
+        digest / PLAYBACK_GENERATION_STALE / PROGRESS_SAMPLE_CONFLICT / PROGRESS_RESOURCE_CHANGED；硬非法整次
+        回滚，不部分终态化。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+    ObservationConflict409:
+      description: 409 —— 同 eventSeq 异载荷冲突（不写）；重新按服务端事实对齐后上报。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+  parameters:
+    SessionIdPath:
+      name: sessionId
+      in: path
+      required: true
+      description: 播放会话 ID；跨设备/跨家庭访问统一 404 同形。
+      schema:
+        type: string
+        format: uuid
+    MediaIdPath:
+      name: mediaId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ParentIdPath:
+      name: parentId
+      in: path
+      required: true
+      description: VOD 父标题媒体 ID；不存在/跨家庭 404。
+      schema:
+        type: string
+        format: uuid
+    SourceIdPath:
+      name: sourceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TitleRefPath:
+      name: titleRef
+      in: path
+      required: true
+      description: 不透明标题引用；不得携带可解码的上游 URL；失效 410、伪造/跨家庭 404。
+      schema:
+        type: string
+        minLength: 1
+    IntentIdPath:
+      name: intentId
+      in: path
+      required: true
+      description: 过渡意图 ID；跨上下文/不存在 404，过期未消费 410。
+      schema:
+        type: string
+        format: uuid
+  headers:
+    CacheControlNoStore:
+      description: 所有响应（含错误）禁止缓存/公开缓存。
+      schema:
+        type: string
+        const: no-store
+    ReferrerPolicyNoReferrer:
+      description: 播放/私密相关响应不向第三方发送 referrer。
+      schema:
+        type: string
+        const: no-referrer
+    RetryAfterSeconds:
+      description: 限流（429）后建议等待的秒数。
+      schema:
+        type: integer
+        minimum: 1
+    LocationPlaybackSession:
+      description: 新建播放会话地址（同源相对路径，如 /api/playback/sessions/{sessionId}）。
+      schema:
+        type: string
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: hmp_session
+      description: >-
+        浏览器同源 httpOnly 设备会话 Cookie（沿用 001/005）；写操作须同源 Origin/CSRF/JSON 校验；公共读取不根据
+        cookie 过滤内容、不设置身份 cookie。
+    SessionBearer:
+      type: http
+      scheme: bearer
+      description: 不透明设备会话令牌（仅签发时返回一次）；Bearer 客户端逐请求携带原认证。
