@@ -37,6 +37,22 @@ export type MediaSource = typeof mediaSource.$inferSelect;
 /** 媒体来源新行（drizzle insert values 形态；createSource 事务写入） */
 export type NewMediaSource = typeof mediaSource.$inferInsert;
 
+/** vod_source_config 行键（010 T026；一源一行，复合主键 (household_id, source_id)） */
+export interface VodSourceConfigKey {
+  householdId: string;
+  sourceId: string;
+}
+
+/** 启用 vod 来源快照行（010 T028/T031；media_source × vod_source_config JOIN 投影） */
+export interface EnabledVodSourceSnapshotRow {
+  sourceId: string;
+  name: string;
+  adapter: string;
+  locatorRevision: number;
+  /** 私有定位（上游读取装配消费；绝不进入公共 DTO） */
+  remoteUrl: string | null;
+}
+
 /** 任务状态（与 source_refresh_status_check CHECK 一致；自 refresh-executor.service 原样迁移） */
 export type RefreshJobStatus =
   | 'queued'
@@ -130,6 +146,13 @@ export interface SourcesTxStore {
   markAwaitingSnapshotsStale(householdId: string, sourceId: string): void;
   /** catalog_state.revision +1（onConflictDoUpdate 补建语义，逐字迁移自 bumpCatalogRevision） */
   bumpCatalogRevision(householdId: string): void;
+  /* —— 010 T026（api.md §2「限10启用源」/data-model §2 vod_source_config/§4 净配额）—— */
+  /** kind=vod 且 enabled=1 的来源净数（createSource/PATCH 启用的事务内配额检查读数） */
+  countEnabledVodSources(householdId: string): number;
+  /** vod 适配配置写入（一源一行，adapter=apple-cms-json；createSource vod 分支同事务） */
+  insertVodSourceConfig(values: VodSourceConfigKey & { adapter: string }): void;
+  /** locator_revision +1（010 data-model §2「启停均locator_revision+1防ABA」；改名不递增） */
+  incrementLocatorRevision(sourceId: string, householdId: string): void;
 }
 
 /**
@@ -323,6 +346,15 @@ export interface SourcesStore extends RefreshTxStore {
     page: number,
     pageSize: number,
   ): { rows: MediaSource[]; total: number };
+  /** vod 适配配置读取（010 T026 testSource compatible 判定；一源一行，未配置返回 undefined） */
+  findVodSourceConfig(householdId: string, sourceId: string): (VodSourceConfigKey & { adapter: string }) | undefined;
+  /**
+   * 010 T028/T031（api.md §2 搜索轮转缓冲输入）：本家庭启用 vod 来源快照
+   * （media_source × vod_source_config JOIN；与事务参与者 listEnabledVodSources
+   * 同一谓词/排序，另带 remote_url 供上游定位构建）。remote_url 为私有定位，
+   * 只供 online-vod 上游读取装配消费，绝不进入公共 DTO。
+   */
+  listEnabledVodSourceSnapshots(householdId: string): EnabledVodSourceSnapshotRow[];
   withTransaction<T>(fn: (tx: SourcesTxStore) => T): T;
 
   /* ---------- 刷新管线事务（better-sqlite3 同步回调语义） ---------- */

@@ -15,7 +15,7 @@ import { and, count, eq, sql } from 'drizzle-orm';
 import type DatabaseConstructor from 'better-sqlite3';
 import { Database } from '@platform/database/database';
 import { getDb, type Db } from '@platform/database/drizzle';
-import { catalogState, deviceSession, mediaSource, sourceRefresh } from '@platform/database/schema';
+import { catalogState, deviceSession, mediaSource, sourceRefresh, vodSourceConfig } from '@platform/database/schema';
 import {
   clearStagedEntries as clearStagedRows,
   loadStagedEntries as loadStagedRows,
@@ -24,6 +24,7 @@ import {
   type StageEntriesResult,
 } from '@contexts/sources/infrastructure/refresh-staging.service';
 import type {
+  EnabledVodSourceSnapshotRow,
   MediaSource,
   MediaSourceRow,
   NewMediaSource,
@@ -34,6 +35,7 @@ import type {
   SourceRefreshRow,
   SourcesStore,
   SourcesTxStore,
+  VodSourceConfigKey,
 } from '@contexts/sources/application/sources-store.port';
 
 /** 句柄来源：固定句柄（测试 rig / 事务内 tx）或惰性 getDb()（生产，单例重开安全） */
@@ -104,6 +106,37 @@ class DrizzleSourcesTxStore implements SourcesTxStore {
         target: catalogState.householdId,
         set: { revision: sql`${catalogState.revision} + 1` },
       })
+      .run();
+  }
+
+  /* —— 010 T026（api.md §2「限10启用源」/data-model §2 vod_source_config/§4 净配额）—— */
+
+  countEnabledVodSources(householdId: string): number {
+    return (
+      this.db()
+        .select({ value: count() })
+        .from(mediaSource)
+        .where(
+          and(
+            eq(mediaSource.householdId, householdId),
+            eq(mediaSource.kind, 'vod'),
+            eq(mediaSource.enabled, 1),
+          ),
+        )
+        .get()?.value ?? 0
+    );
+  }
+
+  insertVodSourceConfig(values: VodSourceConfigKey & { adapter: string }): void {
+    this.db().insert(vodSourceConfig).values(values).run();
+  }
+
+  /** locator_revision +1（010 data-model §2「启停均locator_revision+1防ABA」；单语句原子增量） */
+  incrementLocatorRevision(sourceId: string, householdId: string): void {
+    this.db()
+      .update(mediaSource)
+      .set({ locatorRevision: sql`${mediaSource.locatorRevision} + 1` })
+      .where(and(eq(mediaSource.id, sourceId), eq(mediaSource.householdId, householdId)))
       .run();
   }
 }
@@ -658,6 +691,37 @@ class DrizzleSourcesStore extends DrizzleRefreshTxStore implements SourcesStore 
       .offset((page - 1) * pageSize)
       .all();
     return { rows, total };
+  }
+
+  /** vod 适配配置读取（010 T026 testSource compatible 判定；一源一行，未配置返回 undefined） */
+  findVodSourceConfig(householdId: string, sourceId: string): (VodSourceConfigKey & { adapter: string }) | undefined {
+    return this.db()
+      .select({ householdId: vodSourceConfig.householdId, sourceId: vodSourceConfig.sourceId, adapter: vodSourceConfig.adapter })
+      .from(vodSourceConfig)
+      .where(and(eq(vodSourceConfig.householdId, householdId), eq(vodSourceConfig.sourceId, sourceId)))
+      .get();
+  }
+
+  /**
+   * 010 T028/T031 启用 vod 来源快照（与事务参与者 listEnabledVodSources 同一谓词/排序
+   * —— media_source × vod_source_config JOIN，kind=vod 且 enabled=1，ORDER BY created_at,id；
+   * 另投影 remote_url 供 online-vod 上游定位构建，属私有定位不进公共 DTO）。
+   */
+  listEnabledVodSourceSnapshots(householdId: string): EnabledVodSourceSnapshotRow[] {
+    return this.raw()
+      .prepare(
+        `SELECT
+          ms.id AS sourceId,
+          ms.name AS name,
+          c.adapter AS adapter,
+          ms.locator_revision AS locatorRevision,
+          ms.remote_url AS remoteUrl
+         FROM media_source ms
+         JOIN vod_source_config c ON c.household_id = ms.household_id AND c.source_id = ms.id
+         WHERE ms.household_id = ? AND ms.kind = 'vod' AND ms.enabled = 1
+         ORDER BY ms.created_at, ms.id`,
+      )
+      .all(householdId) as EnabledVodSourceSnapshotRow[];
   }
 
   withTransaction<T>(fn: (tx: SourcesTxStore) => T): T {

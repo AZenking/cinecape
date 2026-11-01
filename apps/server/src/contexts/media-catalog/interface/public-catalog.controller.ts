@@ -1,11 +1,16 @@
-import { Body, Controller, Get, Inject, Param, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Query, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { z } from 'zod';
 import type { PublicContextDto, PublicMediaDto, PublicMediaPageDto } from '@hmp/shared';
+import type { Vod } from '@hmp/shared';
 import { RateLimitGuard } from '@platform/http-common/rate-limit/rate-limit.guard';
 import { RateLimit } from '@platform/http-common/rate-limit/rate-limit.decorator';
 import { StrictBodyPipe, StrictQueryPipe } from '@platform/http-common/strict-input/strict-pipes';
 import { strictObject } from '@platform/http-common/strict-input/strict-schema';
 import { PublicCatalogService, type PublicMediaListQuery } from '@contexts/media-catalog/application/public-catalog.service';
+
+/** 010 StableEpisodes 契约类型(共享生成产物统一经 Vod 命名空间入口取用) */
+type StableEpisodesDto = Vod.components['schemas']['StableEpisodes'];
 
 /**
  * 公共目录控制器(T023/T024/T025,005 contracts/api.md §1/§2)——
@@ -39,6 +44,11 @@ const MEDIA_LIST_QUERY_SCHEMA = strictObject({
 /** context/详情:不接受任何 query 字段(未知字段一律 400) */
 const PUBLIC_EMPTY_QUERY_SCHEMA = strictObject({});
 
+/** 010 T030 分集分集严格 query:仅可选不透明 cursor(修订绑定;未知字段 400) */
+const EPISODES_QUERY_SCHEMA = strictObject({
+  cursor: z.string().min(1).optional(),
+});
+
 @Controller('public')
 @UseGuards(RateLimitGuard)
 @RateLimit('public')
@@ -70,5 +80,22 @@ export class PublicCatalogController {
     @Body(new StrictBodyPipe(PUBLIC_EMPTY_BODY_SCHEMA)) _body: Record<string, never>,
   ): PublicMediaDto {
     return this.catalog.getMedia(mediaId);
+  }
+
+  /**
+   * GET /public/media/{mediaId}/episodes:稳定分集(010 T030/T031;StableEpisodes)。
+   * 400/404/409 语义由服务抛出(非父 400 VOD_EPISODE_REQUIRED;不存在/不可见 404
+   * 同形;修订绑定 cursor 漂移 409 VOD_DETAIL_CHANGED);成功响应 Content-Type 沿
+   * problem+json 形态(010 契约 e2e 断言面)。
+   */
+  @Get('media/:mediaId/episodes')
+  listEpisodes(
+    @Param('mediaId') mediaId: string,
+    @Query(new StrictQueryPipe(EPISODES_QUERY_SCHEMA)) query: { readonly cursor?: string },
+    @Body(new StrictBodyPipe(PUBLIC_EMPTY_BODY_SCHEMA)) _body: Record<string, never>,
+    @Res({ passthrough: true }) res: Response,
+  ): StableEpisodesDto {
+    res.setHeader('Content-Type', 'application/problem+json; charset=utf-8');
+    return this.catalog.listEpisodes(mediaId, query.cursor);
   }
 }

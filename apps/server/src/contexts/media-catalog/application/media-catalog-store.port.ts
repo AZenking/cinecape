@@ -52,6 +52,55 @@ export interface AvailabilityQuery {
 /** media_item 条件字段更新补丁（patchMediaMetadata 的 .set 形态；键集由应用层判定） */
 export type MediaItemPatch = Record<string, string | number | null>;
 
+/* ─────────────── 010 T030 增量：父级公共可用性/角色/分页分集投影 ───────────────
+ * 以下类型与方法为 010 在线点播新增读面；既有方法（上方 MediaCatalogTxStore 与
+ * findDeviceSession/listHouseholdMediaRows/loadMediaAvailabilityFacts/findCatalogRevision/
+ * listPublicMediaRows/findPublicMediaRowById）签名与行为零变化（NAS/IPTV 面不动）。
+ * 数据事实（010 data-model §2）：media_item.media_role ∈ standalone|vod_title|vod_episode；
+ * 「父可浏览=至少一个已发布 present 子项、启用来源、完整 locator；与子可解析候选集合分开」。
+ */
+
+/**
+ * 目录行（公共列表/详情投影的 010 统一输入列：既有白名单列 + 媒体角色 + 子项父链接）。
+ * media_role 即 detailKind 词汇（standalone/vod_title/vod_episode）；parentMediaId 仅
+ * vod_episode 非空（media_relation (household_id, child_id) 主键保证单父）。
+ */
+export interface PublicCatalogSourceRow {
+  readonly id: string;
+  readonly type: string;
+  readonly title: string;
+  readonly description: string | null;
+  readonly posterRef: string | null;
+  readonly contentLevel: number | null;
+  readonly mediaRole: string;
+  readonly parentMediaId: string | null;
+}
+
+/** vod 父级分集门面（稳定映射 + 当前修订指针；分页 cursor 修订指纹的签发来源） */
+export interface VodParentFacet {
+  readonly titleId: string;
+  /** vod_title.current_detail_revision（cursor 修订绑定基准） */
+  readonly detailRevision: number;
+  readonly materializedAt: string;
+  /** 当前修订详情快照 fetched_at；快照行缺失为 null（应用层回退 materializedAt） */
+  readonly snapshotFetchedAt: string | null;
+  /** 父级公共可用性：≥1 已发布子项 × 启用来源 × 完整根 locator（不含子项播放资源链） */
+  readonly browsable: boolean;
+}
+
+/** 分集页行（单查询装载；线路聚合由应用层内存分组，lineRef 跨页稳定） */
+export interface VodEpisodePageRow {
+  /** 线路稳定标识（vod_line.id；线路可跨页重复，消费者按 lineRef 聚合） */
+  readonly lineId: string;
+  readonly lineName: string;
+  readonly mediaId: string;
+  readonly label: string;
+  /** 确定序列序号：ordered 取 ordinal；ambiguous/special/缺序为 null（store 归一后输出） */
+  readonly sequenceOrdinal: number | null;
+  /** 子项可解析候选（present 条目 × 启用来源 × 播放资源；与 AVAILABLE_EXISTS 同链同步） */
+  readonly resolvable: boolean;
+}
+
 /** 事务作用域内的目录表操作（patchMediaMetadata 的事务块形态） */
 export interface MediaCatalogTxStore {
   findMediaItemRow(householdId: string, mediaId: string): MediaItemRow | undefined;
@@ -75,6 +124,17 @@ export interface MediaCatalogStore extends MediaCatalogTxStore {
   listPublicMediaRows(householdId: string): PublicMediaSourceRow[];
   /** 单条白名单来源行（`${MEDIA_ROWS_SQL} AND id = ?` 逐字） */
   findPublicMediaRowById(householdId: string, mediaId: string): PublicMediaSourceRow | undefined;
+  /* ───── 010 T030 增量读面（实现于 media-catalog-store.drizzle；单查询禁 N+1） ───── */
+  /** 家庭目录行全集（含 media_role/子项父链接；「不重复铺子项」的列表裁定在应用层） */
+  listPublicCatalogRows(householdId: string): PublicCatalogSourceRow[];
+  /** 单条目录行（同上列集；不存在/跨家庭 undefined） */
+  findPublicCatalogRowById(householdId: string, mediaId: string): PublicCatalogSourceRow | undefined;
+  /** 父级公共可用集合：已物化 vod_title 且 ≥1 已发布子项 × 启用来源 × 完整根 locator（批量单查询） */
+  loadVodBrowsableParentIds(householdId: string): Set<string>;
+  /** 父级分集门面（非 vod 父/不存在 → undefined；stale=false 的稳定详情读面） */
+  findVodParentFacet(householdId: string, parentMediaId: string): VodParentFacet | undefined;
+  /** 分集全量单查询（线路×稳定子项×当前修订序列×子候选；应用层内存分页，禁止逐条 N+1） */
+  listVodEpisodePageRows(householdId: string, parentMediaId: string, detailRevision: number): VodEpisodePageRow[];
   withTransaction<T>(fn: (tx: MediaCatalogTxStore) => T): T;
 }
 

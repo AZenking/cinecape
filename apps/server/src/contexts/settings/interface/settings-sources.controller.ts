@@ -27,11 +27,14 @@ import {
   listSourceRoots,
   listSources,
   requestSourceRefresh,
+  testSource,
   updateSource,
   type IRefreshExecutorService,
+  type SourceTestResultDto,
 } from '@contexts/sources';
 import { parseBody } from '@contexts/identity-access';
 import { patchMediaMetadata, queryCandidates } from '@contexts/media-catalog';
+import { SAFE_UPSTREAM_PORT, type SafeUpstreamPort } from '@platform/upstream/safe-upstream.port';
 
 /**
  * 媒体来源与目录管理契约路由(T128,005 contracts/api.md §6;api.md §8「新 settings
@@ -54,7 +57,7 @@ const remoteUrlSyntaxSchema = z
 const createSourceRequestSchema = z
   .strictObject({
     ownerPassword: z.string().optional(),
-    kind: z.enum(['iptv', 'epg', 'nas']),
+    kind: z.enum(['iptv', 'epg', 'nas', 'vod']),
     name: z.string().min(1).max(100),
     enabled: z.boolean().default(true),
     remoteUrl: remoteUrlSyntaxSchema.optional(),
@@ -62,11 +65,37 @@ const createSourceRequestSchema = z
     relativeDirectory: z.string().optional(),
     privateAccessApproved: z.boolean().default(false),
     epgSourceId: z.union([z.string().uuid(), z.null()]).optional(),
+    // 010 T026(api.md §2):仅 kind=vod 携带;恒为 apple-cms-json(data-model §2)
+    adapter: z.literal('apple-cms-json').optional(),
   })
   .superRefine((value, ctx) => {
     const reject = (field: string, message: string): void => {
       ctx.addIssue({ code: 'custom', message, path: [field] });
     };
+    if (value.kind === 'vod') {
+      // 010 T026 vod 分支(契约 VodCreateSourceRequest):remoteUrl 必填且 detail
+      // 指向 remoteUrl;adapter 必填枚举 apple-cms-json;禁 NAS/EPG 绑定字段。
+      if (value.remoteUrl === undefined) {
+        reject('remoteUrl', 'vod 来源必须提供 remoteUrl(非空根地址)');
+      }
+      if (value.adapter === undefined) {
+        reject('adapter', 'vod 来源必须提供 adapter(apple-cms-json)');
+      }
+      if (value.rootKey !== undefined) {
+        reject('rootKey', 'vod 来源不能携带 NAS 绑定字段(rootKey)');
+      }
+      if (value.relativeDirectory !== undefined) {
+        reject('relativeDirectory', 'vod 来源不能携带 NAS 绑定字段(relativeDirectory)');
+      }
+      if (value.epgSourceId !== undefined) {
+        reject('epgSourceId', 'vod 来源不能携带 EPG 绑定字段(epgSourceId)');
+      }
+      return;
+    }
+    if (value.adapter !== undefined) {
+      // 010 T026:非 vod 来源禁带 adapter(仅在线点播来源声明适配器)
+      reject('adapter', '仅 vod 来源可携带 adapter(apple-cms-json)');
+    }
     if (value.kind === 'nas') {
       if (value.rootKey === undefined) {
         reject('rootKey', 'NAS 来源必须提供 rootKey');
@@ -111,6 +140,11 @@ const listSourcesQuerySchema = z.strictObject({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+/** 010 T026 SourceTestRequest(严格;ownerPassword 必填 —— 缺失/空串 403 REQUIRED) */
+const sourceTestRequestSchema = z.strictObject({
+  ownerPassword: z.string().min(1),
+});
+
 const refreshRequestSchema = z.strictObject({
   ownerPassword: z.string().optional(),
   expectedVersion: z.number().int().positive(),
@@ -148,7 +182,11 @@ const patchMediaRequestSchema = z
 export class SettingsSourcesController {
   // 显式 @Inject 令牌:不依赖 emitDecoratorMetadata(契约测试经 vitest/esbuild 转译,无该元数据);
   // 007-T021 起注入发布令牌(useExisting 别名,与原类 provider 同一实例)
-  constructor(@Inject(REFRESH_EXECUTOR_PORT) private readonly refreshExecutor: IRefreshExecutorService) {}
+  constructor(
+    @Inject(REFRESH_EXECUTOR_PORT) private readonly refreshExecutor: IRefreshExecutorService,
+    // 010 T031:vod 连通性测试探测端口(组合根绑定平台 SafeUpstream 实现;结构兼容直传)
+    @Inject(SAFE_UPSTREAM_PORT) private readonly safeUpstream: SafeUpstreamPort,
+  ) {}
 
   /** GET /settings/sources:分页脱敏概览(Settings 边界) */
   @Get('sources')
@@ -177,6 +215,25 @@ export class SettingsSourcesController {
     @CurrentSession() context: SessionContext,
   ): Promise<SourceDto> {
     return updateSource(sourceId, context, parseBody(patchSourceRequestSchema, body));
+  }
+
+  /**
+   * POST /settings/sources/{sourceId}/test:vod 连通性/兼容性测试(010 T026;
+   * Settings+当次密码;200 SourceTestResult,零媒体写入;授权错误不包装为测试结果)。
+   * 探测实现 = 组合根绑定的平台 SafeUpstream(有界读取,许可=LAN_ALLOWED_TARGETS);
+   * 成功响应 Content-Type 沿 problem+json 形态(010 契约 e2e 断言面)。
+   */
+  @Post('sources/:sourceId/test')
+  @HttpCode(200)
+  @UseGuards(SameOriginGuard, SessionGuard, SettingsAccessGuard)
+  async testSource(
+    @Param('sourceId') sourceId: string,
+    @Body(new StrictBodyPipe(sourceTestRequestSchema)) body: unknown,
+    @CurrentSession() context: SessionContext,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SourceTestResultDto> {
+    res.setHeader('Content-Type', 'application/problem+json; charset=utf-8');
+    return testSource(sourceId, context, parseBody(sourceTestRequestSchema, body), this.safeUpstream);
   }
 
   /**

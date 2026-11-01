@@ -28,6 +28,14 @@ export const RATE_LIMIT_POLICIES = {
   guide: { scope: 'ip', limitPerMinute: 30 },
   /** 个人进度写入(progress 路径):每 DeviceSession 60 次/分钟 */
   progress: { scope: 'deviceSession', limitPerMinute: 60 },
+  /** 010 在线点播搜索(docs/specs/010-online-vod contracts/api.md §0「在线搜索另
+   *  20/min/IP,在公共查询总桶之内」):独立控制桶,与 public 总桶同 IP 维度并行
+   *  计数(搜索路由两桶同验;数值与 VOD_BUDGETS.rateLimits.vodSearchPerIpPerMinute 同源) */
+  vodSearch: { scope: 'ip', limitPerMinute: 20 },
+  /** 010 换源测速(docs/specs/010-online-vod contracts/api.md §0「创建 intent/测速各
+   *  10/min/DeviceSession」):独立控制桶,按 DeviceSession 计数;T071 vod-switch.controller
+   *  POST /vod/switch-probes 挂载(候选清单不占本桶,沿用 progress 控制桶) */
+  vodProbe: { scope: 'deviceSession', limitPerMinute: 10 },
 } as const satisfies Record<string, RateLimitPolicy>;
 
 export type RateLimitPolicyName = keyof typeof RATE_LIMIT_POLICIES;

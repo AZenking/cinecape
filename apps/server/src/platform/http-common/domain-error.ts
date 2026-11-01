@@ -330,6 +330,97 @@ export const DOMAIN_PROBLEM_REGISTRY = {
     title: 'Storage Generation Unsupported',
     detail: '存储形态与当前代际不符,服务暂不可用',
   },
+  /**
+   * 010 在线点播(contracts/openapi.yaml components/responses + api.md §6「问题码与恢复动作」,T020)
+   * —— status 逐一对照契约:
+   * 400 VOD_EPISODE_REQUIRED(非父媒体/resolve 父项缺 episode);
+   * 404 VOD_NEXT_UNAVAILABLE(无确定下一集,停止连播,同形不泄露存在性);
+   * 409 VOD_DETAIL_CHANGED / VOD_QUOTA_EXCEEDED / VOD_MATERIALIZATION_STALE /
+   *    NEXT_PLAN_CHANGED / TRANSITION_SLOT_CONFLICT / SOURCE_PROGRESS_PENDING /
+   *    SOURCE_NOT_TERMINAL / FINISH_ALREADY_RECORDED;
+   * 410 VOD_SEARCH_EXPIRED / VOD_PREVIEW_EXPIRED / NEXT_PLAN_EXPIRED / TRANSITION_EXPIRED;
+   * 422 VOD_DETAIL_TOO_LARGE(超 4MiB 体积或超条目预算,整次失败);
+   * - detail 均为静态脱敏文案,不携带上游地址/titleRef/候选键(research R6 同口径);
+   * - 全部新增条目不携带附加响应头(维持「全注册表仅 IMPORT_QUEUE_FULL 携带静态附加头」不变;
+   *   010 限流沿用既有 429 桶,Retry-After 由限流器按窗口余量动态注入);
+   * - IDEMPOTENCY_CONFLICT(409)/VERSION_CONFLICT(409)/PLAYBACK_GENERATION_STALE(409)等
+   *   既有映射沿用,不重复登记。
+   */
+  VOD_EPISODE_REQUIRED: {
+    status: 400,
+    title: 'Vod Episode Required',
+    detail: '仅父标题媒体支持剧集解析,请改用父标题',
+  },
+  VOD_NEXT_UNAVAILABLE: {
+    status: 404,
+    title: 'Vod Next Unavailable',
+    detail: '没有确定的下一集,连播已停止',
+  },
+  VOD_DETAIL_CHANGED: {
+    status: 409,
+    title: 'Vod Detail Changed',
+    detail: '详情或预览修订已变化,请重读并重新选择',
+  },
+  VOD_QUOTA_EXCEEDED: {
+    status: 409,
+    title: 'Vod Quota Exceeded',
+    detail: '来源或配额已达上限,请管理来源与配额',
+  },
+  VOD_MATERIALIZATION_STALE: {
+    status: 409,
+    title: 'Vod Materialization Stale',
+    detail: '物化结果的目标内容已变化,请重新预览后再试',
+  },
+  NEXT_PLAN_CHANGED: {
+    status: 409,
+    title: 'Next Plan Changed',
+    detail: '下一集计划快照已变化,请重新获取计划并确认',
+  },
+  TRANSITION_SLOT_CONFLICT: {
+    status: 409,
+    title: 'Transition Slot Conflict',
+    detail: '过渡槽位已被其他操作消费,请恢复既有后继',
+  },
+  SOURCE_PROGRESS_PENDING: {
+    status: 409,
+    title: 'Source Progress Pending',
+    detail: '来源进度尚未冻结,请先完成保存或停止',
+  },
+  SOURCE_NOT_TERMINAL: {
+    status: 409,
+    title: 'Source Not Terminal',
+    detail: '来源尚未进入终态,不能消费该过渡意图',
+  },
+  FINISH_ALREADY_RECORDED: {
+    status: 409,
+    title: 'Finish Already Recorded',
+    detail: '结束结果已记录,请按既有回执恢复',
+  },
+  VOD_SEARCH_EXPIRED: {
+    status: 410,
+    title: 'Vod Search Expired',
+    detail: '搜索已过期,请保留关键词重新搜索',
+  },
+  VOD_PREVIEW_EXPIRED: {
+    status: 410,
+    title: 'Vod Preview Expired',
+    detail: '预览引用已过期,请重新获取预览',
+  },
+  NEXT_PLAN_EXPIRED: {
+    status: 410,
+    title: 'Next Plan Expired',
+    detail: '下一集计划已过期,请重新获取计划并确认',
+  },
+  TRANSITION_EXPIRED: {
+    status: 410,
+    title: 'Transition Expired',
+    detail: '过渡意图已过期,请重新发起',
+  },
+  VOD_DETAIL_TOO_LARGE: {
+    status: 422,
+    title: 'Vod Detail Too Large',
+    detail: '详情或预览超出体积或条目预算,整次失败',
+  },
 } as const satisfies Partial<Record<PcProblemCode, DomainProblemSpec>>;
 
 /** 注册表覆盖的错误码(003 catalog 契约码 + 004 播放稳定码 + 005 §7 新增码;可据此获得 status 免重复硬编码的构造) */

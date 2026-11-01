@@ -7,21 +7,27 @@ export type { IRefreshExecutorService } from './application/ports';
 export type { ISourcesService } from './sources.ports';
 export { REFRESH_EXECUTOR_PORT, SOURCES_SERVICE_PORT } from './sources.tokens';
 
-// —— 应用服务纯函数（T020 grep 实测跨上下文消费清单）——
+// —— 应用服务纯函数(T020 grep 实测跨上下文消费清单)——
 export {
   confirmSourceRefresh,
   createSource,
+  createVodSourceConfigurationPort,
   discardSourceRefresh,
   getSourceRefresh,
   listSourceRoots,
   listSources,
   requestSourceRefresh,
+  testSource,
   updateSource,
   type CreateSourceInput,
   type JobActionBody,
   type ListSourcesQuery,
   type PatchSourceInput,
   type RequestRefreshBody,
+  type SourceTestResultDto,
+  type TestSourceInput,
+  type VodSourceProbePort,
+  type VodSourceRuntimeConfigurationPort,
 } from './application/sources.service';
 
 // —— 跨上下文必需的领域/基础设施面再导出 ——

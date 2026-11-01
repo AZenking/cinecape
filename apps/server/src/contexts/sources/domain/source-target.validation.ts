@@ -240,6 +240,18 @@ export function findRemoteTargetDenial(urlText: string): string | null {
 }
 
 /**
+ * vod 目标许可判定(010 T026;api.md §2「新源根URL只接受http(s)并校验」):
+ * 与 IPTV/EPG 远程目标完全同一判定面(findRemoteTargetDenial —— http(s) 强制 +
+ * 127.0.0.1/环回/链路本地/云元数据/未指定/多播等保留类别默认拒),vod 分支显式
+ * 命名以钉住契约;请求期口径与现有一致:主机名的 DNS 级类别与部署精确许可
+ * (LAN_ALLOWED_TARGETS)仍由运行期读取器(safe-http-reader/SafeUpstream)权威执行,
+ * 此处放行不构成许可。
+ */
+export function findVodTargetDenial(urlText: string): string | null {
+  return findRemoteTargetDenial(urlText);
+}
+
+/**
  * NAS 目标许可判定:rootKey 必须在部署 MEDIA_ROOTS;relativeDirectory 形态规则
  * 与 nas-scanner 一致(空串 = 根本本身)。非许可返回拒绝原因,许可返回 null。
  */

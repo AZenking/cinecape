@@ -63,7 +63,7 @@ export class RateLimitGuard implements CanActivate {
 
 /** 按策略作用域解析计数键(不含策略名,策略名由限频器拼接) */
 function scopeValueOf(policy: RateLimitPolicyName, request: Request): string {
-  if (policy === 'progress') {
+  if (policy === 'progress' || policy === 'vodProbe') {
     const session = (request as SessionRequest).hmpSessionContext;
     if (session !== undefined) {
       return `device-session:${session.session.id}`;
