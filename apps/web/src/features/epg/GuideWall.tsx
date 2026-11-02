@@ -182,6 +182,8 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                     <button
                       key={programme.key}
                       type="button"
+                      // T025:详情返回焦点恢复锚(会话内存快照按 key 查块;不进 URL/storage)
+                      data-programme-key={programme.key}
                       aria-label={`${channel.media.title},${programme.title},${rangeLabel}${isCurrent ? ',正在直播' : ''}`}
                       title={`${programme.title} ${rangeLabel}`}
                       onClick={() => {

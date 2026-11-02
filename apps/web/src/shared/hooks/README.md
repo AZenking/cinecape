@@ -76,7 +76,7 @@ FR-031 免责文书义务,此处仅记录收编事实):
 
 | 位置 | 逻辑 | 保留理由(一句话) |
 | --- | --- | --- |
-| `features/epg/ProgrammeDetailPanel.tsx` `useIsWide` | 手写 matchMedia 订阅 | US4 车道文件白名单外;且其 jsdom/SSR 语义与共享版不同(matchMedia 缺失时恒 `true` 以保证窄窗降级默认渲染侧栏),直接换用会翻转 epg 测试的渲染分支,留待 epg 车道对齐语义后收编 |
+| `features/epg/ProgrammeDetailPanel.tsx` `useIsWide` | 手写 matchMedia 订阅 | 012 T022 起**该文件已删除**(EPG 换挂共享 `shared-programme/ProgrammeDetailPanel`,恒浮层呈现、无断点分支)——原「留待 epg 车道对齐语义后收编」议题随之消失,无收编对象 |
 | `features/live/components/MediaScroller.tsx` | ResizeObserver + prefers-reduced-motion | 指令式滚动同步(尺寸变化时重算,非尺寸状态),`useElementSize` 不覆盖;live 域 |
 | `features/playback/player-view.tsx` / `use-playback-progress.ts` | setInterval/setTimeout(进度周期上报、重试退避) | 播放进度域定时器(含暂停/退避逻辑),非纯 interval 语义;playback 域 |
 | `features/settings/shared/access-expiry.ts` | setTimeout 自校正倒计时循环 | 刻意规避 setInterval 的漂移(每 tick 重算剩余时间),倒计时域逻辑 |

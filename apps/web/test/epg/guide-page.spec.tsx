@@ -15,7 +15,8 @@ import { createQueryWrapper, createTestQueryClient } from '../helpers/query-test
  *   同一时刻显示 00:00–24:00 全天窗口而非浏览器本地,证明不依赖浏览器时区);
  * - 默认今天、展示该日完整 24 小时(A-008 全天视图;默认请求不带 date/from/to,
  *   由服务端按其冻结 now 返回该日真实日界;渲染窗口取响应 from/to,终点显示 24:00);
- * - 当前时间标识与「回到现在」(清 date/from/to/channelPage 后按缺省重新请求);
+ * - 当前时间标识与「回到现在」(仅清 date/from/to 保留其余参数——012 url-state §1 规则4,
+ *   按恢复后的语义重新请求);
  * - 空档与无节目频道显示「暂无节目」、频道不隐藏(FR-026);
  * - 频道页默认 20、可改最多 50;
  * - 409 GUIDE_DATE_EXPIRED:回今天并提示日期已更新、丢弃旧窗口响应(不渲染旧 date 数据);
@@ -180,7 +181,7 @@ describe('EPG 节目单页(T109)', () => {
     expect(title.textContent).toContain('2026-11-04');
   });
 
-  it('当前时间标识可见;切日写入 URL;回到现在清空 date/from/to/channelPage 并按缺省重新请求', async () => {
+  it('当前时间标识可见;切日写入 URL;回到现在仅清 date/from/to、保留频道页(012 url-state §1 规则4)并按恢复语义请求', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderGuidePage();
     await waitFor(() => expect(screen.getByText(/午间专题/).valueOf()).toBeTruthy());
@@ -196,18 +197,19 @@ describe('EPG 节目单页(T109)', () => {
     await waitFor(() => expect(guideCalls().some((url) => url.includes('page=2')).valueOf()).toBe(true));
 
     // T023:数据层为 SWR——未过期的同键回访命中缓存即显(staleTime 60s)。
-    // 先推进 61s 使缺省键缓存过期,再断言「回到现在」按缺省重新请求。
+    // 先推进 61s 使缺省键缓存过期,再断言「回到现在」按恢复语义重新请求。
     await act(async () => {
       vi.advanceTimersByTime(61_000);
     });
 
-    // 回到现在:date/from/to/channelPage 全部清除,重新按缺省请求
+    // 回到现在:仅恢复今天+当前窗口(date/from/to 清除);频道分页保留(012 FR-016
+    // 「不清筛选」、url-state §1 规则4「保留其余参数」)→ 按缺省日期 + page=2 重新请求
     await user.click(screen.getByRole('button', { name: '回到现在' }));
     await waitFor(() => {
       const calls = guideCalls();
       expect(calls.length).toBeGreaterThan(2);
       const last = calls[calls.length - 1] ?? '';
-      expect(last).toBe('/api/public/guide?page=1&pageSize=20');
+      expect(last).toBe('/api/public/guide?page=2&pageSize=20');
     });
   });
 

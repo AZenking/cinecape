@@ -428,11 +428,11 @@ test.describe('T137 · 键盘完成全部主流程(1280×768)', () => {
       .first();
     await expect(programme).toBeVisible({ timeout: 30_000 });
     await programme.focus();
-    await page.keyboard.press('Enter'); // 节目详情(侧栏)打开为键盘路径
-    const detail = page.getByRole('complementary', { name: '节目详情' });
+    await page.keyboard.press('Enter'); // 节目详情浮层(012 T022 共享面板)打开为键盘路径
+    const detail = page.getByRole('dialog', { name: /节目详情/ });
     await expect(detail).toBeVisible();
-    // 详情关闭走「取消」按钮(侧栏无 Esc 关闭语义;guide 键盘套件同路径)
-    await detail.getByRole('button', { name: '取消' }).click();
+    // 详情关闭走「关闭」按钮(共享面板浮层;Esc 亦可,此处按按钮路径断言)
+    await detail.getByRole('button', { name: '关闭' }).click();
     await expect(detail).toBeHidden();
     await page.getByRole('button', { name: '下一页' }).focus();
     await page.keyboard.press('Enter');

@@ -178,13 +178,14 @@ test.describe('EPG 节目单键盘、滚动与位置恢复(T110)', () => {
     expect(beforeScroll.top).toBeGreaterThan(0);
     const beforeParams = await guideUrlParams(page);
 
-    // 打开详情(宽窗侧栏):dispatchEvent 触发点击,避免 Playwright 可操作性滚动破坏已设锚点
+    // 打开详情(宽窗浮层;012 T022 起为共享面板 Modal):dispatchEvent 触发点击,
+    // 避免 Playwright 可操作性滚动破坏已设锚点
     await target.dispatchEvent('click');
-    const detail = page.getByRole('complementary', { name: '节目详情' });
+    const detail = page.getByRole('dialog', { name: /节目详情/ });
     await expect(detail).toBeVisible();
 
-    // 返回(取消)→ 详情关闭,URL 与滚动位置原样恢复
-    await detail.getByRole('button', { name: '取消' }).click();
+    // 返回(关闭)→ 详情关闭,URL 与滚动位置原样恢复
+    await detail.getByRole('button', { name: '关闭' }).click();
     await expect(detail).toBeHidden();
     expect(await guideUrlParams(page)).toBe(beforeParams);
     const afterScroll = await wallScrollOf(page);
@@ -214,12 +215,12 @@ test.describe('EPG 节目单键盘、滚动与位置恢复(T110)', () => {
     expect(beforeScroll.top).toBeGreaterThan(0);
     const beforeParams = await guideUrlParams(page);
 
-    // 详情 → 「观看该频道当前直播」(游客)→ 详情先关、统一登录弹层出现
+    // 详情 → 「播放当前频道」(游客;012 T022 共享面板按钮语义)→ 详情先关、统一登录弹层出现
     // (dispatchEvent 同上:保持滚动锚点,不被可操作性滚动重置)
     await target.dispatchEvent('click');
-    const detail = page.getByRole('complementary', { name: '节目详情' });
+    const detail = page.getByRole('dialog', { name: /节目详情/ });
     await expect(detail).toBeVisible();
-    await detail.getByRole('button', { name: /当前直播/ }).click();
+    await detail.getByRole('button', { name: '播放当前频道' }).click();
     const dialog = authDialog(page);
     await expect(dialog.getByRole('heading', { name: '登录' })).toBeVisible({ timeout: 15_000 });
     expect(mediaRequests).toEqual([]); // 登录前零播放/媒体请求(US3/FR-011)
