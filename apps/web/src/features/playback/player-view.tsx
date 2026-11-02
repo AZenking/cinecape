@@ -31,7 +31,13 @@
  *   本地连播开关(vod-autoplay-preference,localStorage 持久)在回执入口做本地门 ——
  *   关闭即不启动倒计时,服务端偏好消费时仍重验(api.md §5);awaitingGesture 不发
  *   started(泵保证),服务端 readyAt+60s 为回收准时源,UI 只展示不自毁;
- * - URL/票据不写入 localStorage,页面不向第三方发送 referrer(全局 no-referrer)。
+ * - URL/票据不写入 localStorage,页面不向第三方发送 referrer(全局 no-referrer);
+ * - 播放设置浮层(012 T028 修补;FR-020 第 4 项/FR-023):音轨/字幕经既有 PUT
+ *   selection 当前值控制(重建音轨同会话换代换票,零第二会话),清晰度为探测交付
+ *   只读展示(无质量端点,红线不新增);浮层开关不触媒体元素,播放零中断;
+ * - 直播状态徽标(FR-020 第 2 项):探针确认时长 null(直播契约)即呈现「正在直播」
+ *   文字状态(不仅靠颜色,FR-030);进度对齐节目时间窗的数据不在播放面承载(缺口
+ *   登记:入口目标为频道语义,节目窗归详情面)。
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
@@ -39,12 +45,14 @@ import { Button } from '@heroui/react';
 import type { Vod } from '@hmp/shared';
 import { isFetchApiError, privateFetch } from '../../shared/fetch';
 import { usePlaybackProgress } from './use-playback-progress';
+import { usePlaybackTrackSelection } from './use-playback-track-selection';
 import { useVodAutoplay } from './use-vod-autoplay';
 import { useOptionalAutoplayNextEnabled } from './vod-autoplay-preference';
 import { useVodTransition } from './use-vod-transition';
 import { VodAutoplayOverlay } from './vod-autoplay-overlay';
 import { VodSourceSwitcher } from './vod-source-switcher';
 import { VideoPlayer } from './video-player';
+import { PlaybackSettingsOverlay } from './playback-settings-overlay';
 
 /** 心跳节拍(004 lifecycle.heartbeatIntervalSeconds;前端发起) */
 const HEARTBEAT_MS = 15_000;
@@ -66,6 +74,8 @@ interface SessionStatusSnapshot {
   readonly durationSeconds: number | null;
   readonly seekCapability: SeekCapability | null;
   readonly resumeReason: ResumeReason;
+  /** 已探测轨道(012 T028:播放设置浮层的当前值事实;探测未完成为空数组) */
+  readonly tracks: PlaybackStatusDto['tracks'] | null;
 }
 
 /**
@@ -203,6 +213,31 @@ export function PlayerView({
     },
     onRejected: (message) => {
       terminatedRef.current(message);
+    },
+  });
+
+  // 播放设置浮层轨道选择(012 T028;FR-020 第 4 项/FR-023):音轨/字幕经既有
+  // PUT selection 当前值控制(重建音轨同会话换代换票,零第二会话);generationRef
+  // 由 hook 追踪推进,续期定时器读它避免重建换轨后携旧代 renew。
+  const trackSelection = usePlaybackTrackSelection({
+    sessionId,
+    generation,
+    version: status?.version ?? null,
+    tracks: status?.tracks ?? null,
+    canSwitchTracks: progress.canSwitchTracks,
+    getPositionSeconds: () => videoRef.current?.currentTime ?? 0,
+    onTicket: (url, expiresAt) => {
+      // 换装(重建音轨换票):位置捕获回填语义与续期换装一致;URL/到期上报协调器
+      resumeAtRef.current = videoRef.current?.currentTime ?? null;
+      renewRef.current(url, expiresAt);
+    },
+    onStatusPatch: (patch) => {
+      // 提交/冲突刷新后回写探针快照(版本/轨道;后续 CAS 不读旧值)
+      setStatus((previous) =>
+        previous === null
+          ? { version: patch.version, durationSeconds: null, seekCapability: null, resumeReason: null, tracks: patch.tracks }
+          : { ...previous, version: patch.version, tracks: patch.tracks },
+      );
     },
   });
 
@@ -352,6 +387,10 @@ export function PlayerView({
             durationSeconds: typeof dto.durationSeconds === 'number' ? dto.durationSeconds : null,
             seekCapability: dto.seekCapability ?? null,
             resumeReason: dto.resumeReason ?? null,
+            tracks:
+              dto.tracks !== null && typeof dto.tracks === 'object'
+                ? { audio: dto.tracks.audio ?? [], subtitles: dto.tracks.subtitles ?? [] }
+                : null,
           });
         });
       })
@@ -459,7 +498,7 @@ export function PlayerView({
           }
           void privateFetch<{ playbackUrl: string; ticketExpiresAt: string; generation: number }>(
             `/playback/sessions/${encodeURIComponent(sessionId)}/renew`,
-            { method: 'POST', body: { expectedGeneration: generation } },
+            { method: 'POST', body: { expectedGeneration: trackSelection.generationRef.current } },
           )
             .then((ticket) => {
               resumeAtRef.current = videoRef.current?.currentTime ?? null;
@@ -500,6 +539,13 @@ export function PlayerView({
         onPlayGestureRequired={handlePlayGestureRequired}
         onManualPlayReady={handleManualPlayReady}
       />
+      {/* 直播状态徽标(012 T028;FR-020 第 2 项):探针确认时长 null(直播契约)
+          即文字状态呈现,不仅靠颜色(FR-030);探针未回/失败不虚构状态 */}
+      {status !== null && durationSeconds === null ? (
+        <p role="status" data-testid="live-status" className="absolute start-4 top-3 z-10 rounded bg-black/70 px-2 py-1 text-xs text-white">
+          正在直播
+        </p>
+      ) : null}
       {/* 换源入口(T074;ui.md §4 播放面内,不退出播放器重搜):抽屉内容见
           vod-source-switcher,与连播 overlay 并存(开启换源即取消连播倒计时) */}
       <Button
@@ -512,6 +558,9 @@ export function PlayerView({
         换源
       </Button>
       {transition.state.drawerOpen ? <VodSourceSwitcher transition={transition} /> : null}
+      {/* 播放设置浮层(012 T028;FR-023):音轨/字幕/清晰度当前值控制;浮层开关
+          不触媒体元素(播放零中断),浮层内无跳转完整设置页入口 */}
+      <PlaybackSettingsOverlay settings={trackSelection} delivery={delivery} />
       {/* 续播落点面(T049):成功仅按实际落点承认;失败给显式出路,绝不显示成功语义 */}
       {landing === 'applied' && presentationStartSeconds > 0 ? (
         <p role="status" data-testid="resume-applied" className="absolute bottom-28 start-4 rounded bg-black/70 px-2 py-1 text-xs text-white">
