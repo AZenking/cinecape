@@ -1,8 +1,11 @@
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Button } from '@heroui/react';
 import type { ChannelRowDto, ExperienceProgrammeDto } from '@hmp/shared';
 import { formatRangeInZone, formatTimeInZone } from '../live-format';
 import { PlayButton } from '../../playback/use-play-action';
+import { useSession } from '../../../app/session-provider';
+import { FavoriteStarButton } from '../../favorites/favorite-star-button';
 
 /**
  * 直播频道瓦片卡(Netflix 式 16:9 瓦片;T069/T070/T071 演进,FR-021/023/024、ui.md §5/§8):
@@ -12,22 +15,29 @@ import { PlayButton } from '../../playback/use-play-action';
  * - 瓦片承载状态:左上「正在直播/即将播放」标注(红点 + 文字,错误不只靠颜色),
  *   正在直播时底板底部附当前节目进度线(红色 = 直播/时间线语义,见 §2 视觉约定);
  * - 显示频道名称、分组、当前/下一节目及起止时间(家庭时区、等宽数字);
- * - 无节目频道显示「暂无节目」明确占位,播放入口保留(可用性不由 EPG 决定,FR-023);
+ * - 无节目频道显示「暂无节目」明确占位,占位可点开详情面板(共享面板 none 态,
+ *   保留频道身份 +「暂无节目单」,012 T018);播放入口保留(可用性不由 EPG 决定,FR-023);
  * - 点击节目标题/时间打开节目时段详情(频道与起止时间;不伪装可播放未来节目,FR-024);
  * - 播放按钮与收藏按钮分离:播放经共享 PlayButton 走 US3 统一受控播放
  *   (usePlayAction;游客点击进入登录选档意图,选档完成前零 /playback/ 请求);
- *   收藏按钮保持 onRequireAuth(US4 接管);
+ *   收藏按会话分流(012 T011、ui.md §1.5):已选档 → 共享 FavoriteStarButton 仅执行
+ *   收藏变更(PUT/DELETE /me/favorites/channels,幂等;乐观行内翻面,成功不触发播放);
+ *   游客/未选档 → onRequireAuth 登录引导(GuestActionNotice),零请求零部分写入。
  * - 悬停/键盘聚焦(cards focus-within)轻微抬升;动效仅悬停反馈,尊重 reduced-motion
  *   (全局基线见 shared/theme/a11y.css);
  * - 长节目名 .hmp-truncate + title 提供完整可读名称;时间 .hmp-tabular-nums。
  */
 
-/** 节目时段详情回调载荷(即将播放/当前节目共用;打开频道/节目信息) */
+/**
+ * 节目时段详情回调载荷(即将播放/当前节目共用;打开频道/节目信息):
+ * programme 为 null 表示无节目单频道(current/next 双 null,FR-012/T018)——
+ * 宿主按 none 态打开共享详情面板。
+ */
 export interface ProgrammeOpenDetail {
   readonly mediaId: string;
   readonly channelTitle: string;
   readonly groupLabel: string;
-  readonly programme: ExperienceProgrammeDto;
+  readonly programme: ExperienceProgrammeDto | null;
   readonly kind: 'current' | 'upcoming';
 }
 
@@ -54,8 +64,11 @@ function hashOf(key: string): number {
   return Math.abs(hash);
 }
 
-/** 当前节目进度 0..1(以服务端快照 now 计;无 now/区间无效/时刻解析失败返回 null) */
-function progressOf(startsAt: string, endsAt: string, nowIso: string | null): number | null {
+/**
+ * 当前节目进度 0..1(以服务端快照 now 计;无 now/区间无效/时刻解析失败返回 null)。
+ * 导出供 NowHero 复用(012 T017:FR-010 六信息之「进度」,同一快照语义)。
+ */
+export function progressOf(startsAt: string, endsAt: string, nowIso: string | null): number | null {
   if (nowIso === null) {
     return null;
   }
@@ -76,6 +89,13 @@ export function ChannelTile({ row, timezone, nowIso, onOpenProgramme, onRequireA
   const plateAngle = 100 + (hash % 140);
   const glowOnRight = hash % 2 === 1;
   const progress = hasCurrent && row.current !== null ? progressOf(row.current.startsAt, row.current.endsAt, nowIso) : null;
+
+  // 收藏会话分流(012 T011):仅「已登录且已选档」直接执行收藏;游客/未选档走登录引导
+  const session = useSession();
+  const activeProfile = session.status === 'authenticated' ? (session.session?.activeProfile ?? null) : null;
+  // 墙面无收藏态数据源(ChannelRowDto 不含 favorited):会话内本地翻面,
+  // 服务端真值以收藏页/个人区列表为准(成功经 onChanged 收敛,失败由数据层回滚)
+  const [wallFavorited, setWallFavorited] = useState(false);
 
   return (
     <article
@@ -118,18 +138,35 @@ export function ChannelTile({ row, timezone, nowIso, onOpenProgramme, onRequireA
 
         {/* 播放/收藏恒驻底板右下(可见性不随悬停变化,避免触控/键盘丢失入口) */}
         <div className="absolute bottom-2 right-2 flex items-center gap-1">
-          <Button
-            size="sm"
-            variant="ghost"
-            isIconOnly
-            aria-label={`收藏 ${channelTitle}`}
-            className="bg-background/70 backdrop-blur-sm"
-            onPress={() => {
-              onRequireAuth(`收藏 ${channelTitle}`);
-            }}
-          >
-            ☆
-          </Button>
+          {activeProfile !== null ? (
+            /* 已选档:收藏即收藏——共享星标组件幂等 PUT/DELETE + 乐观行内翻面,
+               与播放零关联(§1.5「收藏成功为行内反馈,不得触发播放」) */
+            <span className="inline-flex items-center rounded bg-background/70 backdrop-blur-sm">
+              <FavoriteStarButton
+                mediaId={row.media.id}
+                title={channelTitle}
+                favorited={wallFavorited}
+                size="sm"
+                onChanged={(_mediaId, next) => {
+                  setWallFavorited(next);
+                }}
+              />
+            </span>
+          ) : (
+            /* 游客/未选档:登录引导(GuestActionNotice),零请求零部分写入 */
+            <Button
+              size="sm"
+              variant="ghost"
+              isIconOnly
+              aria-label={`收藏 ${channelTitle}`}
+              className="bg-background/70 backdrop-blur-sm"
+              onPress={() => {
+                onRequireAuth(`收藏 ${channelTitle}`);
+              }}
+            >
+              ☆
+            </Button>
+          )}
           <PlayButton
             mediaId={row.media.id}
             title={channelTitle}
@@ -182,9 +219,25 @@ export function ChannelTile({ row, timezone, nowIso, onOpenProgramme, onRequireA
             </span>
           </button>
         ) : (
-          <p className="rounded p-1 text-sm text-muted" data-testid="no-programme">
-            暂无节目
-          </p>
+          /* 无节目占位可点开共享详情面板(none 态:保留频道身份 +「暂无节目单」,
+             主操作仍可播放当前直播,FR-012/012 T018;焦点环同相邻节目按钮) */
+          <button
+            type="button"
+            data-testid="no-programme"
+            className="min-w-0 rounded p-1 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+            onClick={(event) => {
+              event.preventDefault();
+              onOpenProgramme({
+                mediaId: row.media.id,
+                channelTitle,
+                groupLabel: row.groupLabel,
+                programme: null,
+                kind: 'current',
+              });
+            }}
+          >
+            <span className="block text-sm text-muted">暂无节目</span>
+          </button>
         )}
 
         {hasNext && row.next !== null ? (

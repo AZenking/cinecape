@@ -1,23 +1,27 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Alert, Button } from '@heroui/react';
+import { useAuthAction } from '../../../app/action-coordinator';
 
 /**
- * 游客动作占位提示(T069;FR-011、ui.md §5「收藏按钮和播放分开,游客收藏先登录选档但不播放」):
- * - US5 阶段播放入口为占位:播放统一接入 US3 的 usePlayAction(本阶段未接线);
- * - 游客点播放/收藏 → 本组件显示「需先登录选档」提示与显式登录入口按钮,
- *   绝不发起任何播放/媒体请求(登录流程本体属 US2/US3);
- * - 登录按钮 onPress 为 US3 统一意图协调器插槽(当前为空实现占位)。
+ * 游客私有动作提示(T069;012 T008 接线完成;FR-009、ui.md §1.5):
+ * - 播放不经本组件:全部播放入口走共享 PlayButton/usePlayAction(005 T054);
+ *   游客点播放由协调器直接进入登录选档意图并保存播放意图(012 FR-006);
+ * - 本组件现用于**收藏**等私有操作的游客引导:显示「需先登录选档」提示与显式
+ *   登录入口按钮,绝不发起任何播放/媒体请求(零部分写入,ui.md §1.5);
+ * - 登录按钮经 useAuthAction().startLogin() 进入统一登录选档意图:协调器缺省
+ *   以当前路径为 returnTo(005 T043),登录选档完成后回到原页面(012 FR-006)。
  */
 
 export interface GuestActionNoticeProps {
-  /** 动作语境(如「播放 夹具频道 001」「收藏」) */
+  /** 动作语境(如「收藏 频道名」) */
   readonly actionLabel: string;
   readonly onClose: () => void;
 }
 
 export function GuestActionNotice({ actionLabel, onClose }: GuestActionNoticeProps): ReactNode {
   const [dismissed, setDismissed] = useState(false);
+  const { startLogin } = useAuthAction();
   if (dismissed) {
     return null;
   }
@@ -27,8 +31,15 @@ export function GuestActionNotice({ actionLabel, onClose }: GuestActionNoticePro
       <Alert.Description>游客观看与收藏均不发起任何播放;登录选档后由服务端授权。</Alert.Description>
       <Alert.Content>
         <div className="flex items-center gap-2">
-          {/* US3/T043 接管:经统一意图协调器打开登录选档;本阶段占位,不产生导航 */}
-          <Button size="sm" variant="primary" onPress={() => undefined}>
+          {/* 统一意图协调器:登录选档完成后回到当前页(returnTo 缺省取当前路径) */}
+          <Button
+            size="sm"
+            variant="primary"
+            onPress={() => {
+              startLogin();
+              onClose();
+            }}
+          >
             登录
           </Button>
           <Button

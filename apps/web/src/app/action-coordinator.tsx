@@ -932,6 +932,17 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
                     重新播放
                   </Button>
                 ) : null}
+                {/* 授权拒绝/准备失败的重试出口(012 T013;FR-007、ui.md §1.3「展示原因 +
+                    重试/返回详情」):换源窗口外(idle)的 unavailable —— authorize 稳定
+                    拒绝、prepare 失败/超时等 —— 复用同一「新普通播放」路径:play() 以
+                    新意图取代旧意图(旧回调经代次守卫废弃,旧会话已由收口清理),同一
+                    目标重新 authorize,不产生并行会话;窗口内由「换源恢复」、过期后由
+                    「重新播放」承接,不重复提供重试入口。 */}
+                {recoverPhase === 'idle' ? (
+                  <Button size="sm" variant="ghost" onPress={replayAfterRecoverExpired} aria-label="重试播放">
+                    重试
+                  </Button>
+                ) : null}
                 <Button size="sm" variant="ghost" onPress={close}>
                   关闭
                 </Button>

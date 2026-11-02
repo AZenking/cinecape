@@ -1,12 +1,15 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import type { ChannelRowDto, ExperienceProgrammeDto } from '@hmp/shared';
 import { Alert, Button, Input, Label, TextField } from '@heroui/react';
 import { keepPreviousData } from '../../shared/query/hooks';
 import { queryKeys } from '../../shared/query/keys';
 import { fetchLiveChannels, fetchLiveGroups, type LiveChannelQuery, type LiveSection } from './live-api';
 import { usePlayAction } from '../playback/use-play-action';
+import { useSession } from '../../app/session-provider';
+import { useFavoriteToggleMutation } from '../favorites/use-favorites';
+import { ProgrammeDetailPanel, type ProgrammeStatus } from '../shared-programme/ProgrammeDetailPanel';
 import { useLiveRefresh } from './hooks/use-live-refresh';
 import { useLiveSection } from './hooks/use-live-sections';
 import { NowSection } from './components/NowSection';
@@ -14,11 +17,11 @@ import { NextSection } from './components/NextSection';
 import { GroupSections } from './components/GroupSections';
 import { FocusedSection, sectionTitleOf } from './components/FocusedSection';
 import { NowHero } from './components/NowHero';
-import { ProgrammeSlotDialog } from './components/ProgrammeSlotDialog';
 import { GuestActionNotice } from './components/GuestActionNotice';
 
 /**
- * 直播首页(T067/T068/T069/T070/T071;FR-021/022/023/024/045、ui.md §5/§8):
+ * 直播首页(T067/T068/T069/T070/T071;FR-021/022/023/024/045、ui.md §5/§8;
+ * 012 T016:三区详情面板统一挂载共享 shared-programme/ProgrammeDetailPanel):
  * - Netflix 式布局演进:固定分区顺序不变 —— 所有节目单入口 → 此刻直播精选横幅(非分区,
  *   仅取 now 区服务端稳定排序首频道)→ 正在直播 → 即将播放 → 各分组正在直播;
  *   后三区为横向滚动瓦片行(溢出限于行内,整页无横向溢出,ui.md §8);
@@ -27,7 +30,10 @@ import { GuestActionNotice } from './components/GuestActionNotice';
  * - 公共请求一律 publicFetch(credentials:'omit');每区独立资源,失败仅重试本区;
  * - 30 秒周期刷新 + 回前台立即刷新(useLiveRefresh);刷新失败保留旧数据并提示可重试;
  * - 播放统一经 US3 受控入口(PlayButton/usePlayAction;无节目频道仍可发起);
- *   收藏为 US4 占位:游客先登录选档提示,不发起任何播放或媒体请求。
+ * - 详情面板:旧 live 弹层已删除,同一共享面板承载 now/upcoming/ended/none 四状态
+ *   (FR-013、ui.md §2;status 由宿主闭包 panelStatusOf 裁决);
+ * - 收藏:游客/未选档仅登录引导零请求(GuestActionNotice);已选档走既有 favorites
+ *   变更(乐观写+对账;卡片收藏的行内反馈收口归 012 T011)。
  */
 
 const PREVIEW_PAGE_SIZE = 20;
@@ -41,16 +47,62 @@ interface SlotDialogState {
   readonly mediaId: string;
   readonly channelTitle: string;
   readonly groupLabel: string;
-  readonly programme: ExperienceProgrammeDto;
+  /** 节目数据;无节目单频道(current/next 双 null)为 null → 面板 none 态(FR-012) */
+  readonly programme: ExperienceProgrammeDto | null;
   readonly kind: 'current' | 'upcoming';
+}
+
+/**
+ * 详情面板状态映射(012 T016/T018;FR-013、ui.md §2.3/§2.5):宿主闭包裁决,
+ * 共享面板不做时间推导(T005 契约——四状态由宿主传入):
+ * - programme=null(无节目单频道,current/next 双 null)→ 'none':面板保留频道身份
+ *   +「暂无节目单」,主操作仍可播放当前直播(ui.md §2.5);
+ * - kind='upcoming'(未来节目)→ 'upcoming'(无播放主操作,ui.md §1.6);
+ * - kind='current' 且服务端快照 now 落在节目时段内 → 'now';
+ * - 其余(current 但时段不含 now,含 serverNow 缺失/无效——不臆造本地时钟)→ 'ended'。
+ */
+export function panelStatusOf(
+  kind: SlotDialogState['kind'],
+  programme: ExperienceProgrammeDto | null,
+  serverNowIso: string | null,
+): ProgrammeStatus {
+  if (programme === null) {
+    return 'none';
+  }
+  if (kind === 'upcoming') {
+    return 'upcoming';
+  }
+  if (serverNowIso !== null) {
+    const nowMs = Date.parse(serverNowIso);
+    if (
+      Number.isFinite(nowMs) &&
+      Date.parse(programme.startsAt) <= nowMs &&
+      nowMs <= Date.parse(programme.endsAt)
+    ) {
+      return 'now';
+    }
+  }
+  return 'ended';
 }
 
 export function LivePage(): ReactNode {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { refreshKey } = useLiveRefresh();
   const [slotDialog, setSlotDialog] = useState<SlotDialogState | null>(null);
   const [guestNotice, setGuestNotice] = useState<string | null>(null);
   const { play } = usePlayAction();
+
+  // 收藏(012 T016 最小接线):profile 域 favorites 变更键内嵌当前档案 id(FR-021);
+  // 游客/未选档为 null(无乐观写与 /me 目标,onFavorite 走登录引导,零请求)。
+  const session = useSession();
+  const activeProfileId =
+    session.status === 'authenticated' ? (session.session?.activeProfile?.id ?? null) : null;
+  const favoriteToggle = useFavoriteToggleMutation(activeProfileId, {
+    id: slotDialog?.mediaId ?? '',
+    title: slotDialog?.channelTitle ?? '',
+    unavailable: false,
+  });
 
   const rawSection = searchParams.get('section');
   const section: LiveSection | null =
@@ -274,6 +326,7 @@ export function LivePage(): ReactNode {
             <NowHero
               row={firstNowRow}
               timezone={nowResource.data.timezone}
+              nowIso={nowResource.data.now}
               onOpenProgramme={setSlotDialog}
             />
           ) : null}
@@ -340,24 +393,53 @@ export function LivePage(): ReactNode {
         />
       )}
 
-      <ProgrammeSlotDialog
+      {/* 节目详情面板(012 T016;FR-013、ui.md §2):三区共用同一共享面板宿主
+          (shared-programme/ProgrammeDetailPanel,T005 落点;旧 live 弹层已删除)。
+          status 由宿主闭包 panelStatusOf 按 kind+programme+serverNowIso 裁决;
+          动作回调均无参:频道身份(mediaId)由本闭包持有(ui.md §1.4 频道语义)。 */}
+      <ProgrammeDetailPanel
         open={slotDialog !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSlotDialog(null);
+        onClose={() => {
+          setSlotDialog(null);
+        }}
+        channel={{ name: slotDialog?.channelTitle ?? '', logo: null }}
+        programme={
+          slotDialog?.programme == null
+            ? null
+            : {
+                title: slotDialog.programme.title,
+                description: slotDialog.programme.description,
+                start: slotDialog.programme.startsAt,
+                end: slotDialog.programme.endsAt,
+              }
+        }
+        status={panelStatusOf(
+          slotDialog?.kind ?? 'current',
+          slotDialog?.programme ?? null,
+          serverNowIso,
+        )}
+        timezone={timezone}
+        onPlay={() => {
+          if (slotDialog !== null) {
+            playChannel(slotDialog.mediaId, slotDialog.channelTitle);
           }
         }}
-        mediaId={slotDialog?.mediaId ?? ''}
-        channelTitle={slotDialog?.channelTitle ?? ''}
-        groupLabel={slotDialog?.groupLabel}
-        programme={slotDialog?.programme ?? null}
-        kind={slotDialog?.kind ?? 'current'}
-        timezone={timezone}
-        serverNowIso={serverNowIso}
-        onPlayChannel={(mediaId) => {
-          if (slotDialog !== null) {
-            playChannel(mediaId, slotDialog.channelTitle);
+        onFavorite={() => {
+          if (slotDialog === null) {
+            return;
           }
+          // 游客/未选档:零请求,仅登录引导(FR-009;与卡片收藏同语义,行内反馈收口归 T011)
+          if (activeProfileId === null) {
+            requireAuth(`收藏 ${slotDialog.channelTitle}`);
+            return;
+          }
+          // 已选档:既有 favorites 变更(乐观写 + onSettled 服务端对账;失败回滚与
+          // 提示由数据层收口;已收藏态回显与行内成功反馈归 T011,本期最小接线)
+          void favoriteToggle.mutateAsync(true).catch(() => undefined);
+        }}
+        onGuide={() => {
+          // 次操作「查看节目单」:导航节目单页(ui.md §2.3;公共路由 /live/guide)
+          void navigate('/live/guide');
         }}
       />
     </div>
