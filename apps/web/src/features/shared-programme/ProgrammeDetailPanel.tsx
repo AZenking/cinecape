@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Button, Modal } from '@heroui/react';
+import { Button, Drawer } from '@heroui/react';
 import { formatRangeInZone, formatTimeInZone, formatZoneLabel } from '../live/live-format';
 
 /**
@@ -72,7 +72,7 @@ export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNod
       ? null
       : Math.max(1, Math.round((Date.parse(programme.end) - Date.parse(programme.start)) / 60_000));
   return (
-    <Modal.Root
+    <Drawer.Backdrop
       isOpen={open}
       onOpenChange={(next) => {
         if (!next) {
@@ -80,15 +80,18 @@ export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNod
         }
       }}
     >
-      <Modal.Backdrop>
-        <Modal.Container placement="center" size="md">
-          <Modal.Dialog aria-label={`节目详情:${channel.name}`}>
-            <Modal.Header>
-              <Modal.Heading className="text-base font-semibold">
-                {programme?.title ?? `节目时段:${channel.name}`}
-              </Modal.Heading>
-            </Modal.Header>
-            <Modal.Body>
+      {/* 节目详情 = 右侧抽屉(产品评审:详情属"就地查看上下文",抽屉比居中弹窗更贴合
+          时间轴浏览,不遮住节目墙其余部分) */}
+      <Drawer.Content placement="right">
+        {/* 宽度加在 Dialog(面板)上:加在 Content(定位容器)上会把整层压窄并贴左 */}
+        <Drawer.Dialog aria-label={`节目详情:${channel.name}`} className="w-[420px] max-w-[92vw]">
+          <Drawer.CloseTrigger />
+          <Drawer.Header>
+            <Drawer.Heading className="text-base font-semibold">
+              {programme?.title ?? `节目时段:${channel.name}`}
+            </Drawer.Heading>
+          </Drawer.Header>
+          <Drawer.Body>
               <div className="flex items-center gap-2">
                 {channel.logo ? (
                   <img src={channel.logo} alt={`${channel.name} 频道标识`} className="h-6 w-6 rounded-sm object-contain" />
@@ -126,8 +129,8 @@ export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNod
                   ? '该节目尚未开播;此页仅展示节目时段,不提供未来内容播放。'
                   : '播放入口指向该频道的当前直播。'}
               </p>
-            </Modal.Body>
-            <Modal.Footer>
+          </Drawer.Body>
+          <Drawer.Footer>
               <Button size="sm" variant="ghost" onPress={() => onClose()}>
                 关闭
               </Button>
@@ -142,10 +145,9 @@ export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNod
                   播放当前频道
                 </Button>
               ) : null}
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal.Root>
+          </Drawer.Footer>
+        </Drawer.Dialog>
+      </Drawer.Content>
+    </Drawer.Backdrop>
   );
 }

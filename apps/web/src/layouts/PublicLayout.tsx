@@ -15,20 +15,18 @@ import { Link, Outlet } from 'react-router';
 import { IdentityMenu } from '../features/profiles/identity-menu';
 import { PublicNav } from '../shared/ui';
 
-export interface PublicLayoutProps {
-  /**
-   * 宽屏铺满:内容区不再受 max-w-6xl(1120px)约束,改 100% 宽度。
-   * 用于数据密集页(EPG 节目单时间轴),普通阅读页保持窄栏更易读。
-   */
-  readonly wide?: boolean;
-}
-
-export function PublicLayout({ wide = false }: PublicLayoutProps = {}): ReactNode {
-  const widthClass = wide ? 'max-w-none' : 'max-w-6xl';
+/**
+ * 公共布局宽度策略(统一基准):
+ * - 布局壳(**顶栏 + 内容区**)一律铺满视口,不再整体限宽 —— 三个观看页
+ *   (直播/节目单/点播)都是数据密集页,统一宽度才有一致体感;
+ * - 阅读型内容各自在页面内约束(`max-w-6xl` 等),而不是让整个壳变窄:
+ *   这样「壳宽一致」与「内容易读」不互相牺牲。
+ */
+export function PublicLayout(): ReactNode {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="border-b border-border bg-background/30">
-        <div className={`mx-auto flex h-14 w-full items-center justify-between gap-4 px-4 ${widthClass}`}>
+        <div className="mx-auto flex h-14 w-full items-center justify-between gap-4 px-4 lg:px-6">
           <div className="flex items-center gap-6">
             <Link
               to="/"
@@ -44,7 +42,7 @@ export function PublicLayout({ wide = false }: PublicLayoutProps = {}): ReactNod
           <IdentityMenu />
         </div>
       </header>
-      <main className={`mx-auto w-full flex-1 px-4 py-6 ${widthClass}`}>
+      <main className="mx-auto w-full flex-1 px-4 py-6 lg:px-6">
         <Outlet />
       </main>
     </div>

@@ -61,7 +61,7 @@ import {
 
 /** 频道列宽(px;导出:GuidePage 换算 GuideAutoPosition.anchorX 时加此偏移) */
 export const CHANNEL_COL_PX = 176;
-const ROW_HEIGHT_PX = 56;
+const ROW_HEIGHT_PX = 72;
 const MAX_LANES = 3;
 
 /** 墙面节目引用(详情面板/播放衔接入参) */
@@ -301,25 +301,28 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                           }
                           onSelectProgramme({ mediaId: channel.media.id, channelTitle: channel.media.title, programme });
                         }}
-                        className={`hmp-truncate hmp-tabular-nums group/prog absolute overflow-hidden rounded-md border text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
+                        // 卡片化:圆角 + 边框 + 抬升阴影 + 块间留缝(产品评审:节目块应像 Card,
+                        // 而非紧贴的色条);语义仍由 <button> + aria-label 承担,HeroUI Card
+                        // 本身不是可按压组件,直接套用会丢失键盘/读屏语义。
+                        className={`hmp-truncate hmp-tabular-nums group/prog absolute overflow-hidden rounded-lg border text-left shadow-xs transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
                           selectedKey === programme.key
-                            ? 'z-10 border-accent bg-accent/25 text-foreground shadow-sm ring-2 ring-accent/30'
+                            ? 'z-10 border-accent bg-accent/20 text-foreground shadow-md ring-2 ring-accent/40'
                             : isCurrent
-                              ? 'z-[5] border-accent/60 bg-accent/15 text-foreground shadow-xs hover:border-accent hover:bg-accent/25'
+                              ? 'z-[5] border-accent/50 bg-accent/12 text-foreground hover:border-accent/80 hover:bg-accent/20 hover:shadow-md'
                               : isPast
-                                ? 'border-border/30 bg-surface-secondary/30 text-muted/70 hover:bg-surface-secondary/50'
-                                : 'border-border/70 bg-surface-secondary/60 text-foreground/90 hover:border-foreground/30 hover:bg-surface-secondary'
+                                ? 'border-border/40 bg-surface/60 text-muted/70 hover:bg-surface-secondary/60'
+                                : 'border-border/60 bg-surface/90 text-foreground/90 hover:border-foreground/25 hover:bg-surface-secondary hover:shadow-md'
                         }`}
                         style={{
-                          left,
-                          width,
-                          top: (lane % MAX_LANES) * laneHeight + 2,
-                          height: laneHeight - 4,
+                          left: left + 1,
+                          width: Math.max(width - 2, 2),
+                          top: (lane % MAX_LANES) * laneHeight + 4,
+                          height: laneHeight - 8,
                           minHeight: 18,
                         }}
                       >
                         {/* 两行内容:标题行(+LIVE 角标)+ `HH:mm – HH:mm` muted 行 */}
-                        <span className="flex h-full min-w-0 flex-col justify-center gap-0.5 px-2">
+                        <span className="flex h-full min-w-0 flex-col justify-center gap-0.5 px-2.5">
                           <span className="flex min-w-0 items-center gap-1">
                             <span className="hmp-truncate min-w-0 text-2xs font-medium leading-tight">
                               {programme.title}

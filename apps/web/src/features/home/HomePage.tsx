@@ -42,7 +42,7 @@ export function HomePage(): ReactNode {
   });
 
   return (
-    <section className="flex flex-col gap-6">
+    <section className="mx-auto flex w-full max-w-6xl flex-col gap-6">
       <header className="flex flex-col gap-1">
         <h1 className="text-xl font-semibold text-foreground">首页</h1>
         {context?.initialized ? (

@@ -12,8 +12,14 @@ import { formatTimeInZone } from '../live/live-format';
  *   缺失小时不补造(刻度只产生于窗口内真实存在的 UTC 整点)。
  */
 
-/** 墙面横向比例(像素/分钟;全天 24 小时窗 = 2880px 内容宽,DST 23/25 小时日按真实日长) */
-export const PX_PER_MINUTE = 2;
+/**
+ * 墙面横向比例(像素/分钟)。
+ * 6px/min:1 小时 = 360px、30 分钟 = 180px、全天 24 小时窗 = 8640px。
+ * 取值依据(产品评审):2px/min 时半小时块仅 60px,标题几乎必然截断、无法扫读;
+ * 6px/min 与参考站一致,节目名可显示 6–10 个汉字,横向由墙内滚动承担
+ * (DST 23/25 小时日按真实日长,比例不变)。
+ */
+export const PX_PER_MINUTE = 6;
 
 /** 'YYYY-MM-DD' + 家庭时区 → 该日 00:00 的本地日历标签(M/D) */
 export function guideDateLabel(date: string, timezone: string): string {
