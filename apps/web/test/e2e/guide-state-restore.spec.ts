@@ -8,7 +8,10 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  *   固定时钟 20:05 CST → 锚点远大于 0),并显示时区说明(家庭时区标注);
  * - 设置语义状态(日期/每页频道数/频道页/视图)→ 刷新 → URL 与语义状态完整恢复;
  *   刷新后滚动回缺省位置可接受(url-state §1 规则3;垂直 0/横向按窗口缺省定位);
- * - 节目块点击打开详情面板而非直接播放:面板出现、全程零 playback/媒体流请求。
+ * - 节目块点击打开详情面板而非直接播放:面板出现、全程零 playback/媒体流请求
+ *   (015 T013 语义修订:仅 upcoming/ended 块开面板;与 NOW 相交的 current 块 =
+ *   直播语义点击直接起播,该新链路由 015 T023 live-flow-redesign.spec 覆盖,
+ *   本套件的块选择器显式排除 current 块以锚定面板路径)。
  *
  * 前置(与 guide-keyboard/guide-performance 套件同约定):E2E_SEED_SCALE=1 种子
  * 规模夹具(200 频道),服务端时钟锚定 2026-11-04T12:05Z(家庭时区 Asia/Shanghai
@@ -17,11 +20,13 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  * E2E_SEED_SCALE=1。限频:本套件仅参数变化产生 guide 请求,全程 ≤10 次(<30/分)。
  */
 
-/** 节目块按钮可辨识 aria-label(含「频道,标题」逗号与「起–止」) */
+/** 节目块按钮可辨识 aria-label(含「频道,标题」逗号与「起–止」);
+ *  015 T013 起与 NOW 相交的 current 块为直接起播语义(aria-label 以「,正在直播」
+ *  结尾),本套件锚定详情面板路径,显式排除 current 块 */
 function programmeButton(page: Page): Locator {
   return page
     .getByRole('region', { name: '节目墙' })
-    .locator('button[aria-label*=","][aria-label*="–"]')
+    .locator('button[aria-label*=","][aria-label*="–"]:not([aria-label$=",正在直播"])')
     .first();
 }
 
@@ -65,17 +70,22 @@ test.describe('EPG 状态恢复与开面板不播放(T021)', () => {
     await page.goto('/live/guide');
     await expect(programmeButton(page)).toBeVisible({ timeout: 30_000 });
 
-    // 设置状态:date(明天)→ 每页频道数 50 → 频道第 2 页 → 列表视图
-    // (Select 触发器经 T014 稳定 testid 定位:aria-label 与 aria-labelledby 并存,
-    //  真实浏览器可访问名由 labelledby 合成,文本定位不稳;jsdom/vitest 无此差异)
+    // 设置状态:date(明天)→ 每页频道数 30 → 频道第 2 页 → 列表视图
+    // (Select/分页控件已收拢进「显示与筛选」抽屉:先开抽屉再交互;抽屉保持开启
+    //  供连续设置。页大小取 30 而非 50:种子规模夹具下 50 频道 × 全天 48 档 ≈ 2400 >
+    //  服务端 GUIDE_MAX_PROGRAMMES=2000 → 422 GUIDE_WINDOW_TOO_LARGE,30×48=1440 在限内)
     const dateTabs = page.getByRole('group', { name: '节目单日期' }).getByRole('button');
     await dateTabs.nth(1).click();
     await expect(page).toHaveURL(/date=\d{4}-\d{2}-\d{2}/);
+    await page.getByRole('button', { name: '显示与筛选' }).click();
     await page.getByTestId('guide-page-size-select').click();
-    await page.getByRole('option', { name: '50' }).click();
-    await expect(page).toHaveURL(/pageSize=50/);
+    await page.getByRole('option', { name: '30' }).click();
+    await expect(page).toHaveURL(/pageSize=30/);
+    // 翻页后抽屉自动关闭(墙重新可聚焦,FR-044 焦点锚落位)——后续视图切换需再开
+    await page.getByRole('button', { name: '显示与筛选' }).click();
     await page.getByRole('button', { name: '下一页' }).click();
     await expect(page).toHaveURL(/channelPage=2/);
+    await page.getByRole('button', { name: '显示与筛选' }).click();
     await page.getByTestId('guide-view-select').click();
     await page.getByRole('option', { name: '按频道列表' }).click();
     await expect(page).toHaveURL(/view=list/);
@@ -84,18 +94,21 @@ test.describe('EPG 状态恢复与开面板不播放(T021)', () => {
     // 刷新:URL 直挂恢复(语义状态完整;滚动不进 URL)
     await page.reload();
     await expect(page).toHaveURL(/date=\d{4}-\d{2}-\d{2}/);
-    await expect(page).toHaveURL(/pageSize=50/);
+    await expect(page).toHaveURL(/pageSize=30/);
     await expect(page).toHaveURL(/channelPage=2/);
     await expect(page).toHaveURL(/view=list/);
     // 语义状态恢复:列表视图、日期 Tab 选中、第 2 页内容(翻页按钮可用性来自响应 total)
     await expect(listSections(page).first()).toBeVisible({ timeout: 30_000 });
     await expect(dateTabs.nth(1)).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: '显示与筛选' }).click();
     await expect(page.getByRole('button', { name: '上一页' })).toBeEnabled();
 
     // 切回墙视图:墙恢复;滚动回缺省位置可接受(垂直 0;明天窗口横向锚 0 = 日首)
     await page.getByTestId('guide-view-select').click();
     await page.getByRole('option', { name: '节目墙' }).click();
-    await expect(wallTitle(page)).toBeVisible({ timeout: 30_000 });
+    // 窗口标题已降为 sr-only 焦点锚(应产品要求不可见):存在性 + 滚动位置断言
+    await expect(wallTitle(page)).toBeAttached({ timeout: 30_000 });
+    await expect(page.getByRole('region', { name: '节目墙' })).toBeVisible();
     const scroll = await wallScrollOf(page);
     expect(scroll.top).toBe(0);
     expect(scroll.left).toBe(0);

@@ -7,7 +7,7 @@ import { expect, test, type Page, type Locator } from '@playwright/test';
  * Asia/Shanghai);/live/guide 直接可用。
  *
  * 覆盖:
- * - 从直播页「所有节目单」入口进入 /live/guide(US5 入口 → US6 墙);
+ * - 直接进入 /live/guide 节目单墙(游客可见频道与节目);
  * - 键盘 Tab 到可见节目、焦点可见(:focus-visible outline,FR-044);
  * - 翻页后焦点定位到新窗口标题(不掉页面起点、不困于隐藏元素);
  * - EPG 局部二维滚动:横向滚动只在墙内,不扩散为整页横向溢出;
@@ -18,9 +18,14 @@ import { expect, test, type Page, type Locator } from '@playwright/test';
  * 参数变化时产生 guide 请求(纯键盘/滚动操作不重新请求),全程 ≤8 次。
  */
 
-/** 节目按钮的可辨识 aria-label:含「频道,标题,起–止」(逗号 + 时段范围) */
+/** 节目按钮的可辨识 aria-label:含「频道,标题,起–止」(逗号 + 时段范围);
+ *  015 T013 起与 NOW 相交的 current 块为直接起播语义(aria-label 以「,正在直播」
+ *  结尾),涉及「开详情面板」的用例显式排除 current 块 */
 function programmeButton(page: Page): Locator {
-  return page.getByRole('region', { name: '节目墙' }).locator('button[aria-label*=","][aria-label*="–"]').first();
+  return page
+    .getByRole('region', { name: '节目墙' })
+    .locator('button[aria-label*=","][aria-label*="–"]:not([aria-label$=",正在直播"])')
+    .first();
 }
 
 /** 登录弹层(HeroUI Modal;与播放面 data-testid 区分) */
@@ -45,11 +50,8 @@ async function wallScrollOf(page: Page): Promise<{ left: number; top: number }> 
 test.describe('EPG 节目单键盘、滚动与位置恢复(T110)', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('从直播页「所有节目单」入口进入节目单墙,游客可见频道与节目', async ({ page }) => {
-    await page.goto('/live');
-    const entry = page.getByRole('region', { name: '所有节目单入口' }).getByRole('link', { name: '进入节目单' });
-    await expect(entry).toBeVisible();
-    await entry.click();
+  test('直接进入节目单墙,游客可见频道与节目', async ({ page }) => {
+    await page.goto('/live/guide');
     await expect(page).toHaveURL(/\/live\/guide/);
     // 墙渲染:窗口标题 + 频道行 + 节目按钮(家庭时区 20:05 锚定的默认窗口)
     const wall = page.getByRole('region', { name: '节目墙' });
@@ -97,6 +99,8 @@ test.describe('EPG 节目单键盘、滚动与位置恢复(T110)', () => {
     await expect(focused).toBeVisible();
 
     // 翻页(频道分批):焦点自动定位到新窗口标题(FR-044),不落回页面起点
+    // (分页控件收拢进「显示与筛选」抽屉;翻页后抽屉自动关闭,墙重新可聚焦接收焦点锚)
+    await page.getByRole('button', { name: '显示与筛选' }).click();
     await page.getByRole('button', { name: '下一页' }).click();
     await expect(page.locator('#guide-window-title')).toBeFocused({ timeout: 10_000 });
     const focusAfterPaging = await page.evaluate(() => document.activeElement?.id ?? '');
@@ -204,8 +208,7 @@ test.describe('EPG 节目单键盘、滚动与位置恢复(T110)', () => {
     });
 
     await page.goto('/live/guide');
-    const target = programmeButton(page);
-    await expect(target).toBeVisible({ timeout: 30_000 });
+    await expect(programmeButton(page)).toBeVisible({ timeout: 30_000 });
     await page.evaluate(() => {
       const container = document.querySelector('[role="region"][aria-label="节目墙"]') as HTMLElement;
       container.scrollLeft = 160;
@@ -215,12 +218,16 @@ test.describe('EPG 节目单键盘、滚动与位置恢复(T110)', () => {
     expect(beforeScroll.top).toBeGreaterThan(0);
     const beforeParams = await guideUrlParams(page);
 
-    // 详情 → 「播放当前频道」(游客;012 T022 共享面板按钮语义)→ 详情先关、统一登录弹层出现
+    // 游客播放意图(015 T013 语义):墙内 current 块点击已改为直接起播(不再经
+    // 详情面板「播放当前频道」),统一入口为频道列「直播」按钮(播放 <频道> 当前直播)
+    // —— 游客点击 → 详情关闭路径消失,统一登录弹层出现;
     // (dispatchEvent 同上:保持滚动锚点,不被可操作性滚动重置)
-    await target.dispatchEvent('click');
-    const detail = page.getByRole('dialog', { name: /节目详情/ });
-    await expect(detail).toBeVisible();
-    await detail.getByRole('button', { name: '播放当前频道' }).click();
+    const playEntry = page
+      .getByRole('region', { name: '节目墙' })
+      .getByRole('button', { name: /^播放 .+ 当前直播$/ })
+      .first();
+    await expect(playEntry).toBeVisible({ timeout: 15_000 });
+    await playEntry.dispatchEvent('click');
     const dialog = authDialog(page);
     await expect(dialog.getByRole('heading', { name: '登录' })).toBeVisible({ timeout: 15_000 });
     expect(mediaRequests).toEqual([]); // 登录前零播放/媒体请求(US3/FR-011)

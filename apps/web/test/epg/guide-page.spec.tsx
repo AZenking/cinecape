@@ -192,7 +192,9 @@ describe('EPG 节目单页(T109)', () => {
     await user.click(screen.getByRole('button', { name: /11月6日/ }));
     await waitFor(() => expect(guideCalls().some((url) => url.includes('date=2026-11-06'))).toBe(true));
 
-    // 翻到频道第 2 页:channelPage 写 URL
+    // 翻到频道第 2 页:channelPage 写 URL(分页控件收拢进「显示与筛选」抽屉;
+    // 翻页后抽屉自动关闭——FR-044 焦点锚需墙重新可聚焦)
+    await user.click(screen.getByRole('button', { name: '显示与筛选' }));
     await user.click(screen.getByRole('button', { name: /下一页/ }));
     await waitFor(() => expect(guideCalls().some((url) => url.includes('page=2')).valueOf()).toBe(true));
 
@@ -226,7 +228,8 @@ describe('EPG 节目单页(T109)', () => {
     renderGuidePage();
     await waitFor(() => expect(screen.getByText(/午间专题/).valueOf()).toBeTruthy());
     expect(guideCalls()[0]).toContain('pageSize=20');
-    // T016:原生 <select> → HeroUI Select 后改按用户可见交互断言(开弹层 → 点选项)
+    // T016:Select 收拢进「显示与筛选」抽屉后按用户可见交互断言(开抽屉 → 开弹层 → 点选项)
+    await user.click(screen.getByRole('button', { name: '显示与筛选' }));
     await user.click(screen.getByLabelText('每页频道数'));
     await user.click(await screen.findByRole('option', { name: '50' }));
     await waitFor(() => expect(guideCalls().some((url) => url.includes('pageSize=50'))).toBe(true));
@@ -291,7 +294,8 @@ describe('EPG 节目单页(T109)', () => {
     renderGuidePage('/live/guide?channelPage=2');
     await waitFor(() => expect(screen.getByText(/深夜电影/).valueOf()).toBeTruthy());
 
-    // 调大每页频道数 → 全天窗口节目超限 → 服务端 422(T016:经 Select 弹层交互)
+    // 调大每页频道数 → 全天窗口节目超限 → 服务端 422(T016:经抽屉内 Select 弹层交互)
+    await user.click(screen.getByRole('button', { name: '显示与筛选' }));
     await user.click(screen.getByLabelText('每页频道数'));
     await user.click(await screen.findByRole('option', { name: '50' }));
     await waitFor(() => expect(screen.getByText(/每页频道数.*调小|减少每页频道数/)).toBeInTheDocument());

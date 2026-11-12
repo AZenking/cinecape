@@ -19,7 +19,8 @@ import { queryClient as appQueryClient } from '../../src/shared/query/client';
  * T010(006-US1,先 FAIL)· 原生 <select> → HeroUI Select 等价性组件测试:
  * - 选项集合与替换前一致、当前值正确回显(onSelectionChange 绑定既有 state);
  * - 键盘可开合(Enter/方向键)、焦点落在触发器上(可焦点可见,FR-003);
- * - 变更回调语义等价:仍走原有「当次密码 + CAS」流程(设置页)/URL 参数(指南页)。
+ * - 变更回调语义等价:设置页常规操作免当次密码直接保存(013/ADR-0017,请求体不带
+ *   ownerPassword)/ URL 参数(指南页)。
  * 覆盖 T011(epg-link)、T012(policy-profile/policy-level)、T013(source-root)、
  * T014(视图模式/每页频道数)。
  */
@@ -93,17 +94,6 @@ const EPG_A = {
   lastJobId: null,
 };
 const EPG_B = { ...EPG_A, id: 'epg-b', name: 'EPG 源 B' };
-const IPTV = {
-  id: 'iptv-1',
-  kind: 'iptv',
-  name: '直播源',
-  enabled: true,
-  version: 4,
-  epgSourceId: 'epg-a',
-  locationLabel: 'media.example.tv',
-  lastSuccessAt: null,
-  lastJobId: null,
-};
 
 function renderPage(page: ReactNode, path: string): void {
   // T025:设置页迁移 useAppQuery/useAppMutation 后需 QueryClientProvider;
@@ -122,7 +112,26 @@ function renderPage(page: ReactNode, path: string): void {
   );
 }
 
-describe('T011 · settings-epg-page IPTV 关联 Select(FR-001/002/003)', () => {
+describe('T011 · settings-epg-page 频道资产工作台与目标 EPG 来源选择(FR-001/002/003)', () => {
+  const CHANNEL_1 = {
+    id: 'ch-1',
+    title: 'CCTV-1 综合',
+    type: 'channel',
+    version: 1,
+    available: true,
+    lineCount: 3,
+    epgBinding: {
+      mediaId: 'ch-1',
+      mode: 'manual',
+      version: 1,
+      epgSourceId: 'epg-a',
+      xmltvChannelId: 'CCTV1',
+      status: 'valid',
+      invalidReason: null,
+      displayName: 'CCTV-1 综合',
+    },
+  };
+
   beforeEach(() => {
     installFetchRouter();
     fetchRouter = (_method, path) => {
@@ -130,10 +139,35 @@ describe('T011 · settings-epg-page IPTV 关联 Select(FR-001/002/003)', () => {
         return { status: 200, body: { unlocked: true, expiresAt: new Date(Date.now() + 15 * 60_000).toISOString() } };
       }
       if (path === '/api/settings/sources' && _method === 'GET') {
-        return { status: 200, body: { items: [IPTV, EPG_A, EPG_B], page: 1, pageSize: 20, total: 3 } };
+        return { status: 200, body: { items: [EPG_A, EPG_B], page: 1, pageSize: 20, total: 2 } };
       }
-      if (path === '/api/settings/sources/iptv-1' && _method === 'PATCH') {
-        return { status: 200, body: { ...IPTV, epgSourceId: 'epg-b', version: 5 } };
+      if (path === '/api/settings/catalog/candidates/query') {
+        return { status: 200, body: { items: [CHANNEL_1], total: 1, counts: { all: 1, visible: 1, hidden: 0 }, page: 1, pageSize: 20 } };
+      }
+      if (path === '/api/settings/catalog/media/ch-1/epg-binding/query') {
+        return {
+          status: 200,
+          body: {
+            mode: 'manual',
+            version: 1,
+            epgSourceId: 'epg-a',
+            xmltvChannelId: 'CCTV1',
+            status: 'valid',
+            invalidReason: null,
+          },
+        };
+      }
+      if (path === '/api/settings/catalog/media/ch-1/epg-candidates/query') {
+        return {
+          status: 200,
+          body: {
+            items: [
+              { xmltvChannelId: 'CCTV1', displayName: 'CCTV-1 综合', current: null, next: null },
+              { xmltvChannelId: 'CCTV2', displayName: 'CCTV-2 财经', current: null, next: null },
+            ],
+            epgGeneration: 1,
+          },
+        };
       }
       return undefined;
     };
@@ -143,55 +177,50 @@ describe('T011 · settings-epg-page IPTV 关联 Select(FR-001/002/003)', () => {
     vi.unstubAllGlobals();
   });
 
-  it('选项集合与当前值等价:未关联 + 全部 EPG 来源,当前回显已关联来源名', async () => {
+  it('频道资产工作台正确展示线路数 Chip、绑定状态，点击匹配打开弹窗并选择目标 EPG 来源', async () => {
+    const user = userEvent.setup();
     renderPage(<SettingsEpgPage />, '/settings/epg');
-    // 注:RAC 触发器同时带 aria-label 与 aria-labelledby(值+自身),可及名含当前值;
-    // 断言沿用套件惯例 getByLabelText(标签关联查询,与替换前原生 select 一致)
-    const trigger = await screen.findByLabelText('为 直播源 选择 EPG 来源');
-    expect(trigger).toHaveTextContent('EPG 源 A'); // 当前值(iptv.epgSourceId='epg-a')
-    await userEvent.setup().click(trigger);
+
+    // 验证频道行展示
+    const channelRow = await screen.findByTestId('channel-row-ch-1');
+    expect(channelRow).toHaveTextContent('CCTV-1 综合');
+    expect(screen.getByTestId('channel-lines-ch-1')).toHaveTextContent('3 条线路');
+    // 018:绑定呈现 = EPG 频道名为主,技术 ID 入明细(不再以裸 ID 为主文案)
+    expect(screen.getByTestId('channel-binding-ch-1')).toHaveTextContent('CCTV-1 综合');
+    expect(within(screen.getByTestId('channel-binding-ch-1')).getByTitle('节目单 ID: CCTV1')).toBeInTheDocument();
+
+    // 点击“匹配 EPG”打开 Modal
+    const matchBtn = screen.getByTestId('epg-match-ch-1');
+    await user.click(matchBtn);
+
+    // 弹窗出现并包含目标 EPG 选择器
+    const trigger = await screen.findByTestId('epg-source-select-trigger');
+    expect(trigger).toHaveTextContent('EPG 源 A');
+    await user.click(trigger);
+
     const listbox = await screen.findByRole('listbox');
     const labels = within(listbox)
       .getAllByRole('option')
-      .map((option) => option.textContent);
-    expect(labels).toEqual(['未关联', 'EPG 源 A', 'EPG 源 B']);
+      .map((option) => option.textContent?.trim());
+    expect(labels).toContain('EPG 源 A (已启用)');
+    expect(labels).toContain('EPG 源 B (已启用)');
   });
 
-  it('变更回调等价:选择目标 EPG 来源 → 仍弹当次密码确认 → PATCH epgSourceId', async () => {
+  it('目标 EPG 来源选择器键盘可开合且焦点可见', async () => {
     const user = userEvent.setup();
     renderPage(<SettingsEpgPage />, '/settings/epg');
-    const trigger = await screen.findByLabelText('为 直播源 选择 EPG 来源');
-    await chooseOption(user, trigger, 'EPG 源 B');
-    // 原语义保留:选择即弹当次密码确认(而非直接保存)
-    expect(await screen.findByText('将「直播源」关联到所选 EPG 来源。')).toBeVisible();
-    await user.type(screen.getByLabelText('主账号密码(当次验证)'), 'password-123');
-    await user.click(screen.getByTestId('password-submit'));
-    await waitFor(() => {
-      const patch = fetchCalls.find((call) => call.method === 'PATCH' && call.path === '/api/settings/sources/iptv-1');
-      expect(patch).toBeDefined();
-      expect((patch?.body as Record<string, unknown>).epgSourceId).toBe('epg-b');
-    });
-  });
 
-  it('键盘可开合且焦点可见;选「未关联」→ 解除关联确认与 PATCH null 等价', async () => {
-    const user = userEvent.setup();
-    renderPage(<SettingsEpgPage />, '/settings/epg');
-    const trigger = await screen.findByLabelText('为 直播源 选择 EPG 来源');
+    const matchBtn = await screen.findByTestId('epg-match-ch-1');
+    await user.click(matchBtn);
+
+    const trigger = await screen.findByTestId('epg-source-select-trigger');
     trigger.focus();
     expect(trigger).toHaveFocus();
-    await user.keyboard('{Enter}'); // 键盘开
+    await user.keyboard('{Enter}');
     const listbox = await screen.findByRole('listbox');
     expect(listbox).toBeVisible();
-    await user.keyboard('{ArrowUp}'); // 当前值 EPG 源 A → 上移到「未关联」(空值键)
-    await user.keyboard('{Enter}'); // 键盘选
-    expect(await screen.findByText('解除「直播源」的 EPG 关联。')).toBeVisible();
-    await user.type(screen.getByLabelText('主账号密码(当次验证)'), 'password-123');
-    await user.click(screen.getByTestId('password-submit'));
-    await waitFor(() => {
-      const patch = fetchCalls.find((call) => call.method === 'PATCH' && call.path === '/api/settings/sources/iptv-1');
-      expect(patch).toBeDefined();
-      expect((patch?.body as Record<string, unknown>).epgSourceId).toBeNull();
-    });
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{Enter}');
   });
 });
 
@@ -328,7 +357,7 @@ describe('T013 · settings-sources-page NAS 根目录 Select(FR-001/002)', () =>
     const user = userEvent.setup();
     renderPage(<SettingsSourcesPage />, '/settings/sources');
     await user.click(await screen.findByTestId('create-source-open'));
-    await user.click(screen.getByRole('radio', { name: 'NAS' }));
+    await user.click(screen.getByRole('tab', { name: 'NAS' }));
     const trigger = await screen.findByLabelText('NAS 根目录');
     expect(trigger).toHaveTextContent('请选择…'); // 当前值(rootKey='')
     await chooseOption(user, trigger, '媒体库');
@@ -413,6 +442,8 @@ describe('T014 · GuidePage 视图/每页频道数 Select(筛选行为不变)', 
   it('视图模式 Select:选项=节目墙/按频道列表,当前值回显,切换写 URL view=list', async () => {
     const user = userEvent.setup();
     renderGuidePage();
+    // Select 已收拢进「显示与筛选」抽屉(T016 工具栏减负):先开抽屉再交互
+    await user.click(await screen.findByRole('button', { name: '显示与筛选' }));
     const trigger = await screen.findByLabelText('视图模式');
     await waitFor(() => expect(trigger).toHaveTextContent('节目墙')); // 当前值(view=wall)
     await chooseOption(user, trigger, '按频道列表');
@@ -423,6 +454,8 @@ describe('T014 · GuidePage 视图/每页频道数 Select(筛选行为不变)', 
   it('每页频道数 Select:键盘开合、选项 20/30/50,选 50 → 请求与 URL pageSize=50 且清 channelPage', async () => {
     const user = userEvent.setup();
     renderGuidePage('/live/guide?channelPage=2');
+    // Select 已收拢进「显示与筛选」抽屉:先开抽屉再交互
+    await user.click(await screen.findByRole('button', { name: '显示与筛选' }));
     const trigger = await screen.findByLabelText('每页频道数');
     await waitFor(() => expect(trigger).toHaveTextContent('20')); // 当前值(pageSize 缺省 20)
     trigger.focus();

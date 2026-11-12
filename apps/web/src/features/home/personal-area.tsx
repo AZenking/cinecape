@@ -12,6 +12,8 @@ import { useFavoriteChannelsQuery } from '../favorites/use-favorites';
 import { fetchHistory, type HistoryItem } from '../history/history-api';
 import { useHistoryPageQuery } from '../history/use-history';
 import { HistoryCard } from '../history/history-card';
+import { ChannelLogo } from '../live/components/channel-logo';
+import { VOD_ENABLED } from '../../shared/feature-flags';
 import { PlayButton } from '../playback/use-play-action';
 import { FavoriteStarButton } from '../favorites/favorite-star-button';
 
@@ -30,7 +32,14 @@ import { FavoriteStarButton } from '../favorites/favorite-star-button';
  * - 收藏取消为数据层乐观变更(favorite-star-button → useAppMutation optimistic):
  *   点击即从共享 favorites 缓存移除,失败回滚 + Toast,本组件不再持有删除状态机;
  * - 失效收藏/历史媒体:显示不可用、可取消收藏、无可运行播放按钮,不当作正在直播
- *   节目(FR-020)。
+ *   节目(FR-020);
+ * - 收藏频道卡小 Logo(014 T027/T028,ui.md §2 接入点 4/5、spec US3-3):posterRef
+ *   取自 FavoriteChannelItem.media.posterRef(/me/favorites/channels PublicMedia
+ *   摘要投影,数据面零服务端改动);有 Logo → 标题行前渲染固定尺寸身份盒(size-6,
+ *   ChannelLogo 装饰层绝对定位不参与行盒,与 ChannelTile 同回退链——加载中/失败
+ *   由组件内首字回退层兜底);无 Logo → 不渲染身份盒,维持现状纯文字呈现(FR-008)。
+ *   本组件收藏频道列表(aria-label="收藏频道列表")即全仓 grep 的收藏频道列表
+ *   唯一渲染面(无独立 /favorites 路由页),ui.md §2 接入点 4/5 在此一并落地。
  */
 
 /** 首屏与「查看更多」每页条数(契约 limit 缺省 20) */
@@ -127,14 +136,32 @@ function FavoritesSection({ profileId }: { readonly profileId: string }): ReactN
                     className="flex h-full flex-col gap-2 rounded-lg border border-border bg-surface p-3"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <h3 className="min-w-0 truncate text-sm font-medium text-foreground">
+                      <h3 className="min-w-0 text-sm font-medium text-foreground">
                         <Link
                           to={`/media/${encodeURIComponent(item.media.id)}`}
                           state={{ favorited: true }}
-                          className="rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                          className="flex min-w-0 items-center gap-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                         >
-                          {item.media.title}
-                          {unavailable ? <span className="ms-2 text-xs font-normal text-muted">(不可用)</span> : null}
+                          {/* 收藏频道小 Logo(014 T027/T028):固定尺寸身份盒 + 绝对定位
+                              装饰层,不参与行盒(有则显示小图);aria-hidden 装饰节点,
+                              可读名仍由标题文字承担 */}
+                          {item.media.posterRef !== null ? (
+                            <span
+                              aria-hidden="true"
+                              className="relative inline-flex size-6 shrink-0 overflow-hidden rounded-sm"
+                            >
+                              <ChannelLogo
+                                key={item.media.posterRef}
+                                posterRef={item.media.posterRef}
+                                channelTitle={item.media.title}
+                                fallbackClassName="text-xs font-black leading-none text-foreground/10"
+                              />
+                            </span>
+                          ) : null}
+                          <span className="min-w-0 truncate">
+                            {item.media.title}
+                            {unavailable ? <span className="ms-2 text-xs font-normal text-muted">(不可用)</span> : null}
+                          </span>
                         </Link>
                       </h3>
                       {/* 取消收藏:optimistic.apply 立即移除共享缓存条目,失败回滚 + Toast */}
@@ -248,7 +275,11 @@ export function HomePersonalArea(): ReactNode {
   return (
     <div data-testid="home-personal-area" className="flex flex-col gap-8">
       <FavoritesSection key={activeProfile.id} profileId={activeProfile.id} />
-      <HistorySection key={`history-${activeProfile.id}`} profileId={activeProfile.id} />
+      {/* v1 只做直播:点播观看历史分区隐藏(实现保留于同文件 HistorySection,
+          翻 feature-flags.ts 开关即恢复;此时也不发历史请求) */}
+      {VOD_ENABLED ? (
+        <HistorySection key={`history-${activeProfile.id}`} profileId={activeProfile.id} />
+      ) : null}
     </div>
   );
 }

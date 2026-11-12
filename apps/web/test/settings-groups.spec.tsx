@@ -1,4 +1,5 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
+import { VOD_ENABLED } from '../src/shared/feature-flags';
 import { MemoryRouter, Navigate, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -17,21 +18,35 @@ import {
 import { queryClient as appQueryClient } from '../src/shared/query/client';
 
 /**
- * T030(012 US5 测试先行,先 FAIL):设置布局分组渲染。
- * 权威:docs/specs/012-live-settings-experience/contracts/ui.md §5 + spec FR-024/FR-025
- * 注记 + 澄清 Q1 + data-model §4(SettingsModuleMeta.group/scopeLabel):
- * - 注册表携带分组元数据:household = profiles/policy/sources/epg/devices(+ general 的
- *   家庭区域,键仍 general);system = account;分组顺序 个人偏好→家庭管理→系统;
- * - FR-025 注记:「关于与帮助」分类本期不落位 —— 注册表与左侧菜单均不渲染;
- * - Q1/SC-007:个人偏好组「分组先行」,零支持项整组不渲染;
- * - 家庭管理组头标注「需要管理授权」;组头显示作用范围标注;
- * - 路由不变:七条 /settings/{key} 与默认 account 保持(分组仅改菜单组织)。
- */
+ * T030(012 US5 布局分组;013-role-differentiated-settings 演进;设置菜单拆分再演进):设置布局分组渲染。
+ * 权威:docs/specs/013-role-differentiated-settings/contracts + ADR-0017:
+ * - 注册表携带分组元数据:personal = playback/appearance/profile(普通成员唯一可见分组);
+ *   设置菜单拆分后 household = iptv(IPTV 管理:直播源/EPG 来源/频道匹配)/
+ *   sources(NAS/点播)/profiles(成员管理)/policy/devices/general(家庭设置);
+ *   system = account(账号信息,组头「账号与安全」);
+ * - 入口收敛演进:profile(我的档案) inNav=false 不进侧栏导航,
+ *   /settings/profile 路由与面包屑保留,入口在顶栏身份菜单(头像 → 我的档案);
+ * - FR-025 注记:「关于与帮助」分类不落位 —— 注册表与左侧菜单均不渲染;
+ * - 组头仅呈现分组名(作用范围标注已按设计要求从侧栏移除);
+ * - 路由不变:十条 /settings/{key} 与默认 account 保持(分组仅改菜单组织)。 */
 
-/** 组 → 成员键映射基线(data-model §4;general 的家庭区域归 household 展示,键不变) */
-const HOUSEHOLD_KEYS = ['profiles', 'policy', 'sources', 'epg', 'devices', 'general'] as const;
+/**
+ * 组 → 成员键映射基线(013-role-differentiated-settings;设置菜单拆分后;settings-modules 注册表):
+ * - 个人偏好组(personal):playback/appearance/profile —— 普通成员唯一可见分组;
+ *   其中 profile 仅注册路由(inNav=false),不进侧栏导航视图;
+ * - 家庭管理组(household):菜单拆分后组内顺序对齐直播/EPG 链路优先 ——
+ *   iptv(IPTV 管理,/settings/iptv)→ sources(NAS/点播,原「来源管理」收窄为 NAS/在线点播)
+ *   → profiles(成员管理)/policy → devices → general(家庭设置);
+ *   原 epg 键移除:EPG 相关面并入 iptv 模块的「EPG 来源/频道匹配」标签(旧 /settings/epg 重定向);
+ * - 账号与安全组(system):account(账号信息)。
+ */
+const PERSONAL_KEYS = ['playback', 'appearance', 'profile'] as const;
+/** 侧栏导航实际渲染的个人偏好键(profile 已收敛到顶栏身份菜单入口) */
+const PERSONAL_NAV_KEYS = ['playback', 'appearance'] as const;
+const HOUSEHOLD_KEYS = ['iptv', 'sources', 'profiles', 'policy', 'devices', 'general'] as const;
+/** 侧栏可见的家庭管理键(v1 只做直播时 sources=NAS/点播 隐藏,inNav=false) */
+const HOUSEHOLD_NAV_KEYS = VOD_ENABLED ? HOUSEHOLD_KEYS : (['iptv', 'profiles', 'policy', 'devices', 'general'] as const);
 const SYSTEM_KEYS = ['account'] as const;
-/** 组渲染顺序(ui.md §5.1:个人偏好 / 家庭管理 / 系统) */
 const GROUP_ORDER: readonly SettingsModuleGroup[] = ['personal', 'household', 'system'];
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -144,10 +159,10 @@ afterEach(() => {
 });
 
 describe('T030 · 设置分组渲染(ui.md §5 / FR-024 / FR-025 注记 / Q1)', () => {
-  it('注册表:七模块全部携带 group 与 scopeLabel;映射 household=profiles/policy/sources/epg/devices(+general 家庭区域)、system=account', () => {
-    expect(SETTINGS_MODULES).toHaveLength(7);
+  it('注册表:十模块全部携带 group 与 scopeLabel;personal=playback/appearance/profile、household=iptv/sources/profiles/policy/devices/general、system=account', () => {
+    expect(SETTINGS_MODULES).toHaveLength(10);
     expect(new Set(SETTINGS_MODULES.map((module) => module.key))).toEqual(
-      new Set<string>([...HOUSEHOLD_KEYS, ...SYSTEM_KEYS]),
+      new Set<string>([...PERSONAL_KEYS, ...HOUSEHOLD_KEYS, ...SYSTEM_KEYS]),
     );
     for (const module of SETTINGS_MODULES) {
       expect(GROUP_ORDER).toContain(module.group); // 只允许三个既定分组
@@ -155,9 +170,9 @@ describe('T030 · 设置分组渲染(ui.md §5 / FR-024 / FR-025 注记 / Q1)', 
     }
     const keysOf = (group: SettingsModuleGroup): string[] =>
       SETTINGS_MODULES.filter((module) => module.group === group).map((module) => module.key);
+    expect(keysOf('personal')).toEqual([...PERSONAL_KEYS]); // 013 US1:个人偏好三模块
     expect(keysOf('household')).toEqual([...HOUSEHOLD_KEYS]);
     expect(keysOf('system')).toEqual([...SYSTEM_KEYS]);
-    expect(keysOf('personal')).toEqual([]); // Q1:本期零支持项,不注册虚假偏好模块
     // general 键不变:家庭区域归 household 组展示,地址仍是 /settings/general
     expect(settingsModulePath('general')).toBe('/settings/general');
   });
@@ -172,55 +187,74 @@ describe('T030 · 设置分组渲染(ui.md §5 / FR-024 / FR-025 注记 / Q1)', 
     expect(screen.queryByText(/关于与帮助/)).toBeNull();
   });
 
-  it('Q1/SC-007:个人偏好组零支持项——注册表无 personal 模块,分组视图与左侧菜单整组不渲染', async () => {
-    expect(SETTINGS_MODULES.some((module) => module.group === 'personal')).toBe(false);
-    expect(settingsModuleGroups().some((group) => group.key === 'personal')).toBe(false);
+  it('013 US1:个人偏好组就位——注册表含 3 个 personal 模块,导航视图含 playback/appearance(profile 入口收敛到身份菜单)', async () => {
+    expect(SETTINGS_MODULES.filter((module) => module.group === 'personal').map((module) => module.key)).toEqual([
+      ...PERSONAL_KEYS,
+    ]);
+    const personal = settingsModuleGroups().find((group) => group.key === 'personal');
+    expect(personal, '全量视图(主管理员)含个人偏好组').toBeDefined();
+    expect(personal!.modules.map((module) => module.key)).toEqual([...PERSONAL_NAV_KEYS]);
     renderSettingsRoutes('/settings/account');
     const nav = await screen.findByRole('navigation', { name: '设置子菜单' });
-    expect(within(nav).queryByText('个人偏好')).toBeNull();
+    expect(within(nav).getByText('个人偏好')).toBeVisible();
+    for (const title of ['播放体验', '界面外观']) {
+      expect(within(nav).getByRole('option', { name: title })).toBeVisible();
+    }
+    // 我的档案不进侧栏导航(入口 = 顶栏身份菜单),但路由/面包屑仍可达
+    expect(within(nav).queryByRole('option', { name: '我的档案' })).toBeNull();
   });
 
-  it('分组视图:按 个人偏好→家庭管理→系统 顺序聚合;空组隐藏(本期输出 家庭管理→系统)', () => {
+  it('分组视图:按 个人偏好→家庭管理→账号与安全 顺序聚合(013 全量视图三组俱全)', () => {
     expect(SETTINGS_GROUPS.map((group) => group.key)).toEqual(GROUP_ORDER); // 既定组顺序
     const view = settingsModuleGroups();
-    expect(view.map((group) => group.key)).toEqual(['household', 'system']);
-    expect(view.map((group) => group.label)).toEqual(['家庭管理', '系统']);
-    expect(view[0]!.modules.map((module) => module.key)).toEqual([...HOUSEHOLD_KEYS]);
-    expect(view[1]!.modules.map((module) => module.key)).toEqual([...SYSTEM_KEYS]);
+    expect(view.map((group) => group.key)).toEqual(['personal', 'household', 'system']);
+    expect(view.map((group) => group.label)).toEqual(['个人偏好', '家庭管理', '账号与安全']);
+    expect(view[0]!.modules.map((module) => module.key)).toEqual([...PERSONAL_NAV_KEYS]);
+    expect(view[1]!.modules.map((module) => module.key)).toEqual([...HOUSEHOLD_NAV_KEYS]);
+    expect(view[2]!.modules.map((module) => module.key)).toEqual([...SYSTEM_KEYS]);
   });
 
-  it('布局:左侧按组渲染,家庭管理组头标注「需要管理授权」,组头显示作用范围标注;链接集合与注册表一致', async () => {
+  it('布局:左侧按组渲染,组头为加粗标题并标注作用范围,组顺序 个人偏好→家庭管理→账号与安全;链接集合与注册表一致', async () => {
     renderSettingsRoutes('/settings/account');
     const nav = await screen.findByRole('navigation', { name: '设置子菜单' });
+    const personal = screen.getByTestId('settings-group-personal');
     const household = screen.getByTestId('settings-group-household');
     const system = screen.getByTestId('settings-group-system');
-    // 组顺序:家庭管理在系统之前(个人偏好空组隐藏)
+    // 组顺序:个人偏好 → 家庭管理 → 账号与安全
+    expect(personal.compareDocumentPosition(household) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(household.compareDocumentPosition(system) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // 家庭管理组头 + 作用范围标注
+    // 组头仅呈现分组名(作用范围标注已按设计要求从侧栏移除)
+    expect(within(personal).getByText('个人偏好')).toBeVisible();
+    expect(within(personal).queryByText('仅当前 Profile')).toBeNull();
     expect(within(household).getByText('家庭管理')).toBeVisible();
-    expect(within(household).getByTestId('settings-group-household-scope')).toHaveTextContent('需要管理授权');
-    // 系统组头可见(规格未要求系统组标注,不发明文案)
-    expect(within(system).getByText('系统')).toBeVisible();
-    // 分组不丢链接:七条链接、顺序与注册表一致(= 渲染顺序)
-    const links = within(nav).getAllByRole('link');
-    expect(links).toHaveLength(SETTINGS_MODULES.length);
-    expect(links.map((link) => link.textContent)).toEqual(SETTINGS_MODULES.map((module) => module.title));
+    expect(within(household).queryByText('需要管理授权')).toBeNull();
+    // 账号与安全组头可见(无「仅当前账号」范围标注)
+    expect(within(system).getByText('账号与安全')).toBeVisible();
+    expect(within(system).queryByText('仅当前账号')).toBeNull();
+    // 分组不丢选项:九条导航选项(inNav=false 的 profile 除外)、顺序与注册表一致(= 渲染顺序);
+    // ListBox 选项 = 图标 + 模块标题(范围标注统一在组头,不再渲染模块级 Description)
+    const navModules = SETTINGS_MODULES.filter((module) => module.inNav !== false);
+    const options = within(nav).getAllByRole('option');
+    expect(options).toHaveLength(navModules.length);
+    expect(options.map((option) => option.textContent)).toEqual(
+      navModules.map((module) => expect.stringContaining(module.title)),
+    );
   });
 
-  it('general 归属:家庭管理组内展示,标注「含家庭配置(需管理授权)」,键仍 general', async () => {
+  it('general 归属:家庭管理组内展示为「家庭设置」,范围标注与组头一致(无模块级 hint),键仍 general', async () => {
     const general = SETTINGS_MODULES.find((module) => module.key === 'general');
     expect(general?.group).toBe('household');
-    expect(general?.scopeLabel).toBe('含家庭配置(需管理授权)');
+    expect(general?.scopeLabel).toBe('需要管理授权');
     renderSettingsRoutes('/settings/general');
     const nav = await screen.findByRole('navigation', { name: '设置子菜单' });
     const household = within(nav).getByTestId('settings-group-household');
-    expect(within(household).getByRole('link', { name: '通用设置' })).toBeVisible();
-    // 组头统一的「需要管理授权」之外,general 另有自身范围标注(模块级 scopeLabel 落 UI)
-    expect(within(household).getByText('含家庭配置(需管理授权)')).toBeVisible();
-    expect(await screen.findByTestId('settings-current-module')).toHaveTextContent('通用设置');
+    expect(within(household).getByRole('option', { name: '家庭设置' })).toBeVisible();
+    // 模块级 scopeLabel 与组头一致后不再渲染条目级范围标注
+    expect(within(household).queryByText('含家庭配置(需管理授权)')).toBeNull();
+    expect(await screen.findByTestId('settings-current-module')).toHaveTextContent('家庭设置');
   });
 
-  it('路由不变:七条 /settings/{key} 全部可达且面包屑正确;/settings 默认打开 account;未知子路径元数据回落 account', async () => {
+  it('路由不变:十条 /settings/{key} 全部可达且面包屑正确(菜单拆分:sources 键渲染「NAS/点播」,面包屑随注册表自动更新);/settings 默认打开 account;未知子路径元数据回落 account', async () => {
     for (const module of SETTINGS_MODULES) {
       const view = renderSettingsRoutes(settingsModulePath(module.key));
       expect(await screen.findByTestId('settings-current-module')).toHaveTextContent(module.title);
@@ -229,7 +263,7 @@ describe('T030 · 设置分组渲染(ui.md §5 / FR-024 / FR-025 注记 / Q1)', 
     // 默认模块:/settings → account(路由与注册表默认均不变)
     renderSettingsRoutes('/settings');
     expect(await screen.findByTestId('account-summary')).toBeVisible();
-    expect(screen.getByTestId('settings-current-module')).toHaveTextContent('账号与安全');
+    expect(screen.getByTestId('settings-current-module')).toHaveTextContent('账号信息');
     // 注册表默认回落:未知子路径的元数据解析仍回落 account(不再依赖数组首位)
     expect(settingsModuleOf('/settings').key).toBe('account');
     expect(settingsModuleOf('/settings/unknown').key).toBe('account');

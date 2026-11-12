@@ -6,6 +6,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { SettingsLayout } from '../src/layouts/SettingsLayout';
 import { SettingsAccountPage } from '../src/features/settings/settings-account-page';
 import { SettingsModulePlaceholder } from '../src/features/settings/settings-module-placeholder';
+import { PUBLIC_NAV_ITEMS } from '../src/shared/ui/global-nav';
 import { SETTINGS_MODULES } from '../src/features/settings/settings-modules';
 import { queryClient as appQueryClient } from '../src/shared/query/client';
 
@@ -13,6 +14,8 @@ import { queryClient as appQueryClient } from '../src/shared/query/client';
  * T078(005 US7 前端测试,先 FAIL):设置布局。
  * 权威:docs/specs/005-pc-browsing-flow/contracts/ui.md §1/§7 + FR-028:
  * - 宽窗口左菜单(约 220px)/右主体(min-width:0);窄窗口收拢为菜单按钮;
+ * - 顶栏常驻公共导航(首页/点播/直播,shared/ui PublicNav 与观看页同源,
+ *   2026-11 需求:设置页顶栏可直达观看页面),两种视口均渲染;
  * - 面包屑/标题显示当前模块;七个子模块导航全部注册;
  * - 账号与安全经 GET /api/settings/account 读取 AccountSummary;失败显示读取失败态,
  *   不造假数据(T131 起 US8 真实模块绑定注册表,占位文案已由实页取代)。
@@ -131,13 +134,27 @@ describe('T078 · 设置布局(ui.md §1/§7)', () => {
     setWideViewport(true);
     renderSettingsAt('/settings/account');
     const nav = await screen.findByRole('navigation', { name: '设置子菜单' });
-    const links = within(nav).getAllByRole('link');
-    expect(links).toHaveLength(SETTINGS_MODULES.length);
-    expect(links.map((link) => link.textContent)).toEqual(SETTINGS_MODULES.map((module) => module.title));
-    // 左菜单约 220px;右主体 min-width:0(防长内容撑破布局)
-    expect(nav.parentElement?.className).toContain('w-[220px]');
+    // 侧栏只渲染 inNav !== false 的模块(我的档案入口收敛到顶栏身份菜单)
+    const navModules = SETTINGS_MODULES.filter((module) => module.inNav !== false);
+    const options = within(nav).getAllByRole('option');
+    expect(options).toHaveLength(navModules.length);
+    // ListBox 选项 = 图标 + 模块标题(范围标注统一在组头,选项文本即标题)
+    expect(options.map((option) => option.textContent)).toEqual(
+      navModules.map((module) => expect.stringContaining(module.title)),
+    );
+    // 左菜单约 220px(侧栏 Surface 面板随 aside sticky 跟随滚动);右主体 min-width:0
+    expect(screen.getByTestId('settings-sidebar').className).toContain('w-[220px]');
+    expect(nav.closest('[data-testid="settings-sidebar"]')).not.toBeNull();
     const main = screen.getByRole('main');
     expect(main.className).toContain('min-w-0');
+    // 顶栏常驻公共导航:与观看页顶栏同源,可直达 首页/点播/直播
+    const globalNav = screen.getByRole('navigation', { name: '公共导航' });
+    // 期望项取自单一事实源(已按 feature-flags 过滤,v1 只做直播时不含点播)
+    expect(within(globalNav).getAllByRole('link').map((link) => link.textContent)).toEqual(
+      PUBLIC_NAV_ITEMS.map((item) => item.label),
+    );
+    expect(within(globalNav).getByRole('link', { name: '首页' })).toHaveAttribute('href', '/');
+    expect(within(globalNav).getByRole('link', { name: '直播' })).toHaveAttribute('href', '/live');
   });
 
   it('窄窗口:收拢为菜单按钮(默认收起),展开后可达全部子模块;面包屑仍在', async () => {
@@ -148,11 +165,16 @@ describe('T078 · 设置布局(ui.md §1/§7)', () => {
     expect(screen.queryByRole('navigation', { name: '设置子菜单' })).toBeNull();
     const toggle = screen.getByRole('button', { name: '菜单' });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByTestId('settings-current-module')).toHaveTextContent('账号与安全');
+    expect(screen.getByTestId('settings-current-module')).toHaveTextContent('账号信息');
     await user.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     const nav = screen.getByRole('navigation', { name: '设置子菜单' });
-    expect(within(nav).getAllByRole('link')).toHaveLength(SETTINGS_MODULES.length);
+    expect(within(nav).getAllByRole('option')).toHaveLength(
+      SETTINGS_MODULES.filter((module) => module.inNav !== false).length,
+    );
+    // 公共导航两种视口均常驻顶栏(窄屏与菜单按钮并存,不挤占面包屑)
+    const globalNav = screen.getByRole('navigation', { name: '公共导航' });
+    expect(within(globalNav).getByRole('link', { name: '首页' })).toHaveAttribute('href', '/');
   });
 
   it('面包屑/标题显示当前模块(直达子模块)', async () => {
@@ -178,7 +200,7 @@ describe('T078 · 设置布局(ui.md §1/§7)', () => {
 
   it('子模块为真实模块(注册表 component 绑定),不再渲染 US8 占位文案', async () => {
     renderSettingsAt('/settings/profiles');
-    // 档案管理为真实页面:注册表组件渲染档案列表(需要已解锁设置)
+    // 成员管理为真实页面:注册表组件渲染档案列表(需要已解锁设置)
     expect(await screen.findByTestId('profile-list')).toBeVisible();
     expect(screen.queryByText(/模块内容由 US8 填充/)).toBeNull();
     expect(fetchCalls.some((call) => call.path === '/api/settings/profiles')).toBe(true);

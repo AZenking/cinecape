@@ -178,8 +178,8 @@ async function openSettingsUnlocked(page: Page): Promise<void> {
 
 /** 设置内左菜单键盘导航到子模块(宽窗常驻侧栏) */
 async function navToSettingsModule(page: Page, title: string): Promise<void> {
-  const link = page.getByRole('navigation', { name: '设置子菜单' }).getByRole('link', { name: title });
-  await link.focus();
+  const option = page.getByRole('navigation', { name: '设置子菜单' }).getByRole('option', { name: title });
+  await option.focus();
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('settings-current-module')).toHaveText(title);
 }
@@ -245,11 +245,13 @@ test.describe('T137 · 宽度矩阵主流程(1024~2560 × 768 高)', () => {
       // ── 设置:PIN 门 + 解锁进入 ──
       await openSettingsUnlocked(page);
       await expectNoPageHorizontalOverflow(page, `${width} 设置`);
-      await navToSettingsModule(page, '来源管理');
+      // 菜单拆分:NAS/点播(/settings/sources)承载建源入口与 NAS 来源「手动导入」
+      await navToSettingsModule(page, 'NAS/点播');
       await expectNotOccluded(page, page.getByTestId('create-source-open'), `${width} 设置建源入口`);
       // 弹窗内部滚动抽查(宽高两端均验一次;降级专项再验窄窗)
-      // 内联新建表单可见可取消(表单非弹窗);真实弹窗内容内部滚动抽查改用
-      // 「手动导入」的当次密码确认 Modal(设置域内确定性弹层),降级专项再验窄窗
+      // 新建来源表单可见可取消;013/ADR-0017 后「手动导入」等常规操作免当次密码
+      // (无确认弹层),弹窗内部滚动抽查改用设备管理的「撤销设备」单次密码确认
+      // Modal(保留的高危流程,设置域内确定性弹层)
       await page.getByTestId('create-source-open').click();
       const createForm = page.getByRole('form', { name: '新建来源' });
       await expect(createForm).toBeVisible();
@@ -258,8 +260,11 @@ test.describe('T137 · 宽度矩阵主流程(1024~2560 × 768 高)', () => {
       const importButton = page.getByRole('button', { name: '手动导入' }).first();
       await expect(importButton).toBeVisible();
       await expectNotOccluded(page, importButton, `${width} 手动导入入口`);
-      await importButton.click();
-      await expectDialogInternallyContained(page, `${width} 手动导入确认弹窗`);
+      await navToSettingsModule(page, '设备管理');
+      const revokeButton = page.locator('[data-testid^="device-revoke-"]').first();
+      await expect(revokeButton).toBeVisible();
+      await revokeButton.click();
+      await expectDialogInternallyContained(page, `${width} 撤销设备确认弹窗`);
       await page.getByTestId('password-cancel').click();
       await expect(authDialog(page)).toBeHidden();
     });
@@ -292,7 +297,10 @@ for (const width of [1280, 2560] as const) {
         page.getByRole('region', { name: '节目墙' }).locator('button[aria-label*=","][aria-label*="–"]').first(),
       ).toBeVisible({ timeout: 30_000 });
       await expectNoPageHorizontalOverflow(page, `${width}×1080 节目单`);
+      // 翻页控件收拢进「显示与筛选」抽屉:开抽屉检查不遮挡,随后 Esc 关闭再走后续流程
+      await page.getByRole('button', { name: '显示与筛选' }).click();
       await expectNotOccluded(page, page.getByRole('button', { name: '下一页' }), `${width}×1080 节目单翻页`);
+      await page.keyboard.press('Escape');
 
       await openSettingsUnlocked(page);
       await expectNoPageHorizontalOverflow(page, `${width}×1080 设置`);
@@ -356,22 +364,24 @@ test.describe('T137 · 降级专项(768 窄窗、600 高、200% 缩放)', () => 
         await collapsedMenu.focus();
         await page.keyboard.press('Enter');
       }
-      await navToSettingsModule(page, '通用设置');
+      await navToSettingsModule(page, '家庭设置');
       await expect(page.getByLabel('家庭名称')).toBeVisible();
       await expectNotOccluded(page, page.getByLabel('家庭名称'), `${viewport.name} 设置主体`);
       await expectNoPageHorizontalOverflow(page, `${viewport.name} 设置`);
 
-      // 弹窗:登录态下打开「手动导入」密码确认 Modal,内容内部滚动、不溢出视口
+      // 弹窗:登录态下打开「撤销设备」单次密码确认 Modal(013/ADR-0017:「手动导入」
+      // 等常规操作已免当次密码弹层;确定性弹层改用保留的高危流程),内容内部滚动、
+      // 不溢出视口
       const collapsedAgain = page.getByRole('button', { name: '菜单' });
       if (await collapsedAgain.isVisible().catch(() => false)) {
         await collapsedAgain.focus();
         await page.keyboard.press('Enter');
       }
-      await navToSettingsModule(page, '来源管理');
-      const importButton = page.getByRole('button', { name: '手动导入' }).first();
-      await expect(importButton).toBeVisible();
-      await importButton.click();
-      await expectDialogInternallyContained(page, `${viewport.name} 手动导入确认弹窗`);
+      await navToSettingsModule(page, '设备管理');
+      const revokeButton = page.locator('[data-testid^="device-revoke-"]').first();
+      await expect(revokeButton).toBeVisible();
+      await revokeButton.click();
+      await expectDialogInternallyContained(page, `${viewport.name} 撤销设备确认弹窗`);
       await page.getByTestId('password-cancel').click();
       await expect(authDialog(page)).toBeHidden();
     });
@@ -434,6 +444,9 @@ test.describe('T137 · 键盘完成全部主流程(1280×768)', () => {
     // 详情关闭走「关闭」按钮(共享面板浮层;Esc 亦可,此处按按钮路径断言)
     await detail.getByRole('button', { name: '关闭' }).click();
     await expect(detail).toBeHidden();
+    // 翻页按钮收拢进「显示与筛选」抽屉:开抽屉 → focus+Enter 翻页 → 抽屉自动关闭,
+    // 墙重新可聚焦,焦点定位窗口标题(FR-044)
+    await page.getByRole('button', { name: '显示与筛选' }).click();
     await page.getByRole('button', { name: '下一页' }).focus();
     await page.keyboard.press('Enter');
     await expect(page.locator('#guide-window-title')).toBeFocused({ timeout: 10_000 });
@@ -450,7 +463,7 @@ test.describe('T137 · 键盘完成全部主流程(1280×768)', () => {
     await gate.fill(MAIN_PIN);
     await gate.press('Enter');
     await expect(page).toHaveURL(/\/settings\/account$/);
-    for (const title of ['档案管理', '来源管理', '通用设置'] as const) {
+    for (const title of ['成员管理', 'NAS/点播', '家庭设置'] as const) {
       await navToSettingsModule(page, title);
     }
     await expectNoPageHorizontalOverflow(page, '键盘旅程 设置');

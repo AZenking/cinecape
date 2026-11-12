@@ -3,15 +3,21 @@ import type { ReactNode, RefObject } from 'react';
 import { consumeGuideSessionSnapshot, GUIDE_WALL_SESSION_KEY } from './guide-session-state';
 
 /**
- * EPG 局部二维滚动容器(T120;FR-042/043、ui.md §6/§8):
+ * EPG 局部二维滚动容器(T120;FR-042/043、ui.md §6/§8;015 ui-layout §3.2):
  * - 横向滚动只在墙内:容器 w-full + overflow-auto,内部内容宽度由墙面决定,
  *   整页不产生横向溢出(父链 min-w-0);
  * - 768 窄窗/600 高/200% 缩放:容器限高(max-h)内部滚动,导航由页面级控件收拢换行
  *   (flex-wrap),不需要专门手机界面;
- * - 键盘:容器可聚焦,焦点在容器或节目按钮上时方向键滚动为原生 overflow 行为;
- *   翻页/换窗后的焦点定位由 GuideWall 的窗口标题锚承担(FR-044);
- * - 首次定位(T023;FR-015):宿主传 autoPosition(目标窗口 + 当前时刻附近的
- *   scrollLeft),容器首次渲染把横向锚带到当前时刻附近(当前节目与后续排期同屏);
+ * - 键盘:容器 role="region" 且 tabIndex={0}(must-fix:012 ui.md §6.1 要求 region
+ *   键盘可聚焦,与旧实现「容器可聚焦」注释矛盾,本版补齐 tabIndex),焦点在容器或
+ *   节目按钮上时方向键滚动为原生 overflow 行为;翻页/换窗后的焦点定位由
+ *   GuideWall 的窗口标题锚承担(FR-044);
+ * - 首次定位(T023;FR-015;契约 v2):宿主传 autoPosition(key + anchorX + align),
+ *   容器首次渲染按内容坐标锚点定位横向滚动:
+ *     align='center':锚点置视口水平居中(015 ui-layout §3.2.1 页面初始化自动
+ *       水平居中当前时刻线;anchorX 需含频道列偏移,由 GuidePage 计算);
+ *       scrollLeft = Math.max(0, anchorX - el.clientWidth / 2);
+ *     align='start':滚到锚点左缘,scrollLeft = anchorX;
  *   **同一窗口身份(key)重复渲染不重定位**——手动浏览期间自动刷新/详情开关面板
  *   一律不拉回(FR-016);切日/回到现在产生新窗口 key 才重新定位;
  * - 会话快照优先(T025;url-state §1 规则3):首次定位时若有会话内快照
@@ -19,10 +25,17 @@ import { consumeGuideSessionSnapshot, GUIDE_WALL_SESSION_KEY } from './guide-ses
  *   回缺省定位可接受。
  */
 
-/** 窗口定位指令:key=窗口身份(如 `from|to`),left=目标 scrollLeft(px) */
+/**
+ * 窗口定位指令(契约 v2):
+ * - key:窗口身份(如 `from|to`),同 key 不重定位(FR-016);
+ * - anchorX:内容坐标锚点(px;含频道列偏移,由宿主换算);
+ * - align:'center' 锚点置于滚动容器视口水平居中(015 ui-layout §3.2.1),
+ *   'start' 滚到锚点左缘。
+ */
 export interface GuideAutoPosition {
   readonly key: string;
-  readonly left: number;
+  readonly anchorX: number;
+  readonly align: 'center' | 'start';
 }
 
 export interface GuideScrollContainerProps {
@@ -71,17 +84,23 @@ export function GuideScrollContainer({ ariaLabel, describedById, children, conta
         return;
       }
     }
-    el.scrollLeft = autoPosition.left;
+    // 契约 v2:center = 锚点置视口水平居中(不越左界),start = 锚点左缘
+    el.scrollLeft =
+      autoPosition.align === 'center'
+        ? Math.max(0, autoPosition.anchorX - el.clientWidth / 2)
+        : autoPosition.anchorX;
   }, [autoPosition]);
 
   return (
     <div
       ref={setContainer}
       role="region"
+      // must-fix(012 ui.md §6.1):region 须键盘可聚焦,补 tabIndex(原实现遗漏)
+      tabIndex={0}
       aria-label={ariaLabel}
       aria-describedby={describedById}
       // 局部二维滚动:max-h 限高(600 高窗口/200% 缩放收拢为内部滚动),overflow 双轴墙内消化
-      className="w-full max-w-full overflow-auto rounded border border-border bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+      className="w-full max-w-full overflow-auto rounded-xl border border-border/70 bg-surface shadow-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
       style={{ maxHeight: 'min(70vh, 640px)' }}
     >
       {children}

@@ -3,14 +3,16 @@ import type { ReactNode } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
 import { parseDate } from '@internationalized/date';
 import type { ExperienceProgrammeDto } from '@hmp/shared';
-import { Alert, Button, ListBox, Select } from '@heroui/react';
+import { Alert, Button, Drawer, ListBox, Select, Skeleton } from '@heroui/react';
+import { ChevronsLeft, ChevronsRight, Clock, SlidersHorizontal } from 'lucide-react';
 import { RetryableAlert } from '../../shared/ui';
 import { useGuideWindow } from './useGuideWindow';
 import { GuideDateTabs } from './GuideDateTabs';
 import { GuideScrollContainer } from './GuideScrollContainer';
-import { GuideWall, type GuideProgrammeRef } from './GuideWall';
+import { GuideWall, CHANNEL_COL_PX, type GuideProgrammeRef } from './GuideWall';
 import { GuideChannelList } from './GuideChannelList';
-import { formatZoneLabel, utcToPx, windowSpanPx } from './guide-time';
+import { utcToPx, windowSpanPx } from './guide-time';
+import { serverNowMs } from '../../shared/time/server-clock';
 import { consumeGuideSessionSnapshot, GUIDE_WALL_SESSION_KEY, saveGuideSessionSnapshot } from './guide-session-state';
 import { usePlayAction } from '../playback/use-play-action';
 import { useSession } from '../../app/session-provider';
@@ -21,7 +23,7 @@ import { ProgrammeDetailPanel, type ProgrammeStatus } from '../shared-programme/
 /**
  * EPG 节目单页(T116/T117/T118/T119/T120;FR-025~027、FR-042~045、A-008、ui.md §6;
  * 012 T022/T023/T025:FR-013/FR-015/FR-016/FR-018):
- * - /live/guide 公共路由(直播页「所有节目单」入口;US6 接入 routes.tsx);
+ * - /live/guide 公共路由(US6 接入 routes.tsx;可经详情面板「查看节目单」等直达);
  * - date/from/channelPage/pageSize/view 写 URL 查询参数作为公共浏览状态(012 url-state
  *   §1 冻结契约):详情返回或登录取消后恢复原日期、频道与时间位置(FR-045/FR-018);
  *   date 缺省今天(非法格式/非法日历日静默回落);from/to 缺省 = 服务端「该日完整
@@ -30,9 +32,13 @@ import { ProgrammeDetailPanel, type ProgrammeStatus } from '../shared-programme/
  *   工厂;staleTime 60s EPG 慢变;signal 透传/缓存/后台刷新由数据层承担;
  *   placeholderData keepPreviousData:切日期/频道页时旧窗口保持可见):
  *   409 回今天的旧窗口响应不回写;失败保留旧窗口续显;
- * - T023(FR-015):首次进入把横向滚动锚定位到当前时刻附近(当前节目与后续排期
- *   同屏),时区说明恒显于页头;同一窗口身份重复渲染(自动刷新)不重定位——
- *   手动浏览过去/未来不被拉回(FR-016);
+ * - T023(FR-015;015 ui-layout §3.2.1):首次进入把当前时刻线(NOW Line)水平
+ *   居中(当前节目与后续排期同屏),非今天日期锚定窗口起点(真实 now 在历史/
+ *   未来窗口会被 clamp 到边缘,语义失真);时区说明恒显于页头;同一窗口身份重复
+ *   渲染(自动刷新)不重定位——手动浏览过去/未来不被拉回(FR-016);
+ * - 服务端基准时钟(016 spec 基准时间条款):所有时间展示与 EPG 进度以
+ *   shared/time/server-clock 校准时刻为准(响应携带 now 即校准;未校准回落
+ *   响应快照,不臆造浏览器本地时钟);墙/列表内部经 useServerNow tick 平滑推进;
  * - T023(FR-016、url-state §1 规则4):「回到现在」仅恢复今天+当前窗口
  *   (删 date/from/to),频道分页/页大小/视图与既有筛选参数一律保留;
  * - T022(FR-013、ui.md §2):节目详情挂载共享面板 shared-programme/ProgrammeDetailPanel
@@ -54,9 +60,6 @@ import { ProgrammeDetailPanel, type ProgrammeStatus } from '../shared-programme/
 
 const PAGE_SIZES = [20, 30, 50] as const;
 const VIEWS = ['wall', 'list'] as const;
-
-/** 首次定位时把当前时刻锚在视口左侧附近的前置留白(px;FR-015 当前节目+后续同屏) */
-const NOW_ANCHOR_MARGIN_PX = 48;
 
 interface GuideUrlState {
   readonly date?: string;
@@ -112,18 +115,18 @@ interface GuideDetailTarget {
 
 /**
  * 面板四状态宿主裁决(T022;取代旧组件内 serverNow 推导):
- * 节目时段含 serverNow → now;未开始 → upcoming;已结束 → ended;无节目 → none。
- * serverNow 无效时不猜(不用浏览器时钟):按 none 呈现(墙内打开时 data.now 恒在,
+ * 节目时段含 now → now;未开始 → upcoming;已结束 → ended;无节目 → none。
+ * now 取服务端基准钟(016 spec 基准时间条款;未校准回落响应快照 data.now),
+ * 不用浏览器本地时钟;无效时不猜,按 none 呈现(墙内打开时 data.now 恒在,
  * 实际不可达;共享面板 none 态保留频道身份与播放主操作,§2.5)。
  */
-function deriveProgrammeStatus(programme: ExperienceProgrammeDto | null, serverNowIso: string | null): ProgrammeStatus {
-  if (programme === null) {
+function deriveProgrammeStatus(programme: ExperienceProgrammeDto | null, nowMs: number | null): ProgrammeStatus {
+  if (programme === null || nowMs === null || !Number.isFinite(nowMs)) {
     return 'none';
   }
-  const nowMs = serverNowIso === null ? Number.NaN : Date.parse(serverNowIso);
   const startMs = Date.parse(programme.startsAt);
   const endMs = Date.parse(programme.endsAt);
-  if (!Number.isFinite(nowMs) || !Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
     return 'none';
   }
   if (startMs <= nowMs && nowMs < endMs) {
@@ -184,6 +187,8 @@ export function GuidePage(): ReactNode {
 
   // 409 GUIDE_DATE_EXPIRED:回今天(allowedDates 首日)、清窗口、提示日期已更新;旧响应已被 hook 丢弃
   const [expiredNotice, setExpiredNotice] = useState(false);
+  const /** 显示与筛选抽屉(视图/每页频道数/频道分页收拢于此;参照参考页筛选抽屉) */
+    [filterOpen, setFilterOpen] = useState(false);
   useEffect(() => {
     if (!resource.dateExpired) {
       return;
@@ -208,6 +213,38 @@ export function GuidePage(): ReactNode {
   }, [resource.dateExpired, resource.expiredAllowedDates, searchParams, setSearchParams]);
 
   const timezone = data?.timezone ?? 'UTC';
+
+  // T023(FR-015;015 ui-layout §3.2.1):窗口身份(from|to)变化(首次进入/切日/
+  // 回到现在)才重新定位;自动刷新产生同窗口数据,key 不变 → 容器不重定位
+  // (FR-016 不拉回)。定位锚:
+  // - 今天:当前时刻线(NOW Line)水平居中(015 §3.2.1「页面初始化自动水平居中
+  //   当前时刻线」;当前节目与后续排期同屏可见,FR-015);
+  // - 非今天(历史/未来日期):锚定窗口起点,不用真实 now(其会被 clamp 到窗口
+  //   边缘,「当前时刻附近」语义失真);
+  // - now 取服务端基准钟(016 spec 基准时间条款),未校准回落响应快照 data.now
+  const autoPosition = useMemo(() => {
+    if (data === null) {
+      return undefined;
+    }
+    const fromMs = Date.parse(data.from);
+    const toMs = Date.parse(data.to);
+    const spanPx = windowSpanPx(fromMs, toMs);
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) {
+      return undefined;
+    }
+    const key = `${data.from}|${data.to}`;
+    const isToday = data.date === data.allowedDates[0];
+    if (!isToday) {
+      return { key, anchorX: 0, align: 'start' as const };
+    }
+    const snapshotNowMs = Date.parse(data.now);
+    const nowMs = serverNowMs() ?? (Number.isFinite(snapshotNowMs) ? snapshotNowMs : null);
+    if (nowMs === null) {
+      return undefined;
+    }
+    const nowX = Math.min(Math.max(utcToPx(nowMs, fromMs), 0), spanPx);
+    return { key, anchorX: CHANNEL_COL_PX + nowX, align: 'center' as const };
+  }, [data]);
 
   const selectDate = useCallback(
     (date: string): void => {
@@ -237,7 +274,30 @@ export function GuidePage(): ReactNode {
       params.delete('from');
       params.delete('to');
     });
-  }, [updateParams]);
+    // 已在今天(窗口不变,key 不变 → 容器不会重定位):平滑把 NOW 线带回视口
+    // 居中(015 §3.2.1 同一对齐语义);非今天:跳过即时滚动——新窗口数据到达后
+    // 由 autoPosition(align='start',窗口起点)定位,避免先滚到旧窗口 clamp
+    // 位置再跳转的抖动
+    if (autoPosition !== undefined && autoPosition.align === 'center' && scrollRef.current) {
+      const left = Math.max(0, autoPosition.anchorX - scrollRef.current.clientWidth / 2);
+      if (typeof scrollRef.current.scrollTo === 'function') {
+        scrollRef.current.scrollTo({ left, behavior: 'smooth' });
+      } else {
+        scrollRef.current.scrollLeft = left;
+      }
+    }
+  }, [autoPosition, updateParams]);
+
+  /** Planby 时间轴水平滚动辅助 (快速前后跨时段浏览) */
+  const scrollTimeline = useCallback((deltaPx: number): void => {
+    if (scrollRef.current) {
+      if (typeof scrollRef.current.scrollBy === 'function') {
+        scrollRef.current.scrollBy({ left: deltaPx, behavior: 'smooth' });
+      } else {
+        scrollRef.current.scrollLeft += deltaPx;
+      }
+    }
+  }, []);
 
   const changePage = useCallback(
     (delta: 1 | -1): void => {
@@ -310,24 +370,6 @@ export function GuidePage(): ReactNode {
     [play],
   );
 
-  // T023(FR-015):窗口身份(from|to)变化(首次进入/切日/回到现在)才重定位到
-  // 当前时刻附近;自动刷新产生同窗口数据,key 不变 → 容器不重定位(FR-016 不拉回)
-  const autoPosition = useMemo(() => {
-    if (data === null) {
-      return undefined;
-    }
-    const fromMs = Date.parse(data.from);
-    const nowMs = Date.parse(data.now);
-    if (!Number.isFinite(fromMs) || !Number.isFinite(nowMs)) {
-      return undefined;
-    }
-    const targetPx = Math.max(0, utcToPx(nowMs, fromMs) - NOW_ANCHOR_MARGIN_PX);
-    return {
-      key: `${data.from}|${data.to}`,
-      left: Math.min(targetPx, windowSpanPx(fromMs, Date.parse(data.to))),
-    };
-  }, [data]);
-
   const channelRangeStart = (url.channelPage - 1) * url.pageSize + 1;
   const channelRangeEnd = data !== null ? Math.min(url.channelPage * url.pageSize, data.totalChannels) : url.channelPage * url.pageSize;
   const hasMoreChannels = data === null || url.channelPage * url.pageSize < data.totalChannels;
@@ -339,13 +381,25 @@ export function GuidePage(): ReactNode {
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+      {/* 页头:标题行(标题 + 时区说明)+ 日期条独占一行。
+          参照页把日期放在顶部导航层而非工具栏内——7 日胶囊条约 520px,与工具栏控件
+          同排必然换行并把工具栏撑成两行(实测 90px);并入页头后工具栏恒为单行。
+          日期条占满整行宽度(不与标题/时区争宽,390 窄窗下才不会被挤成一条缝),
+          内部单行横滑;加载态占位文案与 role 不变。 */}
+      <header className="flex flex-col gap-2">
         <h1 className="text-xl font-semibold text-foreground">节目单</h1>
-        <p className="text-xs text-muted">
-          {data !== null
-            ? `时间按家庭时区(${formatZoneLabel(data.timezone, data.now)})显示 · 今天起 7 天`
-            : '正在加载家庭时区…'}
-        </p>
+        {data !== null ? (
+          <GuideDateTabs
+            allowedDates={data.allowedDates}
+            timezone={timezone}
+            selected={url.date ?? undefined}
+            onSelect={selectDate}
+          />
+        ) : (
+          <span className="text-sm text-muted" role="status">
+            正在加载日期…
+          </span>
+        )}
       </header>
 
       {/* 409:日期已更新提示(回今天;旧窗口响应已丢弃) */}
@@ -377,112 +431,184 @@ export function GuidePage(): ReactNode {
         />
       ) : null}
 
-      {/* 日期 Tab + 工具栏(收拢换行,768 窄窗可用) */}
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        {data !== null ? (
-          <GuideDateTabs
-            allowedDates={data.allowedDates}
-            timezone={timezone}
-            selected={url.date ?? undefined}
-            onSelect={selectDate}
-          />
-        ) : (
-          <span className="text-sm text-muted" role="status">
-            正在加载日期…
-          </span>
-        )}
+      {/* 工具栏条(参照 magenta.tv/tv-guide 的暗色横条):仅保留两个高频动作——
+          「回到现在」(参考页Jetzt 跳当下的对应物,恒可见;responsive e2e 钉其不被遮挡)
+          与「显示与筛选」图标按钮(收拢视图/每页频道数/频道分页,右侧抽屉呈现,
+          同参考页筛选抽屉形态);墙视图附 ±2h 平移。flex-wrap 保证窄窗不溢出。 */}
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2 rounded-xl border border-border/70 bg-surface px-3 py-2 shadow-xs">
         <Button size="sm" variant="outline" onPress={goNow}>
+          <Clock aria-hidden="true" className="size-3.5" />
           回到现在
         </Button>
-        {/* T014:视图/每页频道数原生 select 元素 → HeroUI Select,筛选行为不变
-            (view 写/删 URL 参数;pageSize 变更同时清 channelPage)。
-            外层由 <label> 改为 <span> 说明文字:触发器是按钮,label 包裹会二次触发按压。 */}
-        <div className="flex items-center gap-1 text-xs text-muted">
-          <span>视图</span>
-          <Select
-            aria-label="视图模式"
-            selectedKey={url.view}
-            onSelectionChange={(key) => {
-              if (key === null) {
-                return;
-              }
-              const next = String(key);
-              updateParams((params) => {
-                if (next === 'list') {
-                  params.set('view', 'list');
-                } else {
-                  params.delete('view');
-                }
-              });
-            }}
-          >
-            <Select.Trigger className="text-xs" data-testid="guide-view-select">
-              <Select.Value />
-              <Select.Indicator />
-            </Select.Trigger>
-            <Select.Popover>
-              <ListBox>
-                {VIEWS.map((view) => (
-                  <ListBox.Item key={view} id={view} textValue={view === 'wall' ? '节目墙' : '按频道列表'}>
-                    {view === 'wall' ? '节目墙' : '按频道列表'}
-                  </ListBox.Item>
-                ))}
-              </ListBox>
-            </Select.Popover>
-          </Select>
-        </div>
-        <div className="flex items-center gap-1 text-xs text-muted">
-          <span>每页频道数</span>
-          <Select
-            aria-label="每页频道数"
-            selectedKey={String(url.pageSize)}
-            onSelectionChange={(key) => {
-              if (key === null) {
-                return;
-              }
-              const next = String(key);
-              updateParams((params) => {
-                if (next === '20') {
-                  params.delete('pageSize');
-                } else {
-                  params.set('pageSize', next);
-                }
-                params.delete('channelPage');
-              });
-            }}
-          >
-            <Select.Trigger className="text-xs" data-testid="guide-page-size-select">
-              <Select.Value />
-              <Select.Indicator />
-            </Select.Trigger>
-            <Select.Popover>
-              <ListBox>
-                {PAGE_SIZES.map((size) => (
-                  <ListBox.Item key={size} id={String(size)} textValue={String(size)}>
-                    {size}
-                  </ListBox.Item>
-                ))}
-              </ListBox>
-            </Select.Popover>
-          </Select>
-        </div>
-        <span className="hmp-tabular-nums text-xs text-muted">
-          {data !== null ? `频道 ${channelRangeStart}–${channelRangeEnd},共 ${data.totalChannels}` : `第 ${url.channelPage} 页`}
-        </span>
-        <Button size="sm" variant="ghost" isDisabled={url.channelPage === 1} onPress={() => changePage(-1)} aria-label="上一页">
-          ‹ 上一页
+        <Button
+          size="sm"
+          variant="ghost"
+          isIconOnly
+          aria-label="显示与筛选"
+          data-testid="guide-filter-button"
+          onPress={() => {
+            setFilterOpen(true);
+          }}
+        >
+          <SlidersHorizontal aria-hidden="true" className="size-4" />
         </Button>
-        <Button size="sm" variant="ghost" isDisabled={!hasMoreChannels} onPress={() => changePage(1)} aria-label="下一页">
-          下一页 ›
-        </Button>
+        {url.view === 'wall' ? (
+          <div className="ml-auto flex items-center gap-0.5">
+            <Button size="sm" variant="ghost" isIconOnly onPress={() => scrollTimeline(-240)} aria-label="向左滚动2小时">
+              <ChevronsLeft aria-hidden="true" className="size-4" />
+            </Button>
+            <Button size="sm" variant="ghost" isIconOnly onPress={() => scrollTimeline(240)} aria-label="向右滚动2小时">
+              <ChevronsRight aria-hidden="true" className="size-4" />
+            </Button>
+          </div>
+        ) : null}
       </div>
+
+      {/* 显示与筛选抽屉(参照参考页右侧筛选抽屉):视图/每页频道数/频道分页收拢于此。
+          交互逻辑与既有测试契约(aria-label/可访问名/testid/选项文案)零改动,仅换容器。
+          频道分页仅在「频道数 > 每页频道数」(存在第 2 页)时出现——单页时自动隐藏,
+          避免恒置灰的死控件;URL 契约(channelPage/pageSize)不受影响,旧链接仍恢复。 */}
+      <Drawer.Backdrop
+        isOpen={filterOpen}
+        onOpenChange={(next) => {
+          setFilterOpen(next);
+        }}
+      >
+        <Drawer.Content placement="right">
+          <Drawer.Dialog aria-label="显示与筛选" className="w-80">
+            <Drawer.CloseTrigger />
+            <Drawer.Header>
+              <Drawer.Heading className="text-base font-semibold">显示与筛选</Drawer.Heading>
+            </Drawer.Header>
+            <Drawer.Body>
+              <div className="flex flex-col gap-5">
+                {/* T014:视图 Select(view 写/删 URL 参数)。
+                    外层说明文字用 <span>:触发器是按钮,label 包裹会二次触发按压。 */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs text-muted">视图</span>
+                  <Select
+                    aria-label="视图模式"
+                    selectedKey={url.view}
+                    onSelectionChange={(key) => {
+                      if (key === null) {
+                        return;
+                      }
+                      const next = String(key);
+                      updateParams((params) => {
+                        if (next === 'list') {
+                          params.set('view', 'list');
+                        } else {
+                          params.delete('view');
+                        }
+                      });
+                    }}
+                  >
+                    <Select.Trigger data-testid="guide-view-select">
+                      <Select.Value />
+                      <Select.Indicator />
+                    </Select.Trigger>
+                    <Select.Popover>
+                      <ListBox>
+                        {VIEWS.map((view) => (
+                          <ListBox.Item key={view} id={view} textValue={view === 'wall' ? '节目墙' : '按频道列表'}>
+                            {view === 'wall' ? '节目墙' : '按频道列表'}
+                          </ListBox.Item>
+                        ))}
+                      </ListBox>
+                    </Select.Popover>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs text-muted">每页频道数</span>
+                  <Select
+                    aria-label="每页频道数"
+                    selectedKey={String(url.pageSize)}
+                    onSelectionChange={(key) => {
+                      if (key === null) {
+                        return;
+                      }
+                      const next = String(key);
+                      updateParams((params) => {
+                        if (next === '20') {
+                          params.delete('pageSize');
+                        } else {
+                          params.set('pageSize', next);
+                        }
+                        params.delete('channelPage');
+                      });
+                    }}
+                  >
+                    <Select.Trigger data-testid="guide-page-size-select">
+                      <Select.Value />
+                      <Select.Indicator />
+                    </Select.Trigger>
+                    <Select.Popover>
+                      <ListBox>
+                        {PAGE_SIZES.map((size) => (
+                          <ListBox.Item key={size} id={String(size)} textValue={String(size)}>
+                            {size}
+                          </ListBox.Item>
+                        ))}
+                      </ListBox>
+                    </Select.Popover>
+                  </Select>
+                </div>
+                {data !== null && data.totalChannels > url.pageSize ? (
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs text-muted">频道分页</span>
+                    <div className="flex items-center gap-1">
+                      {/* 翻页后自动关抽屉:墙内容重新可聚焦,FR-044 焦点锚
+                          (#guide-window-title)才能落位(抽屉打开期间墙是 inert)。 */}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        isDisabled={url.channelPage === 1}
+                        onPress={() => {
+                          changePage(-1);
+                          setFilterOpen(false);
+                        }}
+                        aria-label="上一页"
+                      >
+                        ‹ 上一页
+                      </Button>
+                      <span className="hmp-tabular-nums text-xs text-muted">
+                        {`频道 ${channelRangeStart}–${channelRangeEnd},共 ${data.totalChannels}`}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        isDisabled={!hasMoreChannels}
+                        onPress={() => {
+                          changePage(1);
+                          setFilterOpen(false);
+                        }}
+                        aria-label="下一页"
+                      >
+                        下一页 ›
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </Drawer.Body>
+          </Drawer.Dialog>
+        </Drawer.Content>
+      </Drawer.Backdrop>
 
       {/* 墙/列表(同一 GuideWindow 响应) + 详情 */}
       <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-start">
         <div className="min-w-0 flex-1">
           {resource.isLoading ? (
-            <div role="status" className="py-10 text-center text-sm text-muted">
-              正在加载节目单…
+            <div role="status" className="flex flex-col gap-3 py-8">
+              <p className="text-center text-sm text-muted">正在加载节目单…</p>
+              <div className="flex flex-col gap-2" aria-hidden="true">
+                {Array.from({ length: 4 }, (_, row) => (
+                  <div key={row} className="flex items-center gap-3">
+                    <Skeleton className="size-8 shrink-0 rounded-md" />
+                    <Skeleton className="h-8 min-w-0 flex-1 rounded-md" />
+                  </div>
+                ))}
+              </div>
             </div>
           ) : data !== null ? (
             <GuideScrollContainer
@@ -504,6 +630,7 @@ export function GuidePage(): ReactNode {
                   data={data}
                   selectedKey={detail?.programme?.key ?? null}
                   onSelectProgramme={onOpenProgramme}
+                  onPlayChannel={onPlayChannel}
                 />
               )}
             </GuideScrollContainer>
@@ -529,7 +656,7 @@ export function GuidePage(): ReactNode {
                   end: detail.programme?.endsAt ?? '',
                 }
           }
-          status={deriveProgrammeStatus(detail?.programme ?? null, data?.now ?? null)}
+          status={deriveProgrammeStatus(detail?.programme ?? null, serverNowMs() ?? (data !== null ? Date.parse(data.now) : null))}
           timezone={timezone}
           source="guide"
           onPlay={() => {

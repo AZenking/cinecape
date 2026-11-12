@@ -7,6 +7,7 @@ import { formatApiError } from '../../shared/query/error';
 import { publicFetch } from '../../shared/fetch';
 import { LoadingSpinner, MediaGridSkeleton, RetryableAlert } from '../../shared/ui';
 import { HomePersonalArea } from './personal-area';
+import { VOD_ENABLED } from '../../shared/feature-flags';
 
 /**
  * 首页(T027 公共区 + T105 个人区组装,US1/US4;T023 迁移:006 统一数据层;
@@ -80,7 +81,7 @@ export function HomePage(): ReactNode {
             登录并选择观看档案后,可使用收藏、观看历史与受控播放等个人功能。
           </p>
 
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className={`grid gap-4 ${VOD_ENABLED ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
             {/* 直播摘要入口:摘要数据端点属 US5,先渲染静态占位入口(不造假数据) */}
             <Link
               to="/live"
@@ -97,13 +98,16 @@ export function HomePage(): ReactNode {
               <span className="text-base font-medium text-foreground">所有节目单</span>
               <span className="text-sm text-muted">打开节目单墙,按日浏览全部频道节目安排。</span>
             </Link>
-            <Link
-              to="/vod"
-              className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4 transition-colors hover:border-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-            >
-              <span className="text-base font-medium text-foreground">点播</span>
-              <span className="text-sm text-muted">浏览基础点播目录,支持搜索、类型筛选与翻页。</span>
-            </Link>
+            {/* v1 只做直播:点播入口卡隐藏(卡片实现保留,翻开关即恢复) */}
+            {VOD_ENABLED ? (
+              <Link
+                to="/vod"
+                className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4 transition-colors hover:border-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+              >
+                <span className="text-base font-medium text-foreground">点播</span>
+                <span className="text-sm text-muted">浏览基础点播目录,支持搜索、类型筛选与翻页。</span>
+              </Link>
+            ) : null}
           </div>
         </>
       ) : null}

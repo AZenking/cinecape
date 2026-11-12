@@ -193,8 +193,11 @@ describe('T020 · /live/guide URL 状态契约(url-state §1、FR-016/FR-018)', 
     expect(urlProbe()).not.toContain('from='); // 切日回到该日默认窗口语义
     expect(urlProbe()).not.toContain('to=');
 
-    // channelPage:翻到第 2 页(date 保留)
+    // channelPage:翻到第 2 页(date 保留;分页控件已收拢进「显示与筛选」抽屉)
+    await user.click(screen.getByRole('button', { name: '显示与筛选' }));
     await user.click(screen.getByRole('button', { name: /下一页/ }));
+    // 翻页后抽屉自动关闭(墙重新可聚焦,FR-044 焦点锚落位),后续筛选需再开
+    await user.click(screen.getByRole('button', { name: '显示与筛选' }));
     await waitFor(() => expect(urlProbe()).toContain('channelPage=2'));
     expect(urlProbe()).toContain('date=2026-11-06');
 
@@ -230,6 +233,7 @@ describe('T020 · /live/guide URL 状态契约(url-state §1、FR-016/FR-018)', 
   });
 
   it('非法值回落缺省不崩溃:channelPage=0/pageSize=99/from=garbage 回落 1/20/无窗口', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderGuidePage('/live/guide?channelPage=0&pageSize=99&view=banana&from=garbage&to=also-bad');
     await waitFor(() => expect(screen.getByText(/午间专题/)).toBeTruthy());
     const [first] = guideCalls();
@@ -240,10 +244,13 @@ describe('T020 · /live/guide URL 状态契约(url-state §1、FR-016/FR-018)', 
     expect(query.get('to')).toBeNull();
     // 视图回落墙;伪造参数不崩溃(§1:非法/未知值静默回落缺省)
     expect(screen.getByRole('region', { name: '节目墙' })).toBeInTheDocument();
+    // 分页控件收拢在抽屉内:打开后断言第 1 页禁用上一页(夹具 25 频道 > 20 → 分页在)
+    await user.click(screen.getByRole('button', { name: '显示与筛选' }));
     expect(screen.getByRole('button', { name: '上一页' })).toBeDisabled();
   });
 
   it('刷新/直链恢复:date/channelPage/pageSize/view 全量按 URL 恢复(FR-018)', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderGuidePage('/live/guide?date=2026-11-06&channelPage=2&pageSize=50&view=list');
     await waitFor(() => expect(screen.getByText(/深夜电影/)).toBeTruthy());
     const [first] = guideCalls();
@@ -254,7 +261,10 @@ describe('T020 · /live/guide URL 状态契约(url-state §1、FR-016/FR-018)', 
     // 语义状态逐项恢复:日期 Tab 选中、第 2 页内容、列表视图
     // (滚动容器 region 恒挂载,墙/列表以墙独有窗口标题区分)
     expect(screen.getByRole('button', { name: /11月6日/ })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: '上一页' })).toBeEnabled();
+    // 分页自动隐藏语义:夹具 25 频道 ≤ pageSize=50 → 单页,不存在分页控件
+    // (打开抽屉验证「抽屉体内也无分页」,排除「抽屉未开导致查不到」的假阳性)
+    await user.click(screen.getByRole('button', { name: '显示与筛选' }));
+    expect(screen.queryByRole('button', { name: '上一页' })).toBeNull();
     expect(document.querySelector('#guide-window-title')).toBeNull();
     expect(screen.getByText(/深夜电影/)).toBeInTheDocument(); // 第 2 页频道丙内容可见
   });

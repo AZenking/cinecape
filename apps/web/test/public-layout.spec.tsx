@@ -3,6 +3,7 @@ import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { PublicLayout } from '../src/layouts/PublicLayout';
 import { AppProviders } from '../src/app/providers';
+import { PUBLIC_NAV_ITEMS } from '../src/shared/ui/global-nav';
 
 /**
  * T020(US1 前端单测):PublicLayout 公共导航壳。
@@ -57,21 +58,23 @@ function renderLayoutAt(path: string): void {
 }
 
 describe('PublicLayout 导航壳(T020)', () => {
-  it('品牌入口返回首页,三项导航为真实路由链接', () => {
-    renderLayoutAt('/vod');
+  it('品牌入口返回首页,导航项为真实路由链接(v1 只做直播:不含点播)', () => {
+    renderLayoutAt('/');
 
     const brand = screen.getByRole('link', { name: 'HOME MEDIA' });
     expect(brand).toHaveAttribute('href', '/');
 
     const nav = screen.getByRole('navigation', { name: '公共导航' });
-    for (const [label, href] of [
-      ['首页', '/'],
-      ['点播', '/vod'],
-      ['直播', '/live'],
-    ] as const) {
-      const link = within(nav).getByRole('link', { name: label });
-      expect(link).toHaveAttribute('href', href);
+    // 期望项直接取自单一事实源(已按 feature-flags 过滤),不写死三项:
+    // 恢复点播只需翻开关,测试自动跟随。
+    expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual(
+      PUBLIC_NAV_ITEMS.map((item) => item.label),
+    );
+    for (const item of PUBLIC_NAV_ITEMS) {
+      expect(within(nav).getByRole('link', { name: item.label })).toHaveAttribute('href', item.to);
     }
+    // v1 门禁:点播入口不可见
+    expect(within(nav).queryByRole('link', { name: '点播' })).toBeNull();
   });
 
   it('游客右侧显示登录入口(IdentityMenu,经统一登录意图弹层)', async () => {

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { BrowserRouter } from 'react-router';
 import { App } from '../src/app/App';
 import { isAbortError, isFetchApiError, privateFetch, publicFetch } from '../src/shared/fetch';
 import type { FetchApiError } from '../src/shared/fetch';
+import { PUBLIC_NAV_ITEMS } from '../src/shared/ui/global-nav';
 
 /**
  * T013(005-pc-browsing-flow · Phase 2):web foundation 冒烟门禁。
@@ -58,21 +59,21 @@ afterEach(() => {
 describe('T013 foundation 冒烟 · 游客公共壳(T010 骨架)', () => {
   // T042 接线后:布局右侧为 IdentityMenu,restoring 期间显示轻量恢复态,
   // 会话恢复(此处打桩 401=无会话)解析后游客呈现「登录」入口(ui.md §2)。
+  // v1 只做直播:/vod 不渲染点播页,而是重定向到 /live(feature-flags.ts)。
   it.each([
     { path: '/', heading: '首页' },
-    { path: '/vod', heading: '点播' },
     { path: '/live', heading: '直播' },
   ])('游客打开 $path:公共壳渲染且不跳转登录', async ({ path, heading }) => {
     stubFetch(async () => problemResponse({ type: 'about:blank', title: 'SESSION_INVALID' }, 401));
     renderAppAt(path);
 
-    // 品牌 + 导航(首页/点播/直播)可见
+    // 品牌 + 导航(跟随 feature-flags,不写死项)
     expect(screen.getByRole('link', { name: 'HOME MEDIA' })).toBeVisible();
     const nav = screen.getByRole('navigation', { name: '公共导航' });
     expect(nav).toBeVisible();
-    for (const label of ['首页', '点播', '直播']) {
-      expect(screen.getByRole('link', { name: label })).toBeVisible();
-    }
+    expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual(
+      PUBLIC_NAV_ITEMS.map((item) => item.label),
+    );
 
     // 目标页面渲染;登录入口由 IdentityMenu 在会话恢复(401→anonymous)后呈现
     expect(await screen.findByRole('heading', { name: heading })).toBeVisible();
@@ -82,6 +83,16 @@ describe('T013 foundation 冒烟 · 游客公共壳(T010 骨架)', () => {
     expect(window.location.pathname).toBe(path);
     expect(window.location.pathname.startsWith('/login')).toBe(false);
     expect(screen.queryByText('404')).not.toBeInTheDocument();
+  });
+
+  // v1 门禁显式断言:/vod 与 /media/:id 重定向到直播页(点播页面实现保留,仅入口关闭)
+  it('游客打开 /vod:重定向到 /live,不渲染点播页', async () => {
+    stubFetch(async () => problemResponse({ type: 'about:blank', title: 'SESSION_INVALID' }, 401));
+    renderAppAt('/vod');
+
+    expect(await screen.findByRole('heading', { name: '直播' })).toBeVisible();
+    expect(window.location.pathname).toBe('/live');
+    expect(screen.queryByRole('heading', { name: '点播' })).toBeNull();
   });
 });
 

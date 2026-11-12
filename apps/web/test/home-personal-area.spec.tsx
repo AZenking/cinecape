@@ -10,6 +10,7 @@ import type { SessionContextValue } from '../src/app/session-provider';
 import { HomePage } from '../src/features/home/HomePage';
 import { useSession } from '../src/app/session-provider';
 import { createQueryWrapper, createTestQueryClient } from './helpers/query-test-utils';
+import { VOD_ENABLED } from '../src/shared/feature-flags';
 
 /**
  * T094(005 US4 前端单元测试;tasks.md 路径 test/home-personal-area.test.tsx,
@@ -130,7 +131,12 @@ describe('T094 · 首页个人区隔离', () => {
     renderHome();
     await waitFor(() => expect(screen.getByRole('link', { name: /直播/ })).toBeInTheDocument());
     expect(screen.getByRole('link', { name: /所有节目单/ })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /点播/ })).toBeInTheDocument();
+    // v1 只做直播:点播入口卡隐藏(feature-flags.ts);恢复点播时本断言自动跟随
+    if (VOD_ENABLED) {
+      expect(screen.getByRole('link', { name: /点播/ })).toBeInTheDocument();
+    } else {
+      expect(screen.queryByRole('link', { name: /^点播/ })).toBeNull();
+    }
     expect(screen.getByText(/登录并选择观看档案后/)).toBeInTheDocument();
     expect(screen.queryByTestId('home-personal-area')).toBeNull();
     expect(meCalls()).toHaveLength(0);
@@ -152,7 +158,7 @@ describe('T094 · 首页个人区隔离', () => {
     expect(meCalls()).toHaveLength(0);
   });
 
-  it('FR-016:选档后按「收藏频道 → 点播观看历史」顺序渲染;历史失败只重试本区,收藏与公共区不受阻', async () => {
+  it.skipIf(!VOD_ENABLED)('FR-016:选档后按「收藏频道 → 点播观看历史」顺序渲染;历史失败只重试本区,收藏与公共区不受阻', async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith('/setup/status')) return jsonResponse({ initialized: true });
