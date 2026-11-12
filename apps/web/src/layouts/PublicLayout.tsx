@@ -15,11 +15,20 @@ import { Link, Outlet } from 'react-router';
 import { IdentityMenu } from '../features/profiles/identity-menu';
 import { PublicNav } from '../shared/ui';
 
-export function PublicLayout(): ReactNode {
+export interface PublicLayoutProps {
+  /**
+   * 宽屏铺满:内容区不再受 max-w-6xl(1120px)约束,改 100% 宽度。
+   * 用于数据密集页(EPG 节目单时间轴),普通阅读页保持窄栏更易读。
+   */
+  readonly wide?: boolean;
+}
+
+export function PublicLayout({ wide = false }: PublicLayoutProps = {}): ReactNode {
+  const widthClass = wide ? 'max-w-none' : 'max-w-6xl';
   return (
     <div className="flex min-h-screen flex-col">
       <header className="border-b border-border bg-background/30">
-        <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-4">
+        <div className={`mx-auto flex h-14 w-full items-center justify-between gap-4 px-4 ${widthClass}`}>
           <div className="flex items-center gap-6">
             <Link
               to="/"
@@ -35,7 +44,7 @@ export function PublicLayout(): ReactNode {
           <IdentityMenu />
         </div>
       </header>
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
+      <main className={`mx-auto w-full flex-1 px-4 py-6 ${widthClass}`}>
         <Outlet />
       </main>
     </div>
