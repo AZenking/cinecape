@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ScrollShadow } from '@heroui/react';
 import type { ReactNode, RefObject } from 'react';
 import { consumeGuideSessionSnapshot, GUIDE_WALL_SESSION_KEY } from './guide-session-state';
 
@@ -192,8 +193,15 @@ export function GuideScrollContainer({
   };
 
   return (
-    <div
+    <ScrollShadow
       ref={setContainer}
+      // 内部滚动条由 HeroUI ScrollShadow 接管:hideScrollBar 隐藏原生条,
+      // 边缘渐隐阴影表达可滚动方向;双轴仍由 overflow-auto 承担(横向为主)
+      hideScrollBar
+      orientation="horizontal"
+      // 40 → 32:左侧渐隐会覆盖粘性频道列边缘,收小一点更克制
+      size={32}
+      offset={8}
       role="region"
       // must-fix(012 ui.md §6.1):region 须键盘可聚焦,补 tabIndex(原实现遗漏)
       tabIndex={0}
@@ -223,6 +231,6 @@ export function GuideScrollContainer({
       }}
     >
       {children}
-    </div>
+    </ScrollShadow>
   );
 }
