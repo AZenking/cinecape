@@ -387,7 +387,9 @@ export function GuidePage(): ReactNode {
           日期条占满整行宽度(不与标题/时区争宽,390 窄窗下才不会被挤成一条缝),
           内部单行横滑;加载态占位文案与 role 不变。 */}
       <header className="flex flex-col gap-2">
-        <h1 className="text-xl font-semibold text-foreground">节目单</h1>
+        {/* 页面标题保留 h1 语义(文档大纲/读屏/测试锚),按产品要求不呈现可见文案;
+            页头只留日期条 */}
+        <h1 className="sr-only">节目单</h1>
         {data !== null ? (
           <GuideDateTabs
             allowedDates={data.allowedDates}

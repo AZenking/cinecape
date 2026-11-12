@@ -102,7 +102,8 @@ test.describe('游客直接浏览家庭内容(T021)', () => {
 
     await page.goto('/live/guide');
     await expect(page).toHaveURL(/\/live\/guide$/);
-    await expect(page.getByRole('heading', { name: '节目单', level: 1 })).toBeVisible();
+    // 页面标题按产品要求仅保留语义(sr-only),不呈现可见文案
+    await expect(page.getByRole('heading', { name: '节目单', level: 1 })).toBeAttached();
     // 两页均无登录跳转(仅断言入口无门槛;节目内容 US5/US6 后验证)
     await expect(page).not.toHaveURL(/login|profiles/);
   });
