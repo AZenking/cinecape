@@ -391,7 +391,7 @@ describe('T022 · 回退链不变量:host 级失败恢复、加载中可交互�
     }
   });
 
-  it('范围守护 SC-006:GuideWall/GuideScrollContainer 时间轴渲染结果 img 元素数为 0(§4-6;夹具含 posterRef 非空频道)', () => {
+  it('台标范围(2026-11-12 产品变更):时间轴频道列展示 logo 接口台标,不再渲染频道名文本', () => {
     const { container } = render(
       <GuideScrollContainer ariaLabel="节目单时间轴">
         <GuideWall
@@ -403,10 +403,14 @@ describe('T022 · 回退链不变量:host 级失败恢复、加载中可交互�
         />
       </GuideScrollContainer>,
     );
-    // 时间轴节目格纯文字:即使频道数据携带 posterRef 也不得出现任何 img
-    expect(container.querySelectorAll('img')).toHaveLength(0);
-    // 时间轴本体照常渲染(守护的是范围,不是空渲染)
-    expect(screen.getByText('频道甲')).toBeVisible();
+    // 产品变更(原 SC-006 零 img 守护已废弃):频道列只显示台标,台标走同源 logo 接口
+    const logos = Array.from(container.querySelectorAll('img'));
+    expect(logos.length).toBeGreaterThan(0);
+    expect(logos.every((img) => (img.getAttribute('src') ?? '').includes('/api/public/media/logos/'))).toBe(true);
+    // 频道名不再作为可见文本渲染(改由 Tooltip / aria-label 承载)
+    expect(screen.queryByText('频道甲')).toBeNull();
+    expect(screen.getByRole('button', { name: '播放 频道甲 当前直播' })).toBeInTheDocument();
+    // 节目块照常可点
     expect(screen.getByRole('button', { name: /早间新闻/ })).toBeEnabled();
   });
 });

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ExperienceProgrammeDto, GuideWindowDto } from '@hmp/shared';
-import { Card, Chip } from '@heroui/react';
+import { Card, Chip, Tooltip } from '@heroui/react';
+import { ChannelLogo } from '../live/components/channel-logo';
 import { useServerNow } from '../../shared/time/use-server-now';
 import {
   PX_PER_MINUTE,
@@ -281,41 +282,59 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
           const showTimeLine = laneHeight >= 34;
 
           return (
-            <div key={channel.media.id} className="group/row flex border-b border-border/60 transition-colors last:border-b-0 hover:bg-surface-secondary/20">
-              {/* 频道列:sticky left;整格即「播放该频道当前直播」按钮(不再单列直播按钮)。
+            <div
+              key={channel.media.id}
+              className="group/row flex border-b border-border/70 transition-colors last:border-b-0 even:bg-background/25 hover:bg-surface-secondary/25"
+            >
+              {/* 频道列:sticky left;整格即「播放该频道当前直播」按钮。
+                  产品要求:列内只展示台标(logo 接口),频道名改由 Tooltip 悬浮展示;
                   背景与节目区区分,右缘渐变阴影提示可横向滚动 */}
-              <button
-                type="button"
-                aria-label={`播放 ${channel.media.title} 当前直播`}
-                onClick={() => {
-                  onPlayChannel(channel.media.id, channel.media.title);
-                }}
-                className="sticky left-0 z-30 flex shrink-0 items-center gap-1.5 border-r border-border bg-surface-secondary/70 px-2 text-left transition-colors hover:bg-surface-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-                style={{ width: CHANNEL_COL_PX, height: ROW_HEIGHT_PX }}
-              >
-                <span
-                  aria-hidden="true"
-                  className="hmp-tabular-nums w-3 shrink-0 text-right text-3xs leading-none text-muted/70"
+              <Tooltip delay={200}>
+                <Tooltip.Trigger
+                  className="sticky left-0 z-30 flex shrink-0 items-center justify-center gap-1.5 border-r border-border bg-surface-secondary/70 px-2 transition-colors hover:bg-surface-secondary"
+                  style={{ width: CHANNEL_COL_PX, height: ROW_HEIGHT_PX }}
                 >
-                  {channelIndex + 1}
-                </span>
-                {/* SC-006 范围守护:时间轴内零 img——身份盒只用纯 CSS 首字徽标,
-                    不渲染 ChannelLogo(图片仅出现在列表视图/直播卡片) */}
-                <span
-                  aria-hidden="true"
-                  className="inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/50 bg-surface-secondary text-xs font-bold text-muted"
+                <button
+                  type="button"
+                  aria-label={`播放 ${channel.media.title} 当前直播`}
+                  onClick={() => {
+                    onPlayChannel(channel.media.id, channel.media.title);
+                  }}
+                  className="flex h-full w-full items-center justify-center gap-1.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                 >
-                  {channel.media.title.slice(0, 1).toUpperCase()}
-                </span>
-                <span className="hmp-truncate min-w-0 flex-1 text-xs font-medium text-foreground" title={channel.media.title}>
-                  {channel.media.title}
-                </span>
-                {/* 右缘渐变阴影:区分频道列与时间轴,并暗示可横向滚动 */}
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-y-0 right-0 w-3 translate-x-full bg-gradient-to-r from-background/70 to-transparent"
-                />
-              </button>
+                  <span
+                    aria-hidden="true"
+                    className="hmp-tabular-nums w-3 shrink-0 text-right text-3xs leading-none text-muted/70"
+                  >
+                    {channelIndex + 1}
+                  </span>
+                  {/* 台标:posterRef → 同源 logo 接口;无 ref 时回退首字(仍不展示全名) */}
+                  <span
+                    aria-hidden="true"
+                    className="relative inline-flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-transparent"
+                  >
+                    {channel.media.posterRef !== null ? (
+                      <ChannelLogo
+                        key={channel.media.posterRef}
+                        posterRef={channel.media.posterRef}
+                        channelTitle={channel.media.title}
+                        fallbackClassName="text-[10px] font-black leading-none text-muted"
+                      />
+                    ) : (
+                      <span className="text-xs font-bold text-muted">{channel.media.title.slice(0, 1).toUpperCase()}</span>
+                    )}
+                  </span>
+                  {/* 右缘渐变阴影:区分频道列与时间轴,并暗示可横向滚动 */}
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 right-0 w-3 translate-x-full bg-gradient-to-r from-background/70 to-transparent"
+                  />
+                </button>
+                </Tooltip.Trigger>
+                <Tooltip.Content>
+                  <p>{channel.media.title}</p>
+                </Tooltip.Content>
+              </Tooltip>
 
               {/* 节目轴:相对定位 + 背景刻度网格 + 绝对位置节目块 (Planby Program Grid) */}
               <div className="relative shrink-0" style={{ width: spanPx, height: ROW_HEIGHT_PX }}>
@@ -324,7 +343,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                   <div
                     key={`grid-${tick.ms}`}
                     aria-hidden="true"
-                    className="pointer-events-none absolute top-0 bottom-0 border-l border-border/20"
+                    className="pointer-events-none absolute top-0 bottom-0 border-l border-border/40"
                     style={{ left: utcToPx(tick.ms, fromMs) }}
                   />
                 ))}
@@ -344,29 +363,25 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                     const isCurrent = current?.key === programme.key;
                     const isPast = endsAtMs <= nowMs;
                     const rangeLabel = `${formatTimeInZone(programme.startsAt, data.timezone)}–${formatTimeInZone(programme.endsAt, data.timezone)}`;
-                    // 已播比例(服务端基准钟 tick 驱动;仅当前档使用)
-                    const liveProgressPercent =
-                      isCurrent && endsAtMs > startsAtMs
-                        ? Math.min(100, Math.max(0, ((nowMs - startsAtMs) / (endsAtMs - startsAtMs)) * 100))
-                        : 0;
 
                     return (
                       <Card
                         key={programme.key}
-                        className={`hmp-truncate hmp-tabular-nums absolute overflow-hidden p-0 ${
+                        className={`hmp-truncate hmp-tabular-nums absolute overflow-hidden rounded-lg p-0 ${
                           selectedKey === programme.key
-                            ? 'z-10 border-accent bg-accent/20 text-foreground shadow-md ring-2 ring-accent/40'
+                            ? 'z-10 border border-accent bg-accent/20 text-foreground shadow-md ring-2 ring-accent/40'
                             : isCurrent
-                              ? 'z-[5] border-accent/50 bg-accent/12 text-foreground shadow-xs hover:border-accent/80 hover:bg-accent/20 hover:shadow-md'
+                              ? 'z-[5] border border-accent/60 bg-accent/20 text-foreground shadow-sm hover:border-accent hover:bg-accent/25'
                               : isPast
-                                ? 'border-border/40 bg-surface/60 text-muted/70 shadow-none hover:bg-surface-secondary/60'
-                                : 'border-border/60 bg-surface/90 text-foreground/90 shadow-xs hover:border-foreground/25 hover:bg-surface-secondary hover:shadow-md'
+                                ? 'border border-border/50 bg-surface/50 text-muted/70 shadow-none hover:bg-surface-secondary/60'
+                                : 'border border-border/80 bg-surface text-foreground shadow-sm hover:border-foreground/30 hover:bg-surface-secondary hover:shadow-md'
                         }`}
                         style={{
-                          left: left + 1,
-                          width: Math.max(width - 2, 2),
-                          top: (lane % MAX_LANES) * laneHeight + 4,
-                          height: laneHeight - 8,
+                          // 块间留 3px 缝隙(左右)与 6px 上下,节目墙更"一格一格"
+                          left: left + 2,
+                          width: Math.max(width - 4, 2),
+                          top: (lane % MAX_LANES) * laneHeight + 5,
+                          height: laneHeight - 10,
                           minHeight: 18,
                         }}
                       >
@@ -384,14 +399,6 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                         className="group/prog flex h-full w-full flex-col text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                       >
                         {/* 两行内容:标题行(+LIVE 角标)+ `HH:mm – HH:mm` muted 行 */}
-                        {/* 正在直播:左侧按已播比例填充 + 底部进度条(产品要求:当前档要明显) */}
-                        {isCurrent ? (
-                          <span
-                            aria-hidden="true"
-                            className="pointer-events-none absolute inset-y-0 left-0 bg-accent/15"
-                            style={{ width: `${liveProgressPercent}%` }}
-                          />
-                        ) : null}
                         <span className="relative flex h-full min-w-0 flex-col justify-center gap-0.5 px-2.5">
                           <span className="flex min-w-0 items-center gap-1">
                             <span className="hmp-truncate min-w-0 text-2xs font-medium leading-tight">
@@ -423,13 +430,6 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                         </span>
 
                       </button>
-                      {isCurrent ? (
-                        <span
-                          aria-hidden="true"
-                          className="pointer-events-none absolute bottom-0 left-0 h-1 bg-accent"
-                          style={{ width: `${liveProgressPercent}%` }}
-                        />
-                      ) : null}
                       </Card>
                     );
                   })

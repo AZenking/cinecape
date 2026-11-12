@@ -57,6 +57,19 @@
 13. **浮标位置改为滚动时同步写样式**（不经 React 状态）：瞬时大跨度滚动时，
     状态更新有一帧滞后会让浮标先飞出视口再 snap；现在 80ms 内即正确定位。
 
+## 追加决策（2026-11-12 第五轮：台标列与节目块辨识度）
+
+14. **频道列只展示台标,名称走 Tooltip**：列内不再渲染频道名文本,只显示 logo 接口
+    (`/api/media/logos/:posterRef`)台标;无 posterRef 回退首字。名称由 HeroUI `Tooltip`
+    (Trigger 包裹整格)在悬浮/聚焦时给出;整格仍是「播放该频道当前直播」按钮,
+    `aria-label` 保留完整频道名。**原 SC-006「时间轴零 img」守护就此废弃**(产品变更),
+    测试改为「台标走 logo 接口 + 无频道名文本」。
+15. **当前档不再显示进度条**:只保留背景色区分(`accent/20`),`liveProgressPercent`
+    与进度条一并移除(第二次调整,产品最终口径)。
+16. **节目块辨识度**:块间留 2px 横向、5px 纵向缝隙;边框 1px(普通档 `border-border/80`,
+    当前档 `accent/60`);行加斑马底(`even:bg-background/25`)与更强的小时刻度线
+    (`border-border/40`);Card 显式 `rounded-lg` 覆盖 Card 默认大圆角。
+
 ## Consequences
 
 **正**

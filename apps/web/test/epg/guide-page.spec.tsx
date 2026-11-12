@@ -217,7 +217,8 @@ describe('EPG 节目单页(T109)', () => {
 
   it('空档与无节目频道显示「暂无节目」,频道不隐藏(FR-026)', async () => {
     renderGuidePage();
-    await waitFor(() => expect(screen.getByText('频道乙')).toBeInTheDocument());
+    // 频道名改为 Tooltip 承载(列内只显示台标),按整格按钮的可访问名断言
+    await waitFor(() => expect(screen.getByRole('button', { name: '播放 频道乙 当前直播' })).toBeInTheDocument());
     // 无节目频道保留行并显示「暂无节目」;列表视图同样不隐藏
     const emptyMarkers = screen.getAllByText('暂无节目');
     expect(emptyMarkers.length).toBeGreaterThan(0);
