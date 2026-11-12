@@ -27,7 +27,7 @@ import { env } from '../config/env';
  * | 文件不存在,或无业务表且无 _migrations 且 user_version=0        | fresh-empty              | 允许           | 允许(readiness 503 直至迁移) |
  * | user_version=2 且 _migrations 与迁移目录全量一致                | generation2-ready        | 允许(空操作) | 允许                          |
  * | user_version=1 且 _migrations 恰为 0001~0005(0006 down 后状态)| generation2-rolled-back  | 允许(重新 up)| 拒绝(先迁移再启动)          |
- * | user_version=2 且 _migrations 恰为 0001~0006(0007 down 后状态)| generation2-vod-rolled-back | 允许(重新 up 0007) | 拒绝(先迁移再启动)   |
+ * | user_version=2 且 _migrations 恰缺可回滚尾段(0007 down 后 / 0008 down 后 / 两者均 down 后)| generation2-vod-rolled-back | 允许(重新 up 补齐) | 拒绝(先迁移再启动)   |
  * | 有业务表或 _migrations、未到代际 2、且非上行(含旧库 uv=0)      | reject …UNSUPPORTED      | 拒绝           | 拒绝                          |
  * | 文件非 SQLite / quick_check 报错                                | reject …CORRUPT          | 拒绝           | 拒绝                          |
  * | 只读打不开(热 WAL/锁/权限)/版本记录与 user_version 不一致     | reject …STATE_UNKNOWN    | 拒绝           | 拒绝                          |
@@ -43,6 +43,21 @@ const GENERATION2_MIGRATION = '0006_pc_experience';
 
 /** 在线点播迁移名(010 T014;与 0006 同属交付代际 2,up/down 均保持 user_version=2) */
 const ONLINE_VOD_MIGRATION = '0007_online_vod';
+
+/**
+ * 交付代际 2 内可独立回滚的尾段迁移(up/down 均保持 user_version=2):
+ * - 0007_online_vod(010)/ 0008_profile_preferences(013)/ 0009_channel_logos(014)
+ *   / 0010_multi_source_priority(016);
+ * - 预检判定「记录恰缺任意尾段子集」为部分回滚形态,允许重新 up 补齐;
+ * - 非尾段记录缺失(如 0001~0006)一律视为中断/篡改拒绝。
+ */
+const ROLLBACKABLE_TAIL_MIGRATIONS: readonly string[] = Object.freeze([
+  ONLINE_VOD_MIGRATION,
+  '0008_profile_preferences',
+  '0009_channel_logos',
+  '0010_multi_source_priority',
+  '0011_channel_visibility',
+]);
 
 /** 代际 1 完整记录(0006 down 后的 _migrations 形态;与迁移目录 0001~0005 一致) */
 const GENERATION1_MIGRATIONS = Object.freeze([
@@ -223,14 +238,18 @@ export function precheckDatabaseFile(dbFile: string): PrecheckVerdict {
           reason: '数据代际 2 就绪(user_version=2,迁移记录与目录一致)',
         };
       }
-      if (
-        userVersion === 2 &&
-        allMigrations.includes(ONLINE_VOD_MIGRATION) &&
-        sameStringSet(applied, allMigrations.filter((name) => name !== ONLINE_VOD_MIGRATION))
-      ) {
+      // 子形态(泛化):交付代际 2 内的可独立回滚尾段(0007/0008,均不改 user_version)
+      // 缺任意尾段子集均为「部分已回滚」,允许重新 up 补齐;其余记录/目录分叉视为篡改。
+      const missingTails = allMigrations.filter(
+        (name) => !applied.includes(name) && ROLLBACKABLE_TAIL_MIGRATIONS.includes(name),
+      );
+      const missingUnknown = allMigrations.filter(
+        (name) => !applied.includes(name) && !ROLLBACKABLE_TAIL_MIGRATIONS.includes(name),
+      );
+      if (userVersion === 2 && missingUnknown.length === 0 && missingTails.length > 0) {
         return {
           kind: 'generation2-vod-rolled-back',
-          reason: `数据代际 2 在线点播部分已回滚(user_version=2,记录恰为除 ${ONLINE_VOD_MIGRATION} 外的目录全量);可重新应用 ${ONLINE_VOD_MIGRATION}`,
+          reason: `数据代际 2 尾段部分已回滚(user_version=2,记录恰缺 ${missingTails.join(', ')});可重新应用补齐`,
         };
       }
       return reject(

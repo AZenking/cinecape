@@ -33,12 +33,14 @@ export interface SourceEntryRow {
   groupTitle: string | null;
 }
 
-/** 家庭来源行投影(关联解析的来源链两端判定输入) */
+/** 家庭来源行投影(关联解析的来源链两端判定输入;016 T014 起含 priority 级联排序输入) */
 export interface MediaSourceRow {
   id: string;
   kind: string;
   enabled: number;
   epgSourceId: string | null;
+  /** 016 US2:级联优先级(数值越小越优先;0010 迁移默认 100;仅 kind='epg' 参与级联裁决) */
+  priority: number;
 }
 
 /** manual 模式 EPG 绑定行(手动优先关联解析输入) */
@@ -48,11 +50,13 @@ export interface ManualEpgBindingRow {
   xmltvChannelId: string | null;
 }
 
-/** EPG 频道标识行(自动精确匹配的 upstream 标识落点) */
+/** EPG 频道标识行(自动精确匹配的 upstream 标识落点;016 T014 起含显示名供 L4 别名索引) */
 export interface EpgChannelRow {
   sourceId: string;
   xmltvChannelId: string;
   conflicted: number;
+  /** 016 US2:显示名(normalizeChannelName 归一化后作 L4 别名匹配键;0004 起非空列) */
+  displayName: string;
 }
 
 /** 节目窗口行(判定视图形态;snake_case 查询列经 infrastructure 行映射产出) */

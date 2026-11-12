@@ -17,3 +17,10 @@ export const MEDIA_CATALOG_CATALOG_ADMIN_PORT = Symbol('MEDIA_CATALOG_CATALOG_AD
 
 /** 装配期仓储 seam 绑定令牌（008-repository-extraction；不导出实现类，不入 index.ts） */
 export const MEDIA_CATALOG_STORE = Symbol('MEDIA_CATALOG_STORE');
+
+/**
+ * 014 T010:频道 Logo 同源代理用例绑定令牌（createLogoProxyService 函数束；注入
+ * SAFE_UPSTREAM_PORT + 部署许可列表，与 online-vod 海报代理装配同款）。本上下文
+ * 控制器消费，不入跨上下文发布面（internal-ports §5:上游地址不进任何公共面）。
+ */
+export const MEDIA_CATALOG_LOGO_PROXY_SERVICE = Symbol('MEDIA_CATALOG_LOGO_PROXY_SERVICE');

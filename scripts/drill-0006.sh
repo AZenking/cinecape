@@ -221,13 +221,13 @@ try {
   checkEq(ffmpeg.status, 0, 'ffmpeg 生成真实 mp4(可信时长载体)');
 
   const iptv = await api(tokenA, '/settings/sources', 'POST', {
-    ownerPassword: password, kind: 'iptv', name: '演练直播', remoteUrl: 'http://iptv-drill.example/live.m3u',
+    kind: 'iptv', name: '演练直播', remoteUrl: 'http://iptv-drill.example/live.m3u', // 013:来源管理免当次密码
   }, 201);
   openDb(srcDir).prepare('UPDATE media_source SET remote_url = ? WHERE id = ?').run(`${fixtureBase}/live.m3u`, iptv.id);
   const refresh = async (sourceId) => {
     const page = await api(tokenA, '/settings/sources?page=1&pageSize=50');
     const version = page.items.find((item) => item.id === sourceId).version;
-    const job = await api(tokenA, `/settings/sources/${sourceId}/refresh`, 'POST', { ownerPassword: password, expectedVersion: version, operationKey: randomUUID() }, 202);
+    const job = await api(tokenA, `/settings/sources/${sourceId}/refresh`, 'POST', { expectedVersion: version, operationKey: randomUUID() }, 202);
     for (;;) {
       const view = await api(tokenA, `/settings/refreshes/${job.id}`);
       if (view.status === 'succeeded') return view;
@@ -237,7 +237,7 @@ try {
   };
   await refresh(iptv.id);
   const nas = await api(tokenA, '/settings/sources', 'POST', {
-    ownerPassword: password, kind: 'nas', name: '演练影库', rootKey: 'nas-main', relativeDirectory: '',
+    kind: 'nas', name: '演练影库', rootKey: 'nas-main', relativeDirectory: '', // 013:来源管理免当次密码
   }, 201);
   await refresh(nas.id);
   const catalog = await api(tokenA, '/media?pageSize=100');

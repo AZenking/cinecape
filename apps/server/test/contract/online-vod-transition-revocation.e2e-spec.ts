@@ -27,7 +27,6 @@ import {
 } from '../helpers';
 import {
   MANAGEMENT_MAIN_PIN,
-  MANAGEMENT_OWNER_PASSWORD,
   createProfileViaSettings,
   selectMainAndUnlockSettings,
 } from '../helpers-management';
@@ -486,7 +485,6 @@ async function setSourceEnabledViaHttp(
     .set('Cookie', rig.cookieA)
     .send({
       expectedVersion: sourceVersionOf(rig.sourceRowId),
-      ownerPassword: MANAGEMENT_OWNER_PASSWORD,
       enabled,
     });
   expect(res.status, `夹具错误:启停源 PATCH(enabled=${enabled})应 200(实际 ${res.status} ${JSON.stringify(res.body).slice(0, 160)})`).toBe(200);
@@ -813,7 +811,6 @@ async function setProfileBlockedMedia(
       allowedMediaIds: [],
       blockedMediaIds: [...blockedMediaIds],
       allowedChannelIds: [],
-      ownerPassword: MANAGEMENT_OWNER_PASSWORD,
     });
   expect(put.status, `夹具错误:写策略名单应 200(实际 ${put.status} ${JSON.stringify(put.body).slice(0, 160)})`).toBe(200);
 }

@@ -661,3 +661,40 @@ describe('G. URL token 更新:data-model §3「URL token 变化不加 catalogRev
     expect(keysOf(parseDetail(retokenizedSerialItem(), detailBudgets))).toEqual(keysOf(parseDetail(serialWorld.item, detailBudgets)));
   });
 });
+
+describe('H. 海报地址(vod_pic):展示级解析,丢弃不整体拒绝', () => {
+  it('合法 http(s) vod_pic:NFC+trim 后逐字透传(搜索与详情同口径)', () => {
+    const pic = ' http://img.example.com/pic/星尘.jpg ';
+    const items = parseSearchList(buildAppleCmsListDocument([{ ...serialWorld.briefItem, vod_pic: pic }]));
+    const detail = parseDetail(
+      customItem({ lines: [{ name: serialWorld.item.vod_play_from, episodes: [episode('第01集')] }] }, { vod_pic: pic }),
+      detailBudgets,
+    );
+    expect(items[0]?.posterUrl).toBe('http://img.example.com/pic/星尘.jpg');
+    expect(detail.posterUrl).toBe('http://img.example.com/pic/星尘.jpg');
+  });
+
+  it('缺失/空白 vod_pic → null(上游未给不制造,不判完整性失败)', () => {
+    const items = parseSearchList(buildAppleCmsListDocument([serialWorld.briefItem]));
+    expect(items[0]?.posterUrl).toBeNull();
+    const blank = parseSearchList(buildAppleCmsListDocument([{ ...serialWorld.briefItem, vod_pic: '   ' }]));
+    expect(blank[0]?.posterUrl).toBeNull();
+    const detail = parseDetail(
+      customItem({ lines: [{ name: serialWorld.item.vod_play_from, episodes: [episode('第01集')] }] }),
+      detailBudgets,
+    );
+    expect(detail.posterUrl).toBeNull();
+  });
+
+  it('非 http(s) 海报地址 → 丢弃置 null(展示降级,不触发 protocol_unsupported 整体拒绝)', () => {
+    const items = parseSearchList(buildAppleCmsListDocument([{ ...serialWorld.briefItem, vod_pic: 'ftp://img.example.com/pic.jpg' }]));
+    expect(items[0]?.posterUrl).toBeNull();
+    expect(items).toHaveLength(1);
+  });
+
+  it('超 2048 海报地址 → 丢弃置 null(展示降级,不判 field_length_exceeded)', () => {
+    const long = `https://img.example.com/${'a'.repeat(2100)}.jpg`;
+    const items = parseSearchList(buildAppleCmsListDocument([{ ...serialWorld.briefItem, vod_pic: long }]));
+    expect(items[0]?.posterUrl).toBeNull();
+  });
+});

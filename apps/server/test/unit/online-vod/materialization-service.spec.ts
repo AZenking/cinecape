@@ -20,7 +20,7 @@
  *   source_entry/playback_source/operation);
  * - 幂等重放(原结果、零新增、revision 不虚增、24h 不延长、成功重放跳过解析);
  * - 同 key 异摘要 409 IDEMPOTENCY_CONFLICT;
- * - 新 key 预览过期 410 VOD_PREVIEW_EXPIRED(DB 直改快照 expires_at 模拟 TTL 到期);
+ * - 新 key + 既有目标快照过期(预览有效):201 复用映射不重发布(过期不再拦截);
  * - 新 key 预览修订落后 409 VOD_DETAIL_CHANGED(直改 current_detail_revision);
  * - 重放目标内容/连续性变化 409 VOD_MATERIALIZATION_STALE;
  * - 净配额(收窄注入;复用不占新配额;超额 409 零残留);
@@ -636,10 +636,10 @@ describe('T029 · MaterializeWorkSet 成功路径与幂等(api §3 / internal-po
 });
 
 describe('T029 · 预览/配置/详情 CAS 与 STALE(api §3 顺序)', () => {
-  it('新 key + 当前详情快照过期(DB 直改 expires_at 模拟 TTL 到期):410 VOD_PREVIEW_EXPIRED 且零新增', async () => {
+  it('新 key + 当前详情快照过期(预览有效):201 复用映射,快照不重发布(过期不再拦截)', async () => {
     const rig = createRig();
     rig.targets.set('ep-01', buildResolvedTarget());
-    await materialize(rig.deps, stableCommand('ep-01'), rig.context, rig.resolveTarget);
+    const first = await materialize(rig.deps, stableCommand('ep-01'), rig.context, rig.resolveTarget);
     const before = sideEffectStateOf(rig.conn);
     // 010 恢复:直改 expires_at 须满足 DDL CHECK(expires_at > fetched_at),
     // 故 fetched_at 同步平移到过去(保持「快照存在但已过期」的被测语义不变)
@@ -647,14 +647,16 @@ describe('T029 · 预览/配置/详情 CAS 与 STALE(api §3 顺序)', () => {
       .prepare('UPDATE vod_detail_snapshot SET fetched_at = ?, expires_at = ? WHERE household_id = ?')
       .run('2000-01-01T00:00:00.000Z', '2000-01-02T00:00:00.000Z', HH);
 
-    let surfaced: unknown;
-    try {
-      await materialize(rig.deps, stableCommand('ep-01'), rig.context, rig.resolveTarget);
-    } catch (err) {
-      surfaced = err;
-    }
-    expectDomainError(surfaced, 410, ProblemCode.VOD_PREVIEW_EXPIRED);
-    expect(sideEffectStateOf(rig.conn)).toEqual(before);
+    // 过期不再拦截:预览 TTL 门已保证事实新鲜,复用既有映射且不重发布同修订快照
+    const reuse = await materialize(rig.deps, stableCommand('ep-01'), rig.context, rig.resolveTarget);
+    expect(reuse.replayed).toBe(false);
+    expect(reuse.parentMediaId).toBe(first.parentMediaId);
+    expect(reuse.mediaId).toBe(first.mediaId);
+    expect(reuse.detailRevision).toBe(first.detailRevision);
+    const after = sideEffectStateOf(rig.conn);
+    expect(after.vodDetailSnapshot, '同修订快照不重发布').toBe(before.vodDetailSnapshot);
+    expect(after.vodTitle).toBe(before.vodTitle);
+    expect(after.operation, '新 key 记录新 operation').toBe(before.operation + 1);
   });
 
   it('新 key + 预览修订落后(DB 直改 current_detail_revision+1 模拟他人发布新详情):409 VOD_DETAIL_CHANGED', async () => {

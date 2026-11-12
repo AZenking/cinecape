@@ -78,7 +78,7 @@ async function createProfileViaApi(rig: Rig, body: { name: string; type: 'adult'
   const res = await request(rig.app.getHttpServer())
     .post('/api/settings/profiles')
     .set('Cookie', rig.cookie)
-    .send({ ...body, ownerPassword: rig.world.password });
+    .send(body);
   expect(res.status, JSON.stringify(res.body)).toBe(201);
   return (res.body as { id: string }).id;
 }

@@ -4,7 +4,7 @@
 
 ## 1. 统一安全与响应规则
 
-- 四类边界：Public（匿名、从部署确定 Household），Session（有效设备会话），Profile（Session+服务端当前有效 Profile），Settings（Session+Account owner/admin+当前主 Profile+有效设置 grant）。敏感设置修改额外当次 ownerPassword。
+- 四类边界：Public（匿名、从部署确定 Household），Session（有效设备会话），Profile（Session+服务端当前有效 Profile），Settings（Session+Account owner/admin+当前主 Profile+有效设置 grant）。013 FR-005/ADR-0017 起常规管理操作免当次 ownerPassword；仅高危操作（修改账号密码、档案 PIN 设置/修改/清除、注销档案、转移主档案、撤销设备）保留单次当次密码验证。
 - 设置校验先于读取主体；异步密码/PIN 验证后、事务写入前重验身份/版本/grant。目标不属于本家庭与不存在统一 404；非法输入 400，状态冲突 409，锁定 423，限频 429，缺少新代际存储或内部策略不可用 503。
 - 所有响应包括错误 `Cache-Control: no-store`；播放与凭据相关响应 `Referrer-Policy: no-referrer`。公共浏览不返回 Set-Cookie、不读取身份决定内容范围；即便携带失效 cookie 仍可公开浏览。
 - Cookie 使用既有 httpOnly、SameSite 会话；Bearer 继续作为非浏览器备用认证。所有写操作和带密码的查询必须校验同源 Origin（存在时必须与配置 origin 精确匹配），拒绝跨站 Cookie 请求与非 JSON 简单表单；无 Origin 的显式 Bearer 客户端仅按认证规则，不以 absence 放宽 Cookie 写入。
@@ -101,24 +101,24 @@ POST `/playback/sessions/{sessionId}/stop` body=`{finalProgress?:{sampleSeq,expe
 | DELETE /settings/access | 204 | 仅Session，撤销当前授予，幂等；不要求现有有效grant |
 | GET /settings/account | AccountSummary | Settings |
 | PUT /settings/account/password | `{ownerPassword,newPassword}` →204，清cookie | Settings+当次密码；撤销全部旧会话、设置授予和选档授予 |
-| GET/PATCH /settings/household | HouseholdSettings；PATCH `{expectedVersion,name?,language?,timezone?,ownerPassword}` | Settings；PATCH当次密码+CAS |
-| GET/POST /settings/profiles | ProfileSummary[] /创建Profile | Settings；POST当次密码 |
-| PATCH /settings/profiles/{profileId} | 编辑/停用/PIN，新增expectedVersion | Settings+当次密码+CAS；不能清主PIN或停用最后档案 |
+| GET/PATCH /settings/household | HouseholdSettings；PATCH `{expectedVersion,name?,language?,timezone?}` | Settings；PATCH CAS（013 起免当次密码，ADR-0017/FR-005） |
+| GET/POST /settings/profiles | ProfileSummary[] /创建Profile | Settings；POST 免当次密码（013 FR-005/ADR-0017，即使带 pin 也不要求） |
+| PATCH /settings/profiles/{profileId} | 编辑/停用/PIN，新增expectedVersion | Settings+CAS；仅含 pin/clearPin 的编辑要求单次当次密码，仅名称/头像/默认/停用免密码（013 FR-005/ADR-0017）；不能清主PIN或停用最后档案 |
 | PUT /settings/main-profile | `{profileId,expectedVersion,expectedCurrentProfileVersion,expectedProfileVersion,ownerPassword}` | Settings+当次密码；expectedVersion为家庭mainProfileVersion，expectedCurrentProfileVersion为现任主档案version，expectedProfileVersion为目标version；三项CAS，目标必须active adult有PIN；完成撤销全部设置授予 |
-| GET/PUT /settings/profiles/{profileId}/policy | 继承002字段 | Settings；PUT当次密码+CAS |
-| PUT /settings/profiles/{profileId}/policy/lists | 继承003名单整体替换 | Settings+当次密码+CAS |
-| GET/POST /settings/sources，PATCH /settings/sources/{sourceId} | 继承003来源DTO | Settings；写入当次密码+既有CAS |
+| GET/PUT /settings/profiles/{profileId}/policy | 继承002字段 | Settings；PUT CAS（013 起免当次密码，ADR-0017/FR-005） |
+| PUT /settings/profiles/{profileId}/policy/lists | 继承003名单整体替换 | Settings+CAS（013 起免当次密码） |
+| GET/POST /settings/sources，PATCH /settings/sources/{sourceId} | 继承003来源DTO | Settings；写入免当次密码+既有CAS（013 FR-005/ADR-0017） |
 | GET /settings/source-roots | 继承003root列表 | Settings |
-| POST /settings/sources/{sourceId}/refresh | 继承003 RefreshRequest | Settings+当次密码，幂等operationKey |
+| POST /settings/sources/{sourceId}/refresh | 继承003 RefreshRequest | Settings，幂等operationKey（013 起免当次密码） |
 | GET /settings/refreshes/{refreshId} | 继承003任务状态 | Settings，轮询失效即停止 |
-| POST /settings/refreshes/{refreshId}/confirm、discard | 继承003 JobAction | Settings+当次密码+CAS |
-| POST /settings/catalog/candidates/query | 继承003候选查询 | Settings+当次密码 |
-| PATCH /settings/catalog/media/{mediaId} | 继承003人工修正 | Settings+当次密码+CAS |
-| POST /settings/catalog/media/{mediaId}/epg-binding/query、epg-candidates/query | 继承003绑定/候选查询 | Settings+当次密码 |
-| PUT /settings/catalog/media/{mediaId}/epg-binding | 继承003设置/解除 | Settings+当次密码+CAS |
+| POST /settings/refreshes/{refreshId}/confirm、discard | 继承003 JobAction | Settings+CAS（013 起免当次密码） |
+| POST /settings/catalog/candidates/query | 继承003候选查询；018 增补可选 visibility=all/visible/hidden（缺省 all）与响应 counts={all,visible,hidden}（可见性过滤前统计；total 为过滤后总数） | Settings（013 起免当次密码） |
+| PATCH /settings/catalog/media/{mediaId} | 继承003人工修正 | Settings+CAS（013 起免当次密码） |
+| POST /settings/catalog/media/{mediaId}/epg-binding/query、epg-candidates/query | 继承003绑定/候选查询 | Settings（013 起免当次密码） |
+| PUT /settings/catalog/media/{mediaId}/epg-binding | 继承003设置/解除 | Settings+CAS（013 起免当次密码） |
 | GET /settings/devices | 继承001设备列表 | Settings |
 | POST /settings/devices/{deviceId}/revoke | `{ownerPassword}` →204 | Settings+当次密码；撤销目标设备所有会话和授予 |
-| POST /settings/devices/{deviceId}/playback-records/query | 继承004设备记录查询 | Settings+当次密码，不能用作个人历史 |
+| POST /settings/devices/{deviceId}/playback-records/query | 继承004设备记录查询 | Settings，不能用作个人历史（013 起免当次密码） |
 
 管理迁移保留既有数据校验、源URL脱敏、外部读取许可、快照确认与手动绑定语义。新settings前缀是替代，不保留旧`/sources`、`/catalog`、`/devices`等管理入口。`/profiles`只保留选档GET/unlock/select，旧POST/PATCH移入settings；bootstrap与PIN恢复是经过用途限制的唯一例外。
 
@@ -128,7 +128,7 @@ POST `/playback/sessions/{sessionId}/stop` body=`{finalProgress?:{sampleSeq,expe
 
 新增：SETTINGS_PIN_REQUIRED/SETTINGS_ACCESS_REQUIRED/SETTINGS_ACCESS_EXPIRED（403），PROFILE_PIN_LOCKED（423），BOOTSTRAP_ALREADY_DONE/MAIN_PROFILE_CONFLICT/VERSION_CONFLICT（409），GUIDE_DATE_EXPIRED（409），GUIDE_WINDOW_TOO_LARGE（422），INVALID_CURSOR（400），PROGRESS_NOT_READY/PROGRESS_SAMPLE_CONFLICT/PROGRESS_RESOURCE_CHANGED（409），STORAGE_GENERATION_UNSUPPORTED（503）。保留既有SESSION_INVALID（401）、ACTIVE_PROFILE_REQUIRED（403）、播放404同形与限频429。
 
-一般设置主体次序：存储就绪→Session→角色/当前主Profile→grant有效性→严格入参→当次密码（敏感操作）→重读身份/grant/目标归属/版本→事务。/settings/access为独立入口：GET/DELETE仅Session；POST校验Session、管理角色、当前主档案及PIN，不先查已有grant。Session已因注销、撤销或改密失效时先401；仅Session仍有效但档案/grant不满足时403，不能统一改成403。公共只读不执行SessionGuard；me要求Session→activeProfile归属/状态→严格入参→数据归属，不以target profileId切换身份。
+一般设置主体次序：存储就绪→Session→角色/当前主Profile→grant有效性→严格入参→单次当次密码（仅高危操作：修改账号密码、档案 PIN 设置/修改/清除、注销档案、转移主档案、撤销设备；常规管理操作免密码，013 FR-005/ADR-0017）→重读身份/grant/目标归属/版本→事务。/settings/access为独立入口：GET/DELETE仅Session；POST校验Session、管理角色、当前主档案及PIN，不先查已有grant。Session已因注销、撤销或改密失效时先401；仅Session仍有效但档案/grant不满足时403，不能统一改成403。公共只读不执行SessionGuard；me要求Session→activeProfile归属/状态→严格入参→数据归属，不以target profileId切换身份。
 
 ## 8. 契约权威与替代矩阵
 
@@ -145,7 +145,7 @@ openapi.yaml包含005最终目标操作、复用的004播放/媒体操作和迁�
 对005已定义形状的字段级扩展（同形对象上追加，均为010目标必填/按语义可选，openapi.yaml 中以 optional 属性表达以不破坏既有消费者）：
 
 - `B003Source`（GET/POST/PATCH /settings/sources 返回）：`kind` 枚举增加 `vod`；追加 `capabilities:{resume:operational,requiresCurrentProbe:true}`（仅 kind=vod 返回）。`POST /settings/sources` 新增 kind=vod 分支（name+http(s) remoteUrl+adapter=apple-cms-json；限10启用源；openapi.yaml 的严格分支校验以010为权威）；`PATCH` 增加规则：根地址字段拒绝、改名不失效活动locator、启停均失效（010约束，无新字段）。
-- 新端点 `POST /settings/sources/{sourceId}/test`：`{ownerPassword}` → `200 {reachable,compatible,capabilities,reason:null|timeout|invalid|unavailable}`；Settings+当次密码；不写媒体。
+- 新端点 `POST /settings/sources/{sourceId}/test`：`{}` → `200 {reachable,compatible,capabilities,reason:null|timeout|invalid|unavailable}`；Settings（013 FR-005/ADR-0017 起免当次密码）；不写媒体。
 - `PublicMedia`（GET /public/media、/public/media/{id} 及 HistoryItem.media 等引用处）：追加 `detailKind:standalone|vod_title|vod_episode` 与 `parentMediaId:null|string`。
 - `ResolveRequest`（POST /playback/resolve）：追加 `transitionIntentId` 分支，出现时禁止 `startMode`（严格 oneOf；010 openapi.yaml 为权威定义）。响应 PlaybackDto 见下。
 - `ProgressResult`（POST /playback/sessions/{id}/progress）：保留 `applied` 旧义，追加 `sessionAccepted,acceptedSampleSeq,acceptedPositionSeconds,acceptedGeneration,sessionStarted`（独立会话接受视图）。

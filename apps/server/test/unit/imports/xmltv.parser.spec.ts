@@ -99,9 +99,10 @@ describe('parseXMLTV 正常解析(T016/research R2/R6)', () => {
 
     const result = await parseXMLTV(streamOf(xml));
 
+    // 014 T032:XMLTVChannel 扩展 iconUrl 字段(无 icon 文档 → null)
     expect(result.channels).toEqual([
-      { xmltvChannelId: 'cctv1', displayName: 'CCTV-1 综合' },
-      { xmltvChannelId: 'cctv2', displayName: 'CCTV-2 财经' },
+      { xmltvChannelId: 'cctv1', displayName: 'CCTV-1 综合', iconUrl: null },
+      { xmltvChannelId: 'cctv2', displayName: 'CCTV-2 财经', iconUrl: null },
     ]);
     expect(result.programmes).toHaveLength(2);
     expect(result.programmes[0]).toMatchObject({
@@ -156,7 +157,7 @@ describe('parseXMLTV 正常解析(T016/research R2/R6)', () => {
 
     const result = await parseXMLTV(tinyChunkIter(xml));
 
-    expect(result.channels).toEqual([{ xmltvChannelId: 'cctv1', displayName: '中文频道·新闻' }]);
+    expect(result.channels).toEqual([{ xmltvChannelId: 'cctv1', displayName: '中文频道·新闻', iconUrl: null }]);
     expect(result.programmes[0]?.title).toBe('新闻联播·特别报道');
   });
 

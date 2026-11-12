@@ -21,11 +21,13 @@ import {
 } from '../helpers-management';
 
 /**
- * T122(005-US8 契约 e2e,先 FAIL)—— settings 授权次序与负向矩阵(负向半部)。
+ * T122(005-US8 契约 e2e,先 FAIL)—— settings 授权次序与负向矩阵(负向半部;
+ * 013-role-differentiated-settings/ADR-0017:常规运维免当次密码,密码锁定语义改挂在
+ * 保留端点 PUT /settings/main-profile)。
  * 权威:contracts/api.md §6/§7(次序:存储就绪→Session→角色/当前主 Profile→grant→
- * 严格入参→当次密码→重读身份/grant/目标归属/版本→事务;no-store)、tasks.md T122。
+ * 严格入参→(高危端点)当次密码→重读身份/grant/目标归属/版本→事务;no-store)、tasks.md T122。
  *
- * 覆盖:游客/无 grant/普通 Profile/伪造 grant/过期 grant、缺错密码与锁定计数、
+ * 覆盖:游客/无 grant/普通 Profile/伪造 grant/过期 grant、高危端点缺错密码与锁定计数、
  * 跨家庭目标 404、旧版本 409、未知字段 400、错误响应 no-store 与响应面
  * (不含 PIN/源 URL/票据)。
  */
@@ -61,20 +63,34 @@ describe('T122 · settings 授权次序与负向矩阵(api.md §7)', () => {
     expect(post.status).toBe(401);
   });
 
-  it('已登录但未解锁(grant 缺失):403 SETTINGS_ACCESS_REQUIRED', async () => {
+  it('已登录但未选档:403 FORBIDDEN;主档案选档后零 grant 畅行(013 ADR-0017)', async () => {
     const { app, cookie } = await rig('hmp-t122n-locked-');
+    // 未选档:SettingsGuard 直接 403 FORBIDDEN(不再是 SETTINGS_ACCESS_REQUIRED)
     const res = await request(app.getHttpServer()).get('/api/settings/account').set('Cookie', cookie);
     expect(res.status).toBe(403);
-    expect(res.body.code).toBe('SETTINGS_ACCESS_REQUIRED');
+    expect(res.body.code).toBe('FORBIDDEN');
     const write = await request(app.getHttpServer())
       .patch('/api/settings/household')
       .set('Cookie', cookie)
-      .send({ expectedVersion: 1, ownerPassword: MANAGEMENT_OWNER_PASSWORD, name: 'X' });
+      .send({ expectedVersion: 1, name: 'X' });
     expect(write.status).toBe(403);
-    expect(write.body.code).toBe('SETTINGS_ACCESS_REQUIRED');
+    expect(write.body.code).toBe('FORBIDDEN');
+
+    // 主档案选档(不调 /settings/access,零 grant):读写立即畅行
+    const server = app.getHttpServer();
+    const bootstrapped = await request(server)
+      .post('/api/auth/bootstrap-profile')
+      .set('Cookie', cookie)
+      .send({ name: '主档案', pin: '111111', ownerPassword: MANAGEMENT_OWNER_PASSWORD });
+    expect(bootstrapped.status).toBe(201);
+    const mainId = (bootstrapped.body as { id: string }).id;
+    expect((await request(server).post(`/api/profiles/${mainId}/unlock`).set('Cookie', cookie).send({ pin: '111111' })).status).toBe(200);
+    expect((await request(server).post(`/api/profiles/${mainId}/select`).set('Cookie', cookie).send({})).status).toBe(200);
+    const ok = await request(app.getHttpServer()).get('/api/settings/account').set('Cookie', cookie);
+    expect(ok.status).toBe(200);
   });
 
-  it('普通 Profile 选中(非主档案):403 SETTINGS_ACCESS_REQUIRED,不当次放行', async () => {
+  it('普通 Profile 选中(非主档案):403 FORBIDDEN,不当次放行(013)', async () => {
     const { app, cookie } = await rig('hmp-t122n-ordinary-');
     await selectMainAndUnlockSettings(app, cookie); // 先解锁才能创建档案
     const created = await createProfileViaSettings(app, cookie, { name: '儿童', type: 'child', pin: '246800' });
@@ -92,27 +108,26 @@ describe('T122 · settings 授权次序与负向矩阵(api.md §7)', () => {
     expect(select.status).toBe(200);
     const res = await request(app.getHttpServer()).get('/api/settings/account').set('Cookie', cookie);
     expect(res.status).toBe(403);
-    expect(res.body.code).toBe('SETTINGS_ACCESS_REQUIRED');
+    expect(res.body.code).toBe('FORBIDDEN');
     // /settings/access 最小状态仍可读(独立入口,仅 Session):unlocked=false
     const status = await request(app.getHttpServer()).get('/api/settings/access').set('Cookie', cookie);
     expect(status.status).toBe(200);
     expect(status.body).toEqual({ unlocked: false, expiresAt: null });
   });
 
-  it('伪造 grant(版本失配/指向他档):403 SETTINGS_ACCESS_REQUIRED;过期 grant:403 SETTINGS_ACCESS_EXPIRED', async () => {
+  it('库内 grant 行伪造/过期不再影响鉴权:主档案一律 200(013 无 Ticket 硬依赖)', async () => {
     const { app, cookie } = await rig('hmp-t122n-forged-');
     // 正常解锁一次取得基准 grant 行
     const mainId = await selectMainAndUnlockSettings(app, cookie);
     const ok = await request(app.getHttpServer()).get('/api/settings/account').set('Cookie', cookie);
     expect(ok.status).toBe(200);
 
-    // 伪造:pin_version 快照改错(库内直改,模拟不可信持久状态)
+    // 伪造:pin_version 快照改错(库内直改,模拟不可信持久状态)→ SettingsGuard 不读 grant,仍 200
     Database.db.prepare('UPDATE settings_access_grant SET pin_version = pin_version + 1').run();
     const forged = await request(app.getHttpServer()).get('/api/settings/account').set('Cookie', cookie);
-    expect(forged.status).toBe(403);
-    expect(forged.body.code).toBe('SETTINGS_ACCESS_REQUIRED');
+    expect(forged.status).toBe(200);
 
-    // 恢复合法快照后改成过期:403 SETTINGS_ACCESS_EXPIRED(签发/到期整体平移到过去,满足 CHECK)
+    // 改成过期(签发/到期整体平移到过去,满足 CHECK)→ 同样 200
     Database.db.prepare('UPDATE settings_access_grant SET pin_version = ?').run(1);
     Database.db
       .prepare(
@@ -120,34 +135,47 @@ describe('T122 · settings 授权次序与负向矩阵(api.md §7)', () => {
       )
       .run();
     const expired = await request(app.getHttpServer()).get('/api/settings/account').set('Cookie', cookie);
-    expect(expired.status).toBe(403);
-    expect(expired.body.code).toBe('SETTINGS_ACCESS_EXPIRED');
+    expect(expired.status).toBe(200);
     void mainId;
   });
 
-  it('缺/错 ownerPassword:403 REQUIRED/FAILED 并沿用既有密码错误计数锁定(第 5 次落窗,423)', async () => {
+  it('缺/错 ownerPassword(保留端点 main-profile):403 FAILED 并沿用既有密码错误计数锁定(第 5 次落窗,423)', async () => {
     const { app, cookie } = await rig('hmp-t122n-lockout-');
     await selectMainAndUnlockSettings(app, cookie);
-    // 缺密码:household 契约 ownerPassword 必填 → 400 VALIDATION_FAILED(严格入参先于当次密码);
-    // ownerPassword 为可选 schema 的 POST /settings/profiles 缺密码 → 403 REQUIRED(不消耗计数)
-    const missing = await request(app.getHttpServer())
+    // 013/ADR-0017:常规端点不再有密码闸 —— household 编辑/档案创建缺密码照常成功
+    const noPasswordPatch = await request(app.getHttpServer())
       .patch('/api/settings/household')
       .set('Cookie', cookie)
-      .send({ expectedVersion: 1, name: 'X' });
-    expect(missing.status).toBe(400);
-    expect(missing.body.code).toBe('VALIDATION_FAILED');
-    const missingOnCreate = await request(app.getHttpServer())
+      .send({ expectedVersion: 1, name: '免密码改名' });
+    expect(noPasswordPatch.status, JSON.stringify(noPasswordPatch.body)).toBe(200);
+    const noPasswordCreate = await request(app.getHttpServer())
       .post('/api/settings/profiles')
       .set('Cookie', cookie)
       .send({ name: '无密码', type: 'adult' });
-    expect(missingOnCreate.status).toBe(403);
-    expect(missingOnCreate.body.code).toBe('PARENT_VERIFICATION_REQUIRED');
+    expect(noPasswordCreate.status, JSON.stringify(noPasswordCreate.body)).toBe(201);
+
+    // 密码错误计数/锁定语义改挂在保留端点:PUT /settings/main-profile(ownerPassword 必填;
+    // 验证先于 CAS/归属,故随机 profileId 不影响 403/423 判定)
+    const transferUrl = '/api/settings/main-profile';
+    const transferBody = (): Record<string, unknown> => ({
+      profileId: randomUUID(),
+      expectedVersion: 1,
+      expectedCurrentProfileVersion: 1,
+      expectedProfileVersion: 1,
+    });
+    // 缺密码 → 400 VALIDATION_FAILED(必填 schema,严格入参先于当次密码)
+    const missing = await request(app.getHttpServer())
+      .put(transferUrl)
+      .set('Cookie', cookie)
+      .send(transferBody());
+    expect(missing.status).toBe(400);
+    expect(missing.body.code).toBe('VALIDATION_FAILED');
     // 4 次错误:403 FAILED;第 5 次:403 且落窗;其后即使密码正确 423 LOCKED
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const wrong = await request(app.getHttpServer())
-        .patch('/api/settings/household')
+        .put(transferUrl)
         .set('Cookie', cookie)
-        .send({ expectedVersion: 1, ownerPassword: `wrong-password-${attempt}`, name: 'X' });
+        .send({ ...transferBody(), ownerPassword: `wrong-password-${attempt}` });
       expect(wrong.status, `第 ${attempt + 1} 次错误`).toBe(403);
       expect(wrong.body.code).toBe('PARENT_VERIFICATION_FAILED');
     }
@@ -155,14 +183,14 @@ describe('T122 · settings 授权次序与负向矩阵(api.md §7)', () => {
       Database.db.prepare('SELECT locked_until FROM parent_verification_state').get() as { locked_until: string | null },
     ).toMatchObject({ locked_until: expect.any(String) });
     const correctButLocked = await request(app.getHttpServer())
-      .patch('/api/settings/household')
+      .put(transferUrl)
       .set('Cookie', cookie)
-      .send({ expectedVersion: 1, ownerPassword: MANAGEMENT_OWNER_PASSWORD, name: '正确但锁定' });
+      .send({ ...transferBody(), ownerPassword: MANAGEMENT_OWNER_PASSWORD });
     expect(correctButLocked.status).toBe(423);
     expect(correctButLocked.body.code).toBe('PARENT_VERIFICATION_LOCKED');
-    // 无部分写入
+    // 无部分写入:主档案版本未被转移推进
     const household = await request(app.getHttpServer()).get('/api/settings/household').set('Cookie', cookie);
-    expect(household.body.name).toBe(INITIALIZE_BODY.householdName);
+    expect(household.body.mainProfileVersion).toBe(1);
   });
 
   it('跨家庭目标统一 404 同形(profiles/policy/devices/refreshes)', async () => {
@@ -189,7 +217,7 @@ describe('T122 · settings 授权次序与负向矩阵(api.md §7)', () => {
     const patch = await request(app.getHttpServer())
       .patch(`/api/settings/profiles/${foreignProfileId}`)
       .set('Cookie', cookie)
-      .send({ expectedVersion: 1, ownerPassword: MANAGEMENT_OWNER_PASSWORD, name: '越权改' });
+      .send({ expectedVersion: 1, name: '越权改' });
     expect(patch.status).toBe(404);
     const policy = await request(app.getHttpServer())
       .get(`/api/settings/profiles/${foreignProfileId}/policy`)
@@ -213,12 +241,12 @@ describe('T122 · settings 授权次序与负向矩阵(api.md §7)', () => {
       {
         path: '/api/settings/household',
         method: 'patch',
-        body: { expectedVersion: 1, ownerPassword: MANAGEMENT_OWNER_PASSWORD, isAdmin: true },
+        body: { expectedVersion: 1, isAdmin: true },
       },
       {
         path: '/api/settings/profiles',
         method: 'post',
-        body: { name: 'X', type: 'adult', ownerPassword: MANAGEMENT_OWNER_PASSWORD, householdId: randomUUID() },
+        body: { name: 'X', type: 'adult', householdId: randomUUID() },
       },
       {
         path: `/api/settings/main-profile`,
@@ -253,7 +281,6 @@ describe('T122 · settings 授权次序与负向矩阵(api.md §7)', () => {
     await selectMainAndUnlockSettings(app, cookie);
     // 错误响应 no-store
     const denied = await request(app.getHttpServer()).post('/api/settings/sources').set('Cookie', cookie).send({
-      ownerPassword: MANAGEMENT_OWNER_PASSWORD,
       kind: 'iptv',
       name: '坏源',
       remoteUrl: 'not-a-url',

@@ -10,12 +10,11 @@ import { CurrentSession } from '@platform/http-common/current-session.decorator'
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { SameOriginGuard } from '@platform/http-common/same-origin/same-origin.guard';
 import { SessionGuard } from '@platform/http-common/session.guard';
-import { SettingsAccessGuard } from '@platform/http-common/settings-access/settings-access.guard';
+import { SettingsGuard } from '@contexts/settings/infrastructure/settings.guard';
 import { StrictBodyPipe } from '@platform/http-common/strict-input/strict-pipes';
 import { strictObject } from '@platform/http-common/strict-input/strict-schema';
 import { getDb } from '@contexts/identity-access';
 import { changeAccountPassword } from '@contexts/settings/application/settings-account.service';
-import { requireValidSettingsGrant } from '@contexts/settings/application/settings-access-grant.service';
 
 /**
  * 账号与安全契约路由(T126,005 contracts/api.md §6):
@@ -28,10 +27,14 @@ import { requireValidSettingsGrant } from '@contexts/settings/application/settin
  * 严格入参:PasswordChangeRequest(minLength 8 / maxLength 128,additionalProperties:false)。
  */
 
-/** 契约 PasswordChangeRequest(openapi components/schemas) */
+/** 契约 PasswordChangeRequest(openapi components/schemas; 兼顾 ownerPassword 与 currentPassword 字段兼容性) */
 const passwordChangeRequestSchema = strictObject({
-  ownerPassword: z.string().min(8).max(128),
+  ownerPassword: z.string().min(8).max(128).optional(),
+  currentPassword: z.string().min(8).max(128).optional(),
   newPassword: z.string().min(8).max(128),
+}).refine((data) => Boolean(data.ownerPassword || data.currentPassword), {
+  message: 'ownerPassword or currentPassword must be provided',
+  path: ['currentPassword'],
 });
 
 /** 契约 AccountSummary(openapi components/schemas:只读白名单投影) */
@@ -43,7 +46,6 @@ export interface AccountSummaryBody {
 
 /** 重读身份(api.md §7 次序尾段):Guard 通过后以库内现值为准 */
 function readAccountSummary(context: SessionContext): AccountSummaryBody {
-  requireValidSettingsGrant(context);
   const row = getDb()
     .select({ id: account.id, username: account.username, role: account.role })
     .from(account)
@@ -60,7 +62,7 @@ function readAccountSummary(context: SessionContext): AccountSummaryBody {
 export class SettingsAccountController {
   /** GET /settings/account:AccountSummary 白名单投影(Settings 边界,逐请求重检) */
   @Get('account')
-  @UseGuards(SessionGuard, SettingsAccessGuard)
+  @UseGuards(SessionGuard, SettingsGuard)
   getAccount(@CurrentSession() context: SessionContext): AccountSummaryBody {
     return readAccountSummary(context);
   }
@@ -68,13 +70,22 @@ export class SettingsAccountController {
   /** PUT /settings/account/password:当次密码改密;204 + 清 cookie */
   @Put('account/password')
   @HttpCode(204)
-  @UseGuards(SameOriginGuard, SessionGuard, SettingsAccessGuard)
+  @UseGuards(SameOriginGuard, SessionGuard, SettingsGuard)
   async changePassword(
     @CurrentSession() context: SessionContext,
     @Body(new StrictBodyPipe(passwordChangeRequestSchema)) input: z.infer<typeof passwordChangeRequestSchema>,
     @Res({ passthrough: true }) response: Response,
   ): Promise<void> {
-    await changeAccountPassword(context, input);
+    // 契约现以 currentPassword 为准;ownerPassword 仅为 005 旧客户端过渡兼容字段,
+    // refine 已保证二者必有其一,此处显式兜底避免非空断言
+    const ownerPassword = input.currentPassword ?? input.ownerPassword;
+    if (ownerPassword === undefined) {
+      throw new DomainError(400, ProblemCode.VALIDATION_FAILED, undefined);
+    }
+    await changeAccountPassword(context, {
+      ownerPassword,
+      newPassword: input.newPassword,
+    });
     // 当前会话已在同事务撤销;卫生清理客户端 Cookie(对齐 logout 语义)
     response.clearCookie(SESSION_COOKIE, {
       httpOnly: true,

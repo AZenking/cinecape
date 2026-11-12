@@ -16,7 +16,7 @@ import {
 } from '@contexts/profile';
 import { defaultPolicyValues } from '@contexts/policy';
 import { revokeAllSettingsGrantsForHouseholdTx, revokeSettingsGrantsForProfileTx } from '@contexts/settings/application/settings-access-revocation';
-import { requireValidSettingsGrantTx } from '@contexts/settings/application/settings-access-grant.service';
+import { requireMainProfileTx } from '@contexts/settings/application/settings-access-grant.service';
 import {
   settingsStore,
   type ProfileRow,
@@ -26,22 +26,25 @@ import {
 
 /**
  * Profile 管理 / PIN / 主档案转移服务(T127,005 contracts/api.md §6 + data-model.md
- * §2 profile + FR-036):
+ * §2 profile + FR-036;013-role-differentiated-settings/ADR-0017:创建档案属常规运维,
+ * 免当次主账号密码 —— 即使带 PIN 创建;编辑仅在变更 PIN(pin/clearPin)时保留单次密码,
+ * 纯 name/avatar/isDefault/status 不要求;主档案转移为不可逆高危操作,单次密码不动):
  *
  * - GET /settings/profiles:家庭全部档案 ProfileSummary 白名单(与选档投影同源);
- * - POST:创建(当次密码;PIN 统一 6 位数字;默认策略同事务;version=1);
+ * - POST:创建(PIN 统一 6 位数字;默认策略同事务;version=1;013 起免当次密码);
  * - PATCH {profileId}:编辑/停用/PIN 管理,expectedVersion CAS(旧/伪造版本一律 409
- *   VERSION_CONFLICT 不静默覆盖);「主档案不允许 clearPin」(400)、「不能停用最后
- *   一个可用档案」(409 LAST_ACTIVE_PROFILE)、「现任主档案须先转移」(409
+ *   VERSION_CONFLICT 不静默覆盖);条件密码闸:仅 input.pin 或 clearPin 出现时验证
+ *   ownerPassword(403 REQUIRED/FAILED/LOCKED 语义不变);「主档案不允许 clearPin」(400)、
+ *   「不能停用最后一个可用档案」(409 LAST_ACTIVE_PROFILE)、「现任主档案须先转移」(409
  *   MAIN_PROFILE_CONFLICT);PIN 更新/停用同事务递增相应版本、撤销该档案选档/设置授予、
  *   清空选用会话并终态化活动播放(data-model §2);
  * - PUT /settings/main-profile:三项 CAS(expectedVersion=household.main_profile_version /
  *   expectedCurrentProfileVersion=现任主档案 version / expectedProfileVersion=目标
- *   version),一次事务先去旧标记再设新标记,撤销全部设置授予;响应只返回新主档案 ID
- *   与 mainProfileVersion(MainProfileReply),不返回已无权读取的设置主体。
+ *   version)+ 单次当次密码,一次事务先去旧标记再设新标记,撤销全部设置授予;响应只返回
+ *   新主档案 ID 与 mainProfileVersion(MainProfileReply),不返回已无权读取的设置主体。
  *
- * 事务纪律:PIN 哈希与密码验证在事务外;BEGIN IMMEDIATE 提交前重验权限快照
- * (requireValidSettingsGrantTx)与全部版本快照。
+ * 事务纪律:PIN 哈希与(条件)密码验证在事务外;BEGIN IMMEDIATE 提交前重验权限快照
+ * (requireMainProfileTx)与全部版本快照。
  *
  * 008-repository-extraction(T012,ADR-0015 D1):数据访问经 SettingsStore 端口
  * (查询逐字迁往 infrastructure/settings-store.drizzle.ts;事务经 withTransaction
@@ -70,7 +73,7 @@ export function listManagedProfiles(householdId: string, accountId: string): Pro
 }
 
 // ---------------------------------------------------------------------------
-// 创建(T127;POST 当次密码)
+// 创建(T127;013/ADR-0017 起免当次密码,带 PIN 创建同样不要求)
 // ---------------------------------------------------------------------------
 
 export interface CreateManagedProfileInput {
@@ -79,18 +82,16 @@ export interface CreateManagedProfileInput {
   avatar?: string;
   isDefault: boolean;
   pin?: string;
-  ownerPassword?: string;
 }
 
 export async function createManagedProfile(context: SessionContext, input: CreateManagedProfileInput): Promise<ProfileSummaryBody> {
   requireManagementRole(context);
-  // 当次密码(既有计数/锁定)在事务外;PIN 哈希同样在事务外
-  await verifyOwnerPassword(context, input.ownerPassword);
+  // PIN 哈希在事务外(013 起无当次密码验证步骤)
   const pinHash = input.pin !== undefined ? await hashPassword(input.pin) : undefined;
 
   return settingsStore().withTransaction(
     (tx) => {
-      requireValidSettingsGrantTx(tx, context);
+      requireMainProfileTx(tx, context);
       const householdId = context.session.householdId;
       const now = new Date().toISOString();
       const row: ProfileRow = {
@@ -169,13 +170,17 @@ export async function patchManagedProfile(
   input: PatchManagedProfileInput,
 ): Promise<ProfileSummaryBody> {
   requireManagementRole(context);
-  await verifyOwnerPassword(context, input.ownerPassword);
+  // 013/ADR-0017 条件密码闸:仅 PIN 变更(pin 出现或 clearPin)属身份敏感操作,保留单次
+  // 当次密码(403 REQUIRED/FAILED/LOCKED 语义不变);纯 name/avatar/isDefault/status 免密码。
+  if (input.pin !== undefined || input.clearPin === true) {
+    await verifyOwnerPassword(context, input.ownerPassword);
+  }
   const pinHash = input.pin !== undefined ? await hashPassword(input.pin) : undefined;
   const identityReset = input.clearPin === true || pinHash !== undefined || input.status === 'disabled';
 
   const summary = settingsStore().withTransaction(
     (tx, handle) => {
-      requireValidSettingsGrantTx(tx, context);
+      requireMainProfileTx(tx, context);
       const householdId = context.session.householdId;
       const row = requireProfileOfHousehold(tx, householdId, context.account.id, profileId);
       if (row.version !== input.expectedVersion) {
@@ -293,7 +298,7 @@ export async function transferMainProfile(context: SessionContext, input: Transf
   return settingsStore().withTransaction(
     (tx): MainProfileReplyBody => {
       // 权限快照重验(转移使全部设置授予失效,当前有效授予是本次操作的授权前提)
-      requireValidSettingsGrantTx(tx, context);
+      requireMainProfileTx(tx, context);
 
       // 现任主档案(必须存在;Settings 守卫已保证,防御性 404)
       const currentMain = tx.findMainProfileRow(householdId);

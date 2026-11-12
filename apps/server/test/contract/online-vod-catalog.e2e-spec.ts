@@ -29,7 +29,7 @@ import {
   type ControlledMediaServer,
 } from '../helpers';
 import type { MediaRequestContext } from '../fixtures/controlled-media-server';
-import { MANAGEMENT_OWNER_PASSWORD, selectMainAndUnlockSettings } from '../helpers-management';
+import { selectMainAndUnlockSettings } from '../helpers-management';
 import {
   buildAppleCmsListDocument,
   createFixtureTitleWorld,
@@ -658,7 +658,6 @@ function vodSourceBody(overrides: Record<string, unknown> = {}): Record<string, 
     name: '在线片源',
     remoteUrl: 'http://cms.example.com/api.php?ac=list',
     adapter: 'apple-cms-json',
-    ownerPassword: MANAGEMENT_OWNER_PASSWORD,
     ...overrides,
   };
 }
@@ -852,7 +851,6 @@ describe('T022 · A Settings vod 配置/测试/启停(api.md §2)', () => {
       kind: 'vod',
       name: '缺地址片源',
       adapter: 'apple-cms-json',
-      ownerPassword: MANAGEMENT_OWNER_PASSWORD,
     });
     // 契约形态:400 VALIDATION_FAILED,detail 指出 remoteUrl(vod 必须 remote_url 非空)。
     // 当前 kind 枚举先拒:400 但 detail 指向 kind → 计划内红(待 T026 vod 分支)。
@@ -890,7 +888,6 @@ describe('T022 · A Settings vod 配置/测试/启停(api.md §2)', () => {
     await selectMainAndUnlockSettings(app, cookie);
     const sourceId = seedVodSourceRow(householdId, 'http://cms.example.com/api.php?ac=list');
     const res = await patchSource(app, cookie, sourceId, {
-      ownerPassword: MANAGEMENT_OWNER_PASSWORD,
       expectedVersion: 1,
       remoteUrl: 'http://other-cms.example.com/api.php?ac=list',
     });
@@ -910,7 +907,6 @@ describe('T022 · A Settings vod 配置/测试/启停(api.md §2)', () => {
     const sourceId = seedVodSourceRow(householdId, 'http://cms.example.com/api.php?ac=list');
     expect(sourceRowOf(sourceId)).toMatchObject({ version: 1, locatorRevision: 1 });
     const res = await patchSource(app, cookie, sourceId, {
-      ownerPassword: MANAGEMENT_OWNER_PASSWORD,
       expectedVersion: 1,
       name: '改名在线片源',
     });
@@ -929,7 +925,6 @@ describe('T022 · A Settings vod 配置/测试/启停(api.md §2)', () => {
     await selectMainAndUnlockSettings(app, cookie);
     const sourceId = seedVodSourceRow(householdId, 'http://cms.example.com/api.php?ac=list');
     const disable = await patchSource(app, cookie, sourceId, {
-      ownerPassword: MANAGEMENT_OWNER_PASSWORD,
       expectedVersion: 1,
       enabled: false,
     });
@@ -941,7 +936,6 @@ describe('T022 · A Settings vod 配置/测试/启停(api.md §2)', () => {
       `计划内红(待 T026 转绿):停用应 locator_revision+1(实际 ${sourceRowOf(sourceId).locatorRevision})`,
     ).toBe(2);
     const enable = await patchSource(app, cookie, sourceId, {
-      ownerPassword: MANAGEMENT_OWNER_PASSWORD,
       expectedVersion: 2,
       enabled: true,
     });
@@ -958,7 +952,7 @@ describe('T022 · A Settings vod 配置/测试/启停(api.md §2)', () => {
     const res = await request(rig.app.getHttpServer())
       .post(`/api/settings/sources/${sourceId}/test`)
       .set('Cookie', cookie)
-      .send({ ownerPassword: MANAGEMENT_OWNER_PASSWORD });
+      .send({});
     // 计划内红判据:测试端点未装配(路由 404);T025 adapter + T026 Settings vod 装配后 200。
     expectEndpointResUnderContract(res, [200], 'POST /api/settings/sources/:id/test', 'T025+T026');
     expect(res.status).toBe(200);
@@ -970,12 +964,13 @@ describe('T022 · A Settings vod 配置/测试/启停(api.md §2)', () => {
     expect(body.capabilities).toEqual({ resume: 'operational', requiresCurrentProbe: true });
     expect(tableCountOf('media_item'), '测试端点不得写媒体').toBe(mediaCountBefore);
     // 授权错误不能包装为测试结果:错密码 → 403 PARENT_VERIFICATION_FAILED(非 200 {reachable:false})
-    const wrongPwd = await request(rig.app.getHttpServer())
+    // 013/ADR-0017:test 端点免当次密码,请求体为空对象(strictObject 携带任何字段 400)
+    const withPwd = await request(rig.app.getHttpServer())
       .post(`/api/settings/sources/${sourceId}/test`)
       .set('Cookie', cookie)
       .send({ ownerPassword: 'definitely-wrong' });
-    expect(wrongPwd.status, `错密码应 403(当前 ${wrongPwd.status})`).toBe(403);
-    expect(wrongPwd.body.code).toBe(ProblemCode.PARENT_VERIFICATION_FAILED);
+    expect(withPwd.status, `携带密码字段应 400(当前 ${withPwd.status})`).toBe(400);
+    expect(withPwd.body.code).toBe(ProblemCode.VALIDATION_FAILED);
   });
 
   it('A8 [计划内红·待 T026] 启用 vod 源满 10 个后再创建 → 409 VOD_QUOTA_EXCEEDED(净配额,不删既有)', async () => {
@@ -1709,7 +1704,7 @@ describe('T022 · F 授权负向回归(新端点同栈守卫次序;未装配期�
     );
     expectProblem(await postSource(app, '', vodSourceBody()), 401, ProblemCode.SESSION_INVALID);
     const lockedRead = await request(app.getHttpServer()).get('/api/settings/sources').set('Cookie', cookie);
-    expectProblem(lockedRead, 403, 'SETTINGS_ACCESS_REQUIRED');
+    expectProblem(lockedRead, 403, 'FORBIDDEN');
 
     // 新端点(未装配期双态;T031 装配后同一断言自动收紧为 401)
     const guestCases: Array<[string, () => Promise<request.Response>]> = [
@@ -1718,7 +1713,7 @@ describe('T022 · F 授权负向回归(新端点同栈守卫次序;未装配期�
         async () =>
           request(app.getHttpServer())
             .post(`/api/settings/sources/${randomUUID()}/test`)
-            .send({ ownerPassword: 'whatever-password' }),
+            .send({}),
       ],
       [
         'POST /api/vod/materializations',

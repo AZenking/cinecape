@@ -20,6 +20,9 @@ import { installNetworkCounter } from './helpers/network-assertions';
  *   { mediaId, startMode }(mediaId=频道 id;无节目绑定字段,登录/等待期间目标
  *   结束由服务端按最新状态重判,FR-008/§1.4);
  * - 节目块点击 = 打开详情面板,不播放(§3.4):面板出现、零 /playback/ 请求;
+ *   015 T013(R6/ui-layout §3.2)起该契约收窄到**非 current 块**:与 NOW 相交的
+ *   current 块改为直接起播(由 features/live/live-routing-epg.spec.tsx 钉面),
+ *   本钉面改以 upcoming 块锚定「开面板不播放」路径;
  * - 无节目频道同样保留频道观看按钮(播放当前内容,FR-012)。
  *
  * 面板宿主为 GuidePage 当前挂载的详情面板(T022 起为共享面板);本钉面只断言
@@ -172,11 +175,13 @@ describe('T009 · EPG 频道观看按钮经统一播放链路(钉面;现状已�
     }
   });
 
-  it('节目块点击 = 开面板不播放(§3.4):详情面板出现、零 /playback/ 请求、无登录弹层', async () => {
+  it('节目块点击 = 开面板不播放(§3.4;015 T013 起锚定 upcoming 块):详情面板出现、零 /playback/ 请求、无登录弹层', async () => {
     const { counter, world } = renderGuidePage(LIVE_SESSION_STATES.guest);
     try {
       await waitFor(() => expect(screen.getByTestId('live-session').textContent).toBe('anonymous:none'));
-      const block = await screen.findByRole('button', { name: /例牌新闻台,例牌正播节目/ });
+      // 015 T013:current 块(例牌正播节目)点击已改为直接起播(见 live-routing-epg.spec);
+      // 「块点击开面板不播放」契约由 upcoming 块(例牌预告节目)继续钉住
+      const block = await screen.findByRole('button', { name: /例牌新闻台,例牌预告节目/ });
 
       fireEvent.click(block);
       const panel = await screen.findByRole('dialog', { name: /节目详情/ });

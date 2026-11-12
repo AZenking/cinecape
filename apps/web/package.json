@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "node -e 'const args = process.argv.slice(1).map(a => a.replace(/^apps\\/web\\//, \"\")); const { spawnSync } = require(\"child_process\"); const res = spawnSync(\"vitest\", [\"run\", ...args], { stdio: \"inherit\" }); process.exit(res.status ?? 0);'",
     "test:vitest": "vitest run",
     "test:e2e": "playwright test"
   },
@@ -19,6 +19,7 @@
     "@internationalized/date": "3.12.4",
     "@mantine/hooks": "^9.7.4",
     "@tanstack/react-query": "^5.105.0",
+    "lucide-react": "^1.70.0",
     "react": "^19",
     "react-dom": "^19",
     "react-router": "^7",

@@ -81,6 +81,8 @@ export interface AppleCmsVodItem {
   vod_serial: string;
   vod_time: string;
   vod_time_add: number;
+  /** 海报地址(可选;缺省夹具不带,海报专项用例经 overrides 注入) */
+  vod_pic?: string;
   vod_play_from: string;
   vod_play_url: string;
   vod_play_note: string;

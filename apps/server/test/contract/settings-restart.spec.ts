@@ -62,7 +62,7 @@ async function setupUnlockedWorld(): Promise<{ rig: TestRig; app: INestApplicati
 describe('T124 · 设置数据服务重启后持久且 grant 不复活(integration,替代 e2e 进程内重启)', () => {
   afterEach(cleanupRigs);
 
-  it('重启:全部设置授予撤销(unlocked=false,主体 403 需重新 PIN);家庭/档案/来源写持久', async () => {
+  it('重启:全部设置授予撤销(元数据 unlocked=false,主管理员畅行不变);家庭/档案/来源写持久', async () => {
     const { rig, cookie } = await setupUnlockedWorld();
 
     // ── 重启前:经设置 API 完成三项代表性写 ──
@@ -74,7 +74,6 @@ describe('T124 · 设置数据服务重启后持久且 grant 不复活(integrati
       .set('Cookie', cookie)
       .send({
         expectedVersion: current.version,
-        ownerPassword: INITIALIZE_BODY.password,
         name: '重启之家',
         timezone: 'Asia/Tokyo',
       });
@@ -83,14 +82,13 @@ describe('T124 · 设置数据服务重启后持久且 grant 不复活(integrati
     const created = await request(rig.app.getHttpServer())
       .post('/api/settings/profiles')
       .set('Cookie', cookie)
-      .send({ name: '重启档案', type: 'child', pin: '345678', ownerPassword: INITIALIZE_BODY.password });
+      .send({ name: '重启档案', type: 'child', pin: '345678' });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
 
     const source = await request(rig.app.getHttpServer())
       .post('/api/settings/sources')
       .set('Cookie', cookie)
       .send({
-        ownerPassword: INITIALIZE_BODY.password,
         kind: 'iptv',
         name: '重启来源',
         enabled: true,
@@ -117,10 +115,9 @@ describe('T124 · 设置数据服务重启后持久且 grant 不复活(integrati
     expect(access.status).toBe(200);
     expect(access.body).toEqual({ unlocked: false, expiresAt: null });
 
-    // 设置主体(grant 守卫路由)一律 403 SETTINGS_ACCESS_REQUIRED
-    const householdDenied = await request(restarted.getHttpServer()).get('/api/settings/household').set('Cookie', cookie);
-    expect(householdDenied.status).toBe(403);
-    expect((householdDenied.body as { code: string }).code).toBe('SETTINGS_ACCESS_REQUIRED');
+    // 013(ADR-0017):管理边界以 activeProfile.isMain 为准 —— 重启撤销 grant 不再阻断主管理员
+    const householdAfterRestart = await request(restarted.getHttpServer()).get('/api/settings/household').set('Cookie', cookie);
+    expect(householdAfterRestart.status).toBe(200);
 
     // 重新 PIN 验证解锁(重启后验证链工作)
     const reUnlock = await request(restarted.getHttpServer())

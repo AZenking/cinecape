@@ -154,6 +154,8 @@ interface AcceptedEntry {
   readonly item: ParsedVodSearchItem;
   readonly sourceIndex: number;
   readonly titleRef: string;
+  /** 上游未给海报 → null(不签发 ref);有海报 → poster 级不透明 ref */
+  readonly posterRef: string | null;
 }
 
 /**
@@ -196,6 +198,10 @@ export interface VodTitleBindingPayload {
   /** 登记时的来源定位器修订(禁源/配置失配判定的 CAS 读数) */
   readonly locatorRevision: number;
   readonly searchId: string;
+  /** 上游海报地址(私有定位,绝不进入公共 DTO;上游未给 → null) */
+  readonly posterUrl: string | null;
+  /** poster 级不透明 ref(posterUrl 为 null 恒 null;随绑定条目同寿) */
+  readonly posterRef: string | null;
 }
 
 const FAILED_STATUSES: readonly VodSourceSearchStatus['status'][] = ['timeout', 'invalid', 'unavailable'];
@@ -397,7 +403,11 @@ export function createVodSearchService(deps: VodSearchServiceDeps): {
         if (state.dedupeKeys.has(dedupeKey)) continue;
         state.dedupeKeys.add(dedupeKey);
         const titleRef = deps.cache.allocateRef(state.searchId, `title:${dedupeKey}`, 'title');
-        state.accepted.push({ item, sourceIndex, titleRef });
+        // 海报 ref:仅在上游给了海报地址时签发(p 级 opaque ref;**绑定在 titleRef 条目**,
+        // 随标题绑定的淘汰/失效级联清除,与会话 ref 解耦)
+        const posterRef =
+          item.posterUrl !== null ? deps.cache.allocateRef(titleRef, `poster:${dedupeKey}`, 'poster') : null;
+        state.accepted.push({ item, sourceIndex, titleRef, posterRef });
         state.remainingBySource[sourceIndex] = (state.remainingBySource[sourceIndex] ?? 0) + 1;
         // 标题绑定登记(独立 10min TTL,与搜索会话同寿;titleRef 失效=410 而非 404)
         const bound = deps.cache.put<VodTitleBindingPayload>({
@@ -415,6 +425,8 @@ export function createVodSearchService(deps: VodSearchServiceDeps): {
             year: item.year,
             locatorRevision: state.sources[sourceIndex]?.locatorRevision ?? 0,
             searchId: state.searchId,
+            posterUrl: item.posterUrl,
+            posterRef,
           },
         });
         if (!bound) {
@@ -471,7 +483,7 @@ export function createVodSearchService(deps: VodSearchServiceDeps): {
         title: entry.item.title,
         year: entry.item.year,
         sourceLabel: state.sources[entry.sourceIndex]?.name ?? '',
-        posterRef: null,
+        posterRef: entry.posterRef,
       })),
       sources,
       nextCursor,

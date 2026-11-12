@@ -22,9 +22,9 @@
 
 ## 1. DTO（除明确可选外必填；nullable显式说明）
 
-- `PublicVodCard`：titleRef,title,year:string|null,sourceLabel,posterRef:null。无源配置ID。
+- `PublicVodCard`：titleRef,title,year:string|null,sourceLabel,posterRef:string|null。无源配置ID。posterRef为p级不透明同源海报引用（经`GET /api/public/vod/posters/:posterRef`服务端代理取回），上游未给海报为null；不得携带可解码的上游地址。
 - `SearchPage`：searchId,items:PublicVodCard[],sources:[{sourceRef,status:ok|empty|timeout|invalid|unavailable,hasMore:boolean}],nextCursor:string|null,partial:boolean,reasons:string[],expiresAt。
-- `VodPreview`：titleRef,title,description:string|null,year:string|null,sourceLabel,posterRef:null,previewRevision,fetchedAt,expiresAt,lines:[{lineRef,name,episodes:[{episodeRef,label,status:candidate|unsupported,reason:null|identity_ambiguous|format_unsupported}]}]。
+- `VodPreview`：titleRef,title,description:string|null,year:string|null,sourceLabel,posterRef:string|null,previewRevision,fetchedAt,expiresAt,lines:[{lineRef,name,episodes:[{episodeRef,label,status:candidate|unsupported,reason:null|identity_ambiguous|format_unsupported}]}]。posterRef与卡片同值（快照重放保持稳定，详情侧海报变化不改写已签发ref）。
 - `Materialized`：parentMediaId,mediaId,detailRevision,catalogRevision,replayed:boolean,candidateRef:string|null,registeredCandidateRef:string|null。revision为提交时值，不表示当前仍未变化。
 - `StableEpisodes`：parentMediaId,detailRevision,fetchedAt,stale:boolean,lines:[{lineRef,name,episodes:[{mediaId,label,availability:candidate|unavailable,sequenceOrdinal:integer|null}]}],nextCursor:string|null。线路可跨页重复，消费者按lineRef聚合，不能把每页线路当新线。
 - `HistorySummary`：mediaId,parentMediaId,lineLabel,episodeLabel,lastViewedAt,positionSeconds,durationSeconds:number|null,completed,canAttemptResume:boolean,resumeReason:null|unavailable|content_changed|continuity_changed|completed|invalid_position|duration_unknown,resumeConfidence:operational|verified|none,revision。canAttemptResume不是probe后最终资格；旧HistoryItem.canResume对在线媒体映射为候选资格并追加resumeCheckRequired=true，对静态媒体原语义不变。
@@ -42,11 +42,12 @@
 | 方法/路径 | 输入 | 输出/规则 |
 | --- | --- | --- |
 | GET /settings/sources | 沿用005分页 | 现有来源DTO扩kind=vod及capabilities:{resume:operational,requiresCurrentProbe:true}；只Settings可读 |
-| POST /settings/sources | 现有敏感验证字段+kind=vod,name,remoteUrl,adapter=apple-cms-json | Settings+当次密码；201；限10启用源；新源根URL只接受http(s)并校验 |
-| PATCH /settings/sources/:id | 原expectedVersion/ownerPassword + name?/enabled? | Settings+当次密码，CAS；根地址字段拒绝；改名不失效活动locator，启停均失效 |
-| POST /settings/sources/:id/test | {ownerPassword} | Settings+当次密码；200{reachable,compatible,capabilities,reason:null|timeout|invalid|unavailable}，不写媒体；授权错误不能包装为测试结果 |
+| POST /settings/sources | 003字段（013 ADR-0017/FR-005 起免当次密码）+kind=vod,name,remoteUrl,adapter=apple-cms-json | Settings；201；限10启用源；新源根URL只接受http(s)并校验 |
+| PATCH /settings/sources/:id | 原expectedVersion + name?/enabled?（013 起免当次密码） | Settings，CAS；根地址字段拒绝；改名不失效活动locator，启停均失效 |
+| POST /settings/sources/:id/test | {}（013 起免当次密码） | Settings；200{reachable,compatible,capabilities,reason:null|timeout|invalid|unavailable}，不写媒体 |
 | GET /public/vod/search | 首次{q:1–100}，或后续{searchId,cursor?}，两组互斥 | 200 SearchPage；缺cursor重放第一页；每页20，正常next不是partial；全源失败502，全部超时504 |
 | GET /public/vod/titles/:titleRef | 无 | 200 VodPreview；ref失效410；跨家庭/伪造404；最多20线路/单线2000/合计5000/4MiB，超限422整次失败 |
+| GET /public/vod/posters/:posterRef | 无 | 200 image/*字节流（服务端代理）：p级不透明ref反查私有海报地址，SafeUpstream有界读取（≤2MiB/8s/4s/3跳，许可列表同源口径），仅接受image/*未编码响应；伪造/未签发/跨家庭404同形，过期410，上游失败/非图片502，超预算504；纯读不落盘 |
 | GET /public/media | 原005参数 | vod只展示已物化且可用父项，不重复铺子项；NAS/IPTV行为保留 |
 | GET /public/media/:id | 无 | 现有PublicMedia扩detailKind:standalone|vod_title|vod_episode及parentMediaId:null|string；无个人信息 |
 | GET /public/media/:id/episodes | {cursor?} | 200 StableEpisodes，每页总计100子项；修订绑定cursor，变化409 VOD_DETAIL_CHANGED；非父400，不可用404 |
@@ -63,7 +64,7 @@
 | GET /me/vod/titles/:parentId/progress | 无 | Profile；200 TitleProgress；不存在父404；自己的不可用历史仍能作为latest摘要，不泄露其他Profile |
 | GET /me/history及/:id | 继承005 | 在线追加HistorySummary的完成/候选续播信息；canResume候选语义需与005文档一起接受，静态原义不变 |
 
-物化来源/预览/策略事实和新增净配额在同一短事务检查，资源和幂等结果同提交。先查成功重放，再要求预览有效；同key异摘要409 IDEMPOTENCY_CONFLICT；新操作预览变化409 VOD_DETAIL_CHANGED，过期410 VOD_PREVIEW_EXPIRED；满额409 VOD_QUOTA_EXCEEDED；旧结果目标内容/连续性变化409 VOD_MATERIALIZATION_STALE。幂等scope=家庭/DeviceSession/contextVersion，目标24h受回收保护；当前权限失效拒绝而非仍返成功。
+物化来源/预览/策略事实和新增净配额在同一短事务检查，资源和幂等结果同提交。先查成功重放，再要求预览有效；同key异摘要409 IDEMPOTENCY_CONFLICT；新操作预览变化409 VOD_DETAIL_CHANGED，过期410 VOD_PREVIEW_EXPIRED；既有目标要求当前修订详情快照存在（缺失410），快照过期不再拦截物化——预览TTL门已保证事实新鲜，快照expires_at仅服务稳定详情stale判定；满额409 VOD_QUOTA_EXCEEDED；旧结果目标内容/连续性变化409 VOD_MATERIALIZATION_STALE。幂等scope=家庭/DeviceSession/contextVersion，目标24h受回收保护；当前权限失效拒绝而非仍返成功。
 
 ## 4. 播放进度/结束扩展
 

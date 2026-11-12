@@ -1,3 +1,5 @@
+import { syncServerNowIso } from './time/server-clock';
+
 /**
  * 统一 typed fetch 底座(T010;005 Phase 2 共享基础设施)。
  *
@@ -20,6 +22,8 @@
  *   UI 据此区分 401/403/404/409/423/429 及稳定错误码(词表见 `@hmp/shared` ProblemCode)。
  * - 取消:调用方经 `init.signal` 传入 AbortSignal,在途请求立即以原生
  *   `DOMException('AbortError')` 拒绝(用 `isAbortError` 判定,与业务失败区分)。
+ * - 服务端基准时钟:2xx JSON 响应体携带 `now` 字段时统一校准
+ *   shared/time/server-clock(NTP 式 offset,时间展示与 EPG 进度的单一基准)。
  */
 
 /** 所有 API 路径的统一前缀(开发期由 Vite 代理到 :3000,生产同源部署) */
@@ -36,6 +40,19 @@ const SCOPE_CREDENTIALS: Record<FetchScope, RequestCredentials> = {
   public: 'omit',
   private: 'same-origin',
 };
+
+/**
+ * 响应体若携带服务端时刻字段 `now`(GuideWindow/live groups/now-playing 等直播与
+ * EPG 投影统一约定),经 server-clock 校准基准时钟(NTP 式 offset;016 spec
+ * 「进度条以服务器返回的基准时间戳计算漂移差值」)。这里只识别合法 ISO 字符串,
+ * 缺 now 的普通响应零影响(见 shared/time/server-clock.ts)。
+ */
+function syncServerClockFromBody(body: unknown): void {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return;
+  }
+  syncServerNowIso((body as { now?: unknown }).now);
+}
 
 /** RFC 9457 problem+json 结构(契约 Problem;未知扩展字段原样保留) */
 export interface ProblemDetails {
@@ -179,7 +196,10 @@ async function requestJson<TResponse>(scope: FetchScope, path: string, init: Fet
   if (response.status === 204) {
     return undefined as TResponse;
   }
-  return (await response.json()) as TResponse;
+  const body = (await response.json()) as TResponse;
+  // 服务端基准时钟校准:所有 2xx JSON 响应统一在此过一层(携带 now 即校准)
+  syncServerClockFromBody(body);
+  return body;
 }
 
 /**

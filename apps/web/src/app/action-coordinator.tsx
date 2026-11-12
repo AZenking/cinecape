@@ -43,6 +43,7 @@ import {
   createInitialCoordinatorState,
   isStaleIntent,
   sanitizeReturnTarget,
+  selectNextLine,
   type AuthStep,
   type CoordinatorAction,
   type PlaybackIntentState,
@@ -57,12 +58,12 @@ import { SelectionPinStep } from '../features/profiles/selection-pin-step';
 import { PlayerView } from '../features/playback/player-view';
 import { useVodTransition } from '../features/playback/use-vod-transition';
 import { VodSourceSwitcher } from '../features/playback/vod-source-switcher';
+import { PlayerLineSwitcher } from '../features/live/components/PlayerLineSwitcher';
+import { useAppToast } from '../shared/ui';
 import {
   VodAutoplayPreferenceProvider,
   useVodAutoplayPreference,
 } from '../features/playback/vod-autoplay-preference';
-import { SettingsPinForm } from '../features/settings/settings-unlock-gate';
-import { useSettingsAccess } from '../features/settings/settings-access-provider';
 
 export interface AuthActionApi {
   /** 弹层是否打开 */
@@ -72,7 +73,7 @@ export interface AuthActionApi {
   startLogin: (returnTo?: string | null) => void;
   /** 已登录未选档:选择 Profile 入口(bootstrapRequired 时先首建) */
   startProfileSelection: (returnTo?: string | null) => void;
-  /** 主 Profile 设置入口:未解锁走 settingsPin 弹层,已解锁直达目标(ui.md §3/§7) */
+  /** 设置入口:直达目标(管理路由由 AdminRouteGuard 拦截;ADR-0017 无门禁) */
   startSettings: (returnTo?: string | null) => void;
   /** 取消当前意图(清凭据、返回原页面、不自动重开) */
   cancel: () => void;
@@ -84,6 +85,11 @@ export interface PlayActionRequest {
   readonly title: string;
   /** 缺省 beginning;进度数据与继续/从头按钮语义由 US4 补全 */
   readonly startMode?: 'beginning' | 'resume';
+  /**
+   * 指定物理线路(016 T020/T021;api.md §2.1 可选 lineId):OSD 手动换线与自动
+   * 容灾续接时携带并透传 resolve 请求体;缺省由服务端按 priority ASC/isDefault 优选。
+   */
+  readonly lineId?: string;
 }
 
 export interface PlayActionApi {
@@ -98,9 +104,13 @@ export interface PlayActionApi {
 const AuthActionContext = createContext<AuthActionApi | null>(null);
 const PlayActionContext = createContext<PlayActionApi | null>(null);
 
+export function useOptionalAuthAction(): AuthActionApi | null {
+  return useContext(AuthActionContext);
+}
+
 /** 统一登录/选档动作入口(US3 播放等继续经同一协调器扩展) */
 export function useAuthAction(): AuthActionApi {
-  const value = useContext(AuthActionContext);
+  const value = useOptionalAuthAction();
   if (value === null) {
     throw new Error('useAuthAction 必须在 <ActionCoordinator> 内使用');
   }
@@ -224,7 +234,6 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
     dispatch(action);
   }, []);
   const session = useSession();
-  const settingsAccess = useSettingsAccess();
   const navigate = useNavigate();
   /** selectionPin 展示用的目标档案摘要(id 同时进 reducer 供代次守卫/测试) */
   const [targetProfile, setTargetProfile] = useState<ProfileSummary | null>(null);
@@ -235,6 +244,18 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
   const [recoverPhase, setRecoverPhase] = useState<RecoverPhase>('idle');
   const [recoverPanelOpen, setRecoverPanelOpen] = useState(false);
   const recoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 容灾尝试追踪(016 T020;跨容灾意图累积,ref 不随意图替换重建):
+  // - attempted:已尝试线路(含刚失败线路)—— selectNextLine 跳过,全尽返回 null 防死循环;
+  // - toasted:已提示过的目标线路 —— Toast 单次/去重,同一线路连续失败只提示一次。
+  // 清零时机:手动新播放(play)/播放面收口(terminatePlaybackIntent)。
+  const lineFailoverRef = useRef<{ attempted: Set<string>; toasted: Set<string> }>({
+    attempted: new Set<string>(),
+    toasted: new Set<string>(),
+  });
+  const resetLineFailoverTracking = useCallback((): void => {
+    lineFailoverRef.current = { attempted: new Set<string>(), toasted: new Set<string>() };
+  }, []);
 
   const closeRecoverWindow = useCallback((): void => {
     if (recoverTimerRef.current !== null) {
@@ -352,11 +373,12 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
       return;
     }
     closeRecoverWindow(); // 播放面收口即撤销换源恢复窗口(T075;60s 窗随意图生命周期)
+    resetLineFailoverTracking(); // 容灾尝试记录随播放面收口清零(016 T020;新一轮观看完整顺位)
     dispatchWithMirror({ type: 'playEnd', intentId: current.intentId });
     if (current.sessionId !== null && current.phase !== 'playing') {
       abandonSession(current.sessionId);
     }
-  }, [abandonSession, closeRecoverWindow]);
+  }, [abandonSession, closeRecoverWindow, resetLineFailoverTracking]);
 
   /**
    * 关闭播放面(用户主动退出):统一收口唯一入口(terminatePlaybackIntent)。
@@ -382,11 +404,16 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
         !isStaleIntent(stateRef.current, capturedGeneration);
       void (async () => {
         // 1. authorize:仅已选档会话才会走到这里(游客路径在 play() 内已进入登录意图)
+        // 016 T020/T021:target.lineId(OSD 手动换线/容灾续接)透传 resolve 请求体
         let dto: PlaybackDto;
         try {
           dto = await privateFetch<PlaybackDto>('/playback/resolve', {
             method: 'POST',
-            body: { mediaId: target.mediaId, startMode: target.startMode },
+            body: {
+              mediaId: target.mediaId,
+              startMode: target.startMode,
+              ...(target.lineId !== undefined ? { lineId: target.lineId } : {}),
+            },
           });
         } catch (error) {
           if (!alive()) {
@@ -402,7 +429,14 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
         dispatchWithMirror({
           type: 'playPatch',
           intentId,
-          patch: { phase: 'preparing', sessionId: dto.id, playbackGeneration: dto.generation },
+          patch: {
+            phase: 'preparing',
+            sessionId: dto.id,
+            playbackGeneration: dto.generation,
+            // 016 T020:多线路投影落 state(resolve 201;OSD 与容灾顺位的事实面)
+            lines: dto.lines ?? [],
+            selectedLineId: dto.selectedLineId ?? null,
+          },
         });
         // 2. prepare:轮询会话状态直到 ready/playing 或稳定失败(准备时限沿用 004 预算)
         const deadline = Date.now() + PREPARE_BUDGET_MS;
@@ -476,13 +510,18 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
     [abandonSession],
   );
 
-  /** 发起播放意图:游客/未选档 → 暂存并进入登录选档意图(完成后续跑);已选档 → 直接 authorize */
-  const play = useCallback(
+  /**
+   * 播放启动(016 T020 拆分):play() 的原始链路体,供两类调用方共享 ——
+   * 手动入口(play/重试/重新播放/选档续跑)与播放面换线(容灾续接/OSD 手动换线)。
+   * 目标 lineId 缺省时由服务端优选;携带时透传 resolve(新 session 契约语义)。
+   */
+  const launchPlayback = useCallback(
     (request: PlayActionRequest): void => {
       const target: PlayTarget = {
         mediaId: request.mediaId,
         title: request.title,
         startMode: request.startMode ?? 'beginning',
+        ...(request.lineId !== undefined ? { lineId: request.lineId } : {}),
       };
       const intentId = stateRef.current.playbackIntentSeq + 1;
       const current = session;
@@ -508,6 +547,105 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
       runPlayback(intentId, target);
     },
     [session, runPlayback, startLogin, closeRecoverWindow],
+  );
+
+  // ---------------------------------------------------------------------------
+  // 播放面自动容灾换线(016 T020;research.md R4 / data-model.md §3.1 Failover 状态机)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * 容灾致命错误入口所用的 Toast(单独声明于容灾小节;useAppToast 引用稳定)。
+   */
+  const lineFailoverToast = useAppToast();
+
+  /**
+   * 播放面致命错误统一入口(016 T020 自动容灾;容灾优先裁决):
+   *
+   * - 仅 playing 相位响应(意图面守卫):非 playing 相位的迟到错误事件(PlayerView
+   *   卸载边界/引擎残留回调)一律忽略;
+   * - 该频道 lines ≥2 时按 priority ASC 选**未尝试过的下一线路**(selectNextLine,
+   *   attempted 含刚失败线路),以 {…target, lineId} 发起新 resolve —— 复用「新意图
+   *   取代旧意图」机制,resolve 重复调用 = 新 session 为现行契约语义(016 api.md
+   *   §2.1;与 010「就地换流」transition-intents 是两条通道:换线跨物理源会话,
+   *   不携带 transitionIntentId);Toast 单次提示(去重见 lineFailoverRef);
+   * - **与 010 recover 面关系(二选一裁决,容灾优先)**:只要有未尝试线路,容灾
+   *   直接接管,不落 unavailable、不 arm recover 窗口、不重复弹 recover 面板;
+   *   全部线路试尽(selectNextLine = null)或无多线路语义(lines < 2)时,才落回
+   *   既有通道:onMediaFailure 通道 → armRecoverWindow(60s recover_switch 语义
+   *   不变),onTerminated 通道 → unavailable 稳定提示(消息面不变)—— 不另建
+   *   第二错误屏,全尽后的缺省错误面与手动换源/重试出口完全复用现状;
+   * - 双通道不双发:引擎 onFatalError 先后触发 onMediaFailure 与 onTerminated
+   *   (player-view.tsx onFatalError 同步两连发),首个动作已将意图推进出新播放链
+   *   (phase 离开 playing),迟到回调被相位守卫拦截,容灾至多触发一次。
+   */
+  const handlePlaybackFatalError = useCallback(
+    (message: string | null): void => {
+      const current = stateRef.current.playback;
+      if (current === null || current.phase !== 'playing') {
+        return; // 容灾只从 playing 相位发起;旧意图/非播放相位的错误事件不响应
+      }
+      if (current.lines.length >= 2) {
+        const tracking = lineFailoverRef.current;
+        if (current.selectedLineId !== null) {
+          tracking.attempted.add(current.selectedLineId);
+        }
+        const next = selectNextLine(current.lines, current.selectedLineId, tracking.attempted);
+        if (next !== null) {
+          if (!tracking.toasted.has(next.lineId)) {
+            tracking.toasted.add(next.lineId);
+            lineFailoverToast.warning(`当前线路异常,已自动切换至「${next.label}」`);
+          }
+          launchPlayback({
+            mediaId: current.target.mediaId,
+            title: current.target.title,
+            startMode: current.target.startMode,
+            lineId: next.lineId,
+          });
+          return; // 容灾接管:不进入 unavailable/recover 通道
+        }
+      }
+      // 容灾不可用/全线路试尽:落回既有缺省通道(016 R4「全部失败才进缺省错误屏」)
+      if (message === null) {
+        armRecoverWindow();
+      } else {
+        dispatchWithMirror({
+          type: 'playPatch',
+          intentId: current.intentId,
+          patch: { phase: 'unavailable', message },
+        });
+      }
+    },
+    [armRecoverWindow, dispatchWithMirror, launchPlayback, lineFailoverToast],
+  );
+
+  /** OSD 手动换线(016 T021):以 {…target, lineId} 发起新 resolve(新 session 契约语义);
+   *  容灾追踪不清零 —— 从指定线路继续顺位(R4:手动选择后容灾仍可用) */
+  const handleManualLineSelect = useCallback(
+    (lineId: string): void => {
+      const current = stateRef.current.playback;
+      if (current === null || current.phase !== 'playing') {
+        return;
+      }
+      launchPlayback({
+        mediaId: current.target.mediaId,
+        title: current.target.title,
+        startMode: current.target.startMode,
+        lineId,
+      });
+    },
+    [launchPlayback],
+  );
+
+  /**
+   * 发起播放意图(手动入口):游客/未选档 → 暂存并进入登录选档意图(完成后续跑);
+   * 已选档 → 直接 authorize。容灾尝试记录清零 —— 手动新播放不继承上一轮失败顺位。
+   */
+  const play = useCallback(
+    (request: PlayActionRequest): void => {
+      resetLineFailoverTracking();
+      launchPlayback(request);
+    },
+    [resetLineFailoverTracking, launchPlayback],
   );
 
   /**
@@ -562,31 +700,13 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
     [session, startLogin],
   );
 
-  /** 主 Profile 设置入口(T087):已解锁直达目标,否则经 settingsPin 弹层验证 */
+  /** 设置入口(013 T087 演进,ADR-0017):直达目标,零 PIN/门禁;管理路由由 AdminRouteGuard 拦截 */
   const startSettings = useCallback(
     (returnTo?: string | null) => {
       const target = sanitizeReturnTarget(returnTo ?? currentPathTarget());
-      if (settingsAccess.beginUnlock(target) === 'unlocked') {
-        void navigate(target);
-        return;
-      }
-      dispatchWithMirror({ type: 'start', step: 'settingsPin', returnTo: target, entry: 'identity-menu' });
+      void navigate(target);
     },
-    [settingsAccess, navigate],
-  );
-
-  /** settingsPin 提交(T087):成功后回原目标;旧回调不得重开已取消的设置 */
-  const handleSettingsPinSubmit = useCallback(
-    async (pin: string) => {
-      const generation = stateRef.current.generation;
-      await settingsAccess.unlock(pin); // 403/423 由步骤内展示
-      if (isStaleIntent(stateRef.current, generation)) {
-        return;
-      }
-      dispatchWithMirror({ type: 'complete' });
-      void navigate(sanitizeReturnTarget(stateRef.current.returnTo));
-    },
-    [settingsAccess, navigate],
+    [navigate],
   );
 
   // ---------------------------------------------------------------------------
@@ -739,7 +859,6 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
     picker: '选择 Profile',
     selectionPin: '输入档案 PIN',
     pinRecovery: '重设主档案 PIN',
-    settingsPin: '输入设置 PIN',
   };
 
   function renderStep(): ReactNode {
@@ -791,8 +910,6 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
         );
       case 'pinRecovery':
         return <PinRecoveryStep formEpoch={state.formEpoch} onSuccess={handlePinRecovered} onCancel={cancel} />;
-      case 'settingsPin':
-        return <SettingsPinForm submitLabel="验证并进入设置" onSubmit={handleSettingsPinSubmit} onCancel={cancel} />;
       case 'idle':
         return null;
     }
@@ -881,6 +998,15 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
             <header className="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-2">
               <h2 className="min-w-0 truncate text-base font-medium text-foreground">{playback.target.title}</h2>
               <div className="flex shrink-0 items-center gap-2">
+                {/* OSD 线路切换(T021;ui-experience §3;playing 相位且 lines ≥2 才有换线面,
+                    组件内单线路/空清单自行返回 null):手动换线 = 新 resolve/新 session 契约语义 */}
+                {playback.phase === 'playing' ? (
+                  <PlayerLineSwitcher
+                    lines={playback.lines}
+                    selectedLineId={playback.selectedLineId}
+                    onSelect={handleManualLineSelect}
+                  />
+                ) : null}
                 <AutoplayNextToggle />
                 <Button size="sm" variant="ghost" onPress={close} aria-label="退出播放">
                   退出
@@ -896,10 +1022,10 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
                   ticketExpiresAt={playback.ticketExpiresAt ?? ''}
                   delivery={playback.delivery}
                   presentationStartSeconds={playback.presentationStartSeconds ?? 0}
-                  onMediaFailure={armRecoverWindow}
-                  onTerminated={(message) => {
-                    dispatchWithMirror({ type: 'playPatch', intentId: playback.intentId, patch: { phase: 'unavailable', message } });
-                  }}
+                  // 016 T020:致命错误统一经容灾入口(自动换线优先;全尽后落回
+                  // recover 窗口/unavailable 既有通道,见 handlePlaybackFatalError 裁决)
+                  onMediaFailure={() => handlePlaybackFatalError(null)}
+                  onTerminated={handlePlaybackFatalError}
                   onRenew={(url, expiresAt) => {
                     // 续期换装:URL/到期时间更新(意图面收口;URL 不落任何持久存储)
                     dispatchWithMirror({

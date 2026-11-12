@@ -114,7 +114,6 @@ describe('T121 · 设置管理 expectedVersion CAS(data-model §1/§2)', () => {
       expect(before.version).toBe(1);
       const updated = await patchHouseholdSettings(context, {
         expectedVersion: before.version,
-        ownerPassword: PASSWORD,
         name: '新家',
         timezone: 'America/New_York',
       });
@@ -126,15 +125,15 @@ describe('T121 · 设置管理 expectedVersion CAS(data-model §1/§2)', () => {
     it('旧版本与伪造版本一律 409 VERSION_CONFLICT,现值不被静默覆盖', async () => {
       const { context } = await setupRig();
       // 第一次成功保存把 version 推到 2
-      await patchHouseholdSettings(context, { expectedVersion: 1, ownerPassword: PASSWORD, name: '第一步' });
+      await patchHouseholdSettings(context, { expectedVersion: 1, name: '第一步' });
       // 旧版本 1 重放 → 409,不改写现值
       await expect(
-        patchHouseholdSettings(context, { expectedVersion: 1, ownerPassword: PASSWORD, name: '过期写入' }),
+        patchHouseholdSettings(context, { expectedVersion: 1, name: '过期写入' }),
       ).rejects.toMatchObject({ status: 409, code: 'VERSION_CONFLICT' });
       expect(getHouseholdSettings(context.session.householdId).name).toBe('第一步');
       // 伪造版本(远超现值)同样 409
       await expect(
-        patchHouseholdSettings(context, { expectedVersion: 999, ownerPassword: PASSWORD, name: '伪造写入' }),
+        patchHouseholdSettings(context, { expectedVersion: 999, name: '伪造写入' }),
       ).rejects.toMatchObject({ status: 409, code: 'VERSION_CONFLICT' });
       expect(getHouseholdSettings(context.session.householdId).name).toBe('第一步');
       expect(householdVersion()).toBe(2);
@@ -146,7 +145,6 @@ describe('T121 · 设置管理 expectedVersion CAS(data-model §1/§2)', () => {
       const { context, mainProfileId } = await setupRig();
       const edited = await patchManagedProfile(context, mainProfileId, {
         expectedVersion: 1,
-        ownerPassword: PASSWORD,
         name: '改名主档案',
       });
       expect(edited.version).toBe(2);
@@ -161,7 +159,7 @@ describe('T121 · 设置管理 expectedVersion CAS(data-model §1/§2)', () => {
       expect(profileRow(mainProfileId).pin_hash).not.toBeNull();
     });
 
-    it('旧版本/伪造版本 409 VERSION_CONFLICT:name 与 PIN 均不被覆盖', async () => {
+    it('旧版本/伪造版本 409 VERSION_CONFLICT:name 与 PIN 均不被覆盖(PIN 变更仍要求当次密码)', async () => {
       const { context, mainProfileId } = await setupRig();
       await expect(
         patchManagedProfile(context, mainProfileId, {
@@ -175,9 +173,9 @@ describe('T121 · 设置管理 expectedVersion CAS(data-model §1/§2)', () => {
       expect(row.name).toBe('主档案');
       expect(row.pin_version).toBe(1);
       // 旧版本(编辑成功后重放)同样 409
-      await patchManagedProfile(context, mainProfileId, { expectedVersion: 1, ownerPassword: PASSWORD, name: 'V2' });
+      await patchManagedProfile(context, mainProfileId, { expectedVersion: 1, name: 'V2' });
       await expect(
-        patchManagedProfile(context, mainProfileId, { expectedVersion: 1, ownerPassword: PASSWORD, name: '重放' }),
+        patchManagedProfile(context, mainProfileId, { expectedVersion: 1, name: '重放' }),
       ).rejects.toMatchObject({ status: 409, code: 'VERSION_CONFLICT' });
       expect(profileRow(mainProfileId).name).toBe('V2');
     });
@@ -194,7 +192,6 @@ describe('T121 · 设置管理 expectedVersion CAS(data-model §1/§2)', () => {
       await expect(
         patchManagedProfile(context, mainProfileId, {
           expectedVersion: 1,
-          ownerPassword: PASSWORD,
           status: 'disabled',
         }),
       ).rejects.toMatchObject({ status: 409, code: 'MAIN_PROFILE_CONFLICT' });
@@ -212,7 +209,6 @@ describe('T121 · 设置管理 expectedVersion CAS(data-model §1/§2)', () => {
         type: 'adult',
         isDefault: false,
         pin: '369258',
-        ownerPassword: PASSWORD,
       });
       expect(target.isMain).toBe(false);
       return { ...rig, targetId: target.id };
@@ -286,7 +282,6 @@ describe('T121 · 设置管理 expectedVersion CAS(data-model §1/§2)', () => {
         name: '无 PIN 成人',
         type: 'adult',
         isDefault: false,
-        ownerPassword: PASSWORD,
       });
       await expect(
         transferMainProfile(context, { ...base, profileId: noPin.id, expectedProfileVersion: profileRow(noPin.id).version }),
@@ -297,7 +292,6 @@ describe('T121 · 设置管理 expectedVersion CAS(data-model §1/§2)', () => {
         type: 'child',
         isDefault: false,
         pin: '123456',
-        ownerPassword: PASSWORD,
       });
       await expect(
         transferMainProfile(context, { ...base, profileId: child.id, expectedProfileVersion: profileRow(child.id).version }),
@@ -313,7 +307,6 @@ describe('T121 · 设置管理 expectedVersion CAS(data-model §1/§2)', () => {
     it('旧版本保存策略 409 且现值保留;成功保存递增策略版本', async () => {
       const { context, mainProfileId } = await setupRig();
       const saved = await updatePolicy(mainProfileId, context, {
-        ownerPassword: PASSWORD,
         expectedVersion: 1,
         policy: { maxContentLevel: 12, allowUnrated: false },
       });
@@ -321,7 +314,6 @@ describe('T121 · 设置管理 expectedVersion CAS(data-model §1/§2)', () => {
       // 旧版本重放 → 409(策略域稳定码;仍为 409 冲突家族),现值不被静默覆盖
       await expect(
         updatePolicy(mainProfileId, context, {
-          ownerPassword: PASSWORD,
           expectedVersion: 1,
           policy: { maxContentLevel: 18, allowUnrated: true },
         }),
@@ -333,7 +325,6 @@ describe('T121 · 设置管理 expectedVersion CAS(data-model §1/§2)', () => {
       // 伪造版本同样 409
       await expect(
         updatePolicy(mainProfileId, context, {
-          ownerPassword: PASSWORD,
           expectedVersion: 99,
           policy: { maxContentLevel: 0, allowUnrated: false },
         }),

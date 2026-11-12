@@ -300,11 +300,17 @@ export const mediaSource = sqliteTable(
     // 010 增补(010 T010,010 data-model §2):来源定位器修订,>=1;启停均 +1 防 ABA,
     // 改名不递增(应用层语义)
     locatorRevision: integer('locator_revision').notNull().default(1),
+    // 0010 增补(016 data-model §1.1):多源优先级,数值越小优先级越高(如 10 优于 50
+    // 优于 100);默认 100 保证既有源向后兼容,epg 参与级联回退裁决、iptv 可作默认
+    // 线路起播权重(裁决/权重均为应用层语义,本文件仅查询层类型)
+    priority: integer('priority').notNull().default(100),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
   (t) => [
     uniqueIndex('media_source_household_id_id_key').on(t.householdId, t.id),
+    // 0010(016 data-model §1.1):按家庭、源类型与优先级升序检索(与 0010 up.sql 索引逐字一致)
+    index('idx_media_source_household_kind_prio').on(t.householdId, t.kind, t.priority),
     check('media_source_kind_check', sql`${t.kind} IN ('iptv', 'epg', 'nas', 'vod')`),
     check('media_source_name_check', sql`length(${t.name}) BETWEEN 1 AND 100`),
     // remote_url:iptv/epg/vod 必填,nas 必为 null(vod 必须远程可定位)
@@ -362,6 +368,7 @@ export const mediaItem = sqliteTable(
     contentLevel: integer('content_level'),
     titleOverridden: integer('title_overridden').notNull().default(0),
     typeOverridden: integer('type_overridden').notNull().default(0),
+    visible: integer('visible').notNull().default(0),
     version: integer('version').notNull(),
     // 0006 增补(005 data-model §2):同一 NAS 身份文件可信 size/mtime 变化时导入发布事务递增;
     // 普通标题/分级修改只改既有 version;老内容修订的进度不能用于新输入续播
@@ -374,12 +381,14 @@ export const mediaItem = sqliteTable(
   },
   (t) => [
     uniqueIndex('media_item_household_id_id_key').on(t.householdId, t.id),
+    index('idx_media_item_household_type_visible').on(t.householdId, t.type, t.visible),
     check('media_item_type_check', sql`${t.type} IN ('channel', 'movie', 'series', 'episode', 'video')`),
     check('media_item_title_check', sql`length(${t.title}) BETWEEN 1 AND 255`),
     check('media_item_description_check', sql`${t.description} IS NULL OR length(${t.description}) <= 4096`),
     check('media_item_content_level_check', sql`${t.contentLevel} IS NULL OR ${t.contentLevel} BETWEEN 0 AND 18`),
     check('media_item_title_overridden_check', sql`${t.titleOverridden} IN (0, 1)`),
     check('media_item_type_overridden_check', sql`${t.typeOverridden} IN (0, 1)`),
+    check('media_item_visible_check', sql`${t.visible} IN (0, 1)`),
     check('media_item_version_check', sql`${t.version} >= 1`),
     check('media_item_content_revision_check', sql`${t.contentRevision} >= 1`),
     check(
@@ -2291,3 +2300,84 @@ export type NewPlaybackNextPlan = typeof playbackNextPlan.$inferInsert;
 export type NewPlaybackInputBinding = typeof playbackInputBinding.$inferInsert;
 export type NewPlaybackTransitionIntent = typeof playbackTransitionIntent.$inferInsert;
 export type NewPlaybackTransitionSlot = typeof playbackTransitionSlot.$inferInsert;
+
+/**
+ * 个人偏好(013-role-differentiated-settings,settings-contracts.md §2.1):
+ * 每 Profile 唯一;GET 未有行返回传输默认值(零写入);PUT 合并语义(部分字段提交合法)。
+ * 无 CAS/幂等要求(个人偏好非资产,后写覆盖前写属可接受语义)。
+ */
+export const profilePreferences = sqliteTable(
+  'profile_preferences',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    profileId: text('profile_id').notNull(),
+    defaultAudioLanguage: text('default_audio_language').notNull().default('zh'),
+    defaultSubtitleLanguage: text('default_subtitle_language').notNull().default('zh'),
+    autoPlayNext: integer('auto_play_next').notNull().default(1),
+    themeMode: text('theme_mode').notNull().default('system'),
+    posterDensity: text('poster_density').notNull().default('comfortable'),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ name: 'profile_preferences_pk', columns: [t.householdId, t.profileId] }),
+    check('profile_preferences_auto_play_next_check', sql`${t.autoPlayNext} IN (0, 1)`),
+    check('profile_preferences_theme_mode_check', sql`${t.themeMode} IN ('system', 'dark', 'light')`),
+    check('profile_preferences_poster_density_check', sql`${t.posterDensity} IN ('comfortable', 'compact')`),
+    foreignKey({
+      name: 'profile_preferences_profile_composite_fk',
+      columns: [t.householdId, t.profileId],
+      foreignColumns: [profile.householdId, profile.id],
+    }),
+  ],
+);
+
+export type ProfilePreferencesRow = typeof profilePreferences.$inferSelect;
+export type NewProfilePreferences = typeof profilePreferences.$inferInsert;
+
+/**
+ * 胜者注册表(014-channel-logos,data-model.md §2,逐列对照
+ * migrations/0009_channel_logos/up.sql):每频道至多一行(active 或墓碑),
+ * UNIQUE (household_id, media_id) ⇒ 墓碑占用行位、新胜者同行覆盖;解析按
+ * (household_id, ref) 单查。ref 为随机 128-bit 不透明令牌(32 字符小写 hex,应用层签发);
+ * 墓碑态 revoked_at 非空时 upstream_url 必须为 NULL;频道媒体删除经复合外键
+ * ON DELETE CASCADE 行消失,旧引用 404 同形。合并 M1~M4/墓碑 GC 为应用事务语义。
+ */
+export const channelLogo = sqliteTable(
+  'channel_logo',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    mediaId: text('media_id').notNull(),
+    ref: text('ref').notNull(),
+    upstreamUrl: text('upstream_url'),
+    sourceKind: text('source_kind').notNull(),
+    sourceId: text('source_id'),
+    revision: integer('revision').notNull(),
+    revokedAt: text('revoked_at'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('channel_logo_household_id_media_id_key').on(t.householdId, t.mediaId),
+    uniqueIndex('channel_logo_household_id_ref_key').on(t.householdId, t.ref),
+    check('channel_logo_source_kind_check', sql`${t.sourceKind} IN ('iptv', 'epg', 'custom')`),
+    check('channel_logo_revision_check', sql`${t.revision} >= 1`),
+    check('channel_logo_tombstone_check', sql`${t.revokedAt} IS NULL OR ${t.upstreamUrl} IS NULL`),
+    foreignKey({
+      name: 'channel_logo_media_composite_fk',
+      columns: [t.householdId, t.mediaId],
+      foreignColumns: [mediaItem.householdId, mediaItem.id],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'channel_logo_source_composite_fk',
+      columns: [t.householdId, t.sourceId],
+      foreignColumns: [mediaSource.householdId, mediaSource.id],
+    }),
+  ],
+);
+
+export type ChannelLogoRow = typeof channelLogo.$inferSelect;
+export type NewChannelLogo = typeof channelLogo.$inferInsert;

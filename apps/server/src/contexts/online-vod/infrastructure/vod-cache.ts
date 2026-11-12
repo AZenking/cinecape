@@ -55,7 +55,7 @@ const ENTRY_OVERHEAD_BYTES = 128;
 export type VodCacheKind = 'search' | 'preview';
 
 /** opaque ref 类别(仅决定前缀字符;不含任何语义载荷) */
-export type VodRefKind = 'search' | 'cursor' | 'source' | 'title' | 'line' | 'episode';
+export type VodRefKind = 'search' | 'cursor' | 'source' | 'title' | 'line' | 'episode' | 'poster';
 
 const REF_KIND_PREFIX: Record<VodRefKind, string> = {
   search: 's',
@@ -64,6 +64,7 @@ const REF_KIND_PREFIX: Record<VodRefKind, string> = {
   title: 't',
   line: 'l',
   episode: 'e',
+  poster: 'p',
 } as const;
 
 /** 缓存条目读视图(payload 泛型由消费方标注;expired=true 表示已过 TTL 未物理淘汰) */

@@ -206,7 +206,9 @@ describe('T048 · 播放意图状态机与统一入口(ui.md §3 / FR-013)', () 
     fireEvent.change(screen.getByLabelText('用户名'), { target: { value: 'admin' } });
     fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'password-123' } });
     fireEvent.click(screen.getByRole('button', { name: '登录' }));
-    await waitFor(() => expect(screen.getByRole('heading', { name: '选择 Profile' })).toBeVisible());
+    // 等「妈妈」按钮本体挂载(标题先渲染、/profiles fetch 后到是已知竞态;
+    // waitFor 轮询直到按钮可点,消除标题已现/按钮未挂的窗口期)
+    await waitFor(() => expect(screen.getByRole('button', { name: /妈妈/ })).toBeVisible());
     fireEvent.click(screen.getByRole('button', { name: /妈妈/ }));
 
     // 选档完成后:继续原目标(media-a)authorize → prepare → playing

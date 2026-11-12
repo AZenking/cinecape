@@ -20,7 +20,7 @@ import { selectMainAndUnlockSettings } from '../helpers-management';
  * T048(US3 契约 e2e):家长候选查询与人工修正。
  * 对照 contracts/api.md「家长候选与人工修正」节与 openapi.yaml
  * Candidate/CandidatePage/CandidateQuery/PatchMedia/Media schema:
- * - POST /catalog/candidates/query:owner + 当次密码(缺失/空串 403 REQUIRED;密码在 body 不在 URL);
+ * - POST /catalog/candidates/query:owner 管线(013/ADR-0017 起免当次密码);
  *   绕过观看策略(儿童策略隐藏的媒体仍在候选)但仍限本 Household;含 unavailable 候选与 available 布尔;
  *   绝不返回文件路径/播放地址/凭据/upstream tvg-id;
  * - PATCH /catalog/media/{mediaId}:expectedVersion 必填;title(1~255)/type/contentLevel(null 恢复未评级、0~18)
@@ -36,7 +36,7 @@ const MISSING_MEDIA_ID = '00000000-0000-4000-8000-000000000000';
 const NOW_ISO = '2026-01-01T00:00:00.000Z';
 
 /** 响应体绝不允许出现的敏感字样(对序列化字符串做反向断言;与观看目录同一清单) */
-const FORBIDDEN_LEAK_FRAGMENTS = ['url', 'path', 'tvg', 'location', 'http', 'secret', 'm3u8', 'playback'];
+const FORBIDDEN_LEAK_FRAGMENTS = ['stream_url', 'path', 'tvg', 'location', 'http', 'secret', 'm3u8', 'playback'];
 
 interface CandidatesFixture {
   app: INestApplication;
@@ -136,7 +136,7 @@ async function setupCandidates(): Promise<CandidatesFixture> {
   const child = await request(app.getHttpServer())
     .post('/api/settings/profiles')
     .set('Cookie', cookie)
-    .send({ name: '儿童', type: 'child', ownerPassword: OWNER_PASSWORD });
+    .send({ name: '儿童', type: 'child' });
   expect(child.status).toBe(201);
   const childProfileId = (child.body as { id: string }).id;
 
@@ -144,7 +144,7 @@ async function setupCandidates(): Promise<CandidatesFixture> {
   const saved = await request(app.getHttpServer())
     .put(`/api/settings/profiles/${childProfileId}/policy`)
     .set('Cookie', cookie)
-    .send({ ownerPassword: OWNER_PASSWORD, expectedVersion: 1, policy: { maxContentLevel: 6, allowUnrated: false } });
+    .send({ expectedVersion: 1, policy: { maxContentLevel: 6, allowUnrated: false } });
   expect(saved.status).toBe(200);
   Database.db
     .prepare('UPDATE profile_policy SET blocked_media_ids = ?, allowed_channel_ids = ? WHERE profile_id = ?')
@@ -199,6 +199,15 @@ const ALL_TITLES_BINARY = [
 
 const UNAVAILABLE_IDS = new Set(['m-hotel', 'm-juliet', 'm-kilo']);
 
+
+/** 混合可见性期望序:可见标题显示优先,其余按标题 UTF-8 字节序(与目录服务端排序一致) */
+function titlesVisibleFirst(visibleTitles: string[]): string[] {
+  const rest = ALL_TITLES_BINARY.filter((title) => !visibleTitles.includes(title));
+  const byBinary = (a: string, b: string): number =>
+    Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
+  return [...visibleTitles].sort(byBinary).concat([...rest].sort(byBinary));
+}
+
 describe('T048 家长候选与人工修正契约(POST /catalog/candidates/query 与 PATCH /catalog/media/{mediaId})', () => {
   afterEach(cleanupRigs);
 
@@ -222,7 +231,7 @@ describe('T048 家长候选与人工修正契约(POST /catalog/candidates/query 
 
     // 005 设置边界:候选查询属 Settings 主体,须切回主档案(重新选档 + 设置解锁)
     await selectMainAndUnlockSettings(f.app, f.cookie);
-    const res = await queryCandidates(f, { ownerPassword: OWNER_PASSWORD });
+    const res = await queryCandidates(f, {});
     expect(res.status).toBe(200);
     const page: CandidatePageDto = res.body;
     expect(page.page).toBe(1);
@@ -236,15 +245,22 @@ describe('T048 家长候选与人工修正契约(POST /catalog/candidates/query 
         'contentLevel',
         'description',
         'id',
+        'lineCount',
+        'logoUrl',
         'poster',
         'title',
         'type',
         'version',
+        'visible',
       ]);
       expect(item.poster).toBeNull();
       expect(item.available).toBe(!UNAVAILABLE_IDS.has(item.id));
       expect(item.version).toBe(1);
     }
+    const itemById = new Map(page.items.map((item) => [item.id, item]));
+    expect(itemById.get('m-india')?.lineCount).toBe(2);
+    expect(itemById.get('m-kilo')?.lineCount).toBe(0);
+    expect(itemById.get('m-alpha')?.lineCount).toBe(1);
     // 儿童策略隐藏的候选全部可见(超限/黑名单/未评级/白名单外频道)
     for (const hiddenTitle of ['Alpha 惊悚18', 'Echo 黑名单', 'delta 未评级', 'yankee 成人台']) {
       expect(page.items.map((item) => item.title)).toContain(hiddenTitle);
@@ -261,32 +277,38 @@ describe('T048 家长候选与人工修正契约(POST /catalog/candidates/query 
   it('候选查询 q/type/分页:大小写不敏感字面包含、type 枚举、total 恒为过滤后、越界页空', async () => {
     const f = await setupCandidates();
 
-    const cased = await queryCandidates(f, { ownerPassword: OWNER_PASSWORD, q: '  ALPHA  ' });
+    const cased = await queryCandidates(f, { q: '  ALPHA  ' });
     expect(cased.status).toBe(200);
     expect(cased.body.total).toBe(1);
     expect(cased.body.items.map((item: { title: string }) => item.title)).toStrictEqual(['Alpha 惊悚18']);
 
-    const channels = await queryCandidates(f, { ownerPassword: OWNER_PASSWORD, type: 'channel' });
+    const channels = await queryCandidates(f, { type: 'channel' });
     expect(channels.status).toBe(200);
     expect(channels.body.total).toBe(2);
     expect(channels.body.items.map((item: { title: string }) => item.title)).toStrictEqual(['Zeta 少儿台', 'yankee 成人台']);
 
-    const movies = await queryCandidates(f, { ownerPassword: OWNER_PASSWORD, type: 'movie' });
+    const movies = await queryCandidates(f, { type: 'movie' });
     expect(movies.body.total).toBe(7);
 
-    const combined = await queryCandidates(f, { ownerPassword: OWNER_PASSWORD, q: '台', type: 'channel' });
+    const combined = await queryCandidates(f, { q: '台', type: 'channel' });
     expect(combined.body.total).toBe(2);
 
-    const none = await queryCandidates(f, { ownerPassword: OWNER_PASSWORD, q: '绝不存在的标题xyz' });
+    const none = await queryCandidates(f, { q: '绝不存在的标题xyz' });
     expect(none.status).toBe(200);
-    expect(none.body).toStrictEqual({ items: [], total: 0, page: 1, pageSize: 20 });
+    expect(none.body).toStrictEqual({
+      items: [],
+      total: 0,
+      counts: { all: 0, visible: 0, hidden: 0 },
+      page: 1,
+      pageSize: 20,
+    });
 
-    const page2 = await queryCandidates(f, { ownerPassword: OWNER_PASSWORD, page: 2, pageSize: 4 });
+    const page2 = await queryCandidates(f, { page: 2, pageSize: 4 });
     expect(page2.body.total).toBe(10);
     expect(page2.body.page).toBe(2);
     expect(page2.body.items.map((item: { title: string }) => item.title)).toStrictEqual(ALL_TITLES_BINARY.slice(4, 8));
 
-    const beyond = await queryCandidates(f, { ownerPassword: OWNER_PASSWORD, page: 99, pageSize: 4 });
+    const beyond = await queryCandidates(f, { page: 99, pageSize: 4 });
     expect(beyond.body.items).toStrictEqual([]);
     expect(beyond.body.total).toBe(10);
   });
@@ -294,14 +316,14 @@ describe('T048 家长候选与人工修正契约(POST /catalog/candidates/query 
   it('跨家庭媒体不可见:候选列表不含他家庭媒体;PATCH 跨家庭与不存在统一 404 同形', async () => {
     const f = await setupCandidates();
 
-    const res = await queryCandidates(f, { ownerPassword: OWNER_PASSWORD });
+    const res = await queryCandidates(f, {});
     expect(res.status).toBe(200);
     const serialized = JSON.stringify(res.body);
     expect(serialized).not.toContain('m-foreign');
     expect(serialized).not.toContain('Foreign 别家片');
 
-    const foreign = await patchMedia(f, 'm-foreign', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, title: '越权改' });
-    const missing = await patchMedia(f, MISSING_MEDIA_ID, { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, title: '不存在' });
+    const foreign = await patchMedia(f, 'm-foreign', { expectedVersion: 1, title: '越权改' });
+    const missing = await patchMedia(f, MISSING_MEDIA_ID, { expectedVersion: 1, title: '不存在' });
     for (const problem of [foreign, missing]) {
       expect(problem.status).toBe(404);
       expectProblemContentType(problem);
@@ -311,39 +333,36 @@ describe('T048 家长候选与人工修正契约(POST /catalog/candidates/query 
     expect(foreign.body).toStrictEqual(missing.body);
   });
 
-  it('鉴权:admin 允许(005 settings 边界);缺密码/空串 403 REQUIRED;错密码 403 FAILED;密码不出现在 URL', async () => {
+  it('鉴权:admin 允许(005 settings 边界);013 免当次密码(缺密码照常 200;携带 ownerPassword 字段 strictObject 400)', async () => {
     const f = await setupCandidates();
 
-    // 缺失/空串:两端点统一 403 REQUIRED(非 400)
+    // 缺失密码:两端点照常成功(013/ADR-0017:候选查询/人工修正属常规运维)
     const noPwdQuery = await queryCandidates(f, {});
-    expect(noPwdQuery.status).toBe(403);
-    expect(noPwdQuery.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
-    const emptyPwdPatch = await patchMedia(f, 'm-bravo', { ownerPassword: '', expectedVersion: 1, title: 'x' });
-    expect(emptyPwdPatch.status).toBe(403);
-    expect(emptyPwdPatch.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
+    expect(noPwdQuery.status).toBe(200);
+    const emptyPwdPatch = await patchMedia(f, 'm-bravo', { expectedVersion: 1, title: 'x' });
+    expect(emptyPwdPatch.status).toBe(200);
 
-    // 错误密码:403 FAILED,detail 不回显密码;密码经 body 提交,不出现在请求 URL
+    // 携带 ownerPassword 字段(契约已移除):strictObject 400,detail 不回显密码;密码经 body 提交,不出现在请求 URL
     const wrongQuery = await queryCandidates(f, { ownerPassword: 'not-the-password' });
-    expect(wrongQuery.status).toBe(403);
-    expect(wrongQuery.body.code).toBe(ProblemCode.PARENT_VERIFICATION_FAILED);
+    expect(wrongQuery.status).toBe(400);
+    expect(wrongQuery.body.code).toBe(ProblemCode.VALIDATION_FAILED);
     expect(String(wrongQuery.body.detail ?? '')).not.toContain('not-the-password');
     const requestUrl = (wrongQuery.request as { url?: string } | undefined)?.url ?? '';
     expect(requestUrl).not.toContain('not-the-password');
     const wrongPatch = await patchMedia(f, 'm-bravo', { ownerPassword: 'not-the-password', expectedVersion: 1, title: 'x' });
-    expect(wrongPatch.status).toBe(403);
-    expect(wrongPatch.body.code).toBe(ProblemCode.PARENT_VERIFICATION_FAILED);
+    expect(wrongPatch.status).toBe(400);
+    expect(wrongPatch.body.code).toBe(ProblemCode.VALIDATION_FAILED);
 
     // 非 owner:403 FORBIDDEN,且先于格式校验(非法 body 同样 403)
     Database.db.prepare("UPDATE account SET role = 'admin'").run();
-    // 005 settings 边界 = owner/admin:admin 允许(非法 type 400 先于密码校验;缺密码 403 REQUIRED)
-    const adminBadType = await queryCandidates(f, { ownerPassword: OWNER_PASSWORD, type: 'banana' });
+    // 005 settings 边界 = owner/admin:admin 允许(非法 type 400)
+    const adminBadType = await queryCandidates(f, { type: 'banana' });
     expect(adminBadType.status).toBe(400);
     expect(adminBadType.body.code).toBe(ProblemCode.VALIDATION_FAILED);
     const adminNoPassword = await queryCandidates(f, { type: 'movie' });
-    expect(adminNoPassword.status).toBe(403);
-    expect(adminNoPassword.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
+    expect(adminNoPassword.status).toBe(200);
     const adminPatchNoFields = await patchMedia(f, 'm-bravo', { expectedVersion: 1 });
-    // admin 放行后到达严格校验:无修正字段 → 400(先于当次密码语义)
+    // admin 放行后到达严格校验:无修正字段 → 400
     expect(adminPatchNoFields.status).toBe(400);
     expect(adminPatchNoFields.body.code).toBe(ProblemCode.VALIDATION_FAILED);
   });
@@ -351,12 +370,12 @@ describe('T048 家长候选与人工修正契约(POST /catalog/candidates/query 
   it('候选查询与 PATCH 参数校验 400:q>100、type 枚举、page/pageSize 边界、未知字段严格拒绝', async () => {
     const f = await setupCandidates();
     for (const badBody of [
-      { ownerPassword: OWNER_PASSWORD, q: 'x'.repeat(101) },
-      { ownerPassword: OWNER_PASSWORD, type: 'banana' },
-      { ownerPassword: OWNER_PASSWORD, page: 0 },
-      { ownerPassword: OWNER_PASSWORD, pageSize: 101 },
-      { ownerPassword: OWNER_PASSWORD, pageSize: 1.5 },
-      { ownerPassword: OWNER_PASSWORD, foo: 1 },
+      { q: 'x'.repeat(101) },
+      { type: 'banana' },
+      { page: 0 },
+      { pageSize: 101 },
+      { pageSize: 1.5 },
+      { foo: 1 },
     ]) {
       const bad = await queryCandidates(f, badBody);
       expect(bad.status, JSON.stringify(badBody)).toBe(400);
@@ -364,15 +383,15 @@ describe('T048 家长候选与人工修正契约(POST /catalog/candidates/query 
       expect(bad.body.code, JSON.stringify(badBody)).toBe(ProblemCode.VALIDATION_FAILED);
     }
     for (const badPatch of [
-      { ownerPassword: OWNER_PASSWORD, expectedVersion: 1 },
-      { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, title: '' },
-      { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, title: 'x'.repeat(256) },
-      { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, type: 'banana' },
-      { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, contentLevel: 19 },
-      { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, contentLevel: -1 },
-      { ownerPassword: OWNER_PASSWORD, expectedVersion: 0, title: 'x' },
-      { ownerPassword: OWNER_PASSWORD, title: '缺 expectedVersion' },
-      { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, unknown: 1 },
+      { expectedVersion: 1 },
+      { expectedVersion: 1, title: '' },
+      { expectedVersion: 1, title: 'x'.repeat(256) },
+      { expectedVersion: 1, type: 'banana' },
+      { expectedVersion: 1, contentLevel: 19 },
+      { expectedVersion: 1, contentLevel: -1 },
+      { expectedVersion: 0, title: 'x' },
+      { title: '缺 expectedVersion' },
+      { expectedVersion: 1, unknown: 1 },
     ]) {
       const bad = await patchMedia(f, 'm-bravo', badPatch);
       expect(bad.status, JSON.stringify(badPatch)).toBe(400);
@@ -385,10 +404,20 @@ describe('T048 家长候选与人工修正契约(POST /catalog/candidates/query 
     const baselineRevision = revisionOf(f.householdId) ?? 1;
 
     // title 分支:title_overridden=1、type_overridden 不动;响应为完整 MediaDto
-    const titled = await patchMedia(f, 'm-bravo', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, title: 'bravo 人工标题' });
+    const titled = await patchMedia(f, 'm-bravo', { expectedVersion: 1, title: 'bravo 人工标题' });
     expect(titled.status).toBe(200);
     const titledDto: MediaDto = titled.body;
-    expect(Object.keys(titledDto).sort()).toStrictEqual(['contentLevel', 'description', 'id', 'poster', 'title', 'type', 'version']);
+    expect(Object.keys(titledDto).sort()).toStrictEqual([
+      'contentLevel',
+      'description',
+      'id',
+      'poster',
+      'posterRef',
+      'title',
+      'type',
+      'version',
+      'visible',
+    ]);
     expect(titledDto).toStrictEqual({
       id: 'm-bravo',
       type: 'movie',
@@ -397,31 +426,32 @@ describe('T048 家长候选与人工修正契约(POST /catalog/candidates/query 
       contentLevel: 3,
       poster: null,
       version: 2,
+      visible: true,
+      posterRef: null,
     });
     expect(mediaRowOf('m-bravo')).toMatchObject({ title: 'bravo 人工标题', title_overridden: 1, type_overridden: 0, version: 2 });
     expect(revisionOf(f.householdId)).toBe(baselineRevision + 1);
 
     // type 分支:movie→video 允许(非频道四类互转);type_overridden=1,已有 title_overridden 保留
-    const typed = await patchMedia(f, 'm-bravo', { ownerPassword: OWNER_PASSWORD, expectedVersion: 2, type: 'video' });
+    const typed = await patchMedia(f, 'm-bravo', { expectedVersion: 2, type: 'video' });
     expect(typed.status).toBe(200);
     expect(typed.body).toMatchObject({ type: 'video', version: 3 });
     expect(mediaRowOf('m-bravo')).toMatchObject({ type: 'video', title_overridden: 1, type_overridden: 1, version: 3 });
 
     // contentLevel=null 分支:恢复未评级;overridden 标志均不动
-    const unrated = await patchMedia(f, 'm-bravo', { ownerPassword: OWNER_PASSWORD, expectedVersion: 3, contentLevel: null });
+    const unrated = await patchMedia(f, 'm-bravo', { expectedVersion: 3, contentLevel: null });
     expect(unrated.status).toBe(200);
     expect(unrated.body).toMatchObject({ contentLevel: null, version: 4 });
     expect(mediaRowOf('m-bravo')).toMatchObject({ content_level: null, title_overridden: 1, type_overridden: 1, version: 4 });
 
     // 数值 contentLevel 分支:另一媒体 flags 保持 0/0
-    const leveled = await patchMedia(f, 'm-alpha', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, contentLevel: 12 });
+    const leveled = await patchMedia(f, 'm-alpha', { expectedVersion: 1, contentLevel: 12 });
     expect(leveled.status).toBe(200);
     expect(leveled.body).toMatchObject({ contentLevel: 12, version: 2 });
     expect(mediaRowOf('m-alpha')).toMatchObject({ content_level: 12, title_overridden: 0, type_overridden: 0, version: 2 });
 
     // 组合分支:title+type+contentLevel 同事务一次生效
     const combined = await patchMedia(f, 'm-alpha', {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 2,
       title: 'Alpha 人工',
       type: 'series',
@@ -437,11 +467,11 @@ describe('T048 家长候选与人工修正契约(POST /catalog/candidates/query 
     const f = await setupCandidates();
     const baselineRevision = revisionOf(f.householdId) ?? 1;
 
-    const channelToMovie = await patchMedia(f, 'm-zeta', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, type: 'movie' });
+    const channelToMovie = await patchMedia(f, 'm-zeta', { expectedVersion: 1, type: 'movie' });
     expect(channelToMovie.status).toBe(400);
     expect(channelToMovie.body.code).toBe(ProblemCode.VALIDATION_FAILED);
 
-    const movieToChannel = await patchMedia(f, 'm-bravo', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, type: 'channel' });
+    const movieToChannel = await patchMedia(f, 'm-bravo', { expectedVersion: 1, type: 'channel' });
     expect(movieToChannel.status).toBe(400);
     expect(movieToChannel.body.code).toBe(ProblemCode.VALIDATION_FAILED);
 
@@ -454,7 +484,7 @@ describe('T048 家长候选与人工修正契约(POST /catalog/candidates/query 
     const f = await setupCandidates();
     const baselineRevision = revisionOf(f.householdId) ?? 1;
 
-    const conflict = await patchMedia(f, 'm-bravo', { ownerPassword: OWNER_PASSWORD, expectedVersion: 99, title: '迟到请求' });
+    const conflict = await patchMedia(f, 'm-bravo', { expectedVersion: 99, title: '迟到请求' });
     expect(conflict.status).toBe(409);
     expectProblemContentType(conflict);
     expect(conflict.body.code).toBe(ProblemCode.MEDIA_VERSION_CONFLICT);
@@ -464,11 +494,150 @@ describe('T048 家长候选与人工修正契约(POST /catalog/candidates/query 
 
   it('人工标题落库标记 title_overridden=1(普通刷新不覆盖的持久依据);description 等未改字段保持', async () => {
     const f = await setupCandidates();
-    const renamed = await patchMedia(f, 'm-bravo', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, title: '家长命名' });
+    const renamed = await patchMedia(f, 'm-bravo', { expectedVersion: 1, title: '家长命名' });
     expect(renamed.status).toBe(200);
     const row = Database.db
       .prepare('SELECT title, title_overridden, type_overridden, version FROM media_item WHERE id = ?')
       .get('m-bravo') as { title: string; title_overridden: number; type_overridden: number; version: number };
     expect(row).toStrictEqual({ title: '家长命名', title_overridden: 1, type_overridden: 0, version: 2 });
+  });
+
+  it('017 US3 (T022): 候选查询正确返回 lineCount 与 manualEpgBinding 绑定详情', async () => {
+    const f = await setupCandidates();
+    // 插入 EPG 来源与 EPG 频道
+    Database.db
+      .prepare(
+        "INSERT INTO media_source (id, household_id, kind, name, remote_url, root_key, relative_directory, private_access_approved, epg_source_id, enabled, version, last_success_at, last_job_id, created_at, updated_at) VALUES ('src-epg', ?, 'epg', '测试EPG', 'http://epg.example/xmltv.xml', NULL, NULL, 1, NULL, 1, 1, ?, NULL, ?, ?)",
+      )
+      .run(f.householdId, NOW_ISO, NOW_ISO, NOW_ISO);
+    Database.db
+      .prepare(
+        "INSERT INTO epg_channel (household_id, source_id, xmltv_channel_id, display_name, conflicted) VALUES (?, 'src-epg', 'CCTV1', 'CCTV-1 综合', 0)",
+      )
+      .run(f.householdId);
+    // 绑定 m-zeta 到 CCTV1
+    Database.db
+      .prepare(
+        "INSERT INTO manual_epg_binding (household_id, media_id, mode, epg_source_id, xmltv_channel_id, version, updated_at) VALUES (?, 'm-zeta', 'manual', 'src-epg', 'CCTV1', 1, ?)",
+      )
+      .run(f.householdId, NOW_ISO);
+
+    const res = await queryCandidates(f, { type: 'channel' });
+    expect(res.status).toBe(200);
+    const zeta = res.body.items.find((item: { id: string }) => item.id === 'm-zeta');
+    expect(zeta).toBeDefined();
+    expect(zeta.lineCount).toBe(1);
+    expect(zeta.epgBinding).toStrictEqual({
+      mediaId: 'm-zeta',
+      mode: 'manual',
+      version: 1,
+      epgSourceId: 'src-epg',
+      xmltvChannelId: 'CCTV1',
+      status: 'valid',
+      invalidReason: null,
+      displayName: 'CCTV-1 综合',
+    });
+
+    const yankee = res.body.items.find((item: { id: string }) => item.id === 'm-yankee');
+    expect(yankee).toBeDefined();
+    expect(yankee.lineCount).toBe(1);
+    expect(yankee.epgBinding).toBeUndefined();
+  });
+
+  it('018 全量可见性过滤:visibility 切片 + counts(可见性过滤前三档计数)+ 稳定排序分页 + 默认请求兼容', async () => {
+    const f = await setupCandidates();
+    // 混合可见性基线:仅 Alpha/Zeta 可见(其余 8 条隐藏;家庭全集 10 条)
+    Database.db
+      .prepare("UPDATE media_item SET visible = CASE WHEN id IN ('m-alpha', 'm-zeta') THEN 1 ELSE 0 END")
+      .run();
+
+    // 默认请求兼容:不带 visibility = all(旧客户端语义不变);响应携带 counts
+    const legacy = await queryCandidates(f, {});
+    expect(legacy.status).toBe(200);
+    expect(legacy.body.total).toBe(10);
+    expect(legacy.body.counts).toStrictEqual({ all: 10, visible: 2, hidden: 8 });
+    // 稳定排序:显示优先 → 标题 UTF-8 字节序 → id(all 切片全集序)
+    expect(legacy.body.items.map((item: { title: string }) => item.title)).toStrictEqual(
+      titlesVisibleFirst(['Alpha 惊悚18', 'Zeta 少儿台']),
+    );
+
+    // visibility=visible:total = 过滤后(2);counts 恒为过滤前三档
+    const visibleOnly = await queryCandidates(f, { visibility: 'visible' });
+    expect(visibleOnly.status).toBe(200);
+    expect(visibleOnly.body.total).toBe(2);
+    expect(visibleOnly.body.counts).toStrictEqual({ all: 10, visible: 2, hidden: 8 });
+    expect(visibleOnly.body.items.map((item: { title: string }) => item.title)).toStrictEqual([
+      'Alpha 惊悚18',
+      'Zeta 少儿台',
+    ]);
+
+    // visibility=hidden:>1 页分页(8 条 / pageSize 3 → 3 页),页间序稳定
+    const hiddenCounts = await queryCandidates(f, { visibility: 'hidden', pageSize: 3 });
+    expect(hiddenCounts.status).toBe(200);
+    expect(hiddenCounts.body.total).toBe(8);
+    expect(hiddenCounts.body.counts).toStrictEqual({ all: 10, visible: 2, hidden: 8 });
+    expect(hiddenCounts.body.items.map((item: { title: string }) => item.title)).toStrictEqual([
+      'Echo 黑名单',
+      'Hotel 失效源',
+      'India 双源',
+    ]);
+    const hiddenPage2 = await queryCandidates(f, { visibility: 'hidden', pageSize: 3, page: 2 });
+    expect(hiddenPage2.body.items.map((item: { title: string }) => item.title)).toStrictEqual([
+      'Juliet 缺条目',
+      'Kilo 无资源',
+      'bravo 动画',
+    ]);
+    const hiddenPage3 = await queryCandidates(f, { visibility: 'hidden', pageSize: 3, page: 3 });
+    expect(hiddenPage3.body.items.map((item: { title: string }) => item.title)).toStrictEqual([
+      'delta 未评级',
+      'yankee 成人台',
+    ]);
+
+    // 组合关键词 + 类型过滤:counts 在基础过滤后、可见性过滤前统计
+    const combined = await queryCandidates(f, { q: '台', type: 'channel', visibility: 'hidden' });
+    expect(combined.status).toBe(200);
+    expect(combined.body.counts).toStrictEqual({ all: 2, visible: 1, hidden: 1 });
+    expect(combined.body.total).toBe(1);
+    expect(combined.body.items.map((item: { title: string }) => item.title)).toStrictEqual(['yankee 成人台']);
+
+    // 家庭隔离:任何切片/计数都不含他家庭媒体
+    const serialized = JSON.stringify(combined.body);
+    expect(serialized).not.toContain('m-foreign');
+
+    // 非法 visibility 枚举 → 400(严格校验)
+    const badVisibility = await queryCandidates(f, { visibility: 'everyone' });
+    expect(badVisibility.status).toBe(400);
+    expect(badVisibility.body.code).toBe(ProblemCode.VALIDATION_FAILED);
+  });
+
+  it('018 绑定显示名:manual 绑定批量带出 EPG 频道名;目标频道行缺失 displayName=null(前端回退「名称不可用」)', async () => {
+    const f = await setupCandidates();
+    Database.db
+      .prepare(
+        "INSERT INTO media_source (id, household_id, kind, name, remote_url, root_key, relative_directory, private_access_approved, epg_source_id, enabled, version, last_success_at, last_job_id, created_at, updated_at) VALUES ('src-epg-x', ?, 'epg', '测试EPG', 'http://epg.example/xmltv.xml', NULL, NULL, 1, NULL, 1, 1, ?, NULL, ?, ?)",
+      )
+      .run(f.householdId, NOW_ISO, NOW_ISO, NOW_ISO);
+    // 目标频道存在:zeta 绑定 CCTV1(displayName 批量带出,零逐行请求)
+    Database.db
+      .prepare(
+        "INSERT INTO epg_channel (household_id, source_id, xmltv_channel_id, display_name, conflicted) VALUES (?, 'src-epg-x', 'CCTV1', 'CCTV-1 综合', 0)",
+      )
+      .run(f.householdId);
+    // 目标频道缺失:yankee 绑定 GONE-ID(epg_channel 无行 → displayName null)
+    Database.db
+      .prepare(
+        "INSERT INTO manual_epg_binding (household_id, media_id, mode, epg_source_id, xmltv_channel_id, version, updated_at) VALUES (?, 'm-zeta', 'manual', 'src-epg-x', 'CCTV1', 1, ?), (?, 'm-yankee', 'manual', 'src-epg-x', 'GONE-ID', 1, ?)",
+      )
+      .run(f.householdId, NOW_ISO, f.householdId, NOW_ISO);
+
+    const res = await queryCandidates(f, { type: 'channel' });
+    expect(res.status).toBe(200);
+    const zeta = res.body.items.find((item: { id: string }) => item.id === 'm-zeta');
+    expect(zeta.epgBinding.displayName).toBe('CCTV-1 综合');
+    const yankee = res.body.items.find((item: { id: string }) => item.id === 'm-yankee');
+    expect(yankee.epgBinding.displayName).toBeNull();
+    // auto/无绑定不携带 displayName 字段(契约可选字段)
+    const bravo = res.body.items.find((item: { id: string }) => item.id === 'm-bravo');
+    expect(bravo).toBeUndefined(); // 非频道项不在 type=channel 切片
   });
 });

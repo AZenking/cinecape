@@ -349,6 +349,18 @@ const CATEGORY_LABELS: Record<DeniedCategory, string> = {
   multicast: '多播/广播地址',
 };
 
+/** 私网单播判定(public 条目放行口径):IPv4 RFC1918(10/8、172.16/12、192.168/16)
+ * 与 IPv6 ULA(fc00::/7)判私网;其余非类别拒绝地址视为公网。入参须已规范化。 */
+function isPrivateUnicast(address: IpAddress): boolean {
+  if (address.family === 4) {
+    const b0 = address.bytes[0] ?? 0;
+    const b1 = address.bytes[1] ?? 0;
+    return b0 === 10 || (b0 === 172 && b1 >= 16 && b1 <= 31) || (b0 === 192 && b1 === 168);
+  }
+  const first = address.bytes[0] ?? 0;
+  return first === 0xfc || first === 0xfd;
+}
+
 /** 拒绝类别判定(入参必须已规范化;IPv4-mapped 已归一为 IPv4) */
 function deniedCategoryOf(address: IpAddress): DeniedCategory | null {
   if (address.family === 4) {
@@ -422,11 +434,17 @@ interface AllowedIndex {
   addresses: AddressEntry[];
   cidrs: CidrEntry[];
   hostnames: HostnameEntry[];
+  /** public 条目在列:公网单播目标免精确许可(私网/环回/类别拒绝不放宽) */
+  allowPublic: boolean;
 }
 
 function buildAllowedIndex(targets: readonly UpstreamAllowedTarget[]): AllowedIndex {
-  const index: AllowedIndex = { addresses: [], cidrs: [], hostnames: [] };
+  const index: AllowedIndex = { addresses: [], cidrs: [], hostnames: [], allowPublic: false };
   for (const target of targets) {
+    if (target.kind === 'public') {
+      index.allowPublic = true;
+      continue;
+    }
     if (target.kind === 'cidr') {
       const parsed = parseIpAddress(target.address);
       // 形态已由 env 层校验;此处防御性忽略无法解析/族不匹配的条目
@@ -600,7 +618,11 @@ async function validateHop(
           `目标命中拒绝类别(${CATEGORY_LABELS[category]})且未获精确许可: ${where}`,
         );
       }
-    } else if (!matchAddress(index, address, port)) {
+    } else if (
+      !matchAddress(index, address, port) &&
+      // public 条目仅放行公网单播;私网(RFC1918/ULA)仍须部署精确许可
+      !(index.allowPublic && !isPrivateUnicast(address))
+    ) {
       throw new RemoteReadFailure(TARGET_DENIED, `目标地址未列入部署许可列表: ${where}`);
     }
     return buildPlan(
@@ -649,10 +671,15 @@ async function validateHop(
       throw new RemoteReadFailure(TARGET_DENIED, `DNS 解析命中拒绝类别(${labels}): ${rawHost}`);
     }
   } else if (!hostnameMatched) {
-    // 主机名未列入许可:退而要求全部解析地址落入部署 CIDR/地址精确许可
-    const allCovered = addresses.every((address) => matchAddress(index, address, port));
-    if (!allCovered) {
-      throw new RemoteReadFailure(TARGET_DENIED, `目标主机未列入部署许可列表: ${rawHost}`);
+    // public 条目:全部解析地址均为公网单播时免精确许可;任一解析命中私网仍须
+    // 精确许可(与「混合非法解析一律拒绝」同一收紧口径,防 DNS 混合解析借道内网)
+    const allPublic = index.allowPublic && addresses.every((address) => !isPrivateUnicast(address));
+    if (!allPublic) {
+      // 主机名未列入许可:退而要求全部解析地址落入部署 CIDR/地址精确许可
+      const allCovered = addresses.every((address) => matchAddress(index, address, port));
+      if (!allCovered) {
+        throw new RemoteReadFailure(TARGET_DENIED, `目标主机未列入部署许可列表: ${rawHost}`);
+      }
     }
   }
   // 连接地址确定:优先已验证 IPv4,否则首个地址;本跳所有连接尝试固定该 IP
@@ -663,11 +690,19 @@ async function validateHop(
   return buildPlan(target, rawHost, target.protocol === 'https:' ? rawHost : null, chosen, port);
 }
 
+/**
+ * 出站默认 User-Agent:上游 WAF/防爬普遍直接 403 无 UA 请求(010 实测
+ * caiji.dyttzyapi.com:同一目标带任意 UA 200、缺 UA 403),而本读取器只发
+ * 固定最小头集且从不透传调用方头。取诚实的产品标识,不伪装浏览器。
+ */
+export const DEFAULT_UPSTREAM_USER_AGENT = 'redRoad-media-server/1.0';
+
 /** 建立单跳请求:连接固定已验证 IP,Host 头保留原主机名,每跳独立连接 */
 function sendHop(plan: HopPlan): { req: http.ClientRequest; response: Promise<http.IncomingMessage> } {
   const headers: http.OutgoingHttpHeaders = {
     host: plan.hostHeader,
     accept: '*/*',
+    'user-agent': DEFAULT_UPSTREAM_USER_AGENT,
     // 不做压缩协商;对端仍可能返回编码体,读取器按原样透传(解压不是读取器职责)
     'accept-encoding': 'identity',
     connection: 'close',

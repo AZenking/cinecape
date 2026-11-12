@@ -1,17 +1,17 @@
 /**
- * 设备与会话页(T132,US8;FR-039;T025 数据层迁移):
+ * 设备与会话页(T132,US8;FR-039;T025 数据层迁移;013/ADR-0017 演进):
  * - 设备列表(含已撤销标注)经 useAppQuery(settings.devices 键,硬请求 + isPending
  *   门控 / isError RetryableAlert(formatApiError + 重试)/ 成功出主体);
- * - 撤销:confirmed 变更(确认 + 当次密码弹层),成功后失效 settings.devices 键以
- *   服务端真值回填(替代原手工 load());撤销目标设备全部会话与授予;
- * - 设备播放记录查看:当次密码再验证后按设备查询(POST 敏感读取:凭据不进查询
- *   缓存,结果本页局部承载;不能用作个人历史);
- * - 每敏感操作独立弹当次密码确认,验证失败不丢已输入内容(弹层内保留);
+ * - 撤销:高危操作保留单次密码确认(PasswordConfirmModal,服务端 revoke 仍要求
+ *   ownerPassword),成功后失效 settings.devices 键以服务端真值回填;撤销目标设备
+ *   全部会话与授予;
+ * - 设备播放记录查看:常规读取免当次密码(013/ADR-0017),点击直接执行(POST 查询:
+ *   结果本页局部承载,不经查询缓存;不能用作个人历史),请求体不带 ownerPassword;
  * - 403 SETTINGS_ACCESS_* 经 handleAccessLost 立即隐藏;重新解锁后重挂硬请求。
  */
 import { useEffect, useState, type ReactNode } from 'react';
-import { Button } from '@heroui/react';
-import { LoadingSpinner, RetryableAlert } from '../../shared/ui';
+import { Button, Chip } from '@heroui/react';
+import { LoadingSpinner, RetryableAlert, useAppToast } from '../../shared/ui';
 import { useAppMutation, useAppQuery } from '../../shared/query/hooks';
 import { queryKeys } from '../../shared/query/keys';
 import { formatApiError } from '../../shared/query/error';
@@ -21,6 +21,8 @@ import type { DeviceDto } from './shared/settings-api';
 import { PasswordConfirmModal } from './shared/password-confirm-modal';
 import { useSettingsAccess } from './settings-access-provider';
 import { useSettingsPageMeta } from './settings-modules';
+import { SettingsPageHeader } from './shared/settings-page-header';
+import { SettingsSection } from './shared/settings-section';
 
 interface PlaybackRecordItem {
   kind: 'session' | 'failure';
@@ -35,10 +37,8 @@ interface PlaybackRecordItem {
 export function SettingsDevicesPage(): ReactNode {
   const access = useSettingsAccess();
   const { title } = useSettingsPageMeta();
+  const toast = useAppToast();
   const [revokeTarget, setRevokeTarget] = useState<DeviceDto | null>(null);
-  const [recordsTarget, setRecordsTarget] = useState<DeviceDto | null>(null);
-  const [pageError, setPageError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [recordsPage, setRecordsPage] = useState<{ device: DeviceDto; items: PlaybackRecordItem[] } | null>(null);
 
   const devicesQuery = useAppQuery<DeviceDto[]>({
@@ -54,7 +54,7 @@ export function SettingsDevicesPage(): ReactNode {
     }
   }, [devicesQuery.isError, devicesQuery.error, access]);
 
-  // 撤销设备:confirmed 变更(当次密码);成功后失效设备列表以服务端真值回填
+  // 撤销设备:高危操作保留单次密码(013/ADR-0017);成功后失效设备列表以服务端真值回填
   const revokeDevice = useAppMutation({
     domain: 'settings',
     feedback: 'confirmed',
@@ -66,22 +66,39 @@ export function SettingsDevicesPage(): ReactNode {
     invalidate: [queryKeys.settings.devices()],
   });
 
-  // 设备播放记录查询:POST 敏感读取(当次密码)——不经查询缓存保留凭据,结果局部承载
+  // 设备播放记录查询:常规读取免当次密码(013/ADR-0017)——结果不经查询缓存,局部承载
   const queryRecords = useAppMutation({
     domain: 'settings',
     feedback: 'confirmed',
-    mutationFn: (vars: { deviceId: string; ownerPassword: string }) =>
+    mutationFn: (vars: { deviceId: string }) =>
       privateFetch<{ items: Array<Record<string, unknown>>; nextCursor: string | null }>(
         `/settings/devices/${vars.deviceId}/playback-records/query`,
-        { method: 'POST', body: { ownerPassword: vars.ownerPassword, limit: 50 } },
+        { method: 'POST', body: { limit: 50 } },
       ),
   });
 
   const devices = devicesQuery.data ?? null;
 
+  /** 播放记录按钮:直接执行查询(免当次密码),结果面板局部承载 */
+  const openRecords = (device: DeviceDto): void => {
+    void queryRecords
+      .mutateAsync({ deviceId: device.id })
+      .then((page) => {
+        setRecordsPage({ device, items: page.items as unknown as PlaybackRecordItem[] });
+      })
+      .catch((cause: unknown) => {
+        const kind = classifySettingsWriteError(cause);
+        if (kind === 'access-lost') {
+          access.handleAccessLost();
+          return;
+        }
+        // 其余失败由 useAppMutation onError 统一经 toast 呈现
+      });
+  };
+
   return (
-    <section aria-label={`设置 · ${title}`} className="flex flex-1 flex-col gap-4 py-2">
-      <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+    <section aria-label={`设置 · ${title}`} data-testid="settings-devices-page" className="flex flex-1 flex-col gap-6 py-2">
+      <SettingsPageHeader description="查看并管理已授权设备" />
       {devicesQuery.isPending ? <LoadingSpinner label="正在读取设备列表…" /> : null}
       {devicesQuery.isError ? (
         <RetryableAlert
@@ -90,60 +107,71 @@ export function SettingsDevicesPage(): ReactNode {
           onRetry={() => void devicesQuery.refetch()}
         />
       ) : null}
-      {pageError !== null ? (
-        <p role="alert" className="text-sm text-danger">{pageError}</p>
-      ) : null}
-      {notice !== null ? (
-        <p role="status" className="text-sm text-success" data-testid="devices-notice">{notice}</p>
-      ) : null}
       {devices !== null ? (
-        <ul className="flex flex-col gap-2" data-testid="device-list">
-          {devices.map((device) => (
-            <li key={device.id} className="flex flex-wrap items-center justify-between gap-3 rounded border border-border p-3">
-              <div className="flex min-w-0 flex-col">
-                <span className="truncate text-sm font-medium text-foreground">
-                  {device.name ?? '(未命名设备)'}
-                  <span className="ml-2 rounded bg-surface px-1.5 py-0.5 text-xs text-muted">{device.type}</span>
-                </span>
-                <span className="text-xs text-muted">
-                  {device.revokedAt !== null ? (
-                    <span className="text-danger">已于 {device.revokedAt.slice(0, 19).replace('T', ' ')} 撤销</span>
-                  ) : (
-                    <>
-                      最近活跃:{device.lastSeenAt !== null ? device.lastSeenAt.slice(0, 19).replace('T', ' ') : '未知'}
-                    </>
-                  )}
-                </span>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  isDisabled={device.revokedAt !== null}
-                  onPress={() => {
-                    setPageError(null);
-                    setRecordsTarget(device);
-                  }}
-                  data-testid={`device-records-${device.id}`}
-                >
-                  播放记录
-                </Button>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  isDisabled={device.revokedAt !== null}
-                  onPress={() => {
-                    setPageError(null);
-                    setRevokeTarget(device);
-                  }}
-                  data-testid={`device-revoke-${device.id}`}
-                >
-                  撤销设备
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <>
+          <SettingsSection title="已授权设备" description={`共 ${devices.length} 台设备`}>
+            <ul className="flex flex-col gap-2" data-testid="device-list">
+              {devices.map((device) => {
+                const isRevoked = device.revokedAt !== null;
+                return (
+                  <li key={device.id} className="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-background/40 px-4 py-3">
+                    <div className="flex min-w-0 flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm font-medium text-foreground">
+                          {device.name ?? '(未命名设备)'}
+                        </span>
+                        <Chip size="sm" variant="soft">
+                          {device.type}
+                        </Chip>
+                        {isRevoked ? (
+                          <Chip size="sm" variant="soft" color="danger">
+                            已撤销
+                          </Chip>
+                        ) : (
+                          <Chip size="sm" variant="soft" color="success">
+                            活跃
+                          </Chip>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted">
+                        {isRevoked ? (
+                          <span className="text-danger">已于 {device.revokedAt!.slice(0, 19).replace('T', ' ')} 撤销</span>
+                        ) : (
+                          <>
+                            最近活跃:{device.lastSeenAt !== null ? device.lastSeenAt.slice(0, 19).replace('T', ' ') : '未知'}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        isDisabled={isRevoked}
+                        onPress={() => openRecords(device)}
+                        data-testid={`device-records-${device.id}`}
+                      >
+                        播放记录
+                      </Button>
+                      <Button
+                        variant="danger-soft"
+                        size="sm"
+                        isDisabled={isRevoked}
+                        onPress={() => {
+                          setRevokeTarget(device);
+                        }}
+                        data-testid={`device-revoke-${device.id}`}
+                      >
+                        撤销
+                      </Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </SettingsSection>
+          <p className="text-xs text-muted">撤销后，该设备需要重新登录。</p>
+        </>
       ) : null}
 
       <PasswordConfirmModal
@@ -161,7 +189,7 @@ export function SettingsDevicesPage(): ReactNode {
             : revokeDevice
                 .mutateAsync({ deviceId: revokeTarget.id, ownerPassword })
                 .then(() => {
-                  setNotice('设备已撤销:其全部会话与授权立即失效');
+                  toast.success('设备已撤销:其全部会话与授权立即失效');
                 })
                 .catch((cause: unknown) => {
                   const kind = classifySettingsWriteError(cause);
@@ -170,7 +198,7 @@ export function SettingsDevicesPage(): ReactNode {
                     return;
                   }
                   if (kind === 'not-found') {
-                    setPageError('目标设备不存在或已撤销');
+                    toast.error('目标设备不存在或已撤销');
                     return;
                   }
                   throw cause; // 密码错误:弹层保持
@@ -179,57 +207,37 @@ export function SettingsDevicesPage(): ReactNode {
         onClose={() => setRevokeTarget(null)}
       />
 
-      <PasswordConfirmModal
-        open={recordsTarget !== null}
-        title="查询设备播放记录"
-        description={recordsTarget !== null ? `查询「${recordsTarget.name ?? recordsTarget.id}」的播放记录(需当次密码)。` : ''}
-        submitLabel="查询"
-        onSubmit={(ownerPassword: string) =>
-          recordsTarget === null
-            ? Promise.reject(new Error('no target'))
-            : queryRecords
-                .mutateAsync({ deviceId: recordsTarget.id, ownerPassword })
-                .then((page) => {
-                  setRecordsPage({ device: recordsTarget, items: page.items as unknown as PlaybackRecordItem[] });
-                })
-                .catch((cause: unknown) => {
-                  const kind = classifySettingsWriteError(cause);
-                  if (kind === 'access-lost') {
-                    access.handleAccessLost();
-                    return;
-                  }
-                  throw cause;
-                })
-        }
-        onClose={() => setRecordsTarget(null)}
-      />
       {recordsPage !== null ? (
-        <div className="flex flex-col gap-2" data-testid="device-records">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-foreground">播放记录({recordsPage.device.name ?? recordsPage.device.id})</h3>
-            <Button variant="ghost" size="sm" onPress={() => setRecordsPage(null)}>
-              关闭
-            </Button>
-          </div>
-          {recordsPage.items.length === 0 ? (
-            <p className="text-sm text-muted">该设备暂无播放与失败记录。</p>
-          ) : (
-            <ul className="flex flex-col gap-1 text-sm">
-              {recordsPage.items.map((item) => (
-                <li key={item.id} className="rounded border border-border px-3 py-1.5">
-                  <span className="mr-2 rounded bg-surface px-1.5 py-0.5 text-xs text-muted">
-                    {item.kind === 'session' ? '播放' : '失败'}
-                  </span>
-                  <span className="text-foreground">
-                    {item.kind === 'session'
-                      ? `${item.state ?? '未知状态'} · ${(item.createdAt ?? '').slice(0, 19).replace('T', ' ')}`
-                      : `${item.stableCode ?? 'UNKNOWN'} · ${(item.occurredAt ?? '').slice(0, 19).replace('T', ' ')}`}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="text-xs text-muted">记录仅用于排查设备侧播放情况,不代表当前 Profile 的个人历史。</p>
+        <div data-testid="device-records">
+          <SettingsSection
+            title={`播放记录(${recordsPage.device.name ?? recordsPage.device.id})`}
+            description="该设备最近的播放历史与异常记录"
+            actions={
+              <Button variant="ghost" size="sm" onPress={() => setRecordsPage(null)}>
+                关闭
+              </Button>
+            }
+            footer={<p className="text-xs text-muted">记录仅用于排查设备侧播放情况,不代表当前 Profile 的个人历史。</p>}
+          >
+            {recordsPage.items.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted">该设备暂无播放与失败记录。</p>
+            ) : (
+              <ul className="flex flex-col gap-2 text-sm">
+                {recordsPage.items.map((item) => (
+                  <li key={item.id} className="flex items-center gap-2 rounded-lg border border-border/40 p-2.5">
+                    <Chip size="sm" variant="soft" color={item.kind === 'session' ? 'accent' : 'danger'}>
+                      {item.kind === 'session' ? '播放' : '失败'}
+                    </Chip>
+                    <span className="text-foreground">
+                      {item.kind === 'session'
+                        ? `${item.state ?? '未知状态'} · ${(item.createdAt ?? '').slice(0, 19).replace('T', ' ')}`
+                        : `${item.stableCode ?? 'UNKNOWN'} · ${(item.occurredAt ?? '').slice(0, 19).replace('T', ' ')}`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </SettingsSection>
         </div>
       ) : null}
     </section>

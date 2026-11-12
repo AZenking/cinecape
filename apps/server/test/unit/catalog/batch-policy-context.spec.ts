@@ -53,7 +53,19 @@ afterEach(() => {
 function createRig(): UnitRig {
   const conn = new DatabaseConstructor(':memory:');
   conn.pragma('foreign_keys = ON');
-  for (const name of ['0001_init', '0002_profile_policy', '0003_media_catalog', '0004_manual_epg_binding', '0005_playback', '0006_pc_experience']) {
+  for (const name of [
+    '0001_init',
+    '0002_profile_policy',
+    '0003_media_catalog',
+    '0004_manual_epg_binding',
+    '0005_playback',
+    '0006_pc_experience',
+    '0007_online_vod',
+    '0008_profile_preferences',
+    '0009_channel_logos',
+    '0010_multi_source_priority',
+    '0011_channel_visibility',
+  ]) {
     const upSqlPath = path.join(process.cwd(), 'src/platform/database/migrations', name, 'up.sql');
     conn.exec(fs.readFileSync(upSqlPath, 'utf8'));
   }

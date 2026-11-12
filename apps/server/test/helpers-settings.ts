@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
 import { SettingsModule } from '../src/contexts/settings/settings.module';
@@ -61,7 +62,12 @@ function applyMigrations(names: string[]): void {
 
 async function bootApp(): Promise<INestApplication> {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule, SettingsModule] }).compile();
-  const app = moduleRef.createNestApplication({ logger: ['warn', 'error'] });
+  const app = moduleRef.createNestApplication<NestExpressApplication>({
+    bodyParser: false,
+    logger: ['warn', 'error'],
+  });
+  app.useBodyParser('json', { limit: '10mb' });
+  app.useBodyParser('urlencoded', { extended: true, limit: '10mb' });
   app.setGlobalPrefix('api');
   await app.init();
   return app;

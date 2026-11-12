@@ -58,7 +58,7 @@ async function createProfileViaApi(
   const res = await request(rig.app.getHttpServer())
     .post('/api/settings/profiles')
     .set('Cookie', rig.cookie)
-    .send({ ...body, ownerPassword: INITIALIZE_BODY.password });
+    .send(body);
   expect(res.status, JSON.stringify(res.body)).toBe(201);
   return res.body as { id: string };
 }
@@ -109,7 +109,7 @@ describe('T032 · 最小选档接口(005 FR-008)', () => {
     const patch = await request(rig.app.getHttpServer())
       .patch(`/api/settings/profiles/${disabled.id}`)
       .set('Cookie', rig.cookie)
-      .send({ status: 'disabled', clearPin: false, expectedVersion: disabledVersion, ownerPassword: INITIALIZE_BODY.password });
+      .send({ status: 'disabled', expectedVersion: disabledVersion });
     expect(patch.status).toBe(200);
 
     const res = await listProfiles(rig);
@@ -249,7 +249,7 @@ describe('T032 · 最小选档接口(005 FR-008)', () => {
     const disableRes = await request(rig.app.getHttpServer())
       .patch(`/api/settings/profiles/${disabled.id}`)
       .set('Cookie', rig.cookie)
-      .send({ status: 'disabled', clearPin: false, expectedVersion: disabledVersion, ownerPassword: INITIALIZE_BODY.password });
+      .send({ status: 'disabled', expectedVersion: disabledVersion });
     expect(disableRes.status, JSON.stringify(disableRes.body)).toBe(200);
 
     // 伪造声明字段 → 400(不能借此扩大权限或切换身份)

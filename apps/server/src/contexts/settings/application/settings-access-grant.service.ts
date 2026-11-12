@@ -73,6 +73,52 @@ function accessExpired(): DomainError {
   return createDomainError('SETTINGS_ACCESS_EXPIRED');
 }
 
+function forbidden(): DomainError {
+  return new DomainError(403, ProblemCode.FORBIDDEN, undefined);
+}
+
+/**
+ * 013 ADR-0017:管理写路径事务内身份重验(替代 requireValidSettingsGrantTx)。
+ *
+ * 「已授权不能替代事务内重验」原则保留,但重验对象从 15 分钟 grant 快照
+ * 改为当前会话事实(ADR-0017 废除临时 Ticket):
+ * - 会话/设备/账号行仍在且有效(撤销/过期 → 401 优先于一切 403);
+ * - 会话当前档案行存在、归属一致、状态 active 且 is_main = 1 → 放行;
+ * - 其余一律 403 FORBIDDEN(无差别拒绝,不泄露具体原因);
+ * - 不再读 settings_access_grant / 三个版本快照(签发链路仅为兼容保留)。
+ */
+export function requireMainProfileTx(tx: SettingsTxStore, context: SessionContext): void {
+  const householdId = context.session.householdId;
+  const now = Date.now();
+
+  const sessionRow = tx.findSessionRow(householdId, context.session.id);
+  if (
+    sessionRow === undefined ||
+    sessionRow.revokedAt !== null ||
+    !(Date.parse(sessionRow.expiresAt) > now)
+  ) {
+    throw sessionInvalid();
+  }
+  const deviceRow = tx.findDeviceRevocation(householdId, sessionRow.deviceId);
+  if (deviceRow === undefined || deviceRow.revokedAt !== null) {
+    throw sessionInvalid();
+  }
+  const accountRow = tx.findAccountRole(householdId, sessionRow.accountId);
+  if (accountRow === undefined) {
+    throw sessionInvalid();
+  }
+
+  // 以库内会话行的当前档案为准(异步窗口内换档:内存 context 已陈旧,行是唯一事实)
+  const activeProfileId = sessionRow.activeProfileId;
+  const profile =
+    activeProfileId === null
+      ? undefined
+      : tx.findProfileOfHousehold(householdId, sessionRow.accountId, activeProfileId);
+  if (profile === undefined || profile.status !== 'active' || profile.isMain !== 1) {
+    throw forbidden();
+  }
+}
+
 /**
  * 事务内签发(调用方事务提交时生效):
  * - 同 (household, device_session) 已存在「未撤销 + 未过期 + 三版本/主档案一致」的

@@ -2,6 +2,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { createGunzip, type Gunzip } from 'node:zlib';
 import type { Readable } from 'node:stream';
 import { IMPORT_BUDGETS } from '@platform/config/import-budgets';
+import { normalizeLogoUrl } from '@contexts/sources/infrastructure/logo-url';
 
 /**
  * XMLTV 流式解析器(T024,research R2/R6):
@@ -9,6 +10,10 @@ import { IMPORT_BUDGETS } from '@platform/config/import-budgets';
  * - 输入为 gzip 字节流(magic 1f 8b)时自动经 zlib 解压,压缩前后字节独立计数,不递归解压;
  * - XMLTV 时间必须携带时区,统一转 UTC;窗口缺省不过滤,传入窗口时仅保留相交节目(闭区间);
  * - channel id 重复、同频道节目时间重叠 → 该频道标记 conflicted;
+ * - 014 T032(research R1/R5):channel 帧捕获**首个** `<icon src>` 属性并做解析层归一化
+ *   (与 M3U tvg-logo 完全同族,共享 logo-url.ts 的 normalizeLogoUrl:trim、9~2048、
+ *   仅 http/https,非法一律归 null,绝不抛错 —— FR-010:Logo 数据质量绝不阻塞导入);
+ *   多 icon 行业惯例取首个为主图标,首个 icon 即锁定(缺失/非法按无 Logo 处理);
  * - 缺必要字段/非法时间/预算超限 → 整次失败(抛 XMLTVParseFailure,稳定 code),
  *   不截断、不跳过(FR-005);错误信息只含稳定描述,不含原始 XML 片段与 URL(脱敏要求)。
  */
@@ -56,10 +61,17 @@ export class XMLTVParseFailure extends Error {
   }
 }
 
-/** 单个 XMLTV 频道声明(展示名可选,缺省为 null)。 */
+/** 单个 XMLTV 频道声明(展示名可选,缺省为 null;icon 为首个 <icon src> 归一化产物,014 T032)。 */
 export interface XMLTVChannel {
   xmltvChannelId: string;
   displayName: string | null;
+  /**
+   * 014 T032(014 data-model §1):channel 帧首个 `<icon src>` 归一化产物 ——
+   * trim 后 9~2048 字符且仅 http/https scheme(原文保留,大小写/query 不改写);
+   * 元素缺失/src 缺失/trim 超长/非法 scheme 一律 null(按缺失处理,FR-010 不失败)。
+   * 值域与 0009 epg_channel.icon_url CHECK 一致,发布层永不写入会撞 CHECK 的地址。
+   */
+  iconUrl: string | null;
 }
 
 /** 单个节目(时间已归一 UTC;描述可选,缺省为 null)。 */
@@ -153,6 +165,10 @@ type Frame =
       channelId: string;
       displayName: string | null;
       displayNameLocked: boolean;
+      /** 014 T032:首个 icon 的归一化 src;null = 首个 icon 缺失/非法(锁定后不再改写) */
+      iconUrl: string | null;
+      /** 首个 icon 已见(无论合法与否)即锁定:多 icon 只取首个 */
+      iconLocked: boolean;
     }
   | {
       kind: 'programme';
@@ -343,7 +359,7 @@ export async function parseXMLTV(
         failOnce(REQUIRED_FIELD_MISSING, 'channel 缺少 id 属性');
         return;
       }
-      stack.push({ kind: 'channel', channelId, displayName: null, displayNameLocked: false });
+      stack.push({ kind: 'channel', channelId, displayName: null, displayNameLocked: false, iconUrl: null, iconLocked: false });
       return;
     }
 
@@ -383,6 +399,15 @@ export async function parseXMLTV(
         descCommitted: false,
       });
       return;
+    }
+
+    // 014 T032:channel 帧内 icon 捕获 —— src 属性是唯一取值面,首个 icon 元素即锁定
+    // (缺失/非法归 null,FR-010 不失败不重试后续 icon;research R1「首个为主图标」)。
+    // icon 的载荷在属性不在文本,故不走文本字段帧;icon 内嵌套内容按 other 帧忽略
+    // (无文本累积,内存有界)。归一化沿 M3U tvg-logo 同一实现(logo-url.ts)。
+    if (parent !== undefined && parent.kind === 'channel' && tag.name === 'icon' && !parent.iconLocked) {
+      parent.iconLocked = true;
+      parent.iconUrl = normalizeLogoUrl(tag.attributes['src'] ?? null);
     }
 
     // 文本字段帧:仅 channel 下的 display-name、programme 下的 title/desc 参与收集与限额。
@@ -437,7 +462,7 @@ export async function parseXMLTV(
       const existing = channelDisplayNames.get(frame.channelId);
       if (existing === undefined) {
         channelDisplayNames.set(frame.channelId, frame.displayName);
-        channels.push({ xmltvChannelId: frame.channelId, displayName: frame.displayName });
+        channels.push({ xmltvChannelId: frame.channelId, displayName: frame.displayName, iconUrl: frame.iconUrl });
       } else if (existing !== frame.displayName) {
         // 同一 id 重复声明但展示名不一致:声明存在歧义,整次拒绝。
         failOnce(DUPLICATE_DECLINED, 'channel id 重复声明且 display-name 不一致,存在歧义');

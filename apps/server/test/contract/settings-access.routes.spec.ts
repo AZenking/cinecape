@@ -66,7 +66,7 @@ async function createOrdinaryProfile(rig: Rig, body: { name: string; type: 'adul
   const res = await request(rig.app.getHttpServer())
     .post('/api/settings/profiles')
     .set('Cookie', rig.ownerCookie)
-    .send({ ...body, ownerPassword: INITIALIZE_BODY.password });
+    .send(body);
   expect(res.status).toBe(201);
   return (res.body as { id: string }).id;
 }

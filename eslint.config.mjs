@@ -14,6 +14,15 @@ export default tseslint.config(
       'docs/specs/007-backend-ddd-restructure/evidence/snapshot-parity/*.mjs',
       // 008-T002: 纯度门禁脚本(allowDefaultProject 上限 8,按 007 证据工具先例走 ignores)
       'apps/server/scripts/**/*.mjs',
+      // 可再生本地缓存,不入库(AGENTS.md 契约):HeroUI 文档缓存与 opencode 工具脚本,非交付代码
+      '.heroui-docs/**',
+      '.opencode/**',
+      // heroui skill 安装产物内的工具脚本(.agents 版本入库存档但同属工具脚本,非交付代码)
+      '**/.agents/skills/**/scripts/**',
+      '**/.claude/skills/**',
+      '**/.cursor/skills/**',
+      // 一次性上游探针脚本(untracked 工具,非交付代码,沿 007 证据工具先例)
+      'apps/server/scripts/probe-upstream.ts',
     ],
   },
   eslint.configs.recommended,

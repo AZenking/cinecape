@@ -100,12 +100,12 @@ async function setupLists(): Promise<ListsFixture> {
   const adult = await request(app.getHttpServer())
     .post('/api/settings/profiles')
     .set('Cookie', cookie)
-    .send({ name: '名单成人', type: 'adult', ownerPassword: OWNER_PASSWORD });
+    .send({ name: '名单成人', type: 'adult' });
   expect(adult.status).toBe(201);
   const child = await request(app.getHttpServer())
     .post('/api/settings/profiles')
     .set('Cookie', cookie)
-    .send({ name: '名单儿童', type: 'child', ownerPassword: OWNER_PASSWORD });
+    .send({ name: '名单儿童', type: 'child' });
   expect(child.status).toBe(201);
 
   seedForeignHousehold();
@@ -124,7 +124,7 @@ function putLevel(f: ListsFixture, expectedVersion: number, policy: Record<strin
   return request(f.app.getHttpServer())
     .put(`/api/settings/profiles/${f.profileId}/policy`)
     .set('Cookie', f.cookie)
-    .send({ ownerPassword: OWNER_PASSWORD, expectedVersion, policy });
+    .send({ expectedVersion, policy });
 }
 
 function storedListsOf(profileId: string): { allowed: string[]; blocked: string[]; channels: string[]; version: number } {
@@ -150,7 +150,6 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
   it('三名单整体替换成功:PolicyDto 形状、version+1、去重排序落库、等级字段保持不变', async () => {
     const f = await setupLists();
     const res = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       allowedMediaIds: [bulkId(3), bulkId(1), bulkId(3)],
       blockedMediaIds: [bulkId(2)],
@@ -188,7 +187,6 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
 
     // 999 个唯一 ID(每个重复两次)→ 200,落库 999
     const save999 = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       allowedMediaIds: bulkIds(999).flatMap((id) => [id, id]),
       blockedMediaIds: [],
@@ -200,7 +198,6 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
 
     // 1000 个唯一 ID 重复提交 2000 项 → 去重后恰 1000,仍 200(去重先于上限)
     const save1000 = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 2,
       allowedMediaIds: bulkIds(1000).flatMap((id) => [id, id]),
       blockedMediaIds: [],
@@ -212,7 +209,6 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
 
     // 去重后 1001(1000 真实 + 1 不存在)→ 400;原名单与版本不变
     const over = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 3,
       allowedMediaIds: [...bulkIds(1000), 'no-such-media'],
       blockedMediaIds: [],
@@ -231,7 +227,6 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
     const longChannel = 'c'.repeat(128);
 
     const ok128 = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       allowedMediaIds: [longMovie],
       blockedMediaIds: [],
@@ -242,7 +237,6 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
     expect(ok128.body.allowedChannelIds).toStrictEqual([longChannel]);
 
     const bad129 = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 2,
       allowedMediaIds: ['x'.repeat(129)],
       blockedMediaIds: [],
@@ -257,7 +251,6 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
     const f = await setupLists();
     // 先建立基线名单
     const baseline = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       allowedMediaIds: [bulkId(1)],
       blockedMediaIds: [bulkId(2)],
@@ -267,7 +260,6 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
     const snapshot = storedListsOf(f.profileId);
 
     const nonChannel = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 2,
       allowedMediaIds: [bulkId(1)],
       blockedMediaIds: [bulkId(2)],
@@ -281,7 +273,6 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
   it('不存在/跨家庭 ID → 400 整体拒绝且原值不变(含混合合法 ID 的整体失败)', async () => {
     const f = await setupLists();
     const baseline = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       allowedMediaIds: [bulkId(1)],
       blockedMediaIds: [],
@@ -291,7 +282,6 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
     const snapshot = storedListsOf(f.profileId);
 
     const missing = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 2,
       allowedMediaIds: ['no-such-media'],
       blockedMediaIds: [],
@@ -302,7 +292,6 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
     expectPolicyUntouched(f, snapshot);
 
     const mixed = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 2,
       allowedMediaIds: [bulkId(9), 'no-such-media'],
       blockedMediaIds: [],
@@ -312,7 +301,6 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
     expectPolicyUntouched(f, snapshot);
 
     const foreign = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 2,
       allowedMediaIds: [FOREIGN_MEDIA_ID], // 存在但属于其他家庭
       blockedMediaIds: [],
@@ -326,7 +314,6 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
   it('expectedVersion 冲突 → 409 POLICY_VERSION_CONFLICT,原名单与版本不变', async () => {
     const f = await setupLists();
     const first = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       allowedMediaIds: [bulkId(1)],
       blockedMediaIds: [],
@@ -336,7 +323,6 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
     const snapshot = storedListsOf(f.profileId);
 
     const stale = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       allowedMediaIds: [bulkId(2)],
       blockedMediaIds: [],
@@ -351,7 +337,6 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
   it('允许/禁止交集按提交保留(不自动去交)', async () => {
     const f = await setupLists();
     const res = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       allowedMediaIds: [bulkId(7), bulkId(8)],
       blockedMediaIds: [bulkId(8), bulkId(9)], // bulk-8 交集
@@ -367,12 +352,11 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
     const disable = await request(f.app.getHttpServer())
       .patch(`/api/settings/profiles/${f.profileId}`)
       .set('Cookie', f.cookie)
-      .send({ ownerPassword: OWNER_PASSWORD, status: 'disabled', clearPin: false, expectedVersion: 1 });
+      .send({ status: 'disabled', expectedVersion: 1 });
     expect(disable.status).toBe(200);
     expect((disable.body as { status: string }).status).toBe('disabled');
 
     const res = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       allowedMediaIds: [bulkId(1)],
       blockedMediaIds: [],
@@ -385,7 +369,6 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
   it('与等级入口共享同一策略版本:lists 保存 +1,等级保存再 +1,名单不被等级入口改写', async () => {
     const f = await setupLists();
     const lists = await putLists(f, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       allowedMediaIds: [bulkId(1)],
       blockedMediaIds: [bulkId(2)],
@@ -406,26 +389,26 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
     expect(storedListsOf(f.profileId).version).toBe(3);
   });
 
-  it('鉴权与归属:无密码/空串 403 REQUIRED、错密码 403 FAILED、非 owner 403、跨家庭与不存在 Profile 404 同形', async () => {
+  it('鉴权与归属:013 免当次密码(缺密码 200;携带 ownerPassword 字段 400)、非 owner 403、跨家庭与不存在 Profile 404 同形', async () => {
     const f = await setupLists();
     const validLists = { allowedMediaIds: [bulkId(1)], blockedMediaIds: [], allowedChannelIds: [] };
 
+    // 013/ADR-0017:名单修改属常规运维,免当次主账号密码
     const noPwd = await putLists(f, { expectedVersion: 1, ...validLists });
-    expect(noPwd.status).toBe(403);
-    expect(noPwd.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
+    expect(noPwd.status).toBe(200);
 
-    const emptyPwd = await putLists(f, { ownerPassword: '', expectedVersion: 1, ...validLists });
-    expect(emptyPwd.status).toBe(403);
-    expect(emptyPwd.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
-
+    // ownerPassword 字段已移出契约:携带即 strictObject 400,detail 不回显密码
+    const withPwd = await putLists(f, { ownerPassword: '', expectedVersion: 1, ...validLists });
+    expect(withPwd.status).toBe(400);
+    expect(withPwd.body.code).toBe(ProblemCode.VALIDATION_FAILED);
     const wrongPwd = await putLists(f, { ownerPassword: 'not-the-password', expectedVersion: 1, ...validLists });
-    expect(wrongPwd.status).toBe(403);
-    expect(wrongPwd.body.code).toBe(ProblemCode.PARENT_VERIFICATION_FAILED);
+    expect(wrongPwd.status).toBe(400);
+    expect(wrongPwd.body.code).toBe(ProblemCode.VALIDATION_FAILED);
     expect(String(wrongPwd.body.detail ?? '')).not.toContain('not-the-password');
 
-    // 005 settings 边界 = owner/admin:admin 允许(超长 ID 400 先于密码校验)
+    // 005 settings 边界 = owner/admin:admin 允许(超长 ID 400)
     Database.db.prepare("UPDATE account SET role = 'admin'").run();
-    const admin = await putLists(f, { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, allowedMediaIds: ['x'.repeat(129)], blockedMediaIds: [], allowedChannelIds: [] });
+    const admin = await putLists(f, { expectedVersion: 1, allowedMediaIds: ['x'.repeat(129)], blockedMediaIds: [], allowedChannelIds: [] });
     expect(admin.status).toBe(400);
     expect(admin.body.code).toBe(ProblemCode.VALIDATION_FAILED);
     Database.db.prepare("UPDATE account SET role = 'owner'").run();
@@ -434,11 +417,11 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
     const missing = await request(f.app.getHttpServer())
       .put(`/api/settings/profiles/${randomUUID()}/policy/lists`)
       .set('Cookie', f.cookie)
-      .send({ ownerPassword: OWNER_PASSWORD, expectedVersion: 1, ...validLists });
+      .send({ expectedVersion: 1, ...validLists });
     const foreignProfile = await request(f.app.getHttpServer())
       .put(`/api/settings/profiles/${FOREIGN_PROFILE_ID}/policy/lists`)
       .set('Cookie', f.cookie)
-      .send({ ownerPassword: OWNER_PASSWORD, expectedVersion: 1, ...validLists });
+      .send({ expectedVersion: 1, ...validLists });
     for (const problem of [missing, foreignProfile]) {
       expect(problem.status).toBe(404);
       expectProblemContentType(problem);
@@ -447,12 +430,11 @@ describe('T049 名单事务契约(PUT /profiles/{profileId}/policy/lists)', () =
     }
     expect(missing.body).toStrictEqual(foreignProfile.body);
 
-    // 参数校验:缺名单/缺 expectedVersion/未知字段 → 400(在家长验证之前先拒绝非法形态?
-    // 契约次序:格式(400)先于家长验证 —— 与 policy.controller 既有 PUT 一致)
-    const badShape = await putLists(f, { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, allowedMediaIds: [] });
+    // 参数校验:缺名单/缺 expectedVersion/未知字段 → 400
+    const badShape = await putLists(f, { expectedVersion: 1, allowedMediaIds: [] });
     expect(badShape.status).toBe(400);
     expect(badShape.body.code).toBe(ProblemCode.VALIDATION_FAILED);
-    const unknownField = await putLists(f, { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, ...validLists, extra: 1 });
+    const unknownField = await putLists(f, { expectedVersion: 1, ...validLists, extra: 1 });
     expect(unknownField.status).toBe(400);
   });
 });

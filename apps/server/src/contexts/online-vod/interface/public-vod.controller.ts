@@ -19,8 +19,9 @@ import {
 } from '@contexts/online-vod/application/search.service';
 import type { VodPreviewValues } from '@contexts/online-vod/application/preview.service';
 import type { VodSearchPageSnapshot } from '@contexts/online-vod/application/publication-work-set.port';
-import { VOD_CACHE, VOD_PREVIEW_SERVICE, VOD_SEARCH_SERVICE } from '@contexts/online-vod/online-vod.tokens';
+import { VOD_CACHE, VOD_POSTER_SERVICE, VOD_PREVIEW_SERVICE, VOD_SEARCH_SERVICE } from '@contexts/online-vod/online-vod.tokens';
 import type { VodCache } from '@contexts/online-vod/infrastructure/vod-cache';
+import type { VodPosterContent } from '@contexts/online-vod/application/poster.service';
 
 /**
  * 010 T031 — 公共搜索/预览契约路由(api.md §2;公共边界)。
@@ -170,6 +171,10 @@ export class PublicVodController {
     private readonly previewService: {
       preview(command: { readonly householdId: string; readonly titleRef: string }): Promise<VodPreviewValues>;
     },
+    @Inject(VOD_POSTER_SERVICE)
+    private readonly posterService: {
+      fetch(command: { readonly householdId: string; readonly posterRef: string }): Promise<VodPosterContent>;
+    },
     @Inject(VOD_CACHE) private readonly cache: VodCache,
     @Inject(PublicContextService) private readonly publicContext: PublicContextService,
   ) {}
@@ -261,6 +266,32 @@ export class PublicVodController {
       throw new DomainError(404, ProblemCode.NOT_FOUND, '媒体不存在或当前不可见');
     }
     return this.previewService.preview({ householdId: scope.household.householdId, titleRef });
+  }
+
+  /**
+   * GET /public/vod/posters/:posterRef:同源海报代理(image/* 字节流)。
+   * posterRef 为 p 级不透明 ref;伪造/未签发/跨家庭 404 同形,过期 410,上游
+   * 失败/非图片响应 502,超预算 504(问题体经全局 ProblemJsonFilter)。
+   * 二进制成功响应不走 RESPONSE_CONTENT_TYPE(problem JSON 惯例),按上游
+   * image/* 类型直传;字节有界(≤2MiB)已由服务面保证。
+   */
+  @Get('vod/posters/:posterRef')
+  async poster(
+    @Param('posterRef') posterRef: string,
+    @Query(new StrictQueryPipe(PUBLIC_EMPTY_QUERY_SCHEMA)) _query: Record<string, never>,
+    @Body(new StrictBodyPipe(PUBLIC_EMPTY_BODY_SCHEMA)) _body: Record<string, never>,
+    @Res() res: Response,
+  ): Promise<void> {
+    const scope = this.publicContext.requireScope();
+    if (!scope.initialized) {
+      // 未初始化部署无任何已签发 ref:404 同形(不泄露存储形态)
+      throw new DomainError(404, ProblemCode.NOT_FOUND, '媒体不存在或当前不可见');
+    }
+    const content = await this.posterService.fetch({ householdId: scope.household.householdId, posterRef });
+    res.setHeader('Content-Type', content.contentType);
+    res.setHeader('Content-Length', String(content.bytes.byteLength));
+    res.status(200);
+    res.end(content.bytes);
   }
 }
 /* (010 T090 knip 清理:文件尾 VodSearchServiceDeps 类型再导出已删除——零消费;

@@ -13,3 +13,4 @@ export { AppToastRegion, useAppToast } from './toast';
 export type { AppToast } from './toast';
 export { PinField } from './pin-field';
 export type { PinFieldProps } from './pin-field';
+export { PublicNav, PUBLIC_NAV_ITEMS } from './global-nav';

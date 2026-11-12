@@ -239,7 +239,7 @@ function seedFixtureVodSource(householdId: string): string {
   return sourceId;
 }
 
-/** 登记目标预览 TTL 基准(用例窗口内恒未来;A6 的 410 由 store 详情快照 expires_at 判定) */
+/** 登记目标预览 TTL 基准(用例窗口内恒未来;既有目标快照过期不再拦截物化) */
 function fixturePreviewExpiresAt(): string {
   return new Date(Date.now() + 3600_000).toISOString();
 }
@@ -468,7 +468,7 @@ function expectStateUnchanged(before: MaterializationState, after: Materializati
 
 /* ----- DB 直改(工厂事实模拟;每处注明等价语义) ----- */
 
-/** 模拟预览/详情过期:TTL 自然到期后的等价存储事实(api §2「ref 失效 410」)。
+/** 模拟详情快照过期(快照 expires_at 只服务稳定详情 stale 判定,不再拦截物化)。
  * T031 断言适配修正:fetched_at 须随 expires_at 一并置过去(vod_detail_snapshot
  * CHECK expires_at > fetched_at 在 UPDATE 上同样生效;expireRegisteredCandidates/
  * expireMaterializationOperations 同款「成对置过去」口径) */
@@ -841,15 +841,21 @@ describe('T024 · A 幂等与目标(POST /api/vod/materializations · 计划内�
     expect({ ...body, replayed: false }, '重放原结果(候选/registered 语义同 A1:普通分支均空)').toEqual(firstBody);
   });
 
-  it('A6 新 key + 过期预览:410 VOD_PREVIEW_EXPIRED 且零新增(api §3「新操作要求有效预览」)', async () => {
+  it('A6 新 key + 详情快照过期(预览有效):201 复用映射,快照不重发布(过期不再拦截)', async () => {
     const first = await postMaterialize(rig.app, rig.cookie, stableRefBody(TARGET_SERIAL_EP01));
     expect(first.status, redLabel('201 首次物化', `${first.status}`)).toBe(201);
     const before = materializationStateOf(rig.householdId);
 
     expireVodDetailSnapshots(rig.householdId);
-    const expired = await postMaterialize(rig.app, rig.cookie, stableRefBody(TARGET_SERIAL_EP01));
-    expectProblem(expired, 410, 'VOD_PREVIEW_EXPIRED');
-    expectStateUnchanged(before, materializationStateOf(rig.householdId), '过期预览拒绝');
+    const reuse = await postMaterialize(rig.app, rig.cookie, stableRefBody(TARGET_SERIAL_EP01));
+    expect(reuse.status, redLabel('201 复用映射', `${reuse.status}`)).toBe(201);
+    const after = materializationStateOf(rig.householdId);
+    // 复用零公开变化:仅新 operation 记录 +1,标题/集/快照/revision 均不虚增
+    expect(after.vodDetailSnapshot, '同修订快照不重发布').toBe(before.vodDetailSnapshot);
+    expect(after.vodTitle).toBe(before.vodTitle);
+    expect(after.vodEpisode).toBe(before.vodEpisode);
+    expect(after.catalogRevision).toBe(before.catalogRevision);
+    expect(after.operation, '新 key 记录新 operation').toBe(before.operation + 1);
   });
 
   it('A7 新 key + 预览修订落后:409 VOD_DETAIL_CHANGED(DB 直改 current_detail_revision+1 模拟详情变化)', async () => {

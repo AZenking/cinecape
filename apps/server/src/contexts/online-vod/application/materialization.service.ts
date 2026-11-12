@@ -792,8 +792,9 @@ function assertIdAvailable(ws: MaterializeWorkSetView, householdId: string, medi
  * - 来源必须为本家庭启用 vod 来源(T026 配置面),否则 404 同形;
  * - 来源 locatorRevision 与预览事实基线失配(启停/改名后)→ 410(旧预览失效);
  * - 命令 previewRevision 与解析预览修订失配 → 409 VOD_DETAIL_CHANGED(修订改变);
- * - 已有目标:预览修订必须等于当前详情指针(落后 409),当前详情快照存在且未过期
- *   (过期 410 —— A6/A7 的 store 事实权威判定);
+ * - 已有目标:预览修订必须等于当前详情指针(落后 409),当前详情快照存在即可
+ *   (缺失 410;不再以 expires_at 拦截过期——解析桥预览 TTL 门已保证事实新鲜,
+ *   过期拦截曾令已入库标题在快照到期后永久 410、恢复指引自相矛盾);
  * - 新目标:预览缓存 TTL 内有效(过期 410)。
  */
 function assertConfigurationAndDetailCas(
@@ -825,7 +826,9 @@ function assertConfigurationAndDetailCas(
     throw new DomainError(409, ProblemCode.VOD_DETAIL_CHANGED);
   }
   const snapshot = ws.vod.findDetailSnapshot(context.householdId, plan.existingTitle.id, currentRevision);
-  if (snapshot === undefined || Date.parse(snapshot.expiresAt) <= nowMs) {
+  // 快照过期不再拦截:解析桥仅放行 TTL 内预览事实,新鲜度由预览门保证;
+  // snapshot.expires_at 只服务稳定详情 stale 判定,不构成物化 CAS 条件
+  if (snapshot === undefined) {
     throw new DomainError(410, ProblemCode.VOD_PREVIEW_EXPIRED);
   }
 }

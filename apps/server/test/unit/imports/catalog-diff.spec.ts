@@ -14,6 +14,7 @@ import {
   stageEntries,
   STAGE_WRITE_BATCH_SIZE,
 } from '@contexts/sources/infrastructure/refresh-staging.service';
+import type { M3UEntry } from '@contexts/sources/infrastructure/m3u.parser';
 import {
   canonicalJson,
   DELETION_RATIO_THRESHOLD,
@@ -27,7 +28,6 @@ import {
   evaluateExceptions,
   type EntryIdentity,
   type EvaluateExceptionsInput,
-  type IptvEntryInput,
   type NasEntryInput,
   type SnapshotDigestItem,
 } from '@contexts/sources/infrastructure/catalog-diff';
@@ -65,9 +65,9 @@ function failureCodeOf(run: () => unknown, expectedCode: string): CatalogDiffFai
   return failure;
 }
 
-/** 构造 IPTV 条目(形状与 parseM3U 输出一致) */
-function iptv(tvgId: string | null, url: string, title = '频道'): IptvEntryInput {
-  return { tvgId, title, url };
+/** 构造 IPTV 条目(形状与 parseM3U 输出一致;014 T014 起 tvgLogo 恒在,缺省 null) */
+function iptv(tvgId: string | null, url: string, title = '频道'): M3UEntry {
+  return { tvgId, title, url, tvgLogo: null };
 }
 
 /** 构造 NAS 条目(形状与 scanNasRoot 输出一致) */
@@ -513,6 +513,7 @@ describe('refresh_stage_entry 暂存持久化(refresh-staging.service;真实 SQL
         tvgId: source!.tvgId,
         title: source!.title,
         url: source!.url,
+        tvgLogo: source!.tvgLogo,
         identityKind: expected.identityKind,
         identityDigest: expected.identityDigest,
         entryKey: expected.entryKey,

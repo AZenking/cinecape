@@ -6,8 +6,7 @@ import { expect, test, type Page, type Response } from '@playwright/test';
  * 2026-11-04~11-10 CST)。服务端 now 由 live 模块时钟缝锚定:
  * - E2E_SEED_SCALE=1 缺省锚到 SCALE_FIXTURE_FIXED_NOW_MS(20:05 CST,ch001 重叠档内);
  * - 或 HMP_CLOCK_OFFSET_MS 显式偏移(锚到档位边界附近,验证 30 秒内节目变化)。
- * 断言全部以「服务端 API 响应」为期望源(SC-005 100% 一致),容许秒级时钟漂移;
- * 时间换算用 Intl 显式 Asia/Shanghai(与服务端家庭时区一致),不用浏览器本地时区。
+ * 断言全部以「服务端 API 响应」为期望源(SC-005 100% 一致),容许秒级时钟漂移。
  */
 
 /** T012 规模夹具固定锚点(SCALE_FIXTURE_FIXED_NOW_MS) */
@@ -33,15 +32,7 @@ interface ApiChannelPage {
   catalogRevision: number;
 }
 
-/** 家庭时区(夹具固定 Asia/Shanghai)格式化 HH:mm(e2e 侧期望计算) */
-function hhmmInShanghai(iso: string): string {
-  return new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(new Date(iso));
-}
+/** 家庭时区(夹具固定 Asia/Shanghai);卡面仅展示节目名,时间文本不再断言 */
 
 async function fetchChannelsApi(page: Page, query: string): Promise<ApiChannelPage> {
   const response = await page.request.get(`/api/public/live/channels${query}`);
@@ -49,61 +40,51 @@ async function fetchChannelsApi(page: Page, query: string): Promise<ApiChannelPa
   return (await response.json()) as ApiChannelPage;
 }
 
-/** 直播页现在分区的卡片标题序列(DOM 顺序即服务端 A-007 排序) */
+/** 直播页分区的卡片节目标题序列(DOM 顺序即服务端 A-007 排序;卡面只展示节目名) */
 async function sectionCardTitles(page: Page, sectionLabel: string): Promise<string[]> {
   return page.getByRole('region', { name: sectionLabel }).locator('article h3').allTextContents();
 }
 
 test.describe('直播首页(T062 · 游客)', () => {
-  test('分区顺序与频道名/节目名/起止时间展示,正在直播与后端响应 100% 一致(SC-005)', async ({ page }) => {
+  test('分区顺序与节目标题展示,正在直播与后端响应 100% 一致(SC-005)', async ({ page }) => {
     const apiPage = await fetchChannelsApi(page, '?section=now&page=1&pageSize=20');
     expect(apiPage.timezone).toBe('Asia/Shanghai');
     expect(apiPage.items.length).toBeGreaterThan(0);
 
     await page.goto('/live');
-    const guideRegion = page.getByRole('region', { name: '所有节目单入口' });
-    await expect(guideRegion.getByRole('link', { name: '进入节目单' })).toBeVisible();
     // 等待数据落地(骨架 → 卡片)
     await page.getByRole('region', { name: '正在直播' }).locator('article').first().waitFor({ timeout: 30_000 });
 
-    // 分区顺序(FR-021):所有节目单入口 → 正在直播 → 即将播放 → 各分组正在直播
+    // 分区顺序(015 Screen 1 装配):正在直播 → 即将播放 → 各分类正在直播
     const orderOf = async (locatorText: string): Promise<number> => {
       const element = page.getByRole('heading', { name: locatorText }).first();
       await element.waitFor();
       return (await element.boundingBox())?.y ?? Number.POSITIVE_INFINITY;
     };
-    const guideY = await orderOf('所有节目单');
     const nowY = await orderOf('正在直播');
     const nextY = await orderOf('即将播放');
-    const groupY = await orderOf('各分组正在直播');
-    expect(guideY).toBeLessThan(nowY);
+    const groupY = await orderOf('各分类正在直播');
     expect(nowY).toBeLessThan(nextY);
     expect(nextY).toBeLessThan(groupY);
 
-    // SC-005:正在直播区与后端响应 100% 一致(频道顺序、节目标题、起止时间)
-    const apiTitles = apiPage.items.map((row) => row.media.title);
+    // SC-005:正在直播区与后端响应 100% 一致(频道顺序 → 卡面承载的当前节目标题;
+    // 卡面只展示节目名,无节目频道以「暂无节目」占位,顺序与频道一一对应)
+    const apiTitles = apiPage.items.map((row) => row.current?.title ?? '暂无节目');
     const domTitles = await sectionCardTitles(page, '正在直播');
     expect(domTitles.slice(0, apiTitles.length)).toEqual(apiTitles);
-    for (const row of apiPage.items.slice(0, 3)) {
+    for (const row of apiPage.items.slice(0, 3).filter((item) => item.current === null)) {
       const card = page.getByRole('article', { name: `频道 ${row.media.title}` });
-      const expectedCurrent =
-        row.current !== null
-          ? `${hhmmInShanghai(row.current.startsAt)}–${hhmmInShanghai(row.current.endsAt)}`
-          : '暂无节目';
-      await expect(card.getByText(expectedCurrent).first()).toBeVisible();
-      if (row.next !== null) {
-        await expect(card.getByText(`${hhmmInShanghai(row.next.startsAt)} 开始`).first()).toBeVisible();
-      }
+      await expect(card.getByText('暂无节目')).toBeVisible();
     }
-    // 即将播放区同样与后端一致(首个频道)
+    // 即将播放区同样与后端一致(卡面承载下一档节目标题)
     const nextApi = await fetchChannelsApi(page, '?section=next&page=1&pageSize=20');
     const nextDom = await sectionCardTitles(page, '即将播放');
-    expect(nextDom.slice(0, nextApi.items.length)).toEqual(nextApi.items.map((row) => row.media.title));
+    expect(nextDom.slice(0, nextApi.items.length)).toEqual(nextApi.items.map((row) => row.next?.title ?? '暂无节目'));
 
-    // 每区可继续查看 + 浏览状态写 URL(FR-045)
-    await page.getByRole('button', { name: /查看更多/ }).first().click();
-    await expect(page).toHaveURL(/section=now/);
-    await expect(page.getByRole('button', { name: '下一页' })).toBeVisible();
+    // 015 智能分流(FR-003):正在直播行尾「全部正在直播 ›」直达 EPG 节目单时间墙
+    // (取代 012 聚焦视图 ?section= 分页;首页各行为预览切片,完整清单在行尾入口)
+    await page.getByRole('button', { name: '全部正在直播 ›' }).click();
+    await expect(page).toHaveURL(/\/live\/guide/);
     expect(apiPage.total).toBeGreaterThan(apiPage.items.length);
   });
 
@@ -158,7 +139,7 @@ test.describe('直播首页(T062 · 游客)', () => {
         .poll(() => channelsResponses, { timeout: 15_000 })
         .toBeGreaterThan(callsBefore);
       const latest = await fetchChannelsApi(page, '?section=now&page=1&pageSize=5');
-      const firstTitle = latest.items[0]?.media.title;
+      const firstTitle = latest.items[0]?.current?.title;
       if (firstTitle !== undefined) {
         await expect(
           page.getByRole('region', { name: '正在直播' }).locator('article h3').first(),
@@ -184,8 +165,9 @@ test.describe('直播首页(T062 · 游客)', () => {
       }
     });
 
-    // 直达其他分组聚焦视图(URL 即公共浏览状态)
-    await page.goto(`/live?section=group&group=${otherGroup!.key}`);
+    // 015 取代 012 聚焦视图:分组聚焦改经分类平铺网格(Screen 2,?group= 即分组
+    // 浏览状态;routing-and-url-state.md §2.2;无 EPG 频道照常出卡与播放入口)
+    await page.goto(`/live/channels?group=${otherGroup!.key}`);
     const card = page.getByRole('article', { name: '频道 夹具频道 197' });
     await expect(card).toBeVisible();
     // 无 EPG 频道:暂无节目占位 + 播放入口保留(FR-023)

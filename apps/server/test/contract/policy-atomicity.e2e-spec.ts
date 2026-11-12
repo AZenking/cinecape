@@ -40,7 +40,7 @@ function createProfile(s: SessionFixture, body: Record<string, unknown>): Promis
   return request(s.app.getHttpServer())
     .post('/api/settings/profiles')
     .set('Cookie', s.cookie)
-    .send({ ownerPassword: INITIALIZE_BODY.password, ...body })
+    .send(body)
     .then((r) => r);
 }
 
@@ -99,13 +99,13 @@ describe('US1 创建原子性/重启持久化/名单读写(契约 e2e)', () => {
     const created = await request(rig.app.getHttpServer())
       .post('/api/settings/profiles')
       .set('Cookie', cookie)
-      .send({ name: '女儿', type: 'child', ownerPassword: INITIALIZE_BODY.password });
+      .send({ name: '女儿', type: 'child' });
     expect(created.status).toBe(201);
 
     const saved = await request(rig.app.getHttpServer())
       .put(`/api/settings/profiles/${created.body.id}/policy`)
       .set('Cookie', cookie)
-      .send({ ownerPassword: INITIALIZE_BODY.password, expectedVersion: 1, policy: { maxContentLevel: 7, allowUnrated: true } });
+      .send({ expectedVersion: 1, policy: { maxContentLevel: 7, allowUnrated: true } });
     expect(saved.status).toBe(200);
     expect(saved.body.version).toBe(2);
 
@@ -130,7 +130,7 @@ describe('US1 创建原子性/重启持久化/名单读写(契约 e2e)', () => {
     const disabled = await request(s.app.getHttpServer())
       .patch(`/api/settings/profiles/${kid.body.id}`)
       .set('Cookie', s.cookie)
-      .send({ status: 'disabled', clearPin: false, expectedVersion: kidVersion, ownerPassword: INITIALIZE_BODY.password });
+      .send({ status: 'disabled', expectedVersion: kidVersion });
     expect(disabled.status).toBe(200);
 
     const read = await request(s.app.getHttpServer()).get(`/api/settings/profiles/${kid.body.id}/policy`).set('Cookie', s.cookie);
@@ -140,7 +140,7 @@ describe('US1 创建原子性/重启持久化/名单读写(契约 e2e)', () => {
     const edited = await request(s.app.getHttpServer())
       .put(`/api/settings/profiles/${kid.body.id}/policy`)
       .set('Cookie', s.cookie)
-      .send({ ownerPassword: INITIALIZE_BODY.password, expectedVersion: 1, policy: { maxContentLevel: 6, allowUnrated: false } });
+      .send({ expectedVersion: 1, policy: { maxContentLevel: 6, allowUnrated: false } });
     expect(edited.status).toBe(200);
     expect(edited.body.maxContentLevel).toBe(6);
     expect(adult.body.id).toBeTruthy();

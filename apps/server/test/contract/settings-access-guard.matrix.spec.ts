@@ -56,7 +56,7 @@ async function setupRig(): Promise<Rig> {
   const child = await request(rig.app.getHttpServer())
     .post('/api/settings/profiles')
     .set('Cookie', cookie)
-    .send({ name: '儿童档案', type: 'child', pin: CHILD_PIN, ownerPassword: INITIALIZE_BODY.password });
+    .send({ name: '儿童档案', type: 'child', pin: CHILD_PIN });
   expect(child.status).toBe(201);
   const childProfileId = (child.body as { id: string }).id;
   await selectProfile(rig.app, cookie, mainProfileId, MAIN_PIN);
@@ -105,20 +105,18 @@ function problemCodeOf(res: { body: unknown }): string {
   return (res.body as { code: string }).code;
 }
 
-async function expectAccessRequired(rig: Rig, expectedCode?: string): Promise<void> {
+/** 013:非主档案 → 403 FORBIDDEN(与 grant 状态无关);元数据接口照常 200 */
+async function expectForbidden(rig: Rig): Promise<void> {
   const res = await getAccount(rig);
   expect(res.status, JSON.stringify(res.body)).toBe(403);
   expectProblemContentType(res);
-  if (expectedCode !== undefined) {
-    expect(problemCodeOf(res)).toBe(expectedCode);
-  }
-  // 最小状态接口独立处理:主体被拒但 Session 有效 → 仍 200 unlocked=false
+  expect(problemCodeOf(res)).toBe(ProblemCode.FORBIDDEN);
   const status = await getAccessStatus(rig);
   expect(status.status).toBe(200);
   expect(status.body).toEqual({ unlocked: false, expiresAt: null });
 }
 
-describe('T076 · SettingsAccessGuard 失效矩阵(contracts/api.md §7)', () => {
+describe('T076 · Settings 管理边界失效矩阵(013 SettingsGuard;grant 链仅余 /settings/access 元数据)', () => {
   afterEach(async () => {
     await cleanupRigs();
     await cleanupSettingsRigs();
@@ -136,13 +134,13 @@ describe('T076 · SettingsAccessGuard 失效矩阵(contracts/api.md §7)', () =>
     expect((await getAccessStatus(rig)).body).toEqual({ unlocked: true, expiresAt });
   });
 
-  it('grant 过期 → 403 SETTINGS_ACCESS_EXPIRED;签发行未被续写(固定 15 分钟不滑动)', async () => {
+  it('grant 过期不再影响鉴权:主管理员仍 200(013 无 Ticket);签发行未被续写(固定 15 分钟不滑动)', async () => {
     const rig = await setupRig();
     await unlockSettings(rig);
     const before = Database.db
       .prepare('SELECT issued_at, expires_at FROM settings_access_grant')
       .get() as { issued_at: string; expires_at: string };
-    // 多次主体读取(逐请求重检)不得滑动/续期
+    // 多次主体读取不得滑动/续期签发行(签发链路仅为兼容保留)
     for (let i = 0; i < 3; i += 1) {
       expect((await getAccount(rig)).status).toBe(200);
       expect((await getAccessStatus(rig)).status).toBe(200);
@@ -156,40 +154,34 @@ describe('T076 · SettingsAccessGuard 失效矩阵(contracts/api.md §7)', () =>
     Database.db
       .prepare('UPDATE settings_access_grant SET issued_at = ?, expires_at = ?')
       .run(new Date(Date.now() - 16 * 60_000).toISOString(), new Date(Date.now() - 60_000).toISOString());
-    await expectAccessRequired(rig, 'SETTINGS_ACCESS_EXPIRED');
+    // 013:管理边界以 isMain 为准,过期 grant 不拒绝;仅遗留元数据接口报告 unlocked=false
+    expect((await getAccount(rig)).status).toBe(200);
+    expect((await getAccessStatus(rig)).body).toEqual({ unlocked: false, expiresAt: null });
   });
 
-  it('实际换档 → 403;A→B→A 不复活(换档事务已撤销授予且上下文版本已递增)', async () => {
+  it('实际换档:A→B(非主)→ 403 FORBIDDEN;B→A(主)→ 200 即时恢复(013 授权随档案身份切换)', async () => {
     const rig = await setupRig();
     await unlockSettings(rig);
-    // A → B:实际换档事务撤销设置授予并递增上下文版本(US2 identity-transition)
+    // A → B:换到儿童档案(非主)→ 立即失去管理边界访问
     await selectProfile(rig.rig.app, rig.cookie, rig.childProfileId, CHILD_PIN);
-    await expectAccessRequired(rig);
-    // B → A:重新选回主档案,旧设置授予不得复活(需重新 PIN 验证)
+    await expectForbidden(rig);
+    // B → A:选回主档案 → 立即恢复(零 PIN 二次验证,ADR-0017 免套娃)
     await selectProfile(rig.rig.app, rig.cookie, rig.mainProfileId, MAIN_PIN);
-    await expectAccessRequired(rig);
-    // 重新验证后恢复
-    await unlockSettings(rig);
     expect((await getAccount(rig)).status).toBe(200);
   });
 
-  it('会话仍在主档案但授予身份失配(逐请求重检兜底):主档案/PIN 版本/目标状态任一变化 → 403', async () => {
+  it('逐请求查库兜底:会话当前档案被直改非主/停用 → 403 FORBIDDEN(库内现值为准,零缓存)', async () => {
     const rig = await setupRig();
     await unlockSettings(rig);
 
-    // PIN 更新(pin_version 递增;US8 /settings/profiles PIN 管理写入将同事务显式撤销)
-    Database.db.prepare('UPDATE profile SET pin_version = pin_version + 1 WHERE id = ?').run(rig.mainProfileId);
-    await expectAccessRequired(rig);
-
-    // 主档案转移(main_profile_version 递增;US8 PUT /settings/main-profile 三项 CAS 事务)
-    Database.db.prepare('UPDATE household SET main_profile_version = main_profile_version + 1').run();
-    await expectAccessRequired(rig);
-
-    // 目标主档案停用(US8 PATCH /settings/profiles/{id}:主档案须先转移再停用 ——
-    // CHECK profile_main_profile_check 禁止停用 is_main=1 档案;转移事务先移主标记)
+    // 主档案 is_main 直改 0(模拟并发主档案转移的库内终态)
     Database.db.prepare('UPDATE profile SET is_main = 0 WHERE is_main = 1').run();
-    Database.db.prepare("UPDATE profile SET status = 'disabled' WHERE id = ?").run(rig.mainProfileId);
-    await expectAccessRequired(rig);
+    await expectForbidden(rig);
+
+    // 恢复主档案后,直改会话行清空当前档案(未选档形态)→ 同样 403
+    Database.db.prepare('UPDATE profile SET is_main = 1 WHERE id = ?').run(rig.mainProfileId);
+    Database.db.prepare('UPDATE device_session SET active_profile_id = NULL').run();
+    await expectForbidden(rig);
   });
 
   it('注销 → 先 401 SESSION_INVALID(不得强行 403)', async () => {
@@ -214,10 +206,10 @@ describe('T076 · SettingsAccessGuard 失效矩阵(contracts/api.md §7)', () =>
     expect(problemCodeOf(res)).toBe(ProblemCode.SESSION_INVALID);
   });
 
-  it('应用启动撤销全部 grants:重启后已解锁会话回到未解锁(普通刷新不触发)', async () => {
+  it('应用启动撤销全部 grants:主管理员畅行不受影响(013);仅遗留元数据回到未解锁', async () => {
     const rig = await setupRig();
     await unlockSettings(rig);
-    // 普通浏览器刷新(不重启):经服务端核验继续,无需再输 PIN、不重置到期
+    // 普通浏览器刷新(不重启):经服务端核验继续
     expect((await getAccount(rig)).status).toBe(200);
 
     await restartSettingsApp(rig.rig);
@@ -225,9 +217,13 @@ describe('T076 · SettingsAccessGuard 失效矩阵(contracts/api.md §7)', () =>
     const status = await getAccessStatus(rig);
     expect(status.status).toBe(200);
     expect(status.body).toEqual({ unlocked: false, expiresAt: null });
-    await expectAccessRequired(rig);
-    // 重新验证恢复
-    await unlockSettings(rig);
+    // 013:管理边界以 isMain 为准 —— 重启撤销 grant 不再阻断主管理员
     expect((await getAccount(rig)).status).toBe(200);
+    // 重新签发仅影响元数据接口
+    await unlockSettings(rig);
+    expect((await getAccessStatus(rig)).body).toEqual({
+      unlocked: true,
+      expiresAt: expect.any(String),
+    });
   });
 });

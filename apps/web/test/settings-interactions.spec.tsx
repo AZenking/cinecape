@@ -10,16 +10,21 @@ import { SettingsModulePlaceholder } from '../src/features/settings/settings-mod
 import { SETTINGS_MODULES } from '../src/features/settings/settings-modules';
 import type { DeviceDto, PolicyDto, ProfileSummary, SourceDto, SourcePageDto } from '../src/features/settings/shared/settings-api';
 import { queryClient as appQueryClient } from '../src/shared/query/client';
+import { AppToastRegion } from '../src/shared/ui';
 
 /**
  * T031(012 US5 测试先行;现状审计型):设置交互规则。
- * 权威:docs/specs/012-live-settings-experience/contracts/ui.md §5.2/§5.4 + FR-026/027/028:
- * - FR-028:URL 保留当前分类——直挂 /settings/epg 打开原模块,「刷新」(同地址重新
- *   挂载)仍回原模块;模块加载失败仅影响该模块(左侧导航可用 + 重试入口);
- * - FR-026:无全页保存按钮——保存入口只出现在当前编辑区域;单选即选即存(当次密码
- *   确认后直接提交,无页面保存按钮);现状无开关控件(存在则须满足即时生效契约);
+ * 权威:docs/specs/012-live-settings-experience/contracts/ui.md §5.2/§5.4 + FR-026/027/028
+ * + 013/ADR-0017 契约决策矩阵(常规运维免当次密码):
+ * - FR-028:URL 保留当前分类——直挂 /settings/iptv 打开原模块,「刷新」(同地址重新
+ *   挂载)仍回原模块;模块加载失败仅影响该模块(左侧导航可用 + 重试入口)。
+ *   设置菜单拆分背景:原「EPG 管理」(/settings/epg) 已并入「IPTV 管理」的「频道匹配」
+ *   标签(/settings/iptv?tab=matching),EPG 关联/同步用例随之迁移,断言目标不变;
+ * - FR-026(013 修订):无全页保存按钮——保存入口只出现在当前编辑区域;单选即选即存
+ *   (常规管理操作免当次密码,变更直接提交,请求体不带 ownerPassword);
+ *   现状无开关控件(存在则须满足即时生效契约);
  * - FR-027:危险操作二次确认并说明后果——撤销设备、停用档案(删除 Profile 现状等价物)
- *   确认前零请求,确认后携带当次密码执行。
+ *   为保留的高危流程:确认前零请求,确认后携带当次密码执行。
  */
 
 interface FetchCall {
@@ -175,8 +180,26 @@ function installFetch(): void {
           ? Promise.resolve(problemResponse({ status: 500, code: 'ERROR', title: 'Internal Error' }, 500))
           : Promise.resolve(jsonResponse(SOURCE_PAGE));
       }
+      if (call.path === '/api/settings/sources/epg-priorities' && call.method === 'GET') {
+        return Promise.resolve(
+          jsonResponse({
+            sources: [{ sourceId: 'epg-1', name: 'EPG 官方源', priority: 1, channelCount: 3, lastSyncAt: null }],
+          }),
+        );
+      }
       if (call.path === '/api/settings/sources/iptv-1' && call.method === 'PATCH') {
         return Promise.resolve(jsonResponse({ ...IPTV_SOURCE, epgSourceId: 'epg-1', version: 4 }));
+      }
+      if (call.path === '/api/settings/sources/epg-1/refresh' && call.method === 'POST') {
+        return Promise.resolve(
+          jsonResponse({
+            id: 'job-epg-1',
+            status: 'pending',
+            errorCode: null,
+            counts: null,
+            createdAt: '2026-01-01T00:00:00.000Z',
+          }),
+        );
       }
       return Promise.resolve(problemResponse({ status: 404, code: 'NOT_FOUND', title: 'Not Found' }, 404));
     }),
@@ -189,6 +212,8 @@ function renderSettingsRoutes(path: string): { unmount: () => void } {
   const view = render(
     <MemoryRouter initialEntries={[path]}>
       <QueryClientProvider client={appQueryClient}>
+        {/* 设置页操作提示统一走 Toast:挂区域消费模块级队列 */}
+        <AppToastRegion />
         <Routes>
           <Route path="/settings" element={<SettingsLayout />}>
             <Route index element={<Navigate to="/settings/account" replace />} />
@@ -232,55 +257,58 @@ afterEach(() => {
 });
 
 describe('T031 · 设置交互规则(ui.md §5.2/§5.4 / FR-026–FR-028)', () => {
-  it('FR-028:直挂 /settings/epg 打开原模块;刷新(同地址重新挂载)仍打开原模块;应用内切换后 URL 分类跟随且导航高亮同步', async () => {
+  it('FR-028:直挂 /settings/iptv 打开原模块;刷新(同地址重新挂载)仍打开原模块;应用内切换后 URL 分类跟随且导航高亮同步', async () => {
     const user = userEvent.setup();
-    // 直挂:URL 即分类载体
-    const first = renderSettingsRoutes('/settings/epg');
-    expect(await screen.findByTestId('settings-current-module')).toHaveTextContent('EPG 管理');
-    expect(await screen.findByLabelText('设置 · EPG 管理')).toBeVisible();
-    expect(within(nav()).getByRole('link', { name: 'EPG 管理' })).toHaveAttribute('aria-current', 'page');
+    // 直挂:URL 即分类载体(菜单拆分后家庭管理首位 = IPTV 管理,原「EPG 管理」已并入其频道匹配标签)
+    const first = renderSettingsRoutes('/settings/iptv');
+    expect(await screen.findByTestId('settings-current-module')).toHaveTextContent('IPTV 管理');
+    expect(await screen.findByLabelText('设置 · IPTV 管理')).toBeVisible();
+    expect(within(nav()).getByRole('option', { name: 'IPTV 管理' })).toHaveAttribute('data-selected', 'true');
     // 刷新语义:同地址全新挂载仍打开原模块(分类状态以 URL 保存)
     first.unmount();
-    const second = renderSettingsRoutes('/settings/epg');
-    expect(await screen.findByTestId('settings-current-module')).toHaveTextContent('EPG 管理');
-    // 应用内切换:分类跟随导航,高亮同步
-    await user.click(within(nav()).getByRole('link', { name: '档案管理' }));
-    expect(await screen.findByTestId('settings-current-module')).toHaveTextContent('档案管理');
-    expect(within(nav()).getByRole('link', { name: '档案管理' })).toHaveAttribute('aria-current', 'page');
-    expect(within(nav()).getByRole('link', { name: 'EPG 管理' })).not.toHaveAttribute('aria-current', 'page');
+    const second = renderSettingsRoutes('/settings/iptv');
+    expect(await screen.findByTestId('settings-current-module')).toHaveTextContent('IPTV 管理');
+    // 应用内切换:分类跟随导航,选中态同步(ListBox 选中态随路由派生)
+    await user.click(within(nav()).getByRole('option', { name: '成员管理' }));
+    expect(await screen.findByTestId('settings-current-module')).toHaveTextContent('成员管理');
+    expect(within(nav()).getByRole('option', { name: '成员管理' })).toHaveAttribute('data-selected', 'true');
+    expect(within(nav()).getByRole('option', { name: 'IPTV 管理' })).not.toHaveAttribute('data-selected', 'true');
     second.unmount();
   });
 
   it('FR-028:模块级加载失败仅影响该模块——重试入口可见、左侧导航可用、其余模块不受影响;恢复后重试成功', async () => {
     const user = userEvent.setup();
     sourcesFail = true;
-    renderSettingsRoutes('/settings/epg');
-    const epgSection = await screen.findByLabelText('设置 · EPG 管理');
+    // 菜单拆分:原「EPG 管理」失败面并入「IPTV 管理」(挂载即读来源清单,失败语义不变)
+    renderSettingsRoutes('/settings/iptv');
+    const iptvSection = await screen.findByLabelText('设置 · IPTV 管理');
     // 仅该模块进入失败态:读取失败 + 显式重试入口(5xx 有一次自动重试,放宽等待)
-    const alert = await within(epgSection).findByRole('alert', {}, { timeout: 3000 });
+    const alert = await within(iptvSection).findByRole('alert', {}, { timeout: 3000 });
     expect(alert).toHaveTextContent('读取失败');
     expect(within(alert).getByRole('button', { name: '重试' })).toBeVisible();
-    // 左侧导航不受影响:七条链接全部可达
-    expect(within(nav()).getAllByRole('link')).toHaveLength(SETTINGS_MODULES.length);
+    // 左侧导航不受影响:九条导航选项(inNav=false 的我的档案除外)全部可达
+    expect(within(nav()).getAllByRole('option')).toHaveLength(
+      SETTINGS_MODULES.filter((module) => module.inNav !== false).length,
+    );
     // 其余模块照常工作
-    await user.click(within(nav()).getByRole('link', { name: '账号与安全' }));
+    await user.click(within(nav()).getByRole('option', { name: '账号信息' }));
     expect(await screen.findByTestId('account-summary')).toBeVisible();
     // 回到失败模块仍可重试;服务端恢复后重试即转好(5xx 自动重试一次,放宽等待)
-    await user.click(within(nav()).getByRole('link', { name: 'EPG 管理' }));
-    const retry = await within(await screen.findByLabelText('设置 · EPG 管理')).findByRole(
+    await user.click(within(nav()).getByRole('option', { name: 'IPTV 管理' }));
+    const retry = await within(await screen.findByLabelText('设置 · IPTV 管理')).findByRole(
       'button',
       { name: '重试' },
       { timeout: 3000 },
     );
     sourcesFail = false;
     await user.click(retry);
-    expect(await screen.findByTestId('epg-source-list')).toBeVisible();
-    expect(within(await screen.findByLabelText('设置 · EPG 管理')).queryByRole('alert')).toBeNull();
+    expect(await screen.findByTestId('source-list')).toBeVisible();
+    expect(within(await screen.findByLabelText('设置 · IPTV 管理')).queryByRole('alert')).toBeNull();
   });
 
-  it('FR-026:无全页保存按钮——通用设置的保存入口在当前编辑表单内且草稿未编辑时禁用', async () => {
+  it('FR-026:无全页保存按钮——家庭设置的保存入口在当前编辑表单内且草稿未编辑时禁用', async () => {
     renderSettingsRoutes('/settings/general');
-    const form = await screen.findByRole('form', { name: '家庭通用设置' });
+    const form = await screen.findByRole('form', { name: '家庭设置' });
     const save = within(form).getByRole('button', { name: '保存修改' });
     expect(save).toBeDisabled(); // 局部保存:草稿未编辑不可提交
     // 页面上全部含「保存」的按钮都在该编辑表单内,无全页保存条
@@ -300,25 +328,27 @@ describe('T031 · 设置交互规则(ui.md §5.2/§5.4 / FR-026–FR-028)', () =
     expect(screen.getAllByRole('button', { name: /保存/ })).toEqual(saveButtons);
   });
 
-  it('FR-026:EPG 页单选即选即存——整页无保存按钮、无开关控件;关联变更直接进入当次密码确认并提交', async () => {
+  it('FR-026(013 修订):频道资产标签无全局保存按钮;EPG 来源同步免当次密码直接提交', async () => {
     const user = userEvent.setup();
-    renderSettingsRoutes('/settings/epg');
-    await screen.findByTestId('epg-source-list');
-    // 无全页保存按钮(关联即选即存,经当次密码);现状无开关控件(存在即须即时生效)
-    expect(screen.queryAllByRole('button', { name: /保存/ })).toHaveLength(0);
-    expect(screen.queryAllByRole('switch')).toHaveLength(0);
-    // 单选变更 → 立即弹当次密码确认并提交,无保存按钮参与
-    await user.click(screen.getByTestId('epg-link-iptv-1'));
-    await user.click(await screen.findByRole('option', { name: 'EPG 官方源' }));
-    const dialog = await screen.findByRole('dialog', { name: '当次密码验证' });
-    expect(dialog).toHaveTextContent('将「IPTV 家庭源」关联到所选 EPG 来源。');
-    await user.type(within(dialog).getByLabelText(/主账号密码/), 'owner-pass');
-    await user.click(within(dialog).getByRole('button', { name: '确认执行' }));
-    expect(await screen.findByTestId('epg-notice')).toHaveTextContent('EPG 关联已保存');
-    const patch = fetchCalls.find((call) => call.path === '/api/settings/sources/iptv-1' && call.method === 'PATCH');
-    expect(patch).toBeDefined();
-    expect((patch!.body as { epgSourceId?: string }).epgSourceId).toBe('epg-1');
-    expect((patch!.body as { ownerPassword?: string }).ownerPassword).toBe('owner-pass');
+    // 菜单拆分:频道资产在 ?tab=matching;整页无全局保存按钮
+    renderSettingsRoutes('/settings/iptv?tab=matching');
+    await screen.findByTestId('epg-channel-search');
+    // 无全页全局保存按钮(常规操作即存,免当次密码)
+    expect(screen.queryAllByRole('button', { name: /^保存$/ })).toHaveLength(0);
+
+    // EPG 来源在 ?tab=epg(018:来源与优先级合并看板),立即同步免当次密码直接提交
+    cleanup();
+    renderSettingsRoutes('/settings/iptv?tab=epg');
+    const syncBtn = await screen.findByTestId('epg-source-sync-epg-1');
+    expect(screen.queryAllByRole('button', { name: /^保存$/ })).toHaveLength(0);
+    await user.click(syncBtn);
+    expect(await screen.findByTestId('app-toast-region')).toHaveTextContent('同步任务已创建');
+    const post = fetchCalls.find((call) => call.path === '/api/settings/sources/epg-1/refresh' && call.method === 'POST');
+    expect(post).toBeDefined();
+    // 013/ADR-0017:常规操作请求体不携带 ownerPassword(服务端 strict 契约拒绝未知字段)
+    expect(post!.body).not.toHaveProperty('ownerPassword');
+    // 全程无「当次密码」弹层
+    expect(screen.queryByRole('dialog', { name: '当次密码验证' })).toBeNull();
   });
 
   it('FR-027:撤销设备二次确认——确认弹层说明后果,确认前零撤销请求,确认后携带当次密码执行', async () => {
@@ -336,8 +366,7 @@ describe('T031 · 设置交互规则(ui.md §5.2/§5.4 / FR-026–FR-028)', () =
     await user.type(within(dialog).getByLabelText(/主账号密码/), 'owner-pass');
     await user.click(within(dialog).getByRole('button', { name: '确认撤销' }));
     // 确认后才执行:恰好一次撤销,携带当次密码
-    await screen.findByTestId('devices-notice');
-    expect(screen.getByTestId('devices-notice')).toHaveTextContent('设备已撤销');
+    expect(await screen.findByTestId('app-toast-region')).toHaveTextContent('设备已撤销');
     const revokes = revokeCalls();
     expect(revokes).toHaveLength(1);
     expect((revokes[0]!.body as { ownerPassword?: string }).ownerPassword).toBe('owner-pass');
@@ -355,7 +384,7 @@ describe('T031 · 设置交互规则(ui.md §5.2/§5.4 / FR-026–FR-028)', () =
     expect(patchKidCalls()).toHaveLength(0);
     await user.type(within(dialog).getByLabelText(/主账号密码/), 'owner-pass');
     await user.click(within(dialog).getByRole('button', { name: '确认执行' }));
-    expect(await screen.findByTestId('profiles-notice')).toHaveTextContent('档案「小孩」已停用');
+    expect(await screen.findByTestId('app-toast-region')).toHaveTextContent('档案「小孩」已停用');
     const patches = patchKidCalls();
     expect(patches).toHaveLength(1);
     expect(patches[0]!.body).toMatchObject({ status: 'disabled', clearPin: false, ownerPassword: 'owner-pass' });

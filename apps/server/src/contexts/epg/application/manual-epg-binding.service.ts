@@ -9,8 +9,9 @@ import { epgStore, type EpgTxStore } from './epg-store.port';
  *   manual 派生:目标源禁用 → source_disabled,目标频道在该源缺失 → channel_missing,
  *   conflicted=1 → channel_conflict;来源启用且目标有效但无当前节目仍 valid
  *   (无节目 ≠ 失效,current/next 由节目查询负责)。只返回契约字段,不泄漏候选集/源位置/凭据。
- * - 写入(saveBinding/unbindBinding):家长验证(ownerPassword)由调用方(T071 控制器)完成后,
- *   本服务在事务前重验 session/device/account 归属(data-model「家长验证后重验」);
+ * - 写入(saveBinding/unbindBinding):身份/授权由调用方守卫链承担(013/ADR-0017 起常规
+ *   运维免当次主账号密码,不再有家长验证步骤),本服务在事务前重验 session/device/account
+ *   归属(原「家长验证后重验」的会话快照防线保留,与密码无关);
  *   校验次序:媒体(404 同形 → 非频道 400 → 无 IPTV 条目 400)→ 目标(404 同形 → kind 400 →
  *   禁用 422 EPG_SOURCE_NOT_READY → 频道 ID 长度 400/存在/冲突 422 EPG_CANDIDATE_INVALID)→
  *   候选 generation(409 EPG_CANDIDATE_STALE,即使目标仍存在)→ 绑定 expectedVersion(409 EPG_BINDING_VERSION_CONFLICT)→

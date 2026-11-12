@@ -10,7 +10,6 @@ import { DomainError, createDomainError } from '@platform/http-common/domain-err
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { getConfig } from '@platform/config/env';
 import type { MediaSource } from '@platform/database/schema';
-import { verifyParentPassword } from '@contexts/identity-access';
 import { toRefreshDtoCounts, type RefreshJobView } from '@contexts/sources/application/refresh-executor.service';
 // 007-T022a:executor 参数改用发布面接口(结构同源,实现类 implements;纯类型收窄,行为零变化)
 import type { IRefreshExecutorService } from './ports';
@@ -24,11 +23,15 @@ import { sourcesStore } from './sources-store.port';
 import type { LanTarget } from '@platform/config/env.schema';
 
 /**
- * 来源管理服务(T020;US1 来源三端点 + source-roots):
- * - 判定次序(contracts/api.md 权限与验证顺序):owner(控制器)→ 严格格式(控制器 zod,400)→
- *   家长验证(缺失/空串 403 REQUIRED;错误/锁定沿用阶段 2 verifyParentPassword,不另写密码校验)→
- *   会话/设备重验(验证期间可能被撤销/过期 → 401)→ 目标归属与许可(不存在/跨家庭 404 同形;
+ * 来源管理服务(T020;US1 来源三端点 + source-roots;013-role-differentiated-settings/ADR-0017):
+ * - 判定次序(contracts/api.md 权限与验证顺序;013 FR-005「高危操作范围约定」:来源增删改/
+ *   测试/刷新属常规运维,不再要求当次主账号密码,高危单次密码仅保留在账号密码/主档案
+ *   转移/设备撤销等不可逆操作):owner(控制器)→ 严格格式(控制器 zod,400)→ 会话有效性
+ *   (SessionGuard 守卫)→ 目标归属与许可(不存在/跨家庭 404 同形;
  *   URL/挂载目标不许可 422)→ 版本(409)→ 单事务写入;
+ * - 013 变更:原「家长验证(403 REQUIRED/FAILED/LOCKED)+ 验证后重读会话行(401)」闸门
+ *   整体摘除 —— 会话/设备有效性本就由 SessionGuard 逐请求承担,重验块属于验证通过后的
+ *   竞态防线而非业务逻辑,随闸门一并删除;业务判定与事务语义零变化;
  * - 事务语义:创建 source.version=1、更新 version+1,两者同事务 catalog_state.revision+1;
  *   更新时该来源 awaiting_confirmation 快照标 stale(任务 version 随状态变化加一);
  * - DTO 脱敏:SourceDto 仅含契约字段;locationLabel = 远程 origin 的主机标签(host[:port],
@@ -43,7 +46,6 @@ import type { LanTarget } from '@platform/config/env.schema';
  */
 
 export interface CreateSourceInput {
-  ownerPassword?: string;
   kind: 'iptv' | 'epg' | 'nas' | 'vod';
   name: string;
   enabled: boolean;
@@ -57,7 +59,6 @@ export interface CreateSourceInput {
 }
 
 export interface PatchSourceInput {
-  ownerPassword?: string;
   expectedVersion: number;
   name?: string;
   enabled?: boolean;
@@ -128,24 +129,11 @@ export interface VodSourceProbePort {
 }
 
 /**
- * 家长验证 + 会话/设备重验:密码缺失/空串统一 403 PARENT_VERIFICATION_REQUIRED(阶段 2 语义),
- * 非空密码交由 verifyParentPassword(403 FAILED / 423 LOCKED);验证通过后重读会话行,
- * 已撤销/已过期一律 401 SESSION_INVALID(重验会话/设备有效)。
+ * 家长验证 helper(阶段 2~012 语义)已随 013/ADR-0017 摘除:来源管理全部端点转为
+ * 常规运维免当次密码;会话/设备有效性由 SessionGuard 逐请求承担,验证通过后的
+ * 会话行重读竞态块一并删除(非业务逻辑)。高危单次密码仅保留于账号密码/主档案
+ * 转移/设备撤销等不可逆操作(见 docs/specs/013 FR-005「高危操作范围约定」)。
  */
-async function requireParentVerification(context: SessionContext, ownerPassword?: string): Promise<void> {
-  if (ownerPassword === undefined || ownerPassword === '') {
-    throw new DomainError(403, ProblemCode.PARENT_VERIFICATION_REQUIRED, '需要主账号密码完成家长验证');
-  }
-  await verifyParentPassword(context, ownerPassword);
-  const sessionRow = sourcesStore().findDeviceSession(context.session.id);
-  if (
-    sessionRow === undefined ||
-    sessionRow.revokedAt !== null ||
-    !(Date.parse(sessionRow.expiresAt) > Date.now())
-  ) {
-    throw new DomainError(401, ProblemCode.SESSION_INVALID, undefined);
-  }
-}
 
 /** 脱敏位置标签:远程仅 origin 主机标签(host[:port],默认端口省略,IPv6 带方括号);NAS 为 rootKey */
 export function locationLabelOf(row: Pick<MediaSource, 'kind' | 'rootKey' | 'remoteUrl'>): string {
@@ -212,11 +200,11 @@ export function listSourceRoots(): RootDto[] {
 }
 
 /**
- * POST /sources:创建。家长验证 → 目标许可(远程字面类别 / NAS rootKey+相对目录,422;
+ * POST /sources:创建。目标许可(远程字面类别 / NAS rootKey+相对目录,422;
  * EPG 目标归属 404/400)→ 事务:version=1 + catalogRevision+1。
+ * 013/ADR-0017:创建属常规运维,不再要求当次主账号密码。
  */
 export async function createSource(context: SessionContext, input: CreateSourceInput): Promise<SourceDto> {
-  await requireParentVerification(context, input.ownerPassword);
   const householdId = context.session.householdId;
 
   let remoteUrl: string | null = null;
@@ -323,7 +311,7 @@ export async function updateSource(
   context: SessionContext,
   input: PatchSourceInput,
 ): Promise<SourceDto> {
-  await requireParentVerification(context, input.ownerPassword);
+  // 013/ADR-0017:保存来源修改属常规运维,不再要求当次主账号密码。
   const householdId = context.session.householdId;
 
   const existing = sourcesStore().findOwnedMediaSource(sourceId, householdId);
@@ -413,10 +401,8 @@ export async function updateSource(
 /* vod 连通性测试(010 T026;api.md §2「POST /settings/sources/:id/test」)  */
 /* ------------------------------------------------------------------ */
 
-/** POST /sources/{sourceId}/test 请求体(契约 SourceTestRequest;控制器侧做 zod 严格校验) */
-export interface TestSourceInput {
-  ownerPassword?: string;
-}
+/** POST /sources/{sourceId}/test 请求体(契约 SourceTestRequest;013 起免当次密码 → 空对象,
+ *  控制器侧仍以 zod strictObject 拒绝任何字段,不再独立声明入参类型) */
 
 /** SourceTestResult(契约 010 openapi components/schemas/SourceTestResult;reason:null|timeout|invalid|unavailable) */
 export interface SourceTestResultDto {
@@ -446,10 +432,9 @@ function reasonOfUpstreamFailure(error: unknown): SourceTestResultDto['reason'] 
 }
 
 /**
- * POST /sources/{sourceId}/test:vod 连通性/兼容性测试(010 T026;api.md §2「Settings+当次密码;
- * 200{reachable,compatible,capabilities,reason},不写媒体;授权错误不能包装为测试结果」):
- * - 判定次序:家长验证(缺失/空串 403 REQUIRED;错误/锁定沿用 verifyParentPassword,直抛
- *   DomainError 不包装)→ 来源归属 404 同形 → 仅 kind=vod 可测(其余 400);
+ * POST /sources/{sourceId}/test:vod 连通性/兼容性测试(010 T026;013/ADR-0017 起免当次密码;
+ * 200{reachable,compatible,capabilities,reason},不写媒体):
+ * - 判定次序:来源归属 404 同形 → 仅 kind=vod 可测(其余 400);
  * - 可达性:SafeUpstream 有界全量读取(许可=LAN_ALLOWED_TARGETS,与刷新面同一口径;
  *   预算=VOD_TEST_PROBE_BUDGETS 8s/4MiB/3 跳,镜像 VOD_SAFE_UPSTREAM_BUDGETS),
  *   失败按稳定码映射 reason;
@@ -460,10 +445,8 @@ function reasonOfUpstreamFailure(error: unknown): SourceTestResultDto['reason'] 
 export async function testSource(
   sourceId: string,
   context: SessionContext,
-  input: TestSourceInput,
   probe: VodSourceProbePort,
 ): Promise<SourceTestResultDto> {
-  await requireParentVerification(context, input.ownerPassword);
   const householdId = context.session.householdId;
   const existing = sourcesStore().findOwnedMediaSource(sourceId, householdId);
   if (existing === undefined) {
@@ -568,20 +551,19 @@ export function createVodSourceConfigurationPort(): VodSourceRuntimeConfiguratio
 
 /* ------------------------------------------------------------------ */
 /* 刷新任务(T028;消费 T026 RefreshExecutorService,只读调用其 API)      */
-/* 判定次序与来源管理完全一致:家长验证(缺失/空串 403 REQUIRED;错误/锁定  */
-/* 沿用阶段 2)→ 会话/设备重验(401)→ 执行器状态机(404 同形/422/409/429)。*/
+/* 013/ADR-0017:发起/确认/丢弃刷新均属常规运维,不再要求当次主账号密码;  */
+/* 判定次序:来源归属/vod 禁刷(service)→ 执行器状态机(404 同形/422/409/  */
+/* 429);执行器 ownerPasswordVerified 内部不变式恒由公开入口置 true。    */
 /* ------------------------------------------------------------------ */
 
 /** POST /sources/{sourceId}/refresh 请求体(契约 RefreshRequest;控制器已做 zod 严格校验) */
 export interface RequestRefreshBody {
-  ownerPassword?: string;
   expectedVersion: number;
   operationKey: string;
 }
 
 /** POST /refreshes/{refreshId}/confirm|discard 请求体(契约 JobAction;expectedVersion 为任务当前 version) */
 export interface JobActionBody {
-  ownerPassword?: string;
   expectedVersion: number;
 }
 
@@ -603,10 +585,12 @@ export function toRefreshDto(view: RefreshJobView): RefreshDto {
 }
 
 /**
- * POST /sources/{sourceId}/refresh:发起刷新(202,不等待导入)。
- * 执行器内部校验次序:ownerPasswordVerified 声明 → 来源 404 同形 → 禁用 422 SOURCE_DISABLED →
- * operationKey 幂等(同语义返回原任务,异语义 409 IDEMPOTENCY_CONFLICT)→ expectedVersion 409 →
- * 同来源 queued/running/awaiting 409 SOURCE_BUSY → 全局排队满 429 IMPORT_QUEUE_FULL(Retry-After: 5)。
+ * POST /sources/{sourceId}/refresh:发起刷新(202,不等待导入;013/ADR-0017 免当次密码)。
+ * 公开入口恒以 ownerPasswordVerified: true 满足执行器内部不变式(013 起调用方不再先行
+ * 家长验证);执行器校验次序:ownerPasswordVerified 声明 → 来源 404 同形 → 禁用 422
+ * SOURCE_DISABLED → operationKey 幂等(同语义返回原任务,异语义 409 IDEMPOTENCY_CONFLICT)
+ * → expectedVersion 409 → 同来源 queued/running/awaiting 409 SOURCE_BUSY →
+ * 全局排队满 429 IMPORT_QUEUE_FULL(Retry-After: 5)。
  */
 export async function requestSourceRefresh(
   executor: IRefreshExecutorService,
@@ -614,7 +598,6 @@ export async function requestSourceRefresh(
   sourceId: string,
   input: RequestRefreshBody,
 ): Promise<RefreshDto> {
-  await requireParentVerification(context, input.ownerPassword);
   // 010 T026(任务「禁 vod 旧 refresh」;api.md §2 未定义 vod 刷新面):vod 来源稳定拒绝
   // 目录刷新(400 VALIDATION_FAILED,先于执行器状态机;不存在/跨家庭仍 404 同形)。
   // 判定置于 service 层:执行器状态机零改动,iptv/epg/nas 刷新路径与次序完全不变。
@@ -651,14 +634,13 @@ export function getSourceRefresh(
   return toRefreshDto(view);
 }
 
-/** POST /refreshes/{refreshId}/confirm:确认待确认快照(发布前执行器重验会话/来源/基线/摘要) */
+/** POST /refreshes/{refreshId}/confirm:确认待确认快照(发布前执行器重验会话/来源/基线/摘要;013 免当次密码) */
 export async function confirmSourceRefresh(
   executor: IRefreshExecutorService,
   context: SessionContext,
   refreshId: string,
   input: JobActionBody,
 ): Promise<RefreshDto> {
-  await requireParentVerification(context, input.ownerPassword);
   return toRefreshDto(
     executor.confirmRefresh({
       householdId: context.session.householdId,
@@ -669,14 +651,13 @@ export async function confirmSourceRefresh(
   );
 }
 
-/** POST /refreshes/{refreshId}/discard:丢弃待确认快照(成功释放来源锁;终态 immutable) */
+/** POST /refreshes/{refreshId}/discard:丢弃待确认快照(成功释放来源锁;终态 immutable;013 免当次密码) */
 export async function discardSourceRefresh(
   executor: IRefreshExecutorService,
   context: SessionContext,
   refreshId: string,
   input: JobActionBody,
 ): Promise<RefreshDto> {
-  await requireParentVerification(context, input.ownerPassword);
   return toRefreshDto(
     executor.discardRefresh({
       householdId: context.session.householdId,

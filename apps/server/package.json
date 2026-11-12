@@ -7,7 +7,7 @@
     "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json && cp -R src/platform/database/migrations dist/platform/database/",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "node scripts/test-runner.mjs",
     "test:unit": "vitest run test/unit",
     "test:contract": "vitest run test/contract",
     "migration:up": "tsx src/platform/database/migrate.ts up",

@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { expect } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { SESSION_COOKIE } from '@hmp/shared';
 import { AppModule } from '../src/app.module';
@@ -81,7 +82,12 @@ function applyEnv(dataDir: string, dbFilename: string, extra?: Record<string, st
 
 async function bootApp(): Promise<INestApplication> {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-  const app = moduleRef.createNestApplication({ logger: ['warn', 'error'] });
+  const app = moduleRef.createNestApplication<NestExpressApplication>({
+    bodyParser: false,
+    logger: ['warn', 'error'],
+  });
+  app.useBodyParser('json', { limit: '10mb' });
+  app.useBodyParser('urlencoded', { extended: true, limit: '10mb' });
   // 与 src/main.ts 相同的全局前缀,保证契约路径 /api/** 与生产一致
   app.setGlobalPrefix('api');
   await app.init();

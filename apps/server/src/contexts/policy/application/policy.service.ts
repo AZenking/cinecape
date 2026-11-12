@@ -2,7 +2,6 @@ import { ProblemCode } from '@hmp/shared';
 import type { ProfilePolicy } from '@platform/database/schema';
 import { DomainError } from '@platform/http-common/domain-error';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { verifyParentPassword } from '@contexts/identity-access';
 import { requireOwnedProfile } from '@contexts/profile';
 import { policyStore } from '@contexts/policy/application/policy-store.port';
 import type { PolicyTxStore } from '@contexts/policy/application/policy-store.port';
@@ -18,10 +17,11 @@ import {
 } from '@contexts/policy/domain/policy.rules';
 
 /**
- * ProfilePolicy 服务(阶段 2,T011):策略查询/整体保存/名单持久化 + 服务端授权入口(T018)。
+ * ProfilePolicy 服务(阶段 2,T011;013-role-differentiated-settings/ADR-0017:分级策略与
+ * 名单修改属常规运维,免当次主账号密码):策略查询/整体保存/名单持久化 + 服务端授权入口(T018)。
  *
- * 契约次序(contracts/api.md):身份(SessionGuard)→ 角色(owner,控制器)→ 格式(严格 zod,控制器)
- * → 家长验证(403 REQUIRED / 403 FAILED / 423 LOCKED)→ 目标归属(404 同形)→ 版本(409)→ 事务保存。
+ * 契约次序(contracts/api.md;013 起不再含「家长验证」步骤):身份(SessionGuard)→ 角色(owner,控制器)
+ * → 格式(严格 zod,控制器)→ 目标归属(404 同形)→ 版本(409)→ 事务保存。
  *
  * - 保存为「可编辑配置原子整体替换」(FR-009):三名单由服务端原样保留,不接受请求覆盖/清空;
  * - 每次成功保存 version+1(相同值仍 +1);
@@ -48,7 +48,6 @@ export interface PolicyDtoBody {
 }
 
 export interface UpdatePolicyInput {
-  ownerPassword?: string;
   expectedVersion: number;
   policy: {
     maxContentLevel: number;
@@ -90,15 +89,11 @@ export function getPolicy(profileId: string, context: SessionContext): PolicyDto
 }
 
 /**
- * PUT /profiles/{id}/policy:家长验证 → 目标归属 → 版本比较 → 单事务整体替换可编辑配置。
- * 失败路径(验证/版本/损坏)不改变任何策略值。
+ * PUT /profiles/{id}/policy:目标归属 → 版本比较 → 单事务整体替换可编辑配置。
+ * 013/ADR-0017:分级策略保存属常规运维,不再要求当次主账号密码。
+ * 失败路径(版本/损坏)不改变任何策略值。
  */
 export async function updatePolicy(profileId: string, context: SessionContext, input: UpdatePolicyInput): Promise<PolicyDtoBody> {
-  if (input.ownerPassword === undefined || input.ownerPassword === '') {
-    throw new DomainError(403, ProblemCode.PARENT_VERIFICATION_REQUIRED, '需要主账号密码完成家长验证');
-  }
-  await verifyParentPassword(context, input.ownerPassword);
-
   const target = requireOwnedProfile(profileId, context);
   return policyStore().withTransaction((tx) => {
     const row = tx.findPolicy(target.householdId, target.id);
@@ -140,7 +135,6 @@ export interface WritePolicyListsOptions {
  * 三名单必填数组,整体替换;zod 形态校验在控制器,语义校验在 writePolicyLists 严格模式)。
  */
 export interface ReplacePolicyListsInput {
-  ownerPassword?: string;
   expectedVersion: number;
   allowedMediaIds: string[];
   blockedMediaIds: string[];
@@ -224,8 +218,9 @@ export function writePolicyLists(
 
 /**
  * PUT /profiles/{profileId}/policy/lists(T051;US3 名单事务 HTTP 入口,T063 过渡期由
- * catalog 模块控制器调用):家长验证(缺失/空串 403 REQUIRED;错误 403 FAILED;锁定 423)
- * → 会话/设备重验(401)→ Profile 归属 Household+Account(404 同形,与是否 active 无关)
+ * catalog 模块控制器调用;013/ADR-0017:名单修改属常规运维,免当次主账号密码 ——
+ * 原「家长验证 + 会话/设备重验」闸门摘除,会话有效性由 SessionGuard 逐请求承担)
+ * → Profile 归属 Household+Account(404 同形,与是否 active 无关)
  * → 严格名单事务(expectedVersion 409 / 每 ID 归属与频道类型 400,整体成功或失败)。
  * 与既有等级入口 updatePolicy 共享同一策略 version(每次成功保存 +1)。
  */
@@ -234,14 +229,6 @@ export async function replacePolicyLists(
   context: SessionContext,
   input: ReplacePolicyListsInput,
 ): Promise<PolicyDtoBody> {
-  if (input.ownerPassword === undefined || input.ownerPassword === '') {
-    throw new DomainError(403, ProblemCode.PARENT_VERIFICATION_REQUIRED, '需要主账号密码完成家长验证');
-  }
-  await verifyParentPassword(context, input.ownerPassword);
-  const sessionRow = policyStore().findDeviceSession(context.session.id);
-  if (sessionRow === undefined || sessionRow.revokedAt !== null || !(Date.parse(sessionRow.expiresAt) > Date.now())) {
-    throw new DomainError(401, ProblemCode.SESSION_INVALID, undefined);
-  }
   const target = requireOwnedProfile(profileId, context);
   return writePolicyLists(
     target.householdId,

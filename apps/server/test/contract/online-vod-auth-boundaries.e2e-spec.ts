@@ -137,23 +137,21 @@ function postSource(app: INestApplication, cookie: string, body: Record<string, 
 }
 
 /** 合法公网 IPTV 代表体(创建对照/守卫通过面;不触发任何上游 IO) */
-function publicIptvBody(ownerPassword?: string): Record<string, unknown> {
+function publicIptvBody(): Record<string, unknown> {
   return {
     kind: 'iptv',
     name: '夹具公网IPTV',
     remoteUrl: 'http://cms.example.com/api.php?ac=list',
-    ...(ownerPassword === undefined ? {} : { ownerPassword }),
   };
 }
 
 /** 合法 vod 代表体(api.md §2:kind=vod 必须携带非空 remoteUrl;adapter=apple-cms-json) */
-function publicVodBody(ownerPassword?: string): Record<string, unknown> {
+function publicVodBody(): Record<string, unknown> {
   return {
     kind: 'vod',
     name: '在线片源',
     remoteUrl: 'http://cms.example.com/api.php?ac=detail',
     adapter: 'apple-cms-json',
-    ...(ownerPassword === undefined ? {} : { ownerPassword }),
   };
 }
 
@@ -246,22 +244,38 @@ describe('T021 · A 公共边界(游客)', () => {
 describe('T021 · B Settings 边界(来源管理)', () => {
   afterEach(cleanupRigs);
 
-  it('B1 游客 401 先于一切 403;已登录未解锁(grant 缺失)→ 403 SETTINGS_ACCESS_REQUIRED(读/写同界)', async () => {
+  it('B1 游客 401 先于一切 403;已登录未选档 → 403 FORBIDDEN;选主档后零 grant 直达 200(013)', async () => {
     const { app } = await settingsRig('hmp-t021-b1-');
     const guestGet = await request(app.getHttpServer()).get('/api/settings/sources');
     expectProblem(guestGet, 401, ProblemCode.SESSION_INVALID);
-    const guestPost = await postSource(app, '', publicIptvBody('password-123'));
+    const guestPost = await postSource(app, '', publicIptvBody());
     expectProblem(guestPost, 401, ProblemCode.SESSION_INVALID);
 
     const loggedIn = await login(app, 'admin', 'password-123');
     const locked = cookiePairOf(loggedIn);
     const readDenied = await request(app.getHttpServer()).get('/api/settings/sources').set('Cookie', locked);
-    expectProblem(readDenied, 403, 'SETTINGS_ACCESS_REQUIRED');
-    const writeDenied = await postSource(app, locked, publicIptvBody('password-123'));
-    expectProblem(writeDenied, 403, 'SETTINGS_ACCESS_REQUIRED');
+    expectProblem(readDenied, 403, 'FORBIDDEN');
+    const writeDenied = await postSource(app, locked, publicIptvBody());
+    expectProblem(writeDenied, 403, 'FORBIDDEN');
+
+    // 选主档案(零 grant):SettingsGuard 以 isMain 为准,立即放行
+    const bootstrapped = await request(app.getHttpServer())
+      .post('/api/auth/bootstrap-profile')
+      .set('Cookie', locked)
+      .send({ name: '主档案', pin: '111111', ownerPassword: 'password-123' });
+    expect(bootstrapped.status).toBe(201);
+    const mainId = (bootstrapped.body as { id: string }).id;
+    expect(
+      (await request(app.getHttpServer()).post(`/api/profiles/${mainId}/unlock`).set('Cookie', locked).send({ pin: '111111' })).status,
+    ).toBe(200);
+    expect(
+      (await request(app.getHttpServer()).post(`/api/profiles/${mainId}/select`).set('Cookie', locked).send({})).status,
+    ).toBe(200);
+    const readOk = await request(app.getHttpServer()).get('/api/settings/sources').set('Cookie', locked);
+    expect(readOk.status).toBe(200);
   });
 
-  it('B2 非管理员主体(普通档案选中,非主档案)→ GET/POST 来源均 403 SETTINGS_ACCESS_REQUIRED,不当次放行', async () => {
+  it('B2 非管理员主体(普通档案选中,非主档案)→ GET/POST 来源均 403 FORBIDDEN,不当次放行(013)', async () => {
     const { app, cookie } = await settingsRig('hmp-t021-b2-');
     await selectMainAndUnlockSettings(app, cookie);
     const created = await createProfileViaSettings(app, cookie, { name: '儿童', type: 'child', pin: '246800' });
@@ -278,27 +292,26 @@ describe('T021 · B Settings 边界(来源管理)', () => {
     expect(select.status).toBe(200);
 
     const readDenied = await request(app.getHttpServer()).get('/api/settings/sources').set('Cookie', cookie);
-    expectProblem(readDenied, 403, 'SETTINGS_ACCESS_REQUIRED');
-    const writeDenied = await postSource(app, cookie, publicIptvBody('password-123'));
-    expectProblem(writeDenied, 403, 'SETTINGS_ACCESS_REQUIRED');
+    expectProblem(readDenied, 403, 'FORBIDDEN');
+    const writeDenied = await postSource(app, cookie, publicIptvBody());
+    expectProblem(writeDenied, 403, 'FORBIDDEN');
   });
 
-  it('B3 缺当次密码 → 403 PARENT_VERIFICATION_REQUIRED;错误密码 → 403 PARENT_VERIFICATION_FAILED;正确密码 201 对照', async () => {
+  it('B3 013 免当次密码:缺密码创建 201;携带 ownerPassword 字段 strictObject 400;拒绝路径零副作用', async () => {
     const { app, cookie } = await settingsRig('hmp-t021-b3-');
     await selectMainAndUnlockSettings(app, cookie);
-    const missing = await postSource(app, cookie, publicIptvBody());
-    expectProblem(missing, 403, ProblemCode.PARENT_VERIFICATION_REQUIRED);
-    const wrong = await postSource(app, cookie, publicIptvBody('definitely-wrong'));
-    expectProblem(wrong, 403, ProblemCode.PARENT_VERIFICATION_FAILED);
-    // 密码拒绝路径零副作用:拒绝后正确创建仍 201,且来源表无错误尝试残留
-    const ok = await postSource(app, cookie, publicIptvBody('password-123'));
+    // 携带已移除的 ownerPassword 字段 → 400,拒绝路径零副作用
+    const wrong = await postSource(app, cookie, { ...publicIptvBody(), ownerPassword: 'definitely-wrong' });
+    expectProblem(wrong, 400, ProblemCode.VALIDATION_FAILED);
+    // 缺密码创建照常 201,且来源表无错误尝试残留
+    const ok = await postSource(app, cookie, publicIptvBody());
     expect(ok.status).toBe(201);
     const list = await request(app.getHttpServer()).get('/api/settings/sources').set('Cookie', cookie);
     expect(list.status).toBe(200);
     expect((list.body as { total: number }).total).toBe(1);
   });
 
-  it('B4 过期 grant(DB 直改 expires_at 到过去)→ 写/读均 403 SETTINGS_ACCESS_EXPIRED(固定 TTL 不滑动)', async () => {
+  it('B4 过期 grant(DB 直改 expires_at 到过去)→ 读写不受影响(013 无 Ticket 硬依赖)', async () => {
     const { app, cookie } = await settingsRig('hmp-t021-b4-');
     await selectMainAndUnlockSettings(app, cookie);
     const okBefore = await request(app.getHttpServer()).get('/api/settings/sources').set('Cookie', cookie);
@@ -309,10 +322,11 @@ describe('T021 · B Settings 边界(来源管理)', () => {
         "UPDATE settings_access_grant SET issued_at = '2000-01-01T00:00:00.000Z', expires_at = '2000-01-01T00:15:00.000Z'",
       )
       .run();
-    const expiredWrite = await postSource(app, cookie, publicIptvBody('password-123'));
-    expectProblem(expiredWrite, 403, 'SETTINGS_ACCESS_EXPIRED');
+    // 013:管理边界以 isMain 为准,过期 grant 不拒绝(ADR-0017 废除临时 Ticket)
+    const expiredWrite = await postSource(app, cookie, publicIptvBody());
+    expect(expiredWrite.status).toBe(201);
     const expiredRead = await request(app.getHttpServer()).get('/api/settings/sources').set('Cookie', cookie);
-    expectProblem(expiredRead, 403, 'SETTINGS_ACCESS_EXPIRED');
+    expect(expiredRead.status).toBe(200);
   });
 
   it('B5 CSRF/同源:未配置许可 origin 时携带 Origin 一律 403(fail-closed);配置后跨源 403、同源放行、非 JSON 表单体 400', async () => {
@@ -322,7 +336,7 @@ describe('T021 · B Settings 边界(来源管理)', () => {
       .post('/api/settings/sources')
       .set('Cookie', closed.cookie)
       .set('Origin', 'https://evil.example')
-      .send(publicIptvBody('password-123'));
+      .send(publicIptvBody());
     expectProblem(failClosed, 403, ProblemCode.FORBIDDEN);
 
     // 形态 2:配置 PUBLIC_ORIGIN → 跨源 403;非 JSON 简单表单 400;同源放行(创建 201)
@@ -332,7 +346,7 @@ describe('T021 · B Settings 边界(来源管理)', () => {
       .post('/api/settings/sources')
       .set('Cookie', configured.cookie)
       .set('Origin', 'https://evil.example')
-      .send(publicIptvBody('password-123'));
+      .send(publicIptvBody());
     expectProblem(crossOrigin, 403, ProblemCode.FORBIDDEN);
     const formPost = await request(configured.app.getHttpServer())
       .post('/api/settings/sources')
@@ -345,7 +359,7 @@ describe('T021 · B Settings 边界(来源管理)', () => {
       .post('/api/settings/sources')
       .set('Cookie', configured.cookie)
       .set('Origin', 'http://home.local:3000')
-      .send(publicIptvBody('password-123'));
+      .send(publicIptvBody());
     expect(sameOrigin.status, '同源 Origin + JSON 体 + 有效凭据应通过守卫创建').toBe(201);
   });
 
@@ -353,7 +367,7 @@ describe('T021 · B Settings 边界(来源管理)', () => {
     const { app, cookie } = await settingsRig('hmp-t021-b6-');
     await selectMainAndUnlockSettings(app, cookie);
     for (const extra of [{ profileId: randomUUID() }, { householdId: randomUUID() }, { upstreamVodId: 'x-1' }]) {
-      const res = await postSource(app, cookie, { ...publicIptvBody('password-123'), ...extra });
+      const res = await postSource(app, cookie, { ...publicIptvBody(), ...extra });
       expectProblem(res, 400, ProblemCode.VALIDATION_FAILED);
       const detail = typeof res.body.detail === 'string' ? res.body.detail : '';
       expect(detail, `detail 应指向未知键 ${Object.keys(extra).join(',')}`).toContain(Object.keys(extra)[0] ?? '');
@@ -367,7 +381,7 @@ describe('T021 · B Settings 边界(来源管理)', () => {
     await selectMainAndUnlockSettings(app, cookie);
     // 计划内红判据 1:合法 vod 创建当前被 schema 枚举先拒(kind 枚举 iptv/epg/nas → 400),
     // T026 sources.service vod 分支落地后应 201(限 10 启用源内)。
-    const created = await postSource(app, cookie, publicVodBody('password-123'));
+    const created = await postSource(app, cookie, publicVodBody());
     expect(
       created.status,
       `计划内红(待 T026 转绿):kind=vod 创建尚未实现(当前 ${created.status} ${String(created.body.code)},` +
@@ -379,7 +393,6 @@ describe('T021 · B Settings 边界(来源管理)', () => {
       kind: 'vod',
       name: '缺地址片源',
       adapter: 'apple-cms-json',
-      ownerPassword: 'password-123',
     });
     expectProblem(missingUrl, 400, ProblemCode.VALIDATION_FAILED);
   });
@@ -402,7 +415,7 @@ describe('T021 · C 私有地址白名单(SSRF 负向)', () => {
       'http://0.0.0.0:8000/api.php',
     ];
     for (const target of privateTargets) {
-      const res = await postSource(app, cookie, { kind: 'iptv', name: '内网探针', remoteUrl: target, ownerPassword: 'password-123' });
+      const res = await postSource(app, cookie, { kind: 'iptv', name: '内网探针', remoteUrl: target });
       expectProblem(res, 422, 'SOURCE_TARGET_DENIED');
       // 凭据脱敏:拒绝 detail 为稳定类别短语,不回显地址原文(sources 领域惯例)
       expect(JSON.stringify(res.body), `拒绝体不得回显目标原文 ${target}`).not.toContain(target);
@@ -414,7 +427,7 @@ describe('T021 · C 私有地址白名单(SSRF 负向)', () => {
   it('C2 对照:公网 URL 201(拒绝为类别判定而非一律拒);NAS 同路径坏 rootKey / 越界相对目录 → 422', async () => {
     const { app, cookie } = await settingsRig('hmp-t021-c2-');
     await selectMainAndUnlockSettings(app, cookie);
-    const okPublic = await postSource(app, cookie, publicIptvBody('password-123'));
+    const okPublic = await postSource(app, cookie, publicIptvBody());
     expect(okPublic.status, '公网地址应放行(白名单只拒保留段)').toBe(201);
 
     const badRoot = await postSource(app, cookie, {
@@ -422,7 +435,6 @@ describe('T021 · C 私有地址白名单(SSRF 负向)', () => {
       name: '越权NAS',
       rootKey: 'not-configured-root',
       relativeDirectory: 'media',
-      ownerPassword: 'password-123',
     });
     expectProblem(badRoot, 422, 'SOURCE_TARGET_DENIED');
     const escapeDir = await postSource(app, cookie, {
@@ -430,7 +442,6 @@ describe('T021 · C 私有地址白名单(SSRF 负向)', () => {
       name: '逃逸NAS',
       rootKey: 'playback-fixture-nas',
       relativeDirectory: '../outside',
-      ownerPassword: 'password-123',
     });
     expectProblem(escapeDir, 422, 'SOURCE_TARGET_DENIED');
   });
@@ -443,7 +454,6 @@ describe('T021 · C 私有地址白名单(SSRF 负向)', () => {
       name: '内网在线片源',
       remoteUrl: 'http://127.0.0.1:8080/api.php?ac=detail',
       adapter: 'apple-cms-json',
-      ownerPassword: 'password-123',
     });
     // 计划内红判据:当前 vod 被 schema 枚举先拒(400 VALIDATION_FAILED),根本未达
     // 目标许可层;T026 落地后同请求必须落「422 SOURCE_TARGET_DENIED」(与 IPTV 同类别判定)。

@@ -46,7 +46,8 @@ import {
  * - 协议白名单:仅 http/https,其他协议一律拒绝且零请求;
  * - DNS:解析为环回/链路本地/云元数据/未指定/多播等拒绝类别默认拒绝(允许列表为空
  *   = 默认拒绝;RFC1918 私网地址由部署精确许可列表默认拒绝);每跳重新解析全部
- *   A/AAAA(重解析防护:跳间 DNS 翻转/混入非法地址即拒绝);
+ *   A/AAAA(重解析防护:跳间 DNS 翻转/混入非法地址即拒绝);public 条目放行
+ *   公网单播目标(私网/环回/类别拒绝不放宽);
  * - 每跳 redirect 都重走完整校验,默认拒内网延续到跳后;
  * - AbortSignal:已中止立即拒绝,中途中止销毁连接;
  * - 字节预算:超限中止连接(BUDGET_EXCEEDED);嵌套预算(manifest→variant→segment→key)
@@ -291,6 +292,63 @@ describe('safe-upstream(T018):DNS 解析类别默认拒绝', () => {
     );
     // 不缓存解析结果:每次读取都重走解析与校验
     expect(resolver.calls4).toEqual(['flip.vod.test', 'flip.vod.test']);
+  });
+});
+
+describe('public 条目(受控公网放行;私网/环回/类别拒绝不放宽)', () => {
+  it('仅 public 条目:环回解析仍拒绝(类别保护不放宽),零请求', async () => {
+    const server = await startServer([{ path: '/m.m3u8', kind: 'body', body: 'x' }]);
+    const resolver = recordingResolver(['127.0.0.1']);
+    await expectFailure(
+      openRemoteSource(`http://any.vod.test:${server.port}/m.m3u8`, {
+        allowedTargets: [{ kind: 'public' }],
+        resolver,
+      }),
+      TARGET_DENIED,
+    );
+    expect(server.requestCount('/m.m3u8')).toBe(0);
+  });
+
+  it('public 条目 + 环回精确条目:IP 字面量正常读取(与精确许可共存不互扰)', async () => {
+    const server = await startServer([{ path: '/m.m3u8', kind: 'body', body: 'x' }]);
+    // 环回经地址精确条目放行仅作用于 IP 字面量目标(主机名形态须主机名精确许可)
+    const read = await readBounded(`http://127.0.0.1:${server.port}/m.m3u8`, {
+      allowedTargets: [{ kind: 'public' }, ...allowFixture(server.port)],
+    });
+    expect(read.bytes.toString('utf8')).toBe('x');
+  });
+
+  it('public 条目:私网解析(RFC1918)仍拒绝', async () => {
+    const server = await startServer([{ path: '/m.m3u8', kind: 'body', body: 'x' }]);
+    const resolver = recordingResolver(['10.120.0.8']);
+    await expectFailure(
+      openRemoteSource(`http://nas.vod.test:${server.port}/m.m3u8`, {
+        allowedTargets: [{ kind: 'public' }, ...allowFixture(server.port)],
+        resolver,
+      }),
+      TARGET_DENIED,
+    );
+    expect(server.requestCount('/m.m3u8')).toBe(0);
+  });
+
+  it('public 条目:混合解析(公网+私网)一律拒绝(与混合非法解析同一收紧口径)', async () => {
+    const server = await startServer([{ path: '/m.m3u8', kind: 'body', body: 'x' }]);
+    const resolver = recordingResolver(['203.0.113.10', '10.120.0.8']);
+    await expectFailure(
+      openRemoteSource(`http://mixed.vod.test:${server.port}/m.m3u8`, {
+        allowedTargets: [{ kind: 'public' }, ...allowFixture(server.port)],
+        resolver,
+      }),
+      TARGET_DENIED,
+    );
+    expect(server.requestCount('/m.m3u8')).toBe(0);
+  });
+
+  it('public 条目:IP 字面量私网目标拒绝', async () => {
+    await expectFailure(
+      openRemoteSource('http://192.168.8.10:9981/m.m3u8', { allowedTargets: [{ kind: 'public' }] }),
+      TARGET_DENIED,
+    );
   });
 });
 

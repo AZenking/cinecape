@@ -221,11 +221,11 @@ async function setupProgrammes(): Promise<GuideRig> {
   const adult = await request(app.getHttpServer())
     .post('/api/settings/profiles')
     .set('Cookie', cookie)
-    .send({ name: '成人', type: 'adult', ownerPassword: OWNER_PASSWORD });
+    .send({ name: '成人', type: 'adult' });
   const child = await request(app.getHttpServer())
     .post('/api/settings/profiles')
     .set('Cookie', cookie)
-    .send({ name: '儿童', type: 'child', ownerPassword: OWNER_PASSWORD });
+    .send({ name: '儿童', type: 'child' });
   expect(adult.status).toBe(201);
   expect(child.status).toBe(201);
   const adultProfileId = (adult.body as { id: string }).id;

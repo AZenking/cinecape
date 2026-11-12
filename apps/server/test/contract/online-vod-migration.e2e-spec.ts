@@ -1619,7 +1619,14 @@ describe('0007_online_vod 迁移升级/回滚/约束(T007 · TDD 红阶段预期
     });
   });
 
-  describe('migrate.ts 目录发现全链(空库 up→down→up 与非空在线业务 down 拒绝)', () => {
+  describe('migrate.ts 目录发现全链(空库 up→down→up 与非空在线业务 down 拒绝;含 0008/0009/0010)', () => {
+    /** 0008/0009/0010 同属交付代际 2(不设 user_version);全链 = 既有全量 + 0008 + 0009 + 0010 */
+    const CHAIN_WITH_0008: string[] = [...ALL_MIGRATIONS, '0008_profile_preferences'];
+    const FULL_CHAIN: string[] = [...CHAIN_WITH_0008, '0009_channel_logos', '0010_multi_source_priority'];
+    /** 0010 down 后的中间态(尾段逆序:首个 down 恒回滚 0010) */
+    const FULL_CHAIN_WITHOUT_0010: string[] = FULL_CHAIN.filter(
+      (name) => name !== '0010_multi_source_priority',
+    );
     /** 独立 rig(不复用 test/helpers.ts):照 migration-0006.spec.ts 模式驱动 runMigrationCommand */
     interface ChainRig {
       dataDir: string;
@@ -1672,6 +1679,12 @@ describe('0007_online_vod 迁移升级/回滚/约束(T007 · TDD 红阶段预期
         switch_carry_position: 1,
         version: 1,
       });
+      // 0009 为栈顶(可回滚尾段,先被回滚);随后 0008 栈顶 down 具破坏性,非空行触发拒绝
+      Database.db
+        .prepare(
+          "INSERT INTO profile_preferences (household_id, profile_id, updated_at) VALUES (?, ?, '2026-11-02T00:00:00.000Z')",
+        )
+        .run(householdId, profileId);
       return { householdId, profileId };
     }
 
@@ -1685,32 +1698,58 @@ describe('0007_online_vod 迁移升级/回滚/约束(T007 · TDD 红阶段预期
       setEnvOverride(null);
     });
 
-    it('空库 up→down→up:代际标记保持 2(0007 同属交付代际 2);0007 对象随 down 消失、随 up 恢复', () => {
+    it('空库 up→down→up:代际标记保持 2(0007/0008/0009 同属交付代际 2);尾段对象随 down 消失、随 up 恢复', () => {
       const rig = newChainRig('hmp-vod-chain-');
       applyChainEnv(rig);
       runMigrationCommand('up');
-      // 冻结约定(0007 up.sql 末节):0007 属同一交付代际,up 后 user_version 仍为 2,
+      // 冻结约定(0007/0008/0009 up.sql):三者属同一交付代际,up 后 user_version 仍为 2,
       // 就绪判别依赖「user_version=2 + _migrations 与迁移目录全量一致」而非代际递增。
-      expect(userVersion(), '0007 up 后 user_version 保持 2').toBe(2);
-      expect(appliedMigrations()).toEqual(ALL_MIGRATIONS);
+      expect(userVersion(), '0009 up 后 user_version 保持 2').toBe(2);
+      expect(appliedMigrations()).toEqual(FULL_CHAIN);
       for (const table of ONLINE_VOD_TABLES) {
         expect(tableNames()).toContain(table);
       }
+      expect(tableNames()).toContain('channel_logo');
 
       runMigrationCommand('down');
-      // down 后:记录恰为 0001~0006(0007 可再次 up),user_version 同为 2(交付代际不变)
+      // 第〇次 down:回滚 0010(交付代际 2 尾段,uv 保持 2);priority 列与索引移除
+      expect(userVersion()).toBe(2);
+      expect(appliedMigrations()).toEqual(FULL_CHAIN_WITHOUT_0010);
+
+      runMigrationCommand('down');
+      // 第一次 down:回滚 0009(记录恰为 0001~0008),user_version 同为 2(交付代际不变)
+      expect(userVersion()).toBe(2);
+      expect(appliedMigrations()).toEqual(CHAIN_WITH_0008);
+      expect(tableNames()).not.toContain('channel_logo');
+      for (const table of ONLINE_VOD_TABLES) {
+        expect(tableNames(), `${table} 仍在(仅 0009 回滚)`).toContain(table);
+      }
+      expect(tableNames()).toContain('profile_preferences');
+
+      runMigrationCommand('down');
+      // 第二次 down:回滚 0008(记录恰为 0001~0007)
+      expect(userVersion()).toBe(2);
+      expect(appliedMigrations()).toEqual(ALL_MIGRATIONS);
+      expect(tableNames()).not.toContain('profile_preferences');
+      for (const table of ONLINE_VOD_TABLES) {
+        expect(tableNames(), `${table} 仍在(0008 回滚)`).toContain(table);
+      }
+
+      runMigrationCommand('down');
+      // 第三次 down:回滚 0007(记录恰为 0001~0006)
       expect(userVersion()).toBe(2);
       expect(appliedMigrations()).toEqual(BASE_MIGRATIONS);
       for (const table of ONLINE_VOD_TABLES) {
         expect(tableNames(), `${table} 随 down 消失`).not.toContain(table);
       }
-      expect(tableNames()).toEqual(expect.arrayContaining(['household', 'playback_session']));
 
       runMigrationCommand('up');
       expect(userVersion()).toBe(2);
-      expect(appliedMigrations()).toEqual(ALL_MIGRATIONS);
+      expect(appliedMigrations()).toEqual(FULL_CHAIN);
       expect(tableNames()).toContain('vod_title');
       expect(tableNames()).toContain('profile_vod_preferences');
+      expect(tableNames()).toContain('profile_preferences');
+      expect(tableNames()).toContain('channel_logo');
     });
 
     it('drill 一次通过且终态记录与目录一致(迁移已在 migrate.ts 注册)', () => {
@@ -1718,21 +1757,27 @@ describe('0007_online_vod 迁移升级/回滚/约束(T007 · TDD 红阶段预期
       applyChainEnv(rig);
       runMigrationCommand('drill');
       expect(userVersion()).toBe(2);
-      expect(appliedMigrations()).toEqual(ALL_MIGRATIONS);
+      expect(appliedMigrations()).toEqual(FULL_CHAIN);
     });
 
-    it('非空在线业务 down 拒绝:报错且表/行/迁移记录原样(破坏性删除保护)', () => {
+    it('非空在线业务 down 拒绝(0009 先行回滚后,0008 栈顶含偏好行):报错且表/行/迁移记录原样(破坏性删除保护)', () => {
       const rig = newChainRig('hmp-vod-down-guard-');
       applyChainEnv(rig);
       runMigrationCommand('up');
       const seeded = seedMinimalOnlineBusiness();
 
-      // 空新表可 down(上一用例),非空在线业务必须拒绝破坏性删除
+      // 先行回滚 0010(交付代际 2 尾段,无在线业务数据面;栈顶让位给 0009)
+      runMigrationCommand('down');
+      expect(appliedMigrations()).toEqual(FULL_CHAIN_WITHOUT_0010);
+
+      // 栈顶 0009 为可回滚尾段,无数据可先行 down;其下 0008 非空在线业务必须拒绝破坏性删除
+      runMigrationCommand('down');
+      expect(appliedMigrations()).toEqual(CHAIN_WITH_0008);
       expect(() => runMigrationCommand('down')).toThrowError();
 
-      // 拒绝后原样:代际标记/迁移记录/表/行均未被破坏
+      // 拒绝后原样:代际标记/迁移记录/表/行均未被破坏(0009 已先行回滚,不属拒绝面)
       expect(userVersion()).toBe(2);
-      expect(appliedMigrations()).toContain(MIGRATION);
+      expect(appliedMigrations()).toEqual(CHAIN_WITH_0008);
       for (const table of ONLINE_VOD_TABLES) {
         expect(tableNames(), `${table} 应仍在`).toContain(table);
       }
@@ -1742,6 +1787,11 @@ describe('0007_online_vod 迁移升级/回滚/约束(T007 · TDD 红阶段预期
       expect(prefRow, '在线业务行应原样保留').toBeDefined();
       expect(prefRow?.autoplay_next).toBe(1);
       expect(prefRow?.version).toBe(1);
+      const prefsRow = Database.db
+        .prepare('SELECT theme_mode FROM profile_preferences WHERE household_id = ?')
+        .get(seeded.householdId) as { theme_mode: string } | undefined;
+      expect(prefsRow, '0008 偏好行应原样保留').toBeDefined();
+      expect(prefsRow?.theme_mode).toBe('system');
       expectIntegrityOk();
     });
   });

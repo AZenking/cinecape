@@ -41,9 +41,51 @@ type MaterializedDto = Vod.components['schemas']['Materialized'];
 /** 键取自公共键工厂(T034);409/410 失效仍经 Provider 注入的 useQueryClient 实例 */
 const previewQueryKey = (titleRef: string): readonly unknown[] => queryKeys.public.vodPreview(titleRef);
 
+/** 详情页主题海报占位(DESIGN.md 媒体 token;无海报/代理失败共用) */
+function DetailPosterPlaceholder(): ReactNode {
+  return (
+    <div
+      className="flex w-full max-w-md items-center justify-center text-sm text-muted"
+      style={{
+        aspectRatio: 'var(--hmp-media-ratio-poster)',
+        backgroundColor: 'var(--hmp-media-poster-placeholder)',
+        borderRadius: 'var(--hmp-media-card-radius)',
+      }}
+    >
+      无海报
+    </div>
+  );
+}
+
+/**
+ * 详情页同源代理海报(010:posterRef → GET /api/public/vod/posters/:posterRef)。
+ * onError 回落占位(ref 过期/代理失败不显示裂图);失败态按次挂载记忆,
+ * 重放重挂时重试一次(预览快照刷新由用户侧驱动)。
+ */
+function DetailPosterImage({ posterRef }: { posterRef: string }): ReactNode {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return <DetailPosterPlaceholder />;
+  }
+  return (
+    <img
+      src={`/api/public/vod/posters/${encodeURIComponent(posterRef)}`}
+      alt=""
+      onError={() => setFailed(true)}
+      style={{
+        aspectRatio: 'var(--hmp-media-ratio-poster)',
+        width: '100%',
+        maxWidth: '28rem',
+        objectFit: 'cover',
+        borderRadius: 'var(--hmp-media-card-radius)',
+        backgroundColor: 'var(--hmp-media-poster-placeholder)',
+      }}
+    />
+  );
+}
+
 /** unsupported reason → 面向观看者的文字(不裸暴露机器码) */
-const UNSUPPORTED_REASON_LABELS: Record<'identity_ambiguous' | 'format_unsupported', string> = {
-  format_unsupported: '格式不支持',
+const UNSUPPORTED_REASON_LABELS: Record<'identity_ambiguous' | 'format_unsupported', string> = {  format_unsupported: '格式不支持',
   identity_ambiguous: '同一名称多个候选版本，暂不支持直接选集',
 };
 
@@ -206,17 +248,8 @@ export function OnlineVodDetailPage(): ReactNode {
       </nav>
 
       <div className="flex flex-col gap-5 sm:flex-row">
-        {/* posterRef 恒 null:渲染主题占位,绝不渲染 img/外部地址(DESIGN.md 媒体 token) */}
-        <div
-          className="flex w-full max-w-md items-center justify-center text-sm text-muted"
-          style={{
-            aspectRatio: 'var(--hmp-media-ratio-poster)',
-            backgroundColor: 'var(--hmp-media-poster-placeholder)',
-            borderRadius: 'var(--hmp-media-card-radius)',
-          }}
-        >
-          无海报
-        </div>
+        {/* 海报:有 posterRef 走同源代理(失败回落占位);无则主题占位 */}
+        {preview.posterRef !== null ? <DetailPosterImage posterRef={preview.posterRef} /> : <DetailPosterPlaceholder />}
         <div className="flex min-w-0 flex-col gap-3">
           <h1 className="text-2xl font-semibold text-foreground">{preview.title}</h1>
           <p className="text-sm text-muted">

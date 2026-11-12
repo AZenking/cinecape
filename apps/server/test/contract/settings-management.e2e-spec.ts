@@ -106,7 +106,7 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
     expect(newLogin.status).toBe(200);
   });
 
-  it('GET/PATCH /settings/household:HouseholdSettings 投影;PATCH 当次密码+CAS 保存', async () => {
+  it('GET/PATCH /settings/household:HouseholdSettings 投影;PATCH CAS 保存(013 起免当次密码)', async () => {
     const { app, cookie } = await rig('hmp-t122-household-');
     const got = await request(app.getHttpServer()).get('/api/settings/household').set('Cookie', cookie);
     expect(got.status).toBe(200);
@@ -125,7 +125,6 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
       .set('Cookie', cookie)
       .send({
         expectedVersion: 1,
-        ownerPassword: MANAGEMENT_OWNER_PASSWORD,
         name: '改后的家',
         language: 'zh-CN',
         timezone: 'America/New_York',
@@ -138,7 +137,7 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
     const stale = await request(app.getHttpServer())
       .patch('/api/settings/household')
       .set('Cookie', cookie)
-      .send({ expectedVersion: 1, ownerPassword: MANAGEMENT_OWNER_PASSWORD, name: '过期写入' });
+      .send({ expectedVersion: 1, name: '过期写入' });
     expect(stale.status).toBe(409);
     expect(stale.body.code).toBe('VERSION_CONFLICT');
     expect(stale.body.name).toBeUndefined();
@@ -147,7 +146,6 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
       .set('Cookie', cookie)
       .send({
         expectedVersion: 2,
-        ownerPassword: MANAGEMENT_OWNER_PASSWORD,
         name: 'X',
         householdId: '00000000-0000-4000-8000-000000000000',
       });
@@ -157,13 +155,12 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
       .set('Cookie', cookie)
       .send({
         expectedVersion: 2,
-        ownerPassword: MANAGEMENT_OWNER_PASSWORD,
         timezone: 'Mars/Olympus_Mons',
       });
     expect(badTz.status).toBe(400);
   });
 
-  it('GET/POST /settings/profiles + PATCH {id}:ProfileSummary 投影、当次密码、expectedVersion CAS、主档案守卫', async () => {
+  it('GET/POST /settings/profiles + PATCH {id}:ProfileSummary 投影、免当次密码创建、expectedVersion CAS、主档案守卫', async () => {
     const { app, cookie, mainProfileId } = await rig('hmp-t122-profiles-');
     const listed = await request(app.getHttpServer()).get('/api/settings/profiles').set('Cookie', cookie);
     expect(listed.status).toBe(200);
@@ -193,29 +190,30 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
     const childId = created.body.id as string;
     expect(created.body.version).toBe(1);
 
-    // 缺当次密码 → 403 REQUIRED;错误密码沿用既有计数
-    const missingPassword = await request(app.getHttpServer())
+    // 013 契约:创建/常规编辑不再接受 ownerPassword 字段(strictObject 携带即 400)
+    const withPassword = await request(app.getHttpServer())
       .post('/api/settings/profiles')
       .set('Cookie', cookie)
-      .send({ name: '无密码', type: 'adult' });
-    expect(missingPassword.status).toBe(403);
-    expect(missingPassword.body.code).toBe('PARENT_VERIFICATION_REQUIRED');
+      .send({ name: '带密码', type: 'adult', ownerPassword: MANAGEMENT_OWNER_PASSWORD });
+    expect(withPassword.status).toBe(400);
+    expect(withPassword.body.code).toBe('VALIDATION_FAILED');
 
-    // 编辑:CAS 成功 → version+1;旧版本 409 不覆盖
+    // 编辑:CAS 成功 → version+1;旧版本 409 不覆盖(013 起纯字段编辑免当次密码)
     const edited = await request(app.getHttpServer())
       .patch(`/api/settings/profiles/${childId}`)
       .set('Cookie', cookie)
-      .send({ expectedVersion: 1, ownerPassword: MANAGEMENT_OWNER_PASSWORD, name: '儿童改名' });
+      .send({ expectedVersion: 1, name: '儿童改名' });
     expect(edited.status).toBe(200);
     expect(edited.body.version).toBe(2);
     const stale = await request(app.getHttpServer())
       .patch(`/api/settings/profiles/${childId}`)
       .set('Cookie', cookie)
-      .send({ expectedVersion: 1, ownerPassword: MANAGEMENT_OWNER_PASSWORD, name: '静默覆盖' });
+      .send({ expectedVersion: 1, name: '静默覆盖' });
     expect(stale.status).toBe(409);
     expect(stale.body.code).toBe('VERSION_CONFLICT');
 
-    // 主档案守卫:clearPin 400;停用主档案 409 MAIN_PROFILE_CONFLICT
+    // 主档案守卫:clearPin 400(条件密码闸:clearPin 仍要求当次密码,此处携带正确密码);
+    // 停用主档案 409 MAIN_PROFILE_CONFLICT
     const clearMain = await request(app.getHttpServer())
       .patch(`/api/settings/profiles/${mainProfileId}`)
       .set('Cookie', cookie)
@@ -224,15 +222,15 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
     const disableMain = await request(app.getHttpServer())
       .patch(`/api/settings/profiles/${mainProfileId}`)
       .set('Cookie', cookie)
-      .send({ expectedVersion: 1, ownerPassword: MANAGEMENT_OWNER_PASSWORD, status: 'disabled' });
+      .send({ expectedVersion: 1, status: 'disabled' });
     expect(disableMain.status).toBe(409);
     expect(disableMain.body.code).toBe('MAIN_PROFILE_CONFLICT');
 
-    // 停用普通档案成功 → 响应 disabled;再停用最后一个可用档案(主档案)已由上行覆盖
+    // 停用普通档案成功 → 响应 disabled(013 起非 PIN 字段免当次密码);再停用最后一个可用档案(主档案)已由上行覆盖
     const disabled = await request(app.getHttpServer())
       .patch(`/api/settings/profiles/${childId}`)
       .set('Cookie', cookie)
-      .send({ expectedVersion: 2, ownerPassword: MANAGEMENT_OWNER_PASSWORD, status: 'disabled' });
+      .send({ expectedVersion: 2, status: 'disabled' });
     expect(disabled.status).toBe(200);
     expect(disabled.body.status).toBe('disabled');
   });
@@ -265,16 +263,17 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
     expect(Object.keys(transferred.body).sort()).toEqual(['mainProfileId', 'mainProfileVersion']);
     expect(transferred.body.mainProfileId).toBe(targetId);
     expect(transferred.body.mainProfileVersion).toBe(mainProfileVersion + 1);
-    // 转移完成撤销全部设置授予:当前会话立即 403 SETTINGS_ACCESS_REQUIRED
+    // 转移完成:当前会话活动档案已非主档案 → 立即 403 FORBIDDEN(013 SettingsGuard)
     const afterTransfer = await request(app.getHttpServer()).get('/api/settings/account').set('Cookie', cookie);
     expect(afterTransfer.status).toBe(403);
-    expect(afterTransfer.body.code).toBe('SETTINGS_ACCESS_REQUIRED');
-    // 旧主档案不再是主档案;最后一档停用守卫仍有效
+    expect(afterTransfer.body.code).toBe('FORBIDDEN');
+    // 旧主档案不再是主档案;管理读同样被拒
     const list = await request(app.getHttpServer()).get('/api/settings/profiles').set('Cookie', cookie);
-    expect(list.status).toBe(403); // 授予已撤销,读取同样被拒
+    expect(list.status).toBe(403);
+    expect(list.body.code).toBe('FORBIDDEN');
   });
 
-  it('GET/PUT policy 与 policy/lists:继承 002 字段,当次密码+CAS', async () => {
+  it('GET/PUT policy 与 policy/lists:继承 002 字段,CAS(013 起免当次密码)', async () => {
     const { app, cookie, mainProfileId } = await rig('hmp-t122-policy-');
     const got = await request(app.getHttpServer())
       .get(`/api/settings/profiles/${mainProfileId}/policy`)
@@ -287,7 +286,6 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
       .put(`/api/settings/profiles/${mainProfileId}/policy`)
       .set('Cookie', cookie)
       .send({
-        ownerPassword: MANAGEMENT_OWNER_PASSWORD,
         expectedVersion: 1,
         policy: { maxContentLevel: 12, allowUnrated: false },
       });
@@ -299,7 +297,6 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
       .put(`/api/settings/profiles/${mainProfileId}/policy/lists`)
       .set('Cookie', cookie)
       .send({
-        ownerPassword: MANAGEMENT_OWNER_PASSWORD,
         expectedVersion: 2,
         allowedMediaIds: [],
         blockedMediaIds: [],
@@ -312,7 +309,6 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
       .put(`/api/settings/profiles/${mainProfileId}/policy`)
       .set('Cookie', cookie)
       .send({
-        ownerPassword: MANAGEMENT_OWNER_PASSWORD,
         expectedVersion: 1,
         policy: { maxContentLevel: 18, allowUnrated: true },
       });
@@ -336,7 +332,6 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
         .post('/api/settings/sources')
         .set('Cookie', cookie)
         .send({
-          ownerPassword: MANAGEMENT_OWNER_PASSWORD,
           kind: 'iptv',
           name: '直播源',
           enabled: true,
@@ -360,7 +355,7 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
       const patched = await request(app.getHttpServer())
         .patch(`/api/settings/sources/${sourceId}`)
         .set('Cookie', cookie)
-        .send({ ownerPassword: MANAGEMENT_OWNER_PASSWORD, expectedVersion: 1, name: '直播源改名' });
+        .send({ expectedVersion: 1, name: '直播源改名' });
       expect(patched.status).toBe(200);
       expect(patched.body.version).toBe(2);
 
@@ -372,7 +367,7 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
       const refresh = await request(app.getHttpServer())
         .post(`/api/settings/sources/${sourceId}/refresh`)
         .set('Cookie', cookie)
-        .send({ ownerPassword: MANAGEMENT_OWNER_PASSWORD, expectedVersion: 2, operationKey: crypto.randomUUID() });
+        .send({ expectedVersion: 2, operationKey: crypto.randomUUID() });
       expect(refresh.status, JSON.stringify(refresh.body)).toBe(202);
       expect(refresh.headers.location).toBe(`/api/settings/refreshes/${refresh.body.id}`);
 
@@ -387,11 +382,11 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
       }
       expect(status).toBe('succeeded');
 
-      // catalog 候选查询(密码必填)+ 人工修正 CAS
+      // catalog 候选查询(013 起免当次密码)+ 人工修正 CAS
       const candidates = await request(app.getHttpServer())
         .post('/api/settings/catalog/candidates/query')
         .set('Cookie', cookie)
-        .send({ ownerPassword: MANAGEMENT_OWNER_PASSWORD, page: 1, pageSize: 20 });
+        .send({ page: 1, pageSize: 20 });
       expect(candidates.status).toBe(200);
       expect(candidates.body.total).toBe(2);
       const mediaId = candidates.body.items[0].id as string;
@@ -399,7 +394,6 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
         .patch(`/api/settings/catalog/media/${mediaId}`)
         .set('Cookie', cookie)
         .send({
-          ownerPassword: MANAGEMENT_OWNER_PASSWORD,
           expectedVersion: 1,
           title: '人工标题',
           contentLevel: 12,
@@ -421,7 +415,6 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
         .post('/api/settings/sources')
         .set('Cookie', cookie)
         .send({
-          ownerPassword: MANAGEMENT_OWNER_PASSWORD,
           kind: 'nas',
           name: '丢弃实验',
           rootKey: 'nas-main',
@@ -434,7 +427,7 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
       const first = await request(app.getHttpServer())
         .post(`/api/settings/sources/${sourceId}/refresh`)
         .set('Cookie', cookie)
-        .send({ ownerPassword: MANAGEMENT_OWNER_PASSWORD, expectedVersion: versionBeforeFirst, operationKey: crypto.randomUUID() });
+        .send({ expectedVersion: versionBeforeFirst, operationKey: crypto.randomUUID() });
       expect(first.status, JSON.stringify(first.body)).toBe(202);
       await waitStatus(app, cookie, first.body.id as string, 'succeeded');
 
@@ -445,21 +438,21 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
       const second = await request(app.getHttpServer())
         .post(`/api/settings/sources/${sourceId}/refresh`)
         .set('Cookie', cookie)
-        .send({ ownerPassword: MANAGEMENT_OWNER_PASSWORD, expectedVersion: versionBeforeSecond, operationKey: crypto.randomUUID() });
+        .send({ expectedVersion: versionBeforeSecond, operationKey: crypto.randomUUID() });
       expect(second.status, JSON.stringify(second.body)).toBe(202);
       const awaiting = await waitStatus(app, cookie, second.body.id as string, 'awaiting_confirmation', 'failed');
       expect(awaiting.status).toBe('awaiting_confirmation');
-      // discard:当次密码+任务当前 version;上次成功目录保留
+      // discard:任务当前 version(013 起免当次密码);上次成功目录保留
       const discarded = await request(app.getHttpServer())
         .post(`/api/settings/refreshes/${second.body.id}/discard`)
         .set('Cookie', cookie)
-        .send({ ownerPassword: MANAGEMENT_OWNER_PASSWORD, expectedVersion: awaiting.version });
+        .send({ expectedVersion: awaiting.version });
       expect(discarded.status, JSON.stringify(discarded.body)).toBe(200);
       expect(discarded.body.status).toBe('discarded');
       const candidates = await request(app.getHttpServer())
         .post('/api/settings/catalog/candidates/query')
         .set('Cookie', cookie)
-        .send({ ownerPassword: MANAGEMENT_OWNER_PASSWORD, page: 1, pageSize: 20 });
+        .send({ page: 1, pageSize: 20 });
       expect(candidates.body.total).toBe(2); // 失败/丢弃不清上次成功目录(FR-037)
     });
   });
@@ -478,7 +471,6 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
         .post('/api/settings/sources')
         .set('Cookie', cookie)
         .send({
-          ownerPassword: MANAGEMENT_OWNER_PASSWORD,
           kind: 'iptv',
           name: '直播',
           remoteUrl: 'http://media.example.tv/live.m3u',
@@ -496,7 +488,6 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
         .post('/api/settings/sources')
         .set('Cookie', cookie)
         .send({
-          ownerPassword: MANAGEMENT_OWNER_PASSWORD,
           kind: 'epg',
           name: '节目单',
           remoteUrl: 'http://media.example.tv/guide.xml',
@@ -510,20 +501,20 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
       const refreshed = await request(app.getHttpServer())
         .post(`/api/settings/sources/${iptv.body.id}/refresh`)
         .set('Cookie', cookie)
-        .send({ ownerPassword: MANAGEMENT_OWNER_PASSWORD, expectedVersion: 1, operationKey: crypto.randomUUID() });
+        .send({ expectedVersion: 1, operationKey: crypto.randomUUID() });
       expect(refreshed.status).toBe(202);
       await waitStatus(app, cookie, refreshed.body.id as string, 'succeeded');
       const candidates = await request(app.getHttpServer())
         .post('/api/settings/catalog/candidates/query')
         .set('Cookie', cookie)
-        .send({ ownerPassword: MANAGEMENT_OWNER_PASSWORD, page: 1, pageSize: 20 });
+        .send({ page: 1, pageSize: 20 });
       const channelId = candidates.body.items[0].id as string;
 
-      // 绑定状态查询:auto / version 0(无行)
+      // 绑定状态查询:auto / version 0(无行;013 起请求体为空对象)
       const binding = await request(app.getHttpServer())
         .post(`/api/settings/catalog/media/${channelId}/epg-binding/query`)
         .set('Cookie', cookie)
-        .send({ ownerPassword: MANAGEMENT_OWNER_PASSWORD });
+        .send({});
       expect(binding.status).toBe(200);
       expect(binding.body).toMatchObject({ mediaId: channelId, mode: 'auto', version: 0 });
 
@@ -531,7 +522,7 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
       const epgCandidates = await request(app.getHttpServer())
         .post(`/api/settings/catalog/media/${channelId}/epg-candidates/query`)
         .set('Cookie', cookie)
-        .send({ ownerPassword: MANAGEMENT_OWNER_PASSWORD, epgSourceId: epgId, page: 1, pageSize: 20 });
+        .send({ epgSourceId: epgId, page: 1, pageSize: 20 });
       expect(epgCandidates.status).toBe(422);
       expect(epgCandidates.body.code).toBe('EPG_SOURCE_NOT_READY');
 
@@ -539,20 +530,20 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
       const unbound = await request(app.getHttpServer())
         .put(`/api/settings/catalog/media/${channelId}/epg-binding`)
         .set('Cookie', cookie)
-        .send({ ownerPassword: MANAGEMENT_OWNER_PASSWORD, expectedVersion: 0, mode: 'auto' });
+        .send({ expectedVersion: 0, mode: 'auto' });
       expect(unbound.status).toBe(200);
       expect(unbound.body.mode).toBe('auto');
       // 旧 expectedVersion 409
       const staleUnbind = await request(app.getHttpServer())
         .put(`/api/settings/catalog/media/${channelId}/epg-binding`)
         .set('Cookie', cookie)
-        .send({ ownerPassword: MANAGEMENT_OWNER_PASSWORD, expectedVersion: 0, mode: 'auto' });
+        .send({ expectedVersion: 0, mode: 'auto' });
       expect(staleUnbind.status).toBe(409);
     });
   });
 
   describe('devices 三组', () => {
-    it('GET /settings/devices 列表;revoke 当次密码撤目标设备;playback-records/query 空页', async () => {
+    it('GET /settings/devices 列表;revoke 单次当次密码撤目标设备;playback-records/query 空页(免密码)', async () => {
       const { app, cookie } = await rig('hmp-t122-devices-');
       // 第二台设备登录(未选档)
       const secondLogin = await login(app, INITIALIZE_BODY.username, INITIALIZE_BODY.password, {
@@ -571,7 +562,7 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
       const target = devices.find((device) => device.type === 'mobile');
       expect(target, '夹具应含 mobile 设备').toBeDefined();
 
-      // 撤销第二台设备(当次密码;204)→ 其会话立即失效
+      // 撤销第二台设备(不可逆高危操作,保留单次当次密码;204)→ 其会话立即失效
       const revoked = await request(app.getHttpServer())
         .post(`/api/settings/devices/${target!.id}/revoke`)
         .set('Cookie', cookie)
@@ -581,11 +572,11 @@ describe('T122 · settings 管理路由代表性读写(api.md §6 正向)', () =
       const secondRestore = await request(app.getHttpServer()).get('/api/auth/session').set('Cookie', secondCookie);
       expect(secondRestore.status).toBe(401);
 
-      // 播放记录查询:当次密码;空页形态 {items,nextCursor}
+      // 播放记录查询(013 起免当次密码,请求体为空对象);空页形态 {items,nextCursor}
       const records = await request(app.getHttpServer())
         .post(`/api/settings/devices/${target!.id}/playback-records/query`)
         .set('Cookie', cookie)
-        .send({ ownerPassword: MANAGEMENT_OWNER_PASSWORD });
+        .send({});
       expect(records.status).toBe(200);
       expect(Object.keys(records.body).sort()).toEqual(['items', 'nextCursor']);
       expect(records.body.items).toEqual([]);

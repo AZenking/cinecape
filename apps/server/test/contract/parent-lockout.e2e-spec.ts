@@ -17,26 +17,36 @@ import {
 import { ensureSettingsUnlocked } from '../helpers-management';
 
 /**
- * T020(US3 契约 e2e):家长验证锁定 —— FR-011/SC-004。
+ * T020(US3 契约 e2e):家长验证锁定 —— FR-011/SC-004;013-role-differentiated-settings/
+ * ADR-0017 后锁定路径改挂在保留端点 POST /settings/devices/{deviceId}/revoke
+ * (不可逆高危操作,单次当次密码)继续覆盖 423 语义;常规端点不再触达计数。
  * 计数按账号共享(跨会话/换浏览器)、重启保留;锁定中正确密码也拒绝;成功清零。
  */
 
 const PASSWORD = INITIALIZE_BODY.password;
 
-function patchRename(app: INestApplication, cookie: string, profileId: string, ownerPassword: string | undefined) {
+/** 撤销目标设备(保留端点;ownerPassword 缺省 = 缺密码负向) */
+function revokeDevice(app: INestApplication, cookie: string, deviceId: string, ownerPassword?: string) {
   return request(app.getHttpServer())
-    .patch(`/api/settings/profiles/${profileId}`)
+    .post(`/api/settings/devices/${deviceId}/revoke`)
     .set('Cookie', cookie)
-    .send({
-      name: `名字-${Math.random().toString(36).slice(2, 6)}`,
-      clearPin: false,
-      expectedVersion: 1,
-      ...(ownerPassword !== undefined ? { ownerPassword } : {}),
-    })
+    .send(ownerPassword !== undefined ? { ownerPassword } : {})
     .then((r) => r);
 }
 
-describe('US3 家长验证锁定(账号范围共享,FR-011)', () => {
+/** 另登一台独立设备作为可撤销目标(撤销成功 = 204 的正向锚点);deviceId 取自库内会话行 */
+async function secondDeviceWithId(app: INestApplication): Promise<string> {
+  const secondLogin = await login(app, INITIALIZE_BODY.username, PASSWORD, { deviceType: 'mobile', deviceName: '可撤销手机' });
+  expect(secondLogin.status).toBe(200);
+  const sessionId = (secondLogin.body as { sessionId: string }).sessionId;
+  const row = Database.db.prepare('SELECT device_id AS d FROM device_session WHERE id = ?').get(sessionId) as
+    | { d: string }
+    | undefined;
+  expect(row, '登录应产生库内会话行').toBeDefined();
+  return row!.d;
+}
+
+describe('US3 家长验证锁定(账号范围共享,FR-011;013 后挂保留端点设备撤销)', () => {
   afterEach(cleanupRigs);
 
   it('连续 5 次错误 → 锁定;锁定中正确密码也 423;换新登录会话仍锁定(计数按账号共享)', async () => {
@@ -46,18 +56,15 @@ describe('US3 家长验证锁定(账号范围共享,FR-011)', () => {
     const loggedIn = await login(rig.app, INITIALIZE_BODY.username, PASSWORD);
     const cookie = cookiePairOf(loggedIn);
     await ensureSettingsUnlocked(rig.app, cookie);
-    const created = await request(rig.app.getHttpServer())
-      .post('/api/settings/profiles')
-      .set('Cookie', cookie)
-      .send({ name: '目标', type: 'adult', ownerPassword: PASSWORD });
-    const profileId = created.body.id as string;
+    // 预置第二台设备作为撤销目标(锁定期内不会被真撤销)
+    const victimDeviceId = await secondDeviceWithId(rig.app);
 
     for (let i = 0; i < 5; i += 1) {
-      const res = await patchRename(rig.app, cookie, profileId, 'wrong-password');
+      const res = await revokeDevice(rig.app, cookie, victimDeviceId, `wrong-password-${i}`);
       expect(res.status).toBe(403);
       expect(res.body.code).toBe(ProblemCode.PARENT_VERIFICATION_FAILED);
     }
-    const locked = await patchRename(rig.app, cookie, profileId, PASSWORD);
+    const locked = await revokeDevice(rig.app, cookie, victimDeviceId, PASSWORD);
     expect(locked.status).toBe(423);
     expectProblemContentType(locked);
     expect(locked.body.code).toBe(ProblemCode.PARENT_VERIFICATION_LOCKED);
@@ -67,52 +74,48 @@ describe('US3 家长验证锁定(账号范围共享,FR-011)', () => {
     expect(secondLogin.status).toBe(200);
     const cookieB = cookiePairOf(secondLogin);
     await ensureSettingsUnlocked(rig.app, cookieB); // 新会话同样需要设置解锁才能发起管理写
-    const stillLocked = await patchRename(rig.app, cookieB, profileId, PASSWORD);
+    const stillLocked = await revokeDevice(rig.app, cookieB, victimDeviceId, PASSWORD);
     expect(stillLocked.status).toBe(423);
     expect(stillLocked.body.code).toBe(ProblemCode.PARENT_VERIFICATION_LOCKED);
 
     // 重启应用:锁定保留(状态落库);005 启动撤销 grants → 重新解锁设置
     await restartApp(rig);
     await ensureSettingsUnlocked(rig.app, cookie);
-    const afterRestart = await patchRename(rig.app, cookie, profileId, PASSWORD);
+    const afterRestart = await revokeDevice(rig.app, cookie, victimDeviceId, PASSWORD);
     expect(afterRestart.status).toBe(423);
     expect(afterRestart.body.code).toBe(ProblemCode.PARENT_VERIFICATION_LOCKED);
 
-    // 窗口到期(直写过去时刻)→ 正确密码恢复可用,计数清零
+    // 窗口到期(直写过去时刻)→ 正确密码恢复可用(真撤销 204),计数清零
     Database.db
       .prepare('UPDATE parent_verification_state SET locked_until = ?')
       .run(new Date(Date.now() - 1000).toISOString());
-    const recovered = await patchRename(rig.app, cookie, profileId, PASSWORD);
-    expect(recovered.status).toBe(200);
+    const recovered = await revokeDevice(rig.app, cookie, victimDeviceId, PASSWORD);
+    expect(recovered.status).toBe(204);
     expect(
       Database.db.prepare('SELECT COUNT(*) AS n FROM parent_verification_state').get() as { n: number },
     ).toMatchObject({ n: 0 });
   });
 
-  it('成功验证清零计数:2 次错误后成功 → 状态清空;再错从 1 起算', async () => {
+  it('成功验证清零计数:2 次错误后成功撤销 → 状态清空;再错从 1 起算', async () => {
     const rig = await startFreshApp({ prefix: 'hmp-lock-' });
     await initialize(rig.app);
     const loggedIn = await login(rig.app, INITIALIZE_BODY.username, PASSWORD);
     const cookie = cookiePairOf(loggedIn);
     await ensureSettingsUnlocked(rig.app, cookie);
-    const created = await request(rig.app.getHttpServer())
-      .post('/api/settings/profiles')
-      .set('Cookie', cookie)
-      .send({ name: '目标', type: 'adult', ownerPassword: PASSWORD });
-    const profileId = created.body.id as string;
+    const victimDeviceId = await secondDeviceWithId(rig.app);
 
-    await patchRename(rig.app, cookie, profileId, 'wrong-1');
-    await patchRename(rig.app, cookie, profileId, 'wrong-2');
+    await revokeDevice(rig.app, cookie, victimDeviceId, 'wrong-password-1');
+    await revokeDevice(rig.app, cookie, victimDeviceId, 'wrong-password-2');
     const state = Database.db
       .prepare('SELECT failed_attempts FROM parent_verification_state')
       .get() as { failed_attempts: number };
     expect(state.failed_attempts).toBe(2);
 
-    const ok = await patchRename(rig.app, cookie, profileId, PASSWORD);
-    expect(ok.status).toBe(200);
+    const ok = await revokeDevice(rig.app, cookie, victimDeviceId, PASSWORD);
+    expect(ok.status).toBe(204);
     expect(Database.db.prepare('SELECT COUNT(*) AS n FROM parent_verification_state').get()).toMatchObject({ n: 0 });
 
-    await patchRename(rig.app, cookie, profileId, 'wrong-3');
+    await revokeDevice(rig.app, cookie, victimDeviceId, 'wrong-password-3');
     expect(
       (Database.db.prepare('SELECT failed_attempts FROM parent_verification_state').get() as { failed_attempts: number })
         .failed_attempts,

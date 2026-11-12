@@ -82,6 +82,10 @@ const EXPECTED_TABLES = [
   'playback_input_binding',
   'playback_transition_intent',
   'playback_transition_slot',
+  // 0008_profile_preferences(013):个人偏好表
+  'profile_preferences',
+  // 0009_channel_logos(014):频道 Logo 胜者注册表
+  'channel_logo',
   '_migrations',
 ] as const;
 
@@ -91,8 +95,8 @@ const EXPECTED_TABLES = [
  * 键为表名,值为必须存在的列。对照 database.ts 的 REQUIRED_COLUMNS 与 0004/0005/0006 up.sql。
  */
 const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  // 0004_manual_epg_binding(ADR-0008)
-  media_source: ['epg_generation', 'locator_revision'],
+  // 0004_manual_epg_binding(ADR-0008);0010_multi_source_priority(016):多源优先级(016 data-model §1.1,默认 100)
+  media_source: ['epg_generation', 'locator_revision', 'priority'],
   manual_epg_binding: [
     'household_id',
     'media_id',
@@ -125,8 +129,22 @@ const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   household: ['version', 'main_profile_version'],
   account: ['credential_version'],
   profile: ['is_main', 'pin_version', 'version'],
-  media_item: ['content_revision', 'media_role'],
-  source_entry: ['group_title'],
+  media_item: ['content_revision', 'media_role', 'visible'],
+  source_entry: ['group_title', 'logo_url'],
+  // 0009_channel_logos(014):EPG 频道图标原始地址与胜者注册表(014 data-model §1/§2)
+  epg_channel: ['icon_url'],
+  channel_logo: [
+    'household_id',
+    'media_id',
+    'ref',
+    'upstream_url',
+    'source_kind',
+    'source_id',
+    'revision',
+    'revoked_at',
+    'created_at',
+    'updated_at',
+  ],
   // 0006_pc_experience(T006):五张新表关键列(对照 005 data-model §3~§7)
   settings_access_grant: [
     'household_id',
@@ -266,6 +284,16 @@ const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
     'autoplay_next',
     'switch_carry_position',
     'version',
+  ],
+  profile_preferences: [
+    'household_id',
+    'profile_id',
+    'default_audio_language',
+    'default_subtitle_language',
+    'auto_play_next',
+    'theme_mode',
+    'poster_density',
+    'updated_at',
   ],
   profile_vod_preference_operation: [
     'household_id',
@@ -540,9 +568,21 @@ const ONLINE_VOD_DOWN_GUARD_TABLES = [
 ] as const;
 
 function assertDownAllowed(db: DbHandle, migration: MigrationFile): void {
-  if (migration.name !== '0007_online_vod') return;
   const nonEmpty: string[] = [];
   const countRows = (sql: string): number => (db.prepare(sql).get() as { n: number }).n;
+
+  // 0008(013):个人偏好非空时拒绝破坏性回滚
+  if (migration.name === '0008_profile_preferences') {
+    const n = countRows('SELECT COUNT(*) AS n FROM profile_preferences');
+    if (n > 0) {
+      throw new Error(
+        `[down] 个人偏好数据非空,拒绝破坏性回滚 0008_profile_preferences(profile_preferences=${n});` +
+          '正式回滚请使用升级前一致备份+匹配镜像,临时空库方可 down 演练',
+      );
+    }
+    return;
+  }
+  if (migration.name !== '0007_online_vod') return;
   for (const table of ONLINE_VOD_DOWN_GUARD_TABLES) {
     const n = countRows(`SELECT COUNT(*) AS n FROM ${table}`);
     if (n > 0) nonEmpty.push(`${table}=${n}`);

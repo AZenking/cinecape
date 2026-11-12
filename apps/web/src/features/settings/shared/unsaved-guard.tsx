@@ -13,7 +13,8 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router';
-import { Button } from '@heroui/react';
+// 弹层统一使用 HeroUI Modal(宪章技术约束第 5 条:模态框与对话框禁用原生/自定义遮罩实现)
+import { Button, Modal } from '@heroui/react';
 
 export interface UnsavedGuardApi {
   /** 当前是否存在未保存编辑(任一登记页面的脏状态) */
@@ -129,25 +130,31 @@ export function UnsavedGuardProvider({ children }: { children: ReactNode }): Rea
       confirmDiscard: openConfirm,
       dialog:
         pendingTarget === null ? null : (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" data-testid="unsaved-overlay">
-            <div
-              role="alertdialog"
-              aria-modal="true"
-              aria-label="未保存的编辑"
-              className="max-w-md rounded border border-border bg-surface p-4 shadow-lg"
-            >
-              <h2 className="text-base font-semibold text-foreground">未保存的编辑</h2>
-              <p role="alert" className="mt-2 text-sm text-warning">{message}</p>
-              <div className="mt-4 flex justify-end gap-2">
-                <Button variant="ghost" size="sm" onPress={() => settle(false)} data-testid="unsaved-continue" autoFocus>
-                  继续编辑
-                </Button>
-                <Button variant="danger" size="sm" onPress={() => settle(true)} data-testid="unsaved-discard">
-                  放弃编辑并离开
-                </Button>
-              </div>
-            </div>
-          </div>
+          <Modal.Backdrop
+            isOpen
+            onOpenChange={(open) => {
+              // Esc/点击遮罩关闭 = 「继续编辑」语义(不放弃编辑)
+              if (!open) {
+                settle(false);
+              }
+            }}
+            data-testid="unsaved-overlay"
+          >
+            <Modal.Container placement="center" size="sm">
+              <Modal.Dialog role="alertdialog" aria-label="未保存的编辑" className="gap-3">
+                <h2 className="text-base font-semibold text-foreground">未保存的编辑</h2>
+                <p role="alert" className="text-sm text-warning">{message}</p>
+                <div className="mt-1 flex justify-end gap-2">
+                  <Button variant="ghost" size="sm" onPress={() => settle(false)} data-testid="unsaved-continue" autoFocus>
+                    继续编辑
+                  </Button>
+                  <Button variant="danger" size="sm" onPress={() => settle(true)} data-testid="unsaved-discard">
+                    放弃编辑并离开
+                  </Button>
+                </div>
+              </Modal.Dialog>
+            </Modal.Container>
+          </Modal.Backdrop>
         ),
       setDirty,
     }),

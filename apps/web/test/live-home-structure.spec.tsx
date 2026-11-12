@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
+import { useLocation } from 'react-router';
 import { LivePage } from '../src/features/live/LivePage';
 import { panelStatusOf } from '../src/features/live/LivePage';
 import { ActionCoordinator } from '../src/app/action-coordinator';
@@ -17,20 +18,21 @@ import {
 import { LIVE_SESSION_STATES, renderLiveWorld } from './helpers/live-world';
 
 /**
- * 012 T014(US2,测试先行)· 直播首页结构与 Now Hero 语义(FR-010/FR-012、ui.md §2):
+ * 012 T014(US2,测试先行;015 T010 装配更新)· 直播首页结构与 Hero 语义
+ * (012 FR-010/FR-012、ui.md §2 → 015 FR-002、ui-layout.md §1):
  *
- * - 页面顺序(FR-010):所有节目单入口 → 此刻直播精选 Hero(第一视觉,非分区)→
- *   正在直播 → 即将播放 → 按类型(各来源主分组);断言 region 锚点在 DOM 中的出现顺序;
- * - Now Hero 六信息(FR-010):频道标识(频道名)、当前节目、直播状态、进度、
- *   起止时间(家庭时区)、「播放」主按钮;且必须是直播状态横幅而非点播宣传位;
+ * - 页面顺序:直播精选大屏(直接播放 Hero,第一视觉,非分区;015 T008 起
+ *   替代 012 此刻直播精选静态横幅)→
+ *   正在直播 → 即将播放 → 各分类逐行平铺泳道(015 CategorySwimlanes);
+ *   断言 region 锚点在 DOM 中的出现顺序;
+ * - Hero 信息(FR-002/012 FR-010 语义延续):频道标识(频道名)、当前节目、
+ *   直播状态(文字 + 状态点)、进度、起止时间(家庭时区)、全屏播放主操作
+ *   (统一播放入口;游客态呈现「直接收看」);且必须是直播状态大屏而非点播宣传位;
  * - 无节目单频道(FR-012/T018):卡片保留频道身份 +「暂无节目」占位 + 仍可播放;
  *   面板侧(共享详情面板宿主,T016)双 null 频道映射为 status='none'——
  *   面板保留频道身份 +「暂无节目单」且主操作仍可播放(ui.md §2.5);
  * - 面板状态映射(T016/T018):now/upcoming 由 kind+serverNowIso 推导,
  *   upcoming 无「播放当前频道」主操作(ui.md §1.6)。
- *
- * 实现前置说明:T014 落笔时 Now Hero 尚无进度表达、无节目面板入口尚未接线 ——
- * 对应断言预期先红,随 T016/T017/T018 转绿(测试先行,不以 skip 掩盖)。
  *
  * 运行环境:jsdom(vitest.config.ts);会话档位 guest(公共浏览,FR-004)。
  */
@@ -82,6 +84,12 @@ function installLiveFetchMock(channelOverrides?: Record<string, unknown>): LiveF
   return { channelsCalls: () => channels };
 }
 
+/** 内存路由探针(015 T004):断言瓦片卡 current 档文字区导航 /live/watch/:channelId */
+function RouteProbe(): ReactNode {
+  const location = useLocation();
+  return <span data-testid="route-probe">{location.pathname}</span>;
+}
+
 /** renderLiveWorld 挂载 LivePage(guest 会话;统一协调器为 PlayButton/Notice 必需宿主) */
 function renderLivePage(initialEntry = '/live'): ReturnType<typeof renderLiveWorld> {
   return renderLiveWorld(<LivePage />, {
@@ -89,7 +97,10 @@ function renderLivePage(initialEntry = '/live'): ReturnType<typeof renderLiveWor
     initialEntries: [initialEntry],
     decorate: (ui: ReactNode) => (
       <SettingsAccessProvider>
-        <ActionCoordinator>{ui}</ActionCoordinator>
+        <ActionCoordinator>
+          {ui}
+          <RouteProbe />
+        </ActionCoordinator>
       </SettingsAccessProvider>
     ),
   });
@@ -108,48 +119,48 @@ function expectDocumentOrder(elements: readonly HTMLElement[]): void {
 }
 
 // ---------------------------------------------------------------------------
-// 1 · 页面顺序(FR-010:节目单入口 → 正在直播 → 接下来 → 按类型;Hero 第一视觉)
+// 1 · 页面顺序(直播精选大屏 → 正在直播 → 即将播放 → 各分类;Hero 第一视觉)
 // ---------------------------------------------------------------------------
 
-describe('T014 · 直播首页页面顺序(FR-010)', () => {
+describe('T014 · 直播首页页面顺序', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('顺序为 所有节目单入口 → 此刻直播精选(Hero)→ 正在直播 → 即将播放 → 按类型分组', async () => {
+  it('顺序为 直播精选大屏(Hero)→ 正在直播 → 即将播放 → 各分类逐行泳道', async () => {
     installLiveFetchMock();
     renderLivePage();
 
-    const entry = await screen.findByRole('region', { name: '所有节目单入口' });
-    const hero = await screen.findByRole('region', { name: '此刻直播精选' });
+    const hero = await screen.findByRole('region', { name: '直播精选大屏' });
     const now = screen.getByRole('region', { name: '正在直播' });
     const next = screen.getByRole('region', { name: '即将播放' });
     const groupNews = screen.getByRole('region', { name: '例牌新闻 · 正在直播' });
     const groupDrama = screen.getByRole('region', { name: '例牌剧场 · 正在直播' });
     const groupKids = screen.getByRole('region', { name: '例牌少儿 · 正在直播' });
 
-    expectDocumentOrder([entry, hero, now, next, groupNews, groupDrama, groupKids]);
+    expectDocumentOrder([hero, now, next, groupNews, groupDrama, groupKids]);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 2 · Now Hero 六信息(FR-010;T017 对照补缺落点:进度此前缺失,预期先红)
+// 2 · Hero 信息(FR-002;012 FR-010 六信息语义延续,主操作升级为全屏播放)
 // ---------------------------------------------------------------------------
 
-describe('T014 · Now Hero 六信息(FR-010;T017 核对落点)', () => {
+describe('T014 · Hero 信息(FR-002;015 T008 起 = LiveHeroPlayer 直接播放大屏)', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('表达 频道标识、当前节目、直播状态、进度、起止时间与「播放」主按钮(直播状态横幅,非点播宣传)', async () => {
+  it('表达 频道标识、当前节目、直播状态、进度、起止时间与「全屏播放」主操作(直播状态大屏,非点播宣传)', async () => {
     installLiveFetchMock();
     renderLivePage();
 
-    const hero = await screen.findByRole('region', { name: '此刻直播精选' });
+    const hero = await screen.findByRole('region', { name: '直播精选大屏' });
     const heroScope = within(hero);
 
-    // ① 频道标识(频道名出现在信息层「频道 · 时段 · 进度」整行文本中)
-    expect(heroScope.getByText(/例牌新闻台/)).toBeVisible();
+    // ① 频道标识(014 实施期修订:右上角身份角标名称 chip + 信息层「频道 · 时段 · 进度」
+    //    各出现一次,故按 ≥1 断言而非唯一)
+    expect(heroScope.getAllByText(/例牌新闻台/).length).toBeGreaterThanOrEqual(1);
     // ② 当前节目(标题为 hero 主标题)
     expect(heroScope.getByRole('heading', { name: '例牌正播节目' })).toBeVisible();
     // ③ 直播状态(文字 + 形状点,非仅颜色)
@@ -158,8 +169,9 @@ describe('T014 · Now Hero 六信息(FR-010;T017 核对落点)', () => {
     expect(heroScope.getByText(/19:30–20:30/)).toBeVisible();
     // ⑤ 进度:当前时刻 LIVE_NOW(12:00Z)落在 11:30–12:30Z 中点 → 已播出 50%
     expect(heroScope.getByText(/已播出\s*50%/)).toBeVisible();
-    // ⑥ 「播放」主按钮:统一播放入口(PlayButton;频道语义,指向当前直播)
-    expect(heroScope.getByRole('button', { name: '播放 例牌新闻台 当前直播' })).toBeEnabled();
+    // ⑥ 主操作:统一播放入口(play();本文件会话档位 guest → 游客呈现「直接收看」,
+    //    认证态呈现「全屏播放」,行为同为直接发起播放,015 T008)
+    expect(heroScope.getByRole('button', { name: '直接收看 例牌新闻台' })).toBeEnabled();
   });
 });
 
@@ -176,11 +188,10 @@ describe('T014 · 无节目单频道保留身份(FR-012 卡片)', () => {
     installLiveFetchMock();
     renderLivePage();
 
-    // 桩频道行会同时出现在 正在直播/即将播放/分组 三区(分区查询均返回同集),取任一瓦片断言
-    const title = (await screen.findAllByText('例牌电影频道'))[0]!;
-    const card = title.closest('article');
-    expect(card).not.toBeNull();
-    const cardScope = within(card as HTMLElement);
+    // 桩频道行会同时出现在 正在直播/即将播放/分组 三区(分区查询均返回同集),取任一瓦片断言;
+    // 卡面只展示节目名,频道身份由 article 可读名承载
+    const card = (await screen.findAllByRole('article', { name: '频道 例牌电影频道' }))[0] as HTMLElement;
+    const cardScope = within(card);
 
     expect(cardScope.getByTestId('no-programme')).toHaveTextContent('暂无节目');
     // 频道可用时仍可播放当前内容(FR-012)
@@ -192,10 +203,8 @@ describe('T014 · 无节目单频道保留身份(FR-012 卡片)', () => {
     renderLivePage();
     const user = userEvent.setup();
 
-    const title = (await screen.findAllByText('例牌电影频道'))[0]!;
-    const card = title.closest('article');
-    expect(card).not.toBeNull();
-    await user.click(within(card as HTMLElement).getByTestId('no-programme'));
+    const card = (await screen.findAllByRole('article', { name: '频道 例牌电影频道' }))[0] as HTMLElement;
+    await user.click(within(card).getByTestId('no-programme'));
 
     const dialog = await screen.findByRole('dialog');
     const dialogScope = within(dialog);
@@ -209,6 +218,8 @@ describe('T014 · 无节目单频道保留身份(FR-012 卡片)', () => {
 
 // ---------------------------------------------------------------------------
 // 4 · 面板状态映射(T016 宿主闭包:kind+serverNowIso → now/upcoming;ui.md §1.6)
+//     015 T004 起 current 档节目名改为导航 /live/watch(见上方用例),面板入口
+//     由 upcoming 档与无节目占位承载;'now/ended' 映射由纯函数断言钉住
 // ---------------------------------------------------------------------------
 
 describe('T014 · 直播宿主面板状态映射(FR-013;T016 接线)', () => {
@@ -216,24 +227,21 @@ describe('T014 · 直播宿主面板状态映射(FR-013;T016 接线)', () => {
     vi.unstubAllGlobals();
   });
 
-  it('当前节目面板:状态「正在直播」、起止时间与时长、主操作「播放当前频道」可用', async () => {
+  it('当前节目名点击:015 T004 双层交互 → 导航 /live/watch/:channelId,不再打开节目面板(面板四态映射由下方纯函数断言钉住)', async () => {
     installLiveFetchMock();
     renderLivePage();
     const user = userEvent.setup();
 
-    const currentButton = (await screen.findAllByRole('button', { name: /例牌正播节目/ }))[0]!;
-    await user.click(currentButton);
+    // current 档瓦片(正在直播区首卡 = 例牌新闻台),点击信息区节目名
+    const card = (await screen.findAllByRole('article', { name: '频道 例牌新闻台' }))[0] as HTMLElement;
+    await user.click(within(card).getByRole('button', { name: '例牌正播节目' }));
 
-    const dialog = await screen.findByRole('dialog');
-    const dialogScope = within(dialog);
-    expect(dialogScope.getByText('例牌新闻台')).toBeVisible();
-    expect(dialogScope.getByText('正在直播')).toBeVisible();
-    expect(dialogScope.getByText(/19:30–20:30/)).toBeVisible();
-    expect(dialogScope.getByText(/时长/).textContent).toMatch(/60\s*分钟/);
-    expect(dialogScope.getByRole('button', { name: '播放当前频道' })).toBeEnabled();
-    // 次操作(六要素)
-    expect(dialogScope.getByRole('button', { name: '收藏频道' })).toBeVisible();
-    expect(dialogScope.getByRole('button', { name: '查看节目单' })).toBeVisible();
+    // 015 T004(research.md R5、ui-layout.md §1.2 第 3 条):current 档文字区 = 导航
+    // 观看详情页(路由元素稍后由 015 任务注册,此处断言内存路由已跳转),不开面板
+    expect(screen.getByTestId('route-probe').textContent).toBe(
+      '/live/watch/a0000000-0000-4000-8000-000000000001',
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('即将播放节目面板:状态「即将开始」+ 开播时间,无「播放当前频道」主操作(ui.md §1.6)', async () => {

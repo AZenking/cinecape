@@ -19,7 +19,11 @@ import type { LiveSessionState } from './helpers/live-world';
  * ui.md §2/§3.4),宿主职责断言:
  * - status 推导:节目时段含 serverNow → now;未开始 → upcoming;已结束 → ended
  *   (none 由共享面板组件单测钉面,墙内无节目块不可点,宿主不重复覆盖);
- * - 节目块点击开面板不播放(ui.md §3.4、FR-017):面板出现、零 playback/me 请求;
+ * - 015 T013(R6/ui-layout §3.2)修订:节目墙内与 NOW 相交的 current 块点击改为
+ *   **直接起播**(live-routing-epg.spec.tsx 钉面),不再开面板;016 基准时间改造后
+ *   「按频道列表」视图同样执行 015 §3.2.2 分流(current 条目 = 直接起播入口,
+ *   与墙一致;upcoming/ended 条目仍开面板)——面板 now 态宿主推导在节目单页
+ *   不再可达,由直播首页(NowSection 挂同一共享面板)继续覆盖;
  * - 面板主操作「播放当前频道」= 该频道当前直播语义(先撤面板,游客进统一登录面,
  *   登录前零媒体请求);
  * - 次操作收藏:游客 → 登录引导(零 /me 请求);已选档 → 仅 PUT favorites、不触发
@@ -159,6 +163,23 @@ function wallProgrammeButton(channelTitle: string, programmeTitle: string): HTML
   return found;
 }
 
+/**
+ * 按频道列表视图定位节目条目按钮(aria-label 前缀「频道 {频道名},」;
+ * 015 §3.2.2 + 016 基准时间改造后:列表 current 条目 = 直接起播入口(与墙一致),
+ * upcoming/ended 条目仍开面板)。
+ */
+function listProgrammeButton(channelTitle: string, programmeTitle: string): HTMLElement {
+  const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="region"][aria-label="节目墙"] button'));
+  const found = buttons.find((button) => {
+    const label = button.getAttribute('aria-label') ?? '';
+    return label.startsWith(`频道 ${channelTitle},`) && label.includes(programmeTitle);
+  });
+  if (found === undefined) {
+    throw new Error(`未找到列表节目条目:${channelTitle} / ${programmeTitle}`);
+  }
+  return found;
+}
+
 function wallContainer(): HTMLElement {
   const el = document.querySelector<HTMLElement>('[role="region"][aria-label="节目墙"]');
   if (el === null) {
@@ -181,21 +202,19 @@ afterEach(() => {
 });
 
 describe('T022 · EPG 详情面板宿主(共享面板挂载与语义接线)', () => {
-  it('节目块点击开面板不播放:now 状态推导「正在直播」,零 playback/me 请求(FR-017)', async () => {
+  it('列表视图 current 条目点击=直接起播分流(015 §3.2.2 与墙一致):游客不开面板、进统一登录面,零 playback/me 请求', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    renderGuidePage();
-    await waitFor(() => expect(screen.getByText(/午间专题/)).toBeTruthy());
+    renderGuidePage('/live/guide?view=list');
+    // 列表视图下 current 节目名出现多处(列头「正在直播」+ 特色行),用 All 变体等待
+    await waitFor(() => expect(screen.getAllByText(/午间专题/).length).toBeGreaterThan(0));
     expect(screen.queryByRole('dialog')).toBeNull();
 
-    await user.click(wallProgrammeButton('频道甲', '午间专题'));
+    // 015 §3.2.2:current 条目与墙的 NOW 相交块同一分流 → 直接起播(游客登录门禁)
+    await user.click(listProgrammeButton('频道甲', '午间专题'));
 
-    // 共享面板出现:标题+状态推导(时段含 serverNow → now)
-    const dialog = await screen.findByRole('dialog', { name: /节目详情:频道甲/ });
-    await waitFor(() => expect(dialog).toBeVisible());
-    expect(within(dialog).getByText('午间专题')).toBeVisible();
-    expect(within(dialog).getByText('正在直播')).toBeVisible();
-    expect(within(dialog).getByRole('button', { name: '播放当前频道' })).toBeEnabled();
-    // 点击节目块本身不发起播放(§3.4:开面板不播放)
+    // 不开节目详情面板;统一登录引导出现;登录前零媒体/个人请求
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /节目详情:频道甲/ })).toBeNull());
+    expect(await screen.findByRole('heading', { name: '登录' })).toBeVisible();
     expect(network?.counts.playback).toBe(0);
     expect(network?.counts.personal).toBe(0);
   });
@@ -228,28 +247,31 @@ describe('T022 · EPG 详情面板宿主(共享面板挂载与语义接线)', ()
     expect(network?.counts.playback).toBe(0);
   });
 
-  it('面板主操作(游客):播放当前频道先撤面板、进统一登录面,登录前零请求', async () => {
+  it('列表视图 current 条目(已选档):点击直接经统一播放入口发起 resolve(015 §3.2.2;面板不再参与)', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    renderGuidePage();
-    await waitFor(() => expect(screen.getByText(/午间专题/)).toBeTruthy());
+    sessionState = 'authed-with-profile';
+    renderGuidePage('/live/guide?view=list');
+    await waitFor(() => expect(screen.getAllByText(/午间专题/).length).toBeGreaterThan(0));
 
-    await user.click(wallProgrammeButton('频道甲', '午间专题'));
-    await screen.findByRole('dialog', { name: /节目详情:频道甲/ });
-    await user.click(screen.getByRole('button', { name: '播放当前频道' }));
-
-    // 面板先撤(至多一层,§6.3),统一登录引导出现;播放意图经协调器,零媒体请求
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: /节目详情:频道甲/ })).toBeNull());
-    expect(await screen.findByRole('heading', { name: '登录' })).toBeVisible();
-    expect(network?.counts.playback).toBe(0);
-    expect(network?.counts.personal).toBe(0);
+    // 已选档:current 条目点击 → usePlayAction 统一入口 → POST /playback/resolve
+    // (夹具世界内 resolve 无桩会 404,此处只断言「请求确实发起」即分流正确;
+    // 播放器完整链路由 playback 系列规格覆盖)
+    await user.click(listProgrammeButton('频道甲', '午间专题'));
+    await waitFor(() => {
+      expect(fetchCalls.some((call) => call.method === 'POST' && call.url.startsWith('/api/playback/resolve'))).toBe(true);
+    });
+    // 直接起播路径不开节目详情面板
+    expect(screen.queryByRole('dialog', { name: /节目详情:频道甲/ })).toBeNull();
   });
 
-  it('面板次操作收藏(游客):登录引导、零 /me 请求、不触发播放(ui.md §1.5)', async () => {
+  it('面板次操作收藏(游客):登录引导、零 /me 请求、不触发播放(ui.md §1.5;015 T013 起经 upcoming 墙块开面板)', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderGuidePage();
     await waitFor(() => expect(screen.getByText(/午间专题/)).toBeTruthy());
 
-    await user.click(wallProgrammeButton('频道甲', '午间专题'));
+    // 015 T013:墙内 current 块(午间专题)点击改为直接起播;面板宿主语义断言
+    // 改经 upcoming 块(晚间剧场)开面板,收藏行为断言不变
+    await user.click(wallProgrammeButton('频道甲', '晚间剧场'));
     await screen.findByRole('dialog', { name: /节目详情:频道甲/ });
     await user.click(screen.getByRole('button', { name: '收藏频道' }));
 
@@ -258,13 +280,13 @@ describe('T022 · EPG 详情面板宿主(共享面板挂载与语义接线)', ()
     expect(network?.counts.playback).toBe(0);
   });
 
-  it('面板次操作收藏(已选档):仅 PUT favorites,不触发播放、面板保持(ui.md §1.5)', async () => {
+  it('面板次操作收藏(已选档):仅 PUT favorites,不触发播放、面板保持(ui.md §1.5;015 T013 起经 upcoming 墙块开面板)', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     sessionState = 'authed-with-profile';
     renderGuidePage();
     await waitFor(() => expect(screen.getByText(/午间专题/)).toBeTruthy());
 
-    await user.click(wallProgrammeButton('频道甲', '午间专题'));
+    await user.click(wallProgrammeButton('频道甲', '晚间剧场'));
     await screen.findByRole('dialog', { name: /节目详情:频道甲/ });
     await user.click(screen.getByRole('button', { name: '收藏频道' }));
 
@@ -277,12 +299,12 @@ describe('T022 · EPG 详情面板宿主(共享面板挂载与语义接线)', ()
     expect(screen.getByRole('dialog', { name: /节目详情:频道甲/ })).toBeVisible();
   });
 
-  it('面板次操作「查看节目单」:关闭面板并聚焦窗口标题(已在节目单页,保持节目单)', async () => {
+  it('面板次操作「查看节目单」:关闭面板并聚焦窗口标题(已在节目单页,保持节目单;015 T013 起经 upcoming 墙块开面板)', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderGuidePage();
     await waitFor(() => expect(screen.getByText(/午间专题/)).toBeTruthy());
 
-    await user.click(wallProgrammeButton('频道甲', '午间专题'));
+    await user.click(wallProgrammeButton('频道甲', '晚间剧场'));
     await screen.findByRole('dialog', { name: /节目详情:频道甲/ });
     await user.click(screen.getByRole('button', { name: '查看节目单' }));
 
@@ -298,10 +320,11 @@ describe('T025 · 详情返回恢复节目单滚动与焦点(内存快照,不入
     await waitFor(() => expect(screen.getByText(/午间专题/)).toBeTruthy());
 
     // 造「原浏览位置」:容器滚动锚(jsx 容器在面板打开期间仍挂载)
+    // 015 T013:墙内 current 块点击改为直接起播,触发块改用 ended 墙块(早间新闻)
     const container = wallContainer();
     container.scrollLeft = 120;
     container.scrollTop = 40;
-    const trigger = wallProgrammeButton('频道甲', '午间专题');
+    const trigger = wallProgrammeButton('频道甲', '早间新闻');
 
     await user.click(trigger);
     const dialog = await screen.findByRole('dialog', { name: /节目详情:频道甲/ });
@@ -319,8 +342,8 @@ describe('T025 · 详情返回恢复节目单滚动与焦点(内存快照,不入
     expect(container.scrollLeft).toBe(120);
     expect(container.scrollTop).toBe(40);
     // 焦点恢复到触发节目块(React Aria 语义 + 快照锚双保险)
-    const block = wallProgrammeButton('频道甲', '午间专题');
-    expect(block.getAttribute('data-programme-key')).toBe('pg-a2');
+    const block = wallProgrammeButton('频道甲', '早间新闻');
+    expect(block.getAttribute('data-programme-key')).toBe('pg-a1');
     await waitFor(() => expect(document.activeElement).toBe(block));
     // Q2/§5:不新增任何浏览器存储键
     expect(window.localStorage.length).toBe(0);

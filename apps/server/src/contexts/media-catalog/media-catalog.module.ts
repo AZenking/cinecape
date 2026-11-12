@@ -5,14 +5,19 @@ import { Reflector } from '@nestjs/core';
 import { HttpCommonModule } from '@platform/http-common/http-common.module';
 import { RateLimitGuard } from '@platform/http-common/rate-limit/rate-limit.guard';
 import { RateLimitService } from '@platform/http-common/rate-limit/rate-limit.service';
+import { SAFE_UPSTREAM_PORT, type SafeUpstreamPort } from '@platform/upstream/safe-upstream.port';
+import { getConfig } from '@platform/config/env';
 import { PublicCatalogService } from '@contexts/media-catalog/application/public-catalog.service';
 import { patchMediaMetadata, queryCandidates } from '@contexts/media-catalog/application/catalog-admin.service';
 import { bindMediaCatalogStore } from '@contexts/media-catalog/application/media-catalog-store.port';
+import { createLogoProxyService } from '@contexts/media-catalog/application/logo.service';
+import { findChannelLogoByRef } from '@contexts/media-catalog/infrastructure/channel-logo.repository';
 import { drizzleMediaCatalogStore } from '@contexts/media-catalog/infrastructure/media-catalog-store.drizzle';
-import { MEDIA_CATALOG_CATALOG_ADMIN_PORT, MEDIA_CATALOG_STORE } from '@contexts/media-catalog/media-catalog.tokens';
+import { MEDIA_CATALOG_CATALOG_ADMIN_PORT, MEDIA_CATALOG_LOGO_PROXY_SERVICE, MEDIA_CATALOG_STORE } from '@contexts/media-catalog/media-catalog.tokens';
 import type { ICatalogAdminService } from '@contexts/media-catalog/media-catalog.ports';
 import { CatalogController } from '@contexts/media-catalog/interface/catalog.controller';
 import { PublicCatalogController } from '@contexts/media-catalog/interface/public-catalog.controller';
+import { PublicLogoController } from '@contexts/media-catalog/interface/public-logo.controller';
 
 /**
  * RateLimitGuard 构造参数元数据补齐(本模块装载时一次性执行)——
@@ -56,7 +61,7 @@ Reflect.defineMetadata(PARAMTYPES_METADATA, [RateLimitService, Reflector], RateL
  */
 @Module({
   imports: [HttpCommonModule],
-  controllers: [CatalogController, PublicCatalogController],
+  controllers: [CatalogController, PublicCatalogController, PublicLogoController],
   providers: [
     PublicCatalogService,
     {
@@ -66,6 +71,19 @@ Reflect.defineMetadata(PARAMTYPES_METADATA, [RateLimitService, Reflector], RateL
     {
       provide: MEDIA_CATALOG_CATALOG_ADMIN_PORT,
       useValue: { patchMediaMetadata, queryCandidates } satisfies ICatalogAdminService,
+    },
+    {
+      // 014 T010:频道 Logo 同源代理(logoRef → channel_logo 注册表反查私有
+      // upstream_url → SafeUpstream 有界读取;许可列表与 online-vod 海报代理同一
+      // getConfig().LAN_ALLOWED_TARGETS 口径;解析读面为 channel-logo 仓储单查)
+      provide: MEDIA_CATALOG_LOGO_PROXY_SERVICE,
+      inject: [SAFE_UPSTREAM_PORT],
+      useFactory: (safeUpstream: SafeUpstreamPort) =>
+        createLogoProxyService({
+          resolveByRef: findChannelLogoByRef,
+          safeUpstream,
+          allowedTargets: getConfig().LAN_ALLOWED_TARGETS,
+        }),
     },
   ],
   exports: [MEDIA_CATALOG_CATALOG_ADMIN_PORT],

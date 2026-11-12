@@ -176,12 +176,36 @@ function cidrContains(
   }
 }
 
+/** 公网单播地址判定(public 条目放行口径;与 safe-upstream-reader isPrivateUnicast 同义):
+ * IPv4 RFC1918(10/8、172.16/12、192.168/16)与 IPv6 ULA(fc00::/7)判私网 */
+function isPublicUnicastAddress(address: string): boolean {
+  const family = net.isIP(address);
+  if (family === 4) {
+    const parts = address.split('.').map((part) => Number(part));
+    const b0 = parts[0] ?? 0;
+    const b1 = parts[1] ?? 0;
+    return !(b0 === 10 || (b0 === 172 && b1 >= 16 && b1 <= 31) || (b0 === 192 && b1 === 168));
+  }
+  if (family === 6) {
+    const lowered = address.toLowerCase();
+    if (lowered.startsWith('::')) {
+      return true; // 前缀全零段(::/128、::1 等)非 ULA;类别拒绝由上游校验兜底
+    }
+    const first = lowered.split(':')[0] ?? '';
+    return !/^f[cd]/.test(first);
+  }
+  return false;
+}
+
 /** IP 地址(含端口语义)对许可表的精确匹配 */
 function addressAllowed(address: string, port: number, targets: readonly LanTarget[]): boolean {
   if (net.isIP(address) === 0) {
     return false;
   }
   for (const target of targets) {
+    if (target.kind === 'public' && isPublicUnicastAddress(address)) {
+      return true;
+    }
     if (target.kind === 'host' && hostEquals(target.host, address)) {
       return true;
     }
@@ -316,6 +340,28 @@ type OpenOutcome =
     }
   | { readonly ok: false; readonly code: PlaybackErrorCode; readonly reason: string };
 
+/** HLS 清单形态:去空白后以 #EXTM3U 开头 */
+function isHlsPlaylistText(text: string): boolean {
+  return text.trimStart().startsWith('#EXTM3U');
+}
+
+/** 分享页内嵌播放地址提取(来源分享页形态:HTML 内 `const url = "...m3u8..."`,
+ * 相对地址按页面 URL 解析;非 HTML/无 .m3u8 形态返回 null) */
+function extractPlaylistFromSharePage(text: string, pageUrl: string): string | null {
+  if (!/<html[\s>]/i.test(text)) {
+    return null;
+  }
+  const target = /const\s+url\s*=\s*"([^"]+)"/.exec(text)?.[1];
+  if (target === undefined || !target.includes('.m3u8')) {
+    return null;
+  }
+  try {
+    return new URL(target, pageUrl).href;
+  } catch {
+    return null;
+  }
+}
+
 @Injectable()
 export class HlsProxyService {
   private readonly budgets: PlaybackBudgets;
@@ -343,8 +389,28 @@ export class HlsProxyService {
    * 读取上游清单文本:GET → 每跳许可校验 → redirect 内部跟随(≤maxRedirects,每跳重新
    * 校验)→ 首字节预算内收头 → 空闲预算内缓冲至多 maxPlaylistBytes → 返回
    * { finalUrl, text, contentType }(仅此三键,不含任何上游响应头)。
+   *
+   * 分享页恢复:结果为 HTML 且内嵌播放地址(如 dytt /share/:id 页面的
+   * `const url = ".../index.m3u8?sign=..."`)时,提取相对地址按页面 origin 解析并
+   * 重读一次(仅一层,防循环);恢复失败保留原始形态,上层稳定码不变。
    */
   async readPlaylist(url: string, options: HlsProxyReadOptions = {}): Promise<HlsProxyRead<HlsPlaylistContent>> {
+    const first = await this.readPlaylistOnce(url, options);
+    if (!first.ok || isHlsPlaylistText(first.value.text)) {
+      return first;
+    }
+    const recovered = extractPlaylistFromSharePage(first.value.text, first.value.finalUrl);
+    if (recovered === null || recovered === url) {
+      return first;
+    }
+    const second = await this.readPlaylistOnce(recovered, options);
+    return second;
+  }
+
+  private async readPlaylistOnce(
+    url: string,
+    options: HlsProxyReadOptions = {},
+  ): Promise<HlsProxyRead<HlsPlaylistContent>> {
     // T044:已登记 VOD 固定输入交付域的上游 URL → SafeUpstream 嵌套读取链(T018 语义;
     // 每跳许可/重定向/DNS 重绑防护/字节与总时限预算);其余 URL 沿用既有 LAN 许可链
     // (直播/旧路径行为零变化)

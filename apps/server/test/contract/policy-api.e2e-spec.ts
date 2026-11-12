@@ -47,7 +47,7 @@ function createProfile(s: SessionFixture, body: Record<string, unknown>): Promis
   return request(s.app.getHttpServer())
     .post('/api/settings/profiles')
     .set('Cookie', s.cookie)
-    .send({ ownerPassword: OWNER_PASSWORD, ...body })
+    .send(body)
     .then((r) => r);
 }
 
@@ -111,7 +111,6 @@ describe('US1 策略读取/整体保存(契约 e2e)', () => {
       .run('["m2","m1"]', '["bad1"]', child.body.id);
 
     const saved = await putPolicy(s, child.body.id, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       policy: { maxContentLevel: 10, allowUnrated: true },
     });
@@ -129,7 +128,6 @@ describe('US1 策略读取/整体保存(契约 e2e)', () => {
 
     // 相同值保存仍 +1
     const again = await putPolicy(s, child.body.id, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 2,
       policy: { maxContentLevel: 10, allowUnrated: true },
     });
@@ -142,16 +140,16 @@ describe('US1 策略读取/整体保存(契约 e2e)', () => {
     const p = await createProfile(s, { name: 'A', type: 'child' });
 
     const cases: Array<[string, Record<string, unknown>]> = [
-      ['未知顶层字段', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, policy: { maxContentLevel: 10, allowUnrated: false }, extra: 1 }],
-      ['policy 未知字段', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, policy: { maxContentLevel: 10, allowUnrated: false, allowedMediaIds: ['x'] } }],
-      ['缺 policy', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1 }],
-      ['缺 allowUnrated', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, policy: { maxContentLevel: 10 } }],
-      ['等级越界 19', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, policy: { maxContentLevel: 19, allowUnrated: false } }],
-      ['等级负数', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, policy: { maxContentLevel: -1, allowUnrated: false } }],
-      ['等级非整数', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, policy: { maxContentLevel: 1.5, allowUnrated: false } }],
-      ['等级非数字', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, policy: { maxContentLevel: '12', allowUnrated: false } }],
-      ['expectedVersion 0', { ownerPassword: OWNER_PASSWORD, expectedVersion: 0, policy: { maxContentLevel: 10, allowUnrated: false } }],
-      ['expectedVersion 缺失', { ownerPassword: OWNER_PASSWORD, policy: { maxContentLevel: 10, allowUnrated: false } }],
+      ['未知顶层字段', { expectedVersion: 1, policy: { maxContentLevel: 10, allowUnrated: false }, extra: 1 }],
+      ['policy 未知字段', { expectedVersion: 1, policy: { maxContentLevel: 10, allowUnrated: false, allowedMediaIds: ['x'] } }],
+      ['缺 policy', { expectedVersion: 1 }],
+      ['缺 allowUnrated', { expectedVersion: 1, policy: { maxContentLevel: 10 } }],
+      ['等级越界 19', { expectedVersion: 1, policy: { maxContentLevel: 19, allowUnrated: false } }],
+      ['等级负数', { expectedVersion: 1, policy: { maxContentLevel: -1, allowUnrated: false } }],
+      ['等级非整数', { expectedVersion: 1, policy: { maxContentLevel: 1.5, allowUnrated: false } }],
+      ['等级非数字', { expectedVersion: 1, policy: { maxContentLevel: '12', allowUnrated: false } }],
+      ['expectedVersion 0', { expectedVersion: 0, policy: { maxContentLevel: 10, allowUnrated: false } }],
+      ['expectedVersion 缺失', { policy: { maxContentLevel: 10, allowUnrated: false } }],
     ];
     for (const [label, body] of cases) {
       const res = await putPolicy(s, p.body.id, body);
@@ -167,44 +165,51 @@ describe('US1 策略读取/整体保存(契约 e2e)', () => {
     expect(policyRowOf(p.body.id)?.version).toBe(1);
   });
 
-  it('家长验证:密码缺失 403 REQUIRED;错误密码 403 FAILED(计数累加);锁定中正确密码 423;全部不改变策略', async () => {
+  it('013 免当次密码:缺密码保存 200;携带 ownerPassword 字段 400;锁定语义改挂保留端点 main-profile(423)且不改变策略', async () => {
     const s = await bootstrap();
     const p = await createProfile(s, { name: 'A', type: 'child' });
 
-    const missing = await putPolicy(s, p.body.id, { expectedVersion: 1, policy: { maxContentLevel: 10, allowUnrated: false } });
-    expect(missing.status).toBe(403);
-    expect(missing.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
+    // 缺密码:常规运维免当次密码,照常保存(version 1 → 2)
+    const saved = await putPolicy(s, p.body.id, { expectedVersion: 1, policy: { maxContentLevel: 10, allowUnrated: false } });
+    expect(saved.status).toBe(200);
+    expect(policyRowOf(p.body.id)?.version).toBe(2);
 
+    // 携带 ownerPassword 字段(契约已移除)→ strictObject 400,策略不变
     const wrong = await putPolicy(s, p.body.id, {
       ownerPassword: 'not-the-password',
-      expectedVersion: 1,
+      expectedVersion: 2,
       policy: { maxContentLevel: 10, allowUnrated: false },
     });
-    expect(wrong.status).toBe(403);
-    expect(wrong.body.code).toBe(ProblemCode.PARENT_VERIFICATION_FAILED);
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.code).toBe(ProblemCode.VALIDATION_FAILED);
     expect(wrong.body.detail).not.toContain('not-the-password');
-    expect(policyRowOf(p.body.id)?.version).toBe(1);
+    expect(policyRowOf(p.body.id)?.version).toBe(2);
 
-    // 连续 5 次错误 → 锁定;窗口内正确密码也 423
-    for (let i = 0; i < 4; i += 1) {
-      const res = await putPolicy(s, p.body.id, {
-        ownerPassword: 'nope',
-        expectedVersion: 1,
-        policy: { maxContentLevel: 10, allowUnrated: false },
-      });
+    // 连续 5 次错误(挂保留端点 PUT /settings/main-profile)→ 锁定;第 6 次(即使正确)也 423
+    const transferBody = (): Record<string, unknown> => ({
+      profileId: randomUUID(),
+      expectedVersion: 1,
+      expectedCurrentProfileVersion: 1,
+      expectedProfileVersion: 1,
+    });
+    for (let i = 0; i < 5; i += 1) {
+      const res = await request(s.app.getHttpServer())
+        .put('/api/settings/main-profile')
+        .set('Cookie', s.cookie)
+        .send({ ...transferBody(), ownerPassword: 'nope-wrong-password' });
       expect(res.status).toBe(403);
     }
-    const locked = await putPolicy(s, p.body.id, {
-      ownerPassword: OWNER_PASSWORD,
-      expectedVersion: 1,
-      policy: { maxContentLevel: 10, allowUnrated: false },
-    });
+    const locked = await request(s.app.getHttpServer())
+      .put('/api/settings/main-profile')
+      .set('Cookie', s.cookie)
+      .send({ ...transferBody(), ownerPassword: OWNER_PASSWORD });
     expect(locked.status).toBe(423);
     expect(locked.body.code).toBe(ProblemCode.PARENT_VERIFICATION_LOCKED);
-    expect(policyRowOf(p.body.id)).toMatchObject({ max_content_level: 12, allow_unrated: 0, version: 1 });
+    // 密码锁定不改变任何策略/主档案状态
+    expect(policyRowOf(p.body.id)).toMatchObject({ max_content_level: 10, allow_unrated: 0, version: 2 });
   });
 
-  it('目标归属:不存在 404;跨家庭 404 同形;验证先于目标(错误密码跨家庭目标 → 403 FAILED 而非 404 泄漏)', async () => {
+  it('目标归属:不存在 404;跨家庭 404 同形(013 免当次密码,携带密码字段 400 不泄漏存在性)', async () => {
     const s = await bootstrap();
     const foreignProfileId = randomUUID();
     const foreignHousehold = randomUUID();
@@ -234,18 +239,17 @@ describe('US1 策略读取/整体保存(契约 e2e)', () => {
     expect(cross.status).toBe(404);
     expect(cross.body).toEqual(missing.body);
 
-    // 契约次序:格式 → 家长验证 → 目标。错误密码时对跨家庭目标先失败于验证,不泄漏存在性
+    // 契约次序(013):格式 → 目标。携带已移除的 ownerPassword 字段 → 400(不泄漏存在性)
     const wrongPwdForeign = await putPolicy(s, foreignProfileId, {
       ownerPassword: 'nope',
       expectedVersion: 1,
       policy: { maxContentLevel: 10, allowUnrated: false },
     });
-    expect(wrongPwdForeign.status).toBe(403);
-    expect(wrongPwdForeign.body.code).toBe(ProblemCode.PARENT_VERIFICATION_FAILED);
+    expect(wrongPwdForeign.status).toBe(400);
+    expect(wrongPwdForeign.body.code).toBe(ProblemCode.VALIDATION_FAILED);
 
-    // 正确密码 + 跨家庭目标 → 统一 404,与不存在同形
+    // 免密码 + 跨家庭目标 → 统一 404,与不存在同形
     const correctPwdForeign = await putPolicy(s, foreignProfileId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       policy: { maxContentLevel: 10, allowUnrated: false },
     });
@@ -258,14 +262,12 @@ describe('US1 策略读取/整体保存(契约 e2e)', () => {
     const p = await createProfile(s, { name: 'A', type: 'child' });
 
     const first = await putPolicy(s, p.body.id, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       policy: { maxContentLevel: 8, allowUnrated: false },
     });
     expect(first.status).toBe(200);
 
     const stale = await putPolicy(s, p.body.id, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       policy: { maxContentLevel: 3, allowUnrated: true },
     });
@@ -286,7 +288,6 @@ describe('US1 策略读取/整体保存(契约 e2e)', () => {
     expect(getMissing.body.code).toBe(ProblemCode.POLICY_UNAVAILABLE);
 
     const putMissing = await putPolicy(s, missing.body.id, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       policy: { maxContentLevel: 10, allowUnrated: false },
     });

@@ -37,6 +37,8 @@ export const VOD_CACHE = Symbol('VOD_CACHE');
 export const VOD_SEARCH_SERVICE = Symbol('VOD_SEARCH_SERVICE');
 /** 公共预览用例(createVodPreviewService 产物;public-vod.controller 注入) */
 export const VOD_PREVIEW_SERVICE = Symbol('VOD_PREVIEW_SERVICE');
+/** 公共海报代理用例(createVodPosterService 产物;public-vod.controller 注入) */
+export const VOD_POSTER_SERVICE = Symbol('VOD_POSTER_SERVICE');
 /** 物化装配束(T031:materialize 依赖 + resolveTarget 桥 + 会话上下文版本读) */
 export const VOD_MATERIALIZATION = Symbol('VOD_MATERIALIZATION');
 

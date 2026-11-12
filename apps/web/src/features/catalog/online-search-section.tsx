@@ -32,7 +32,8 @@ type PublicVodCardDto = Vod.components['schemas']['PublicVodCard'];
  *   重搜请求只带 q,不复用旧 searchId/cursor——api.md §6);
  * - partial=true 非整页失败:成功来源卡片照常渲染 + 「部分来源暂不可用」+ reasons 原文;
  * - 全部经 publicFetch(omit 档),不触达任何 /me 个人端点(游客纯净,ui.md §1);
- * - posterRef 恒 null:渲染占位,绝不渲染 img/外部地址。
+ * - 海报:posterRef 存在时渲染同源代理 `/api/public/vod/posters/:posterRef`(服务端
+ *   有界读取上游图床,前端不接触上游地址);缺失或加载失败回落主题占位(DESIGN.md 媒体 token)。
  *
  * 查询键(T034 已收编公共键工厂 keys.ts;双形状逐字保留):
  * `['public','vod','search', input]`,input = `{q}` 或 `{searchId,cursor?}`。
@@ -55,6 +56,48 @@ function searchInputToQuery(input: SearchInput): Record<string, string> {
 /** 判定 410 搜索过期(api.md §6:恢复动作=保留 q 重新搜索) */
 function isSearchExpired(error: unknown): boolean {
   return isFetchApiError(error) && (error.code === 'VOD_SEARCH_EXPIRED' || error.status === 410);
+}
+
+/** 主题海报占位(DESIGN.md 媒体 token;加载失败/无海报共用) */
+function PosterPlaceholder(): ReactNode {
+  return (
+    <div
+      className="flex items-center justify-center text-xs text-muted"
+      style={{
+        aspectRatio: 'var(--hmp-media-ratio-poster)',
+        backgroundColor: 'var(--hmp-media-poster-placeholder)',
+        borderRadius: 'var(--hmp-media-card-radius)',
+      }}
+    >
+      无海报
+    </div>
+  );
+}
+
+/**
+ * 同源代理海报(010:posterRef → GET /api/public/vod/posters/:posterRef)。
+ * onError 回落占位(代理 404/410/502 时不显示裂图);lazy 加载不抢首屏。
+ */
+function PosterImage({ posterRef }: { posterRef: string }): ReactNode {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return <PosterPlaceholder />;
+  }
+  return (
+    <img
+      src={`/api/public/vod/posters/${encodeURIComponent(posterRef)}`}
+      alt=""
+      loading="lazy"
+      onError={() => setFailed(true)}
+      style={{
+        aspectRatio: 'var(--hmp-media-ratio-poster)',
+        width: '100%',
+        objectFit: 'cover',
+        borderRadius: 'var(--hmp-media-card-radius)',
+        backgroundColor: 'var(--hmp-media-poster-placeholder)',
+      }}
+    />
+  );
 }
 
 export function OnlineSearchSection(): ReactNode {
@@ -242,17 +285,8 @@ export function OnlineSearchSection(): ReactNode {
                       boxShadow: 'var(--hmp-media-card-shadow)',
                     }}
                   >
-                    {/* posterRef 恒 null:渲染主题占位,绝不渲染 img/外部地址(DESIGN.md 媒体 token) */}
-                    <div
-                      className="flex items-center justify-center text-xs text-muted"
-                      style={{
-                        aspectRatio: 'var(--hmp-media-ratio-poster)',
-                        backgroundColor: 'var(--hmp-media-poster-placeholder)',
-                        borderRadius: 'var(--hmp-media-card-radius)',
-                      }}
-                    >
-                      无海报
-                    </div>
+                    {/* 海报:有 posterRef 走同源代理(失败回落占位);无则主题占位 */}
+                    {card.posterRef !== null ? <PosterImage posterRef={card.posterRef} /> : <PosterPlaceholder />}
                     <span className="truncate text-sm font-medium text-foreground group-hover:underline">
                       {card.title}
                     </span>

@@ -188,7 +188,7 @@ describe('T025 · settings-devices 三态行为(settings 域数据层回归)', (
 
     // 服务端确认(204)→ onSettled 失效 settings.devices → 重取回填撤销标注
     revokeGate.resolve(undefined);
-    await waitFor(() => expect(screen.getByTestId('devices-notice')).toHaveTextContent('设备已撤销'));
+    await waitFor(() => expect(screen.getByTestId('app-toast-region')).toHaveTextContent('设备已撤销'));
     await waitFor(() => {
       // 撤销标注渲染为「已于 {revokedAt} 撤销」:以服务端新真值的时间戳断言回填
       const revised = screen.getByTestId('device-list');

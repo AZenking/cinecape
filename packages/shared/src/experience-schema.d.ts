@@ -124,6 +124,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/live/channels/now-playing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * liveChannelsNowPlaying
+         * @description Batch current/next programme projection for live channels (016 api.md §1.1); guest-public, no session required. mediaIds optional (comma-separated media IDs; default all available live channels of the household), now optional baseline instant. Programme keys are opaque; no upstream identifiers.
+         */
+        get: operations["liveChannelsNowPlaying"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/public/guide": {
         parameters: {
             query?: never;
@@ -431,7 +451,7 @@ export interface paths {
         head?: never;
         /**
          * patchHousehold
-         * @description See api.md for ordering, invariants and failure semantics.
+         * @description See api.md for ordering, invariants and failure semantics. 013(ADR-0017/FR-005): 家庭通用信息修改 免当次主账号密码。
          */
         patch: operations["patchHousehold"];
         trace?: never;
@@ -471,7 +491,7 @@ export interface paths {
         put?: never;
         /**
          * createManagedProfile
-         * @description See api.md for ordering, invariants and failure semantics.
+         * @description See api.md for ordering, invariants and failure semantics. 013(ADR-0017/FR-005): 创建档案免当次主账号密码 （即使带 pin 也不要求）。
          */
         post: operations["createManagedProfile"];
         delete?: never;
@@ -495,7 +515,7 @@ export interface paths {
         head?: never;
         /**
          * patchManagedProfile
-         * @description See api.md for ordering, invariants and failure semantics.
+         * @description See api.md for ordering, invariants and failure semantics. 013(ADR-0017/FR-005): 仅含 pin/clearPin 的编辑 要求单次当次主账号密码；仅名称/头像/默认/停用编辑免密码（见 B001UpdateProfileRequest.ownerPassword）。
          */
         patch: operations["patchManagedProfile"];
         trace?: never;
@@ -640,7 +660,7 @@ export interface paths {
         get: operations["settings_get_profiles_{profileId}_policy"];
         /**
          * 整体保存可编辑配置(家长验证 + 版本检查;名单服务端保留)
-         * @description 005 Settings guard required on reads/writes; sensitive operations additionally verify current account password.
+         * @description 005 Settings guard required on reads/writes. 013(ADR-0017/FR-005)起常规管理操作免当次主账号密码,仅高危操作 保留单次密码验证。 owner；严格校验 expectedVersion 与 policy。
          */
         put: operations["settings_put_profiles_{profileId}_policy"];
         post?: never;
@@ -665,7 +685,7 @@ export interface paths {
         put?: never;
         /**
          * createSource
-         * @description 005 Settings guard required on reads/writes; sensitive operations additionally verify current account password. owner + 当次密码；类型相关字段严格校验。
+         * @description 005 Settings guard required on reads/writes. 013(ADR-0017/FR-005)起常规管理操作免当次主账号密码,仅高危操作 保留单次密码验证。 owner；类型相关字段严格校验。
          */
         post: operations["settings_createSource"];
         delete?: never;
@@ -689,7 +709,7 @@ export interface paths {
         head?: never;
         /**
          * patchSource
-         * @description 005 Settings guard required on reads/writes; sensitive operations additionally verify current account password. owner + 当次密码；来源版本冲突不写入；NAS 根不可更换。
+         * @description 005 Settings guard required on reads/writes. 013(ADR-0017/FR-005)起常规管理操作免当次主账号密码,仅高危操作 保留单次密码验证。 owner；来源版本冲突不写入；NAS 根不可更换。
          */
         patch: operations["settings_patchSource"];
         trace?: never;
@@ -725,7 +745,7 @@ export interface paths {
         put?: never;
         /**
          * startSourceRefresh
-         * @description 005 Settings guard required on reads/writes; sensitive operations additionally verify current account password. owner + 当次密码；幂等任务，后台执行，有界队列；不会直接返回导入数据。
+         * @description 005 Settings guard required on reads/writes. 013(ADR-0017/FR-005)起常规管理操作免当次主账号密码,仅高危操作 保留单次密码验证。 owner；幂等任务，后台执行，有界队列；不会直接返回导入数据。
          */
         post: operations["settings_startSourceRefresh"];
         delete?: never;
@@ -765,7 +785,7 @@ export interface paths {
         put?: never;
         /**
          * confirmSourceRefresh
-         * @description 005 Settings guard required on reads/writes; sensitive operations additionally verify current account password. owner + 当次密码；awaiting_confirmation 且任务/来源/目录基线有效；终态不可重复操作。
+         * @description 005 Settings guard required on reads/writes. 013(ADR-0017/FR-005)起常规管理操作免当次主账号密码,仅高危操作 保留单次密码验证。 owner；awaiting_confirmation 且任务/来源/目录基线有效；终态不可重复操作。
          */
         post: operations["settings_confirmSourceRefresh"];
         delete?: never;
@@ -785,7 +805,7 @@ export interface paths {
         put?: never;
         /**
          * discardSourceRefresh
-         * @description 005 Settings guard required on reads/writes; sensitive operations additionally verify current account password. owner + 当次密码；awaiting_confirmation 且任务/来源/目录基线有效；终态不可重复操作。
+         * @description 005 Settings guard required on reads/writes. 013(ADR-0017/FR-005)起常规管理操作免当次主账号密码,仅高危操作 保留单次密码验证。 owner；awaiting_confirmation 且任务/来源/目录基线有效；终态不可重复操作。
          */
         post: operations["settings_discardSourceRefresh"];
         delete?: never;
@@ -805,7 +825,7 @@ export interface paths {
         put?: never;
         /**
          * queryMediaCandidates
-         * @description 005 Settings guard required on reads/writes; sensitive operations additionally verify current account password. owner + 当次密码；可见家庭中观看策略隐藏的候选，不下发位置。
+         * @description 005 Settings guard required on reads/writes. 013(ADR-0017/FR-005)起常规管理操作免当次主账号密码,仅高危操作 保留单次密码验证。 owner；可见家庭中观看策略隐藏的候选，不下发位置。
          */
         post: operations["settings_queryMediaCandidates"];
         delete?: never;
@@ -829,7 +849,7 @@ export interface paths {
         head?: never;
         /**
          * patchMediaMetadata
-         * @description 005 Settings guard required on reads/writes; sensitive operations additionally verify current account password. owner + 当次密码；人工修正及 catalog revision 在同事务递增。
+         * @description 005 Settings guard required on reads/writes. 013(ADR-0017/FR-005)起常规管理操作免当次主账号密码,仅高危操作 保留单次密码验证。 owner；人工修正及 catalog revision 在同事务递增。
          */
         patch: operations["settings_patchMediaMetadata"];
         trace?: never;
@@ -844,7 +864,7 @@ export interface paths {
         get?: never;
         /**
          * replacePolicyLists
-         * @description 005 Settings guard required on reads/writes; sensitive operations additionally verify current account password. owner + 当次密码；同事务验证 Profile 归属、资源归属、频道类型及 expectedVersion；三名单整体替换。
+         * @description 005 Settings guard required on reads/writes. 013(ADR-0017/FR-005)起常规管理操作免当次主账号密码,仅高危操作 保留单次密码验证。 owner；同事务验证 Profile 归属、资源归属、频道类型及 expectedVersion；三名单整体替换。
          */
         put: operations["settings_replacePolicyLists"];
         post?: never;
@@ -865,7 +885,7 @@ export interface paths {
         put?: never;
         /**
          * queryManualEpgBinding
-         * @description 005 Settings guard required on reads/writes; sensitive operations additionally verify current account password. 2026-10-24 EPG手动匹配增补，尚未实现；owner+当次密码，验证后重验会话和家庭边界；见api.md。
+         * @description 005 Settings guard required on reads/writes. 013(ADR-0017/FR-005)起常规管理操作免当次主账号密码,仅高危操作 保留单次密码验证。 2026-10-24 EPG手动匹配增补，尚未实现；owner，验证后重验会话和家庭边界；见api.md。
          */
         post: operations["settings_queryManualEpgBinding"];
         delete?: never;
@@ -885,7 +905,7 @@ export interface paths {
         put?: never;
         /**
          * queryEpgChannelCandidates
-         * @description 005 Settings guard required on reads/writes; sensitive operations additionally verify current account password. 2026-10-24 EPG手动匹配增补；owner+当次密码，验证后重验会话和家庭边界；见api.md。候选按当前/未来有节目的频道优先排序(同组内按 xmltvChannelId 升序)；current 与 next 均为 null 表示该频道在指南窗口内暂无节目数据(绑定仍允许,绑定后显示「暂无节目」并不代表绑定失效)。已实现(2026-10-25)。
+         * @description 005 Settings guard required on reads/writes. 013(ADR-0017/FR-005)起常规管理操作免当次主账号密码,仅高危操作 保留单次密码验证。 2026-10-24 EPG手动匹配增补；owner，验证后重验会话和家庭边界；见api.md。候选按当前/未来有节目的频道优先排序(同组内按 xmltvChannelId 升序)；current 与 next 均为 null 表示该频道在指南窗口内暂无节目数据(绑定仍允许,绑定后显示「暂无节目」并不代表绑定失效)。已实现(2026-10-25)。
          */
         post: operations["settings_queryEpgChannelCandidates"];
         delete?: never;
@@ -904,7 +924,7 @@ export interface paths {
         get?: never;
         /**
          * updateManualEpgBinding
-         * @description 005 Settings guard required on reads/writes; sensitive operations additionally verify current account password. 2026-10-24 EPG手动匹配增补，尚未实现；owner+当次密码，验证后重验会话和家庭边界；见api.md。
+         * @description 005 Settings guard required on reads/writes. 013(ADR-0017/FR-005)起常规管理操作免当次主账号密码,仅高危操作 保留单次密码验证。 2026-10-24 EPG手动匹配增补，尚未实现；owner，验证后重验会话和家庭边界；见api.md。
          */
         put: operations["settings_updateManualEpgBinding"];
         post?: never;
@@ -1065,7 +1085,7 @@ export interface paths {
         put?: never;
         /**
          * 家长查询设备播放记录与会话/失败事件
-         * @description 005 Settings guard plus current owner password. owner+当次密码,重验家庭目标(FR-007);密码缺失/错误按现有家长验证规则拒绝(403)。 返回当前家庭该设备的播放 session 记录与解析失败 failure 事件(脱敏): 不含源位置/文件路径/ticket;不可见媒体不记录其标识(failure.mediaId=null), 无效会话不写设备记录(仅脱敏安全日志)。 limit 默认 20、最大 100;按时间/id 倒序,游标分页(nextCursor=null 表示没有更多)。 越权/跨家庭目标统一 404 同形。
+         * @description 005 Settings guard. 013(ADR-0017/FR-005)起设备播放记录查询免当次主账号密码;owner,重验家庭目标(FR-007)。 返回当前家庭该设备的播放 session 记录与解析失败 failure 事件(脱敏): 不含源位置/文件路径/ticket;不可见媒体不记录其标识(failure.mediaId=null), 无效会话不写设备记录(仅脱敏安全日志)。 limit 默认 20、最大 100;按时间/id 倒序,游标分页(nextCursor=null 表示没有更多)。 越权/跨家庭目标统一 404 同形。
          */
         post: operations["playback_queryDevicePlaybackRecords"];
         delete?: never;
@@ -1232,11 +1252,6 @@ export interface components {
             /** @default false */
             isDefault: boolean;
             pin?: string;
-            /**
-             * Format: password
-             * @description 阶段 2(002 契约):主账号密码,管理写操作必填;缺失 → 403 PARENT_VERIFICATION_REQUIRED,错误 → 403 PARENT_VERIFICATION_FAILED,锁定 → 423
-             */
-            ownerPassword?: string;
         };
         B001UpdateProfileRequest: {
             name?: string;
@@ -1249,7 +1264,7 @@ export interface components {
             clearPin: boolean;
             /**
              * Format: password
-             * @description 阶段 2(002 契约):主账号密码,管理写操作必填(覆盖全部字段编辑与 PIN 清除);缺失 → 403 PARENT_VERIFICATION_REQUIRED
+             * @description 可选；013(ADR-0017/FR-005)条件语义：仅当本次请求含 pin 或 clearPin（设置/修改/清除档案 PIN）时服务端要求当次主账号密码，缺失或错误 → 403 PARENT_VERIFICATION_*；仅名称/头像/默认标记/停用编辑不要求密码。不回显、不落日志。
              */
             ownerPassword?: string;
             expectedVersion: number;
@@ -1294,10 +1309,8 @@ export interface components {
             maxContentLevel: number;
             allowUnrated: boolean;
         };
-        /** @description 严格对象:未知字段拒绝(400 VALIDATION_FAILED) */
+        /** @description 严格对象:未知字段拒绝(400 VALIDATION_FAILED)。013(ADR-0017/FR-005)起常规管理操作免当次主账号密码 */
         B002UpdatePolicyRequest: {
-            /** @description 主账号密码;缺失 → 403 PARENT_VERIFICATION_REQUIRED */
-            ownerPassword?: string;
             expectedVersion: number;
             policy: components["schemas"]["B002PolicyEditable"];
         };
@@ -1333,9 +1346,8 @@ export interface components {
                 requiresCurrentProbe: true;
             };
         };
-        /** @description ownerPassword 缺失/空串走 403。远程必须 remoteUrl，NAS 必须 rootKey/relativeDirectory 且无 remoteUrl；epgSourceId 仅 IPTV。跨字段校验见 api.md。 */
+        /** @description 013(ADR-0017/FR-005)起免当次主账号密码。远程必须 remoteUrl，NAS 必须 rootKey/relativeDirectory 且无 remoteUrl；epgSourceId 仅 IPTV。跨字段校验见 api.md。 */
         B003CreateSource: {
-            ownerPassword?: string;
             /** @enum {string} */
             kind: "iptv" | "epg" | "nas" | "vod";
             name: string;
@@ -1356,7 +1368,6 @@ export interface components {
             adapter?: "apple-cms-json";
         } & (unknown & unknown);
         B003PatchSource: {
-            ownerPassword?: string;
             expectedVersion: number;
             name?: string;
             enabled?: boolean;
@@ -1366,14 +1377,14 @@ export interface components {
             /** Format: uuid */
             epgSourceId?: string | null;
         };
+        /** @description 013(ADR-0017/FR-005)起免当次主账号密码 */
         B003RefreshRequest: {
-            ownerPassword?: string;
             expectedVersion: number;
             /** Format: uuid */
             operationKey: string;
         };
+        /** @description 013(ADR-0017/FR-005)起免当次主账号密码 */
         B003JobAction: {
-            ownerPassword?: string;
             expectedVersion: number;
         };
         B003Refresh: {
@@ -1427,6 +1438,7 @@ export interface components {
             version: number;
             available: boolean;
         };
+        /** @description 013(ADR-0017/FR-005)起候选查询免当次主账号密码 */
         B003CandidateQuery: {
             /** @default 1 */
             page: number;
@@ -1435,11 +1447,15 @@ export interface components {
             q?: string;
             /** @enum {string} */
             type?: "channel" | "movie" | "series" | "episode" | "video";
-            ownerPassword?: string;
+            /**
+             * @description 018 频道管理全量过滤修复:可选可见性切片;counts 恒为可见性过滤前统计,total 为过滤后总数;缺省 all(旧请求语义不变)。
+             * @default all
+             * @enum {string}
+             */
+            visibility: "all" | "visible" | "hidden";
         };
-        /** @description title/type/contentLevel 至少一项；禁止频道与非频道转换；新类型不建立系列/季集关系。 */
+        /** @description title/type/contentLevel 至少一项；禁止频道与非频道转换；新类型不建立系列/季集关系。013(ADR-0017/FR-005)起免当次主账号密码。 */
         B003PatchMedia: {
-            ownerPassword?: string;
             expectedVersion: number;
             title?: string;
             /** @enum {string} */
@@ -1467,6 +1483,7 @@ export interface components {
             /** @enum {string|null} */
             invalidReason?: null | "source_disabled" | "channel_missing" | "channel_conflict";
         };
+        /** @description 013(ADR-0017/FR-005)起名单整体替换免当次主账号密码 */
         B003UpdateLists: {
             /** @description 去重后最多 1000 个；大小写敏感；允许/禁止交集保留 */
             allowedMediaIds: string[];
@@ -1474,7 +1491,6 @@ export interface components {
             blockedMediaIds: string[];
             /** @description 去重后最多 1000 个；大小写敏感；允许/禁止交集保留 */
             allowedChannelIds: string[];
-            ownerPassword?: string;
             expectedVersion: number;
         };
         B003Policy: {
@@ -1510,13 +1526,20 @@ export interface components {
         };
         B003CandidatePage: {
             items: components["schemas"]["B003Candidate"][];
+            /** @description 018:可见性过滤后的总数(分页依据) */
             total: number;
+            counts: components["schemas"]["B003VisibilityCounts"];
             page: number;
             pageSize: number;
         };
-        B003BindingQuery: {
-            ownerPassword?: string;
+        /** @description 018 频道管理全量过滤修复:家庭 + 关键词 + 类型过滤后、可见性过滤前的三档计数(切片切换不改计数) */
+        B003VisibilityCounts: {
+            all: number;
+            visible: number;
+            hidden: number;
         };
+        /** @description 013(ADR-0017/FR-005)起绑定查询免当次主账号密码；请求体为空对象 */
+        B003BindingQuery: Record<string, never>;
         B003EpgBinding: {
             /** Format: uuid */
             mediaId: string;
@@ -1530,9 +1553,11 @@ export interface components {
             status: "auto" | "valid" | "invalid";
             /** @enum {string|null} */
             invalidReason: null | "source_disabled" | "channel_missing" | "channel_conflict";
+            /** @description 018 节目绑定可读性:manual 绑定目标的 EPG 频道显示名(批量查询带出);目标频道行缺失为 null(前端回退「名称不可用」) */
+            displayName?: string | null;
         };
+        /** @description 013(ADR-0017/FR-005)起候选查询免当次主账号密码 */
         B003EpgCandidateQuery: {
-            ownerPassword?: string;
             /** Format: uuid */
             epgSourceId: string;
             q?: string;
@@ -1554,9 +1579,8 @@ export interface components {
             pageSize: number;
             epgGeneration: number;
         };
-        /** @description 保存即锁定；auto解除写版本墓碑，不删除行。密码缺失/空串403。绑定version或候选generation旧值409，目标必须同家庭有效EPG频道。 */
+        /** @description 保存即锁定；auto解除写版本墓碑，不删除行。绑定version或候选generation旧值409，目标必须同家庭有效EPG频道。013(ADR-0017/FR-005)起免当次主账号密码。 */
         B003UpdateEpgBinding: {
-            ownerPassword?: string;
             expectedVersion: number;
             /** @enum {string} */
             mode: "auto" | "manual";
@@ -1611,9 +1635,8 @@ export interface components {
             /** @description 目标影片逻辑时间(秒);有限非 NaN,不得越过已探测 duration; 直播(时长 null)不提供影片 seek(400 PLAYBACK_SEEK_UNSUPPORTED)。 */
             positionSeconds: number;
         };
+        /** @description 013(ADR-0017/FR-005)起设备播放记录查询免当次主账号密码；仅管理员 Settings 会话可查 */
         B004PlaybackRecordQueryRequest: {
-            /** @description owner 当次密码;缺失/错误按现有家长验证规则拒绝;不回显、不落日志。 */
-            ownerPassword: string;
             /** @description 不透明游标,取自上一响应 nextCursor 原样回传。 */
             cursor?: string;
             /**
@@ -1854,6 +1877,7 @@ export interface components {
             type: "channel" | "movie" | "series" | "episode" | "video";
             title: string;
             description: string | null;
+            /** @description 014 语义注记（2026-11-07）：频道 Logo 同源引用（经 /public/media/logos/{logoRef} 服务端代理取回）；上游未提供 Logo → null。不得携带可解码的上游地址。与 vod 海报域（/public/vod/posters/{posterRef}）引用不可互用：两域 ref 类别由各自注册表证明，互用 404 同形。 */
             posterRef: string | null;
             contentLevel: number | null;
             /** @enum {string} */
@@ -1941,6 +1965,80 @@ export interface components {
             /** @description Catalog revision read in the same synchronous snapshot. */
             catalogRevision: number;
         };
+        /** @description 频道当前/下一档排期投影(016 data-model §2.3);批量接口按 mediaId 映射返回。 matchMode=none 时 current/next/epgSourceId 均为 null,频道仍可正常播放。 */
+        CurrentNextProjection: {
+            /** @description 当前播出节目;无排期为 null。 */
+            current: {
+                /** @description 不透明节目标识(SHA-256);不含上游频道/节目 ID。 */
+                key: string;
+                /** @description 节目标题(如"新闻联播")。 */
+                title: string;
+                /**
+                 * Format: date-time
+                 * @description 开播时间(UTC ISO8601)。
+                 */
+                start: string;
+                /**
+                 * Format: date-time
+                 * @description 结束时间(UTC ISO8601)。
+                 */
+                end: string;
+                /** @description 当前进度(0.00~1.00)。 */
+                progress: number;
+            } | null;
+            /** @description 下一档节目;无排期为 null。 */
+            next: {
+                /** @description 不透明节目标识(SHA-256);不含上游频道/节目 ID。 */
+                key: string;
+                /** @description 节目标题。 */
+                title: string;
+                /**
+                 * Format: date-time
+                 * @description 开播时间(UTC ISO8601)。
+                 */
+                start: string;
+                /**
+                 * Format: date-time
+                 * @description 结束时间(UTC ISO8601)。
+                 */
+                end: string;
+            } | null;
+            /** @description 本次命中排期的 EPG 源 ID(级联裁决诊断用);未命中为 null。 */
+            epgSourceId: string | null;
+            /**
+             * @description 排期命中方式:manual 手动绑定 > precise tvg-id 精确 > cascade 多源级联 > alias 归一化/别名 > none 未命中。
+             * @enum {string}
+             */
+            matchMode: "manual" | "precise" | "cascade" | "alias" | "none";
+        };
+        /** @description 批量当前/下一档节目投影响应(016 api.md §1.1);programmes 以 mediaId 为键, 仅含请求(或缺省时家庭可用)范围内的频道;无排期频道同样返回 null 投影而非缺键, 便于前端按固定键集合渲染。 */
+        NowPlayingPage: {
+            /**
+             * Format: date-time
+             * @description Server time frozen for this response; independent requests may have different instants.
+             */
+            now: string;
+            /** @description 以 mediaId 为键的当前/下一档投影映射。 */
+            programmes: {
+                [key: string]: components["schemas"]["CurrentNextProjection"];
+            };
+        };
+        /** @description 已启用 EPG 源的优先级视图(016 api.md §3.1);级联匹配 Level 3 按 priority ASC (数值越小越优先)遍历;管理端点仅主管理员可见(ADR-0017),此组件为其响应元素。 */
+        EpgSourcePriority: {
+            /** @description EPG 来源标识(目录 Source ID,不透明)。 */
+            sourceId: string;
+            /** @description 来源显示名称(如"官方 XMLTV")。 */
+            name: string;
+            /** @description 优先级权重;数值越小越优先(priority ASC)。 */
+            priority: number;
+            /** @description 该源参与匹配的频道数量。 */
+            channelCount: number;
+            /**
+             * Format: date-time
+             * @description 最近一次同步完成时间;尚未同步为 null。
+             */
+            lastSyncAt: string | null;
+        };
         GuideWindow: {
             /** Format: date */
             date: string;
@@ -1982,8 +2080,11 @@ export interface components {
             /** @enum {string} */
             role: "owner" | "admin";
         };
+        /** @description 修改账号密码(013 FR-005:唯一保留当次密码验证的账号动作之一)。 currentPassword 为准;ownerPassword 仅为 005 旧客户端过渡兼容字段, 二者必须提供其一(服务端 refine 校验,全缺 400)。 */
         PasswordChangeRequest: {
-            ownerPassword: string;
+            currentPassword?: string;
+            /** @description 已废弃别名(currentPassword 的过渡兼容字段),优先使用 currentPassword。 */
+            ownerPassword?: string;
             newPassword: string;
         };
         HouseholdSettings: {
@@ -1993,9 +2094,9 @@ export interface components {
             version: number;
             mainProfileVersion: number;
         };
+        /** @description 013(ADR-0017/FR-005)起家庭通用信息修改免当次主账号密码；expectedVersion CAS 不变 */
         PatchHouseholdRequest: {
             expectedVersion: number;
-            ownerPassword: string;
             name?: string;
             language?: string;
             timezone?: string;
@@ -2947,6 +3048,67 @@ export interface operations {
             };
             /** @description PIN/password locked */
             423: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    "Referrer-Policy"?: "no-referrer";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate limited; Retry-After */
+            429: {
+                headers: {
+                    "Retry-After"?: number;
+                    "Cache-Control"?: "no-store";
+                    "Referrer-Policy"?: "no-referrer";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Storage generation or dependency not ready */
+            503: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    "Referrer-Policy"?: "no-referrer";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    liveChannelsNowPlaying: {
+        parameters: {
+            query?: {
+                /** @description Comma-separated media IDs to project; default all available live channels. */
+                mediaIds?: string;
+                /** @description Baseline UTC instant for walkthrough/testing; default server current time. */
+                now?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    "Referrer-Policy"?: "no-referrer";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NowPlayingPage"];
+                };
+            };
+            /** @description Invalid input/mediaIds */
+            400: {
                 headers: {
                     "Cache-Control"?: "no-store";
                     "Referrer-Policy"?: "no-referrer";

@@ -19,7 +19,7 @@ export interface paths {
         put?: never;
         /**
          * createSource
-         * @description owner + 当次密码；类型相关字段严格校验。
+         * @description owner；013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。类型相关字段严格校验。
          */
         post: operations["createSource"];
         delete?: never;
@@ -43,7 +43,7 @@ export interface paths {
         head?: never;
         /**
          * patchSource
-         * @description owner + 当次密码；来源版本冲突不写入；NAS 根不可更换。
+         * @description owner；013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。来源版本冲突不写入；NAS 根不可更换。
          */
         patch: operations["patchSource"];
         trace?: never;
@@ -79,7 +79,7 @@ export interface paths {
         put?: never;
         /**
          * startSourceRefresh
-         * @description owner + 当次密码；幂等任务，后台执行，有界队列；不会直接返回导入数据。
+         * @description owner；013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。幂等任务，后台执行，有界队列；不会直接返回导入数据。
          */
         post: operations["startSourceRefresh"];
         delete?: never;
@@ -119,7 +119,7 @@ export interface paths {
         put?: never;
         /**
          * confirmSourceRefresh
-         * @description owner + 当次密码；awaiting_confirmation 且任务/来源/目录基线有效；终态不可重复操作。
+         * @description owner；013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。awaiting_confirmation 且任务/来源/目录基线有效；终态不可重复操作。
          */
         post: operations["confirmSourceRefresh"];
         delete?: never;
@@ -139,7 +139,7 @@ export interface paths {
         put?: never;
         /**
          * discardSourceRefresh
-         * @description owner + 当次密码；awaiting_confirmation 且任务/来源/目录基线有效；终态不可重复操作。
+         * @description owner；013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。awaiting_confirmation 且任务/来源/目录基线有效；终态不可重复操作。
          */
         post: operations["discardSourceRefresh"];
         delete?: never;
@@ -219,7 +219,7 @@ export interface paths {
         put?: never;
         /**
          * queryMediaCandidates
-         * @description owner + 当次密码；可见家庭中观看策略隐藏的候选，不下发位置。
+         * @description owner；013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。可见家庭中观看策略隐藏的候选，不下发位置。
          */
         post: operations["queryMediaCandidates"];
         delete?: never;
@@ -243,7 +243,7 @@ export interface paths {
         head?: never;
         /**
          * patchMediaMetadata
-         * @description owner + 当次密码；人工修正及 catalog revision 在同事务递增。
+         * @description owner；013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。人工修正及 catalog revision 在同事务递增。
          */
         patch: operations["patchMediaMetadata"];
         trace?: never;
@@ -258,7 +258,7 @@ export interface paths {
         get?: never;
         /**
          * replacePolicyLists
-         * @description owner + 当次密码；同事务验证 Profile 归属、资源归属、频道类型及 expectedVersion；三名单整体替换。
+         * @description owner；013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。同事务验证 Profile 归属、资源归属、频道类型及 expectedVersion；三名单整体替换。
          */
         put: operations["replacePolicyLists"];
         post?: never;
@@ -279,7 +279,7 @@ export interface paths {
         put?: never;
         /**
          * queryManualEpgBinding
-         * @description 2026-10-24 EPG手动匹配增补，尚未实现；owner+当次密码，验证后重验会话和家庭边界；见api.md。
+         * @description 2026-10-24 EPG手动匹配增补，尚未实现；owner，验证后重验会话和家庭边界；013(ADR-0017/FR-005)起免当次主账号密码。见api.md。
          */
         post: operations["queryManualEpgBinding"];
         delete?: never;
@@ -299,7 +299,7 @@ export interface paths {
         put?: never;
         /**
          * queryEpgChannelCandidates
-         * @description 2026-10-24 EPG手动匹配增补；owner+当次密码，验证后重验会话和家庭边界；见api.md。候选按当前/未来有节目的频道优先排序(同组内按 xmltvChannelId 升序)；current 与 next 均为 null 表示该频道在指南窗口内暂无节目数据(绑定仍允许,绑定后显示「暂无节目」并不代表绑定失效)。已实现(2026-10-25)。
+         * @description 2026-10-24 EPG手动匹配增补；owner，验证后重验会话和家庭边界；013(ADR-0017/FR-005)起免当次主账号密码。见api.md。候选按当前/未来有节目的频道优先排序(同组内按 xmltvChannelId 升序)；current 与 next 均为 null 表示该频道在指南窗口内暂无节目数据(绑定仍允许,绑定后显示「暂无节目」并不代表绑定失效)。已实现(2026-10-25)。
          */
         post: operations["queryEpgChannelCandidates"];
         delete?: never;
@@ -318,7 +318,7 @@ export interface paths {
         get?: never;
         /**
          * updateManualEpgBinding
-         * @description 2026-10-24 EPG手动匹配增补，尚未实现；owner+当次密码，验证后重验会话和家庭边界；见api.md。
+         * @description 2026-10-24 EPG手动匹配增补，尚未实现；owner，验证后重验会话和家庭边界；013(ADR-0017/FR-005)起免当次主账号密码。见api.md。
          */
         put: operations["updateManualEpgBinding"];
         post?: never;
@@ -357,9 +357,8 @@ export interface components {
             /** Format: uuid */
             lastJobId: string | null;
         };
-        /** @description ownerPassword 缺失/空串走 403。远程必须 remoteUrl，NAS 必须 rootKey/relativeDirectory 且无 remoteUrl；epgSourceId 仅 IPTV。跨字段校验见 api.md。 */
+        /** @description 013(ADR-0017/FR-005)起免当次主账号密码。远程必须 remoteUrl，NAS 必须 rootKey/relativeDirectory 且无 remoteUrl；epgSourceId 仅 IPTV。跨字段校验见 api.md。 */
         CreateSource: {
-            ownerPassword?: string;
             /** @enum {string} */
             kind: "iptv" | "epg" | "nas";
             name: string;
@@ -375,7 +374,6 @@ export interface components {
             epgSourceId?: string | null;
         } & (unknown & unknown);
         PatchSource: {
-            ownerPassword?: string;
             expectedVersion: number;
             name?: string;
             enabled?: boolean;
@@ -385,14 +383,14 @@ export interface components {
             /** Format: uuid */
             epgSourceId?: string | null;
         };
+        /** @description 013(ADR-0017/FR-005)起免当次主账号密码。 */
         RefreshRequest: {
-            ownerPassword?: string;
             expectedVersion: number;
             /** Format: uuid */
             operationKey: string;
         };
+        /** @description 013(ADR-0017/FR-005)起免当次主账号密码。 */
         JobAction: {
-            ownerPassword?: string;
             expectedVersion: number;
         };
         Refresh: {
@@ -433,6 +431,10 @@ export interface components {
             contentLevel: number | null;
             poster: null;
             version: number;
+            /** @description 018:前台显隐(管理修正面)。 */
+            visible?: boolean;
+            /** @description 018:活动台标引用(channel_logo.ref;自定义或上游台标)。 */
+            posterRef?: string | null;
         };
         Candidate: {
             /** Format: uuid */
@@ -445,7 +447,16 @@ export interface components {
             poster: null;
             version: number;
             available: boolean;
+            /** @description 017:聚合播放线路数(playback_source 行数)。 */
+            lineCount?: number;
+            /** @description 017:手动 EPG 绑定快照(仅 manual 绑定返回;含 displayName 目标频道名)。 */
+            epgBinding?: components["schemas"]["EpgBinding"];
+            /** @description 018:前台显隐。 */
+            visible: boolean;
+            /** @description 018:活动台标原始 URL(自定义优先,其次上游)。 */
+            logoUrl?: string | null;
         };
+        /** @description 013(ADR-0017/FR-005)起候选查询免当次主账号密码。 */
         CandidateQuery: {
             /** @default 1 */
             page: number;
@@ -454,16 +465,24 @@ export interface components {
             q?: string;
             /** @enum {string} */
             type?: "channel" | "movie" | "series" | "episode" | "video";
-            ownerPassword?: string;
+            /**
+             * @description 018 频道管理全量过滤修复:可选可见性切片;counts 恒为可见性过滤前统计,total 为过滤后总数;缺省 all(旧请求语义不变)。
+             * @default all
+             * @enum {string}
+             */
+            visibility: "all" | "visible" | "hidden";
         };
-        /** @description title/type/contentLevel 至少一项；禁止频道与非频道转换；新类型不建立系列/季集关系。 */
+        /** @description title/type/contentLevel/visible/logoUrl 至少一项；禁止频道与非频道转换；新类型不建立系列/季集关系。013(ADR-0017/FR-005)起免当次主账号密码。 */
         PatchMedia: {
-            ownerPassword?: string;
             expectedVersion: number;
             title?: string;
             /** @enum {string} */
             type?: "channel" | "movie" | "series" | "episode" | "video";
             contentLevel?: number | null;
+            /** @description 018:前台显隐修正。 */
+            visible?: boolean;
+            /** @description 018:自定义台标 URL(null/空串恢复上游台标)。 */
+            logoUrl?: string | null;
         };
         Programme: {
             title: string;
@@ -486,6 +505,7 @@ export interface components {
             /** @enum {string|null} */
             invalidReason?: null | "source_disabled" | "channel_missing" | "channel_conflict";
         };
+        /** @description 013(ADR-0017/FR-005)起名单整体替换免当次主账号密码。 */
         UpdateLists: {
             /** @description 去重后最多 1000 个；大小写敏感；允许/禁止交集保留 */
             allowedMediaIds: string[];
@@ -493,7 +513,6 @@ export interface components {
             blockedMediaIds: string[];
             /** @description 去重后最多 1000 个；大小写敏感；允许/禁止交集保留 */
             allowedChannelIds: string[];
-            ownerPassword?: string;
             expectedVersion: number;
         };
         Policy: {
@@ -529,13 +548,20 @@ export interface components {
         };
         CandidatePage: {
             items: components["schemas"]["Candidate"][];
+            /** @description 018:可见性过滤后的总数(分页依据)。 */
             total: number;
+            counts: components["schemas"]["VisibilityCounts"];
             page: number;
             pageSize: number;
         };
-        BindingQuery: {
-            ownerPassword?: string;
+        /** @description 018 频道管理全量过滤修复:家庭 + 关键词 + 类型过滤后、可见性过滤前的三档计数(切片切换不改计数)。 */
+        VisibilityCounts: {
+            all: number;
+            visible: number;
+            hidden: number;
         };
+        /** @description 013(ADR-0017/FR-005)起绑定查询免当次主账号密码；请求体为空对象。 */
+        BindingQuery: Record<string, never>;
         EpgBinding: {
             /** Format: uuid */
             mediaId: string;
@@ -549,9 +575,11 @@ export interface components {
             status: "auto" | "valid" | "invalid";
             /** @enum {string|null} */
             invalidReason: null | "source_disabled" | "channel_missing" | "channel_conflict";
+            /** @description 018 节目绑定可读性:manual 绑定目标的 EPG 频道显示名(批量查询带出);目标频道行缺失为 null(前端回退「名称不可用」)。 */
+            displayName?: string | null;
         };
+        /** @description 013(ADR-0017/FR-005)起候选查询免当次主账号密码。 */
         EpgCandidateQuery: {
-            ownerPassword?: string;
             /** Format: uuid */
             epgSourceId: string;
             q?: string;
@@ -573,9 +601,8 @@ export interface components {
             pageSize: number;
             epgGeneration: number;
         };
-        /** @description 保存即锁定；auto解除写版本墓碑，不删除行。密码缺失/空串403。绑定version或候选generation旧值409，目标必须同家庭有效EPG频道。 */
+        /** @description 保存即锁定；auto解除写版本墓碑，不删除行。绑定version或候选generation旧值409，目标必须同家庭有效EPG频道。013(ADR-0017/FR-005)起免当次主账号密码。 */
         UpdateEpgBinding: {
-            ownerPassword?: string;
             expectedVersion: number;
             /** @enum {string} */
             mode: "auto" | "manual";
@@ -632,7 +659,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -737,7 +764,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -844,7 +871,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -945,7 +972,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -1054,7 +1081,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -1157,7 +1184,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -1264,7 +1291,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -1371,7 +1398,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -1477,7 +1504,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -1580,7 +1607,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -1683,7 +1710,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -1788,7 +1815,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -1895,7 +1922,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2002,7 +2029,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2110,7 +2137,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2218,7 +2245,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2326,7 +2353,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED */
+            /** @description FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码） */
             403: {
                 headers: {
                     [name: string]: unknown;

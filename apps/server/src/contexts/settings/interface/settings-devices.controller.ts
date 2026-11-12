@@ -6,7 +6,7 @@ import { CurrentSession } from '@platform/http-common/current-session.decorator'
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
 import { SameOriginGuard } from '@platform/http-common/same-origin/same-origin.guard';
 import { SessionGuard } from '@platform/http-common/session.guard';
-import { SettingsAccessGuard } from '@platform/http-common/settings-access/settings-access.guard';
+import { SettingsGuard } from '@contexts/settings/infrastructure/settings.guard';
 import { StrictBodyPipe } from '@platform/http-common/strict-input/strict-pipes';
 import { strictObject } from '@platform/http-common/strict-input/strict-schema';
 import { parseBody } from '@contexts/identity-access';
@@ -14,22 +14,22 @@ import { listDevices, queryDevicePlaybackRecords, revokeDevice } from '@contexts
 
 /**
  * 设备与会话契约路由(T130,005 contracts/api.md §6「devices 三组」;api.md §8
- * 「不保留旧 /devices 管理入口」):
+ * 「不保留旧 /devices 管理入口」;013-role-differentiated-settings/ADR-0017):
  * - GET /settings/devices:设备列表(Settings 边界);
- * - POST /settings/devices/{deviceId}/revoke:{ownerPassword} → 204(撤销目标设备
- *   所有会话和授予;未知/跨家庭 deviceId 与不存在同形 404,不泄露归属);
- * - POST /settings/devices/{deviceId}/playback-records/query:经必要再验证的播放记录
- *   (当次密码;不能用作个人历史)。记录响应显式 no-store/no-referrer。
+ * - POST /settings/devices/{deviceId}/revoke:{ownerPassword} → 204(不可逆高危操作,
+ *   保留单次当次密码;撤销目标设备所有会话和授予;未知/跨家庭 deviceId 与不存在
+ *   同形 404,不泄露归属);
+ * - POST /settings/devices/{deviceId}/playback-records/query:播放记录查询(013 起
+ *   免当次密码,请求体不含 ownerPassword;不能用作个人历史)。记录响应显式 no-store/no-referrer。
  */
 
-/** 契约 OwnerPasswordRequest(openapi components/schemas) */
+/** 契约 OwnerPasswordRequest(openapi components/schemas;仅 revoke 高危端点使用) */
 const ownerPasswordRequestSchema = strictObject({
   ownerPassword: z.string().min(8).max(128),
 });
 
-/** 契约 PlaybackRecordQueryRequest(strict;ownerPassword 必填语义由服务层 403 表达) */
+/** 契约 PlaybackRecordQueryRequest(strict;013 起免当次密码,ownerPassword 不再入契约) */
 const recordsQueryRequestSchema = strictObject({
-  ownerPassword: z.string().optional(),
   cursor: z.string().min(1).optional(),
   limit: z.number().int().min(1).max(100).optional(),
 });
@@ -38,7 +38,7 @@ const recordsQueryRequestSchema = strictObject({
 const noQuerySchema = z.strictObject({});
 
 @Controller('settings')
-@UseGuards(SessionGuard, SettingsAccessGuard)
+@UseGuards(SessionGuard, SettingsGuard)
 export class SettingsDevicesController {
   /** GET /settings/devices:当前家庭设备列表(含已撤销,revokedAt 标注) */
   @Get('devices')
@@ -47,7 +47,7 @@ export class SettingsDevicesController {
     return listDevices(context.session.householdId);
   }
 
-  /** POST /settings/devices/{deviceId}/revoke:当次密码;204(幂等) */
+  /** POST /settings/devices/{deviceId}/revoke:不可逆高危操作,单次当次密码;204(幂等) */
   @Post('devices/:deviceId/revoke')
   @HttpCode(204)
   @UseGuards(SameOriginGuard)
@@ -60,7 +60,7 @@ export class SettingsDevicesController {
     await revokeDevice(context, deviceId, input);
   }
 
-  /** POST /settings/devices/{deviceId}/playback-records/query:当次密码;200 记录页(脱敏) */
+  /** POST /settings/devices/{deviceId}/playback-records/query:owner-only;200 记录页(脱敏;013 起免当次密码) */
   @Post('devices/:deviceId/playback-records/query')
   @HttpCode(200)
   @UseGuards(SameOriginGuard)

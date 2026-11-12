@@ -18,7 +18,8 @@ import { LIVE_SESSION_STATES, renderLiveWorld } from './helpers/live-world';
  * 保证每次刷新都是真实的数据更替重渲染,而非引用相同的空更新)。逐次刷新后断言:
  * - 焦点元素不变(聚焦搜索框持续持有焦点);
  * - 已打开的详情面板不关闭、焦点不跳出面板(ui.md §2.4);
- * - 分页/筛选不重置(聚焦视图 URL section/page/q 保持,页码指示与输入值不变)。
+ * - 筛选不重置(概览视图 URL q 保持,输入值不变;015 T010 起聚焦视图被新规格
+ *   取代,分页/section 场景随视图退役)。
  *
  * 分区 hook 归属说明(T019):本文件只断言行为,不改动 use-live-refresh.ts;
  * 30s 定时器本体不在 jsdom 等待(fake timer 会拖慢/漂移),以等价的事件路径驱动。
@@ -111,21 +112,21 @@ function renderLivePageWorld(initialEntry: string): ReturnType<typeof renderLive
 }
 
 // ---------------------------------------------------------------------------
-// 1 · 焦点与筛选/分页保持(聚焦视图 section=now&page=2&q=…,SC-003 自动化面)
+// 1 · 焦点与筛选保持(概览视图 + q 筛选;015 T010 起聚焦视图被新规格取代,
+//     行尾入口改导航 /live/guide、/live/channels,分页/section 场景随视图退役)
 // ---------------------------------------------------------------------------
 
-describe('T015 · 安静刷新:焦点不变、分页/筛选不重置(FR-014)', () => {
+describe('T015 · 安静刷新:焦点不变、筛选不重置(FR-014)', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('聚焦视图连续刷新 ×2:搜索框焦点与值保持,页码与 URL(section/page/q)保持', async () => {
-    const mock = installLiveRefreshFetchMock({ page: 2, pageSize: 20, total: 40 });
-    renderLivePageWorld('/live?section=now&page=2&q=例牌');
+  it('概览视图连续刷新 ×2:搜索框焦点与值保持,URL(q)保持', async () => {
+    const mock = installLiveRefreshFetchMock();
+    renderLivePageWorld('/live?q=例牌');
 
-    // 聚焦视图就绪:第 2 / 2 页(total=40 / pageSize=20)
+    // 概览视图就绪(正在直播分区渲染)
     await screen.findByRole('region', { name: '正在直播' });
-    await waitFor(() => expect(screen.getByText(/第 2 \/ 2 页/)).toBeVisible());
 
     const input = screen.getByRole('textbox');
     const user = userEvent.setup();
@@ -144,11 +145,7 @@ describe('T015 · 安静刷新:焦点不变、分页/筛选不重置(FR-014)', (
       expect(input).toHaveFocus();
       // 筛选不重置:输入值与 URL q 保持
       expect(input).toHaveValue('例牌');
-      // 分页不重置:页码指示与 URL section/page 保持
-      expect(screen.getByText(/第 2 \/ 2 页/)).toBeVisible();
       expect(screen.getByTestId('live-location').textContent).toBe(urlBefore);
-      expect(screen.getByTestId('live-location').textContent).toContain('section=now');
-      expect(screen.getByTestId('live-location').textContent).toContain('page=2');
       expect(screen.getByTestId('live-location').textContent).toContain('q=');
     }
   });
@@ -168,12 +165,14 @@ describe('T015 · 安静刷新:打开的面板不关闭、焦点不跳出', () =
     renderLivePageWorld('/live');
     const user = userEvent.setup();
 
-    // 从正在直播区打开当前节目详情面板(共享面板宿主)
-    const currentButton = (await screen.findAllByRole('button', { name: /例牌正播节目/ }))[0]!;
-    await user.click(currentButton);
+    // 从即将播放区打开节目详情面板(共享面板宿主)。015 T004 后 current 档节目名
+    // = 导航 /live/watch(research.md R5、ui-layout.md §1.2 第 3 条),面板入口
+    // 改由 upcoming 档节目名承载(行为不随本规格变化:开面板 + 刷新零打断)
+    const upcomingButton = (await screen.findAllByRole('button', { name: /例牌预告节目/ }))[0]!;
+    await user.click(upcomingButton);
     const dialog = await screen.findByRole('dialog');
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
-    expect(within(dialog).getByText('正在直播')).toBeVisible();
+    expect(within(dialog).getByText('即将开始')).toBeVisible();
 
     for (let round = 1; round <= 2; round += 1) {
       const before = mock.channelsCalls();
@@ -185,7 +184,7 @@ describe('T015 · 安静刷新:打开的面板不关闭、焦点不跳出', () =
       // 焦点未跳出面板(ui.md §2.4)
       expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true);
       // 面板内容句柄保持(同一节目上下文)
-      expect(within(screen.getByRole('dialog')).getByText(/例牌正播节目/)).toBeVisible();
+      expect(within(screen.getByRole('dialog')).getByText(/例牌预告节目/)).toBeVisible();
     }
   });
 });

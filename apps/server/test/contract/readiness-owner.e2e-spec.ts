@@ -41,20 +41,20 @@ describe('阶段 1 收尾：就绪与主账号权限', () => {
     const cookie = cookiePairOf(loggedIn);
     await ensureSettingsUnlocked(app, cookie);
     const created = await request(app.getHttpServer()).post('/api/settings/profiles').set('Cookie', cookie)
-      .send({ name: 'owner-created', type: 'adult', ownerPassword: INITIALIZE_BODY.password });
+      .send({ name: 'owner-created', type: 'adult' });
     expect(created.status).toBe(201);
     Database.db.prepare("UPDATE account SET role = 'admin'").run();
     expect((await request(app.getHttpServer()).get('/api/profiles').set('Cookie', cookie)).status).toBe(200);
     // 005:settings 边界 = owner/admin;未知身份声明字段(role)→ 400 严格拒绝,不落库
     const createdForbidden = await request(app.getHttpServer()).post('/api/settings/profiles').set('Cookie', cookie)
-      .send({ name: 'forbidden', type: 'adult', role: 'owner', ownerPassword: INITIALIZE_BODY.password });
+      .send({ name: 'forbidden', type: 'adult', role: 'owner' });
     expect(createdForbidden.status).toBe(400);
     expect(createdForbidden.body.code).toBe('VALIDATION_FAILED');
     const adminVersion = (
       Database.db.prepare('SELECT version FROM profile WHERE id = ?').get(created.body.id) as { version: number }
     ).version;
     const editForbidden = await request(app.getHttpServer()).patch(`/api/settings/profiles/${String(created.body.id)}`).set('Cookie', cookie)
-      .send({ name: 'forbidden', role: 'owner', clearPin: false, expectedVersion: adminVersion, ownerPassword: INITIALIZE_BODY.password });
+      .send({ name: 'forbidden', role: 'owner', expectedVersion: adminVersion });
     expect(editForbidden.status).toBe(400);
     expect(editForbidden.body.code).toBe('VALIDATION_FAILED');
     const rows = Database.db.prepare('SELECT name FROM profile').all();

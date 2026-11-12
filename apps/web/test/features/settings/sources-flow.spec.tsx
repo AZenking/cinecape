@@ -6,13 +6,12 @@ import { SettingsSourcesPage } from '../../../src/features/settings/settings-sou
 import type { ReactNode } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { SettingsAccessProvider } from '../../../src/features/settings/settings-access-provider';
-import { SettingsUnlockGate } from '../../../src/features/settings/settings-unlock-gate';
 import { queryClient as appQueryClient } from '../../../src/shared/query/client';
 
 /**
- * T123(005-US8 前端测试,先 FAIL):来源创建→导入→快照确认流程(FR-037 + FR-041)。
- * - 创建成功出现「开始导入」下一步;
- * - 手动导入后任务状态轮询;awaiting_confirmation 出现确认/丢弃;
+ * T123(005-US8 前端测试,先 FAIL;013/ADR-0017 契约矩阵同步):来源创建→导入→快照确认流程(FR-037 + FR-041)。
+ * - 创建成功出现「开始导入」下一步(免当次密码直接创建);
+ * - 手动导入免当次密码直接执行,任务状态轮询;awaiting_confirmation 出现确认/丢弃;
  * - 失败保留上次成功目录状态(提示保留 + 「查看内容」入口不消失);
  * - 授权过期(403 SETTINGS_ACCESS_EXPIRED)立即隐藏主体并终止轮询;
  *   重新解锁后重读现值,草稿不自动提交(显式继续)。
@@ -130,9 +129,7 @@ function calls(method: string, path: string): Array<{ method: string; path: stri
 
 function Page(): ReactNode {
   return (
-    <SettingsUnlockGate onCancel={() => undefined}>
-      <SettingsSourcesPage />
-    </SettingsUnlockGate>
+    <SettingsSourcesPage />
   );
 }
 
@@ -155,20 +152,16 @@ describe('T123 · 来源创建→导入→确认流程(FR-037)', () => {
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getByTestId('source-list')).toBeVisible());
-    // 打开创建表单 → 填写 → 提交(经当次密码弹层)
+    // 打开创建表单 → 填写 → 提交(013/ADR-0017:免当次密码直接创建)
     await user.click(screen.getByTestId('create-source-open'));
     await user.type(screen.getByLabelText('来源名称'), '新来源');
     await user.type(screen.getByLabelText('播放列表地址(M3U URL)'), 'http://media.example.tv/a.m3u');
     await user.click(screen.getByTestId('create-source-submit'));
-    await user.type(screen.getByLabelText('主账号密码(当次验证)'), 'password-123');
-    await user.click(screen.getByTestId('password-submit'));
     // 创建成功:明确「开始导入」下一步
     await waitFor(() => expect(screen.getByTestId('source-created-next-step')).toBeVisible());
     expect(calls('POST', '/api/settings/sources')).toHaveLength(1);
-    // 开始导入
+    // 开始导入(免当次密码直接执行)
     await user.click(screen.getByTestId('source-start-import'));
-    await user.type(screen.getByLabelText('主账号密码(当次验证)'), 'password-123');
-    await user.click(screen.getByTestId('password-submit'));
     await waitFor(() => expect(calls('POST', '/api/settings/sources/s-2/refresh')).toHaveLength(1));
     // 任务状态轮询至 awaiting_confirmation:出现确认/丢弃
     await waitFor(() => expect(screen.getByText(/awaiting_confirmation/)).toBeVisible(), { timeout: 9000 });
@@ -222,5 +215,37 @@ describe('T123 · 来源创建→导入→确认流程(FR-037)', () => {
     expect(screen.getByTestId('source-view-s-1')).toBeVisible();
     // 无任何清理调用(仅 GET)
     expect(fetchCalls.every((call) => call.method === 'GET' || call.method === 'POST')).toBe(true);
+  });
+
+  it('启停开关可点:点击可见轨道即直接提交启停(Control 位于可点击 Switch.Content 内;回归钉)', async () => {
+    // 背景:HeroUI Switch 根(react-aria SwitchField)是无交互 div,唯一可点击区域是
+    // Switch.Content(SwitchButton label)。Control 若写在其外(与 Content 平级),
+    // 真实浏览器点击可见轨道不触发 onChange(getByRole('switch') 直点 input 的旧测法探不到)。
+    const user = userEvent.setup();
+    appQueryClient.clear();
+    render(
+      <MemoryRouter initialEntries={['/settings/sources']}>
+        <QueryClientProvider client={appQueryClient}>
+          <SettingsAccessProvider>
+            <Routes>
+              <Route path="/settings/sources" element={<Page />} />
+            </Routes>
+          </SettingsAccessProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId('source-list')).toBeVisible());
+    // 结构钉:可见轨道必须在可点击 label 内,且该 label 关联 role=switch 的隐藏 input
+    const track = document.querySelector('[data-slot="switch-control"]');
+    expect(track).not.toBeNull();
+    const clickableLabel = track?.closest('label') ?? null;
+    expect(clickableLabel).not.toBeNull();
+    expect(clickableLabel?.querySelector('input[role="switch"]')).not.toBeNull();
+    // 行为钉:点击可见轨道(而非 getByRole('switch') 隐藏 input)即触发启停;
+    // 013/ADR-0017:免当次密码,直接 PATCH(无任何确认弹层)
+    await user.click(track as HTMLElement);
+    await waitFor(() => expect(calls('PATCH', '/api/settings/sources/s-1')).toHaveLength(1));
+    expect(screen.queryByText('保存来源修改')).toBeNull();
+    expect(screen.queryByLabelText('主账号密码(当次验证)')).toBeNull();
   });
 });

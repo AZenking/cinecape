@@ -1,47 +1,50 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import type { ChannelRowDto, ExperienceProgrammeDto } from '@hmp/shared';
 import { Alert, Button, Input, Label, TextField } from '@heroui/react';
 import { keepPreviousData } from '../../shared/query/hooks';
 import { queryKeys } from '../../shared/query/keys';
-import { fetchLiveChannels, fetchLiveGroups, type LiveChannelQuery, type LiveSection } from './live-api';
+import { fetchLiveChannels, fetchLiveGroups, type LiveChannelQuery } from './live-api';
 import { usePlayAction } from '../playback/use-play-action';
 import { useSession } from '../../app/session-provider';
 import { useFavoriteToggleMutation } from '../favorites/use-favorites';
 import { ProgrammeDetailPanel, type ProgrammeStatus } from '../shared-programme/ProgrammeDetailPanel';
+import { serverNowMs } from '../../shared/time/server-clock';
 import { useLiveRefresh } from './hooks/use-live-refresh';
 import { useLiveSection } from './hooks/use-live-sections';
 import { NowSection } from './components/NowSection';
 import { NextSection } from './components/NextSection';
-import { GroupSections } from './components/GroupSections';
-import { FocusedSection, sectionTitleOf } from './components/FocusedSection';
-import { NowHero } from './components/NowHero';
+import { CategorySwimlanes } from './components/CategorySwimlanes';
+import { LiveHeroPlayer } from './components/LiveHeroPlayer';
 import { GuestActionNotice } from './components/GuestActionNotice';
 
 /**
- * 直播首页(T067/T068/T069/T070/T071;FR-021/022/023/024/045、ui.md §5/§8;
- * 012 T016:三区详情面板统一挂载共享 shared-programme/ProgrammeDetailPanel):
- * - Netflix 式布局演进:固定分区顺序不变 —— 所有节目单入口 → 此刻直播精选横幅(非分区,
- *   仅取 now 区服务端稳定排序首频道)→ 正在直播 → 即将播放 → 各分组正在直播;
- *   后三区为横向滚动瓦片行(溢出限于行内,整页无横向溢出,ui.md §8);
- * - section/group/q/page 写入 URL 查询参数作为公共浏览状态:概览(无参数)与聚焦视图
- *   (section 必配)互转;详情返回或登录取消后经 URL 恢复原浏览状态(FR-045);
+ * 直播首页(015 T010 装配;FR-001~FR-006、ui-layout.md §1 Screen 1 线框、
+ * routing-and-url-state.md §2.1;替代 012 T067/T068/T069/T070/T071 装配):
+ * - Screen 1 自上而下固定顺序(LiveHeroPlayer 直接播放大屏 → NowSection 正在直播 →
+ *   NextSection 即将播放 → CategorySwimlanes 各分类逐行平铺泳道;后三区为横向
+ *   滚动瓦片行,溢出限于行内,整页无横向溢出);
+ * - 015 智能分流:正在直播行尾入口经 navigate('/live/guide') 直达 EPG 节目单
+ *   时间墙(FR-003,禁止导向无排期静态列表),各分类行尾入口 navigate
+ *   (`/live/channels?group=${key}`) 直达分类平铺网格并携带 Tab 高亮参数(FR-004,
+ *   该路由由 Wave 3 注册,注册前跳转暂 404 属预期中间态)——012 聚焦视图
+ *   (?section= 分页)被新规格取代,本页不再承载聚焦视图;
+ * - q 写入 URL 查询参数作为公共浏览状态(FR-045 语义延续;搜索筛选首页泳道,
+ *   routing-and-url-state.md §2.1);详情返回或登录取消后经 URL 恢复;
  * - 公共请求一律 publicFetch(credentials:'omit');每区独立资源,失败仅重试本区;
  * - 30 秒周期刷新 + 回前台立即刷新(useLiveRefresh);刷新失败保留旧数据并提示可重试;
- * - 播放统一经 US3 受控入口(PlayButton/usePlayAction;无节目频道仍可发起);
- * - 详情面板:旧 live 弹层已删除,同一共享面板承载 now/upcoming/ended/none 四状态
- *   (FR-013、ui.md §2;status 由宿主闭包 panelStatusOf 裁决);
+ * - 播放统一经 US3 受控入口(usePlayAction;无节目频道仍可发起;Hero 主操作同样
+ *   只发起 play(),游客拦截归 ActionCoordinator);
+ * - 详情面板:同一共享面板承载 now/upcoming/ended/none 四状态(FR-013、ui.md §2;
+ *   status 由宿主闭包 panelStatusOf 裁决);
  * - 收藏:游客/未选档仅登录引导零请求(GuestActionNotice);已选档走既有 favorites
  *   变更(乐观写+对账;卡片收藏的行内反馈收口归 012 T011)。
  */
 
 const PREVIEW_PAGE_SIZE = 20;
-const FOCUSED_PAGE_SIZE = 20;
-/** 概览分组集合请求条数(分区展示为前端切片,完整列表经查看更多) */
+/** 概览分组集合请求条数(分区展示为前端切片,完整列表经行尾入口去分类网格/EPG) */
 const OVERVIEW_GROUP_FETCH_SIZE = 50;
-
-const VALID_SECTIONS: readonly string[] = ['now', 'next', 'group', 'all'];
 
 interface SlotDialogState {
   readonly mediaId: string;
@@ -104,12 +107,7 @@ export function LivePage(): ReactNode {
     unavailable: false,
   });
 
-  const rawSection = searchParams.get('section');
-  const section: LiveSection | null =
-    rawSection !== null && VALID_SECTIONS.includes(rawSection) ? (rawSection as LiveSection) : null;
-  const groupKeyParam = searchParams.get('group') ?? undefined;
   const qParam = searchParams.get('q') ?? '';
-  const pageParam = Math.max(1, Number.parseInt(searchParams.get('page') ?? '1', 10) || 1);
 
   const updateParams = useCallback(
     (mutate: (params: URLSearchParams) => void): void => {
@@ -128,21 +126,18 @@ export function LivePage(): ReactNode {
         } else {
           params.set('q', q);
         }
-        params.delete('page'); // 新搜索回到第一页
       });
     },
     [updateParams],
   );
 
-  /* ---------------- 资源:概览(全部区独立)+ 聚焦视图 ----------------
+  /* ---------------- 资源:概览全部区(独立取数,失败仅重试本区) ----------------
    * T023 迁移:取数状态机已收口到 shared/query(useAppQuery;signal 透传、
    * 缓存与后台刷新由数据层承担),键一律取自 queryKeys.public 工厂——
    * live 分组/频道为工厂 live() 前缀的派生键(工厂暂无分组/频道子资源条目,
    * 扩工厂属 query-keys 契约变更,归数据层任务):首段仍为 'public' 身份域,
-   * 参数对象置于末位、可序列化,同参同键、异参异键。频道列表在 section/q/page
-   * 变键时以 keepPreviousData 保留上一份内容(旧「代次」行为:换键不吞旧数据)。 */
-
-  const focused = section !== null;
+   * 参数对象置于末位、可序列化,同参同键、异参异键。频道列表在 q 变键时以
+   * keepPreviousData 保留上一份内容(旧「代次」行为:换键不吞旧数据)。 */
 
   const groupsResource = useLiveSection(
     {
@@ -151,6 +146,7 @@ export function LivePage(): ReactNode {
       queryFn: ({ signal }) => fetchLiveGroups(signal),
     },
     refreshKey,
+    true,
   );
 
   const nowQuery: LiveChannelQuery = {
@@ -167,7 +163,7 @@ export function LivePage(): ReactNode {
       placeholderData: keepPreviousData,
     },
     refreshKey,
-    !focused,
+    true,
   );
 
   const nextQuery: LiveChannelQuery = {
@@ -184,7 +180,7 @@ export function LivePage(): ReactNode {
       placeholderData: keepPreviousData,
     },
     refreshKey,
-    !focused,
+    true,
   );
 
   const overviewAllQuery: LiveChannelQuery = {
@@ -201,25 +197,7 @@ export function LivePage(): ReactNode {
       placeholderData: keepPreviousData,
     },
     refreshKey,
-    !focused,
-  );
-
-  const focusedQuery: LiveChannelQuery = {
-    section: section ?? 'all',
-    groupKey: section === 'group' ? groupKeyParam : undefined,
-    page: pageParam,
-    pageSize: FOCUSED_PAGE_SIZE,
-    q: qParam || undefined,
-  };
-  const focusedResource = useLiveSection(
-    {
-      domain: 'public',
-      queryKey: queryKeys.public.liveChannels(focusedQuery),
-      queryFn: ({ signal }) => fetchLiveChannels(focusedQuery, signal),
-      placeholderData: keepPreviousData,
-    },
-    refreshKey,
-    focused,
+    true,
   );
 
   /* ---------------- 游客播放入口占位(US3 统一入口接管前的占位) ---------------- */
@@ -237,23 +215,32 @@ export function LivePage(): ReactNode {
     [play],
   );
 
-  const timezone = groupsResource.data?.timezone ?? focusedResource.data?.timezone ?? 'UTC';
-  const serverNowIso = groupsResource.data?.now ?? focusedResource.data?.now ?? null;
-  /** 此刻直播精选横幅对象:now 区服务端稳定排序首频道(数据未就绪为 null,横幅不渲染) */
+  const timezone = groupsResource.data?.timezone ?? nowResource.data?.timezone ?? 'UTC';
+  // 016 基准时间条款:serverNow 优先取服务端基准钟(响应携带 now 即校准,本地平滑
+  // 推进;设备时钟漂移不影响状态裁决/时间标签);未校准回落响应快照,不臆造本地钟
+  const calibratedNowMs = serverNowMs();
+  const serverNowIso =
+    calibratedNowMs !== null
+      ? new Date(calibratedNowMs).toISOString()
+      : (groupsResource.data?.now ?? nowResource.data?.now ?? null);
+  /** 直接播放大屏对象:now 区服务端稳定排序首频道(数据未就绪为 null,大屏隐藏降级) */
   const firstNowRow: ChannelRowDto | null = nowResource.data?.items[0] ?? null;
 
-  const groupLabelOf = useMemo((): string | undefined => {
-    if (section !== 'group' || groupKeyParam === undefined) {
-      return undefined;
-    }
-    return groupsResource.data?.items.find((group) => group.key === groupKeyParam)?.label;
-  }, [section, groupKeyParam, groupsResource.data]);
-
-  const retryAll = useCallback((): void => {
+  const retryGroups = useCallback((): void => {
     groupsResource.retry();
-    focusedResource.retry();
     groupsChannelsResource.retry();
-  }, [groupsResource, focusedResource, groupsChannelsResource]);
+  }, [groupsResource, groupsChannelsResource]);
+
+  /** 015 智能分流(R3;routing-and-url-state.md §2.2/§2.3):行尾入口统一 navigate */
+  const openLiveGuide = useCallback((): void => {
+    void navigate('/live/guide');
+  }, [navigate]);
+  const openCategoryGrid = useCallback(
+    (groupKey: string): void => {
+      void navigate(`/live/channels?group=${encodeURIComponent(groupKey)}`);
+    },
+    [navigate],
+  );
 
   return (
     <div className="flex min-w-0 flex-col gap-8">
@@ -265,20 +252,6 @@ export function LivePage(): ReactNode {
             : '正在加载家庭时区…'}
         </p>
       </header>
-
-      {/* 所有节目单入口(FR-021 第一区):本阶段指向 /live/guide 占位路由,US6 交付 EPG 墙 */}
-      <section aria-label="所有节目单入口" className="rounded-lg border border-border bg-surface p-4">
-        <h2 className="text-lg font-semibold text-foreground">所有节目单</h2>
-        <p className="mt-1 text-sm text-muted">按频道和时间浏览全部频道排期(节目墙由 US6 交付)。</p>
-        <div className="mt-3">
-          <Link
-            to="/live/guide"
-            className="inline-flex items-center rounded border border-border px-3 py-1.5 text-sm text-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-          >
-            进入节目单
-          </Link>
-        </div>
-      </section>
 
       {/* 搜索(q 写 URL;详情返回或登录取消后恢复) */}
       <div className="flex min-w-0 flex-wrap items-center gap-3">
@@ -311,90 +284,54 @@ export function LivePage(): ReactNode {
           <Alert.Title>直播分组加载失败</Alert.Title>
           <Alert.Description>服务暂时不可用,可以重试;不影响其他分区。</Alert.Description>
           <Alert.Content>
-            <Button size="sm" variant="outline" onPress={groupsResource.retry}>
+            <Button size="sm" variant="outline" onPress={retryGroups}>
               重试
             </Button>
           </Alert.Content>
         </Alert>
       ) : null}
 
-      {section === null ? (
-        <>
-          {/* 此刻直播精选(Netflix 式横幅;非 FR-021 分区,位于所有节目单入口之后,
-              取 now 区服务端稳定排序首频道,数据未就绪时不渲染) */}
-          {firstNowRow !== null && nowResource.data !== null ? (
-            <NowHero
-              row={firstNowRow}
-              timezone={nowResource.data.timezone}
-              nowIso={nowResource.data.now}
-              onOpenProgramme={setSlotDialog}
-            />
-          ) : null}
-          <NowSection
-            resource={nowResource}
-            onRetry={nowResource.retry}
-            onViewMore={() => {
-              updateParams((params) => {
-                params.set('section', 'now');
-                params.delete('page');
-              });
-            }}
-            onOpenProgramme={setSlotDialog}
-            onRequireAuth={requireAuth}
-          />
-          <NextSection
-            resource={nextResource}
-            onRetry={nextResource.retry}
-            onViewMore={() => {
-              updateParams((params) => {
-                params.set('section', 'next');
-                params.delete('page');
-              });
-            }}
-            onOpenProgramme={setSlotDialog}
-            onRequireAuth={requireAuth}
-          />
-          <GroupSections
-            groupsResource={groupsResource}
-            channelsResource={groupsChannelsResource}
-            focusedGroupKey={null}
-            onRetry={retryAll}
-            onViewMore={(key) => {
-              updateParams((params) => {
-                params.set('section', 'group');
-                params.set('group', key);
-                params.delete('page');
-              });
-            }}
-            onOpenProgramme={setSlotDialog}
-            onRequireAuth={requireAuth}
-          />
-        </>
-      ) : (
-        <FocusedSection
-          sectionTitle={sectionTitleOf(section, groupLabelOf)}
-          resource={focusedResource}
-          page={pageParam}
-          onPageChange={(nextPage) => {
-            updateParams((params) => {
-              params.set('page', String(nextPage));
-            });
-          }}
-          onExit={() => {
-            updateParams((params) => {
-              params.delete('section');
-              params.delete('group');
-              params.delete('page');
-            });
-          }}
-          onRetry={focusedResource.retry}
+      {/* Screen 1 装配顺序(015 T010;ui-layout.md §1.1 线框):
+          直接播放大屏 → 正在直播 → 即将播放 → 各分类逐行平铺泳道 */}
+      {/* 直接播放大屏(015 T008;FR-002):now 区服务端稳定排序首频道,
+          数据未就绪时隐藏降级(不白屏),主操作只经 usePlayAction 发起 */}
+      {firstNowRow !== null && nowResource.data !== null ? (
+        <LiveHeroPlayer
+          row={firstNowRow}
+          timezone={nowResource.data.timezone}
+          nowIso={nowResource.data.now}
           onOpenProgramme={setSlotDialog}
-          onRequireAuth={requireAuth}
         />
-      )}
+      ) : null}
+      <NowSection
+        resource={nowResource}
+        onRetry={nowResource.retry}
+        /* 015 FR-003(R3):行尾入口直达 EPG 节目单时间墙(取代 012 聚焦视图分流;
+           行尾文案由 015 T012 归属任务演进) */
+        onViewMore={openLiveGuide}
+        onOpenProgramme={setSlotDialog}
+        onRequireAuth={requireAuth}
+      />
+      <NextSection
+        resource={nextResource}
+        onRetry={nextResource.retry}
+        /* 聚焦视图移除后,即将播放行尾入口同样导向 EPG 时间墙(未来排期事实源) */
+        onViewMore={openLiveGuide}
+        onOpenProgramme={setSlotDialog}
+        onRequireAuth={requireAuth}
+      />
+      <CategorySwimlanes
+        groupsResource={groupsResource}
+        channelsResource={groupsChannelsResource}
+        onRetry={retryGroups}
+        /* 015 FR-004(R3):行尾「全部XX频道」直达分类平铺网格(携带 Tab 高亮参数) */
+        onViewAll={openCategoryGrid}
+        onOpenProgramme={setSlotDialog}
+        onRequireAuth={requireAuth}
+      />
 
-      {/* 节目详情面板(012 T016;FR-013、ui.md §2):三区共用同一共享面板宿主
-          (shared-programme/ProgrammeDetailPanel,T005 落点;旧 live 弹层已删除)。
+      {/* 节目详情面板(012 T016;FR-013、ui.md §2):各区共用同一共享面板宿主
+          (shared-programme/ProgrammeDetailPanel,T005 落点)。
           status 由宿主闭包 panelStatusOf 按 kind+programme+serverNowIso 裁决;
           动作回调均无参:频道身份(mediaId)由本闭包持有(ui.md §1.4 频道语义)。 */}
       <ProgrammeDetailPanel

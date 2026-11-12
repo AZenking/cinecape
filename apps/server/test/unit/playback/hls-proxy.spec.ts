@@ -364,6 +364,53 @@ describe('T015 多变体清单解析与同源资产重写(playback-assets.rewrit
   });
 });
 
+describe('分享页恢复:HTML 内嵌播放地址提取(dytt /share 形态)', () => {
+  it('入口为分享页 HTML:提取 const url 内嵌 m3u8 地址并重读,返回真实清单', async () => {
+    const upstream = await startUpstream((req, res) => {
+      if (req.url?.startsWith('/share/')) {
+        respondText(
+          res,
+          200,
+          '<!DOCTYPE html><html><head><title>x</title></head><body><script>\nconst vid = "abc";\nconst url = "/2024/1/index.m3u8?sign=cafe";\n</script></body></html>',
+        );
+        return;
+      }
+      respondText(res, 200, '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4.0,\nseg.ts\n');
+    });
+    try {
+      const result = await newProxyService().readPlaylist(`${upstream.origin}/share/735b`, {
+        allowedTargets: LOCAL_TARGETS,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        throw new Error(`读取应成功:${result.code} ${result.reason}`);
+      }
+      expect(result.value.text).toContain('#EXTM3U');
+      expect(result.value.finalUrl).toBe(`${upstream.origin}/2024/1/index.m3u8?sign=cafe`);
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it('无内嵌播放地址的 HTML:保留原始形态(提取不误伤,上层稳定码不变)', async () => {
+    const upstream = await startUpstream((req, res) => {
+      respondText(res, 200, '<!DOCTYPE html><html><body>plain page</body></html>');
+    });
+    try {
+      const result = await newProxyService().readPlaylist(`${upstream.origin}/share/plain`, {
+        allowedTargets: LOCAL_TARGETS,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        throw new Error('unreachable');
+      }
+      expect(result.value.text).toContain('plain page');
+    } finally {
+      await upstream.close();
+    }
+  });
+});
+
 describe('T015 拒绝矩阵:畸形/预算/嵌套/循环/DRM/未知 scheme(稳定失败,不透传)', () => {
   it('畸形清单:非文本二进制内容与缺 #EXTM3U 头的文本 → 稳定失败', async () => {
     const binary = await newAssetsService().rewritePlaylist({

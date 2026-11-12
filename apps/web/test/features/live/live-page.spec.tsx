@@ -1,6 +1,8 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
+import type { ReactNode } from 'react';
+import { useLocation } from 'react-router';
 import { SessionProvider } from '../../../src/app/session-provider';
 import { SettingsAccessProvider } from '../../../src/features/settings/settings-access-provider';
 import { ActionCoordinator } from '../../../src/app/action-coordinator';
@@ -10,14 +12,17 @@ import { LivePage } from '../../../src/features/live/LivePage';
 import { createQueryWrapper, createTestQueryClient } from '../../helpers/query-test-utils';
 
 /**
- * 直播页组件测试(T061;FR-021/022/023/024/045、ui.md §5):
- * - 分区顺序「所有节目单入口 → 正在直播 → 即将播放 → 各分组正在直播」且每区可继续查看;
+ * 直播页组件测试(015 T010 装配更新;FR-001~FR-006、ui-layout.md §1):
+ * - 分区顺序「直接播放大屏 → 正在直播 → 即将播放 → 各分类正在直播」
+ *   (015 Screen 1;各分类行尾提供「全部XX频道」入口,FR-004);
+ * - 正在直播行尾入口直达 /live/guide EPG 时间墙(FR-003;行尾文案由 015 T012
+ *   任务演进,断言不锁文案);012 聚焦视图被新规格取代;
  * - 时间按服务端返回的家庭时区显示并标注(夹具用 America/New_York,与 jsdom 浏览器时区
  *   明显不同:同一时刻显示 07:05 而非浏览器本地 20:05 → 证明不依赖浏览器时区);
  * - 无节目频道「暂无节目」占位且保留播放入口;
  * - 即将播放点击仅展示节目时段(频道与起止时间),文案不出现预约/回看/立即播放;
  * - 公共数据请求 credentials:'omit';游客播放/收藏出现登录入口且零播放请求;
- * - URL 查询参数承载浏览状态(section/group/q/page,FR-045)。
+ * - URL 查询参数承载浏览状态(q,FR-045 语义延续)。
  */
 
 /* ---------------- 请求桩:按 URL 路由;记录全部 fetch 调用 ---------------- */
@@ -150,6 +155,17 @@ const ALL_PAGE: ChannelPageDto = {
   catalogRevision: 7,
 };
 
+/** 内存路由探针(015 T010):断言行尾分流导航(/live/guide、/live/channels) */
+function LocationProbe(): ReactNode {
+  const location = useLocation();
+  return (
+    <span data-testid="live-location">
+      {location.pathname}
+      {location.search}
+    </span>
+  );
+}
+
 function renderLivePage(): void {
   render(
     <MemoryRouter initialEntries={['/live']}>
@@ -157,6 +173,7 @@ function renderLivePage(): void {
         <SettingsAccessProvider>
           <ActionCoordinator>
             <LivePage />
+            <LocationProbe />
           </ActionCoordinator>
         </SettingsAccessProvider>
       </SessionProvider>
@@ -191,7 +208,7 @@ afterEach(() => {
 });
 
 describe('直播页分区与内容(T061)', () => {
-  it('分区顺序:所有节目单入口 → 正在直播 → 即将播放 → 各分组正在直播;每区可继续查看', async () => {
+  it('分区顺序:直接播放大屏 → 正在直播 → 即将播放 → 各分类正在直播;分类行尾提供全部XX频道入口', async () => {
     renderLivePage();
     await waitFor(() => {
       expect(screen.getAllByText('午间新闻').length).toBeGreaterThan(0);
@@ -203,26 +220,32 @@ describe('直播页分区与内容(T061)', () => {
       const all = Array.from(document.querySelectorAll('h1, h2'));
       return all.indexOf(element);
     };
-    const guide = orderOf('所有节目单');
     const now = orderOf('正在直播');
     const next = orderOf('即将播放');
-    const groups = orderOf('各分组正在直播');
-    expect(guide).toBeGreaterThan(-1);
-    expect(now).toBeGreaterThan(guide);
+    const categories = orderOf('各分类正在直播');
+    expect(now).toBeGreaterThan(-1);
     expect(next).toBeGreaterThan(now);
-    expect(groups).toBeGreaterThan(next);
+    expect(categories).toBeGreaterThan(next);
 
-    // 每区可继续查看:正在直播/即将播出的查看更多 + 分组区查看更多
-    expect(screen.getAllByRole('button', { name: /查看更多/ }).length).toBeGreaterThanOrEqual(2);
-    // 分组区以分组标题逐区展示(FR-021 各类型正在直播)
+    // 直接播放大屏(015 T008)在最前:先于正在直播分区渲染(FR-001 顶部 Hero)
+    const hero = screen.getByRole('region', { name: '直播精选大屏' });
+    const nowRegion = screen.getByRole('region', { name: '正在直播' });
+    expect(hero.compareDocumentPosition(nowRegion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // 分类区以分类标题逐行平铺(FR-004;015 各分类泳道取代 012 分组聚合行)
     expect(screen.getByRole('heading', { name: '新闻 · 正在直播' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '其他 · 正在直播' })).toBeTruthy();
+    // 每个分类行尾无条件提供「全部XX频道」入口(FR-004 MUST;3 个分组 = 3 个入口)
+    expect(screen.getAllByRole('button', { name: /全部.+频道 ›/ }).length).toBe(3);
+    // 行尾入口存在:正在直播区(文案由 015 T012 演进:全部正在直播)与即将播放区(查看更多)
+    expect(screen.getAllByRole('button', { name: /查看更多|全部正在直播/ }).length).toBeGreaterThanOrEqual(2);
   });
 
   it('时间按服务端家庭时区显示并标注,不依赖浏览器时区(07:05 而非本地 20:05)', async () => {
     renderLivePage();
     await waitFor(() => {
-      expect(screen.getAllByText('07:00–07:30').length).toBeGreaterThan(0);
+      // 卡面只展示节目名;时段文本位于此刻直播精选横幅的信息行(与频道名同行,用正则匹配)
+      expect(screen.getAllByText(/07:00–07:30/).length).toBeGreaterThan(0);
     });
     // 同一时刻的浏览器本地(Asia/Shanghai)表示 20:00 不得出现
     expect(document.body.textContent).not.toContain('20:00–20:30');
@@ -307,27 +330,25 @@ describe('直播页分区与内容(T061)', () => {
     expect(fetchCalls.filter((call) => call.url.includes('/playback/')).length).toBe(playbackCallsBefore);
   });
 
-  it('URL 查询参数承载浏览状态:查看更多进入聚焦分区并可返回;搜索写入 q', async () => {
+  it('URL 与行尾分流:搜索写入 q 参数;正在直播行尾入口直达 /live/guide(FR-003)', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderLivePage();
     await waitFor(() => {
       expect(screen.getAllByRole('heading', { name: '正在直播' }).length).toBeGreaterThan(0);
     });
-    await user.click(screen.getAllByRole('button', { name: /查看更多\(共 25 个频道\)/ })[0] as HTMLElement);
-    // 聚焦视图:仅该区 + 分页控件
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: '下一页' })).toBeTruthy();
-    });
-    expect(screen.getByRole('button', { name: '返回全部分区' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: '返回全部分区' }));
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: '即将播放' })).toBeTruthy();
-    });
-    // 搜索:写入 URL 状态并重新拉取(q 参数)
+    // 搜索:写入 URL 状态并重新拉取(q 参数,routing-and-url-state.md §2.1)
     const input = screen.getByLabelText('搜索频道');
     await user.type(input, '新闻');
     await waitFor(() => {
       expect(fetchCalls.some((call) => call.url.includes('q='))).toBe(true);
     });
+    // 015 FR-003(R3):正在直播行尾入口 → EPG 节目单时间墙。
+    // 行尾文案由 015 T012 任务演进(「全部正在直播」),断言不锁文案、只锁接线
+    const nowRegion = screen.getByRole('region', { name: '正在直播' });
+    const rowEndButton = within(nowRegion).getAllByRole('button', {
+      name: /查看更多|全部正在直播/,
+    })[0] as HTMLElement;
+    await user.click(rowEndButton);
+    expect(screen.getByTestId('live-location').textContent).toBe('/live/guide');
   });
 });

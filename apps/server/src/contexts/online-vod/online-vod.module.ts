@@ -26,7 +26,7 @@ import {
   type EffectiveMediaPolicyInput,
   type ParentChildMediaFacts,
 } from '@contexts/policy';
-import { ONLINE_VOD_PUBLICATION_PARTICIPANT, ONLINE_VOD_STORE, VOD_CACHE, VOD_MATERIALIZATION, VOD_PREVIEW_SERVICE, VOD_SEARCH_SERVICE, type VodMaterializationAssembly } from '@contexts/online-vod/online-vod.tokens';
+import { ONLINE_VOD_PUBLICATION_PARTICIPANT, ONLINE_VOD_STORE, VOD_CACHE, VOD_MATERIALIZATION, VOD_POSTER_SERVICE, VOD_PREVIEW_SERVICE, VOD_SEARCH_SERVICE, type VodMaterializationAssembly } from '@contexts/online-vod/online-vod.tokens';
 import { createOnlineVodTxParticipants } from '@contexts/online-vod/infrastructure/transaction-participants';
 import { drizzleOnlineVodStore } from '@contexts/online-vod/infrastructure/online-vod-store.drizzle';
 import { type OnlineVodStore } from '@contexts/online-vod/application/online-vod-store.port';
@@ -43,6 +43,7 @@ import {
   VodUpstreamTimeoutError,
   type VodSearchUpstreamFn,
 } from '@contexts/online-vod/application/search.service';
+import { createVodPosterService } from '@contexts/online-vod/application/poster.service';
 import { createVodPreviewService, type VodDetailUpstreamFn } from '@contexts/online-vod/application/preview.service';
 import type { MaterializationServiceDeps } from '@contexts/online-vod/application/materialization.service';
 import type {
@@ -758,6 +759,14 @@ export class VodRetentionBootstrapper implements OnModuleInit {
           fetchDetail: createDetailUpstream(safeUpstream, sourceConfig, config),
         });
       },
+    },
+    {
+      // 海报代理(posterRef → 私有 posterUrl → SafeUpstream 有界读取;许可列表
+      // 与搜索/详情同一 getConfig().LAN_ALLOWED_TARGETS 口径)
+      provide: VOD_POSTER_SERVICE,
+      inject: [VOD_CACHE, SAFE_UPSTREAM_PORT],
+      useFactory: (cache: VodCache, safeUpstream: SafeUpstreamPort) =>
+        createVodPosterService({ cache, safeUpstream, allowedTargets: getConfig().LAN_ALLOWED_TARGETS }),
     },
     {
       // 010 T029/T031:物化装配束(uow + 有效媒体策略端口 + 净配额 + 非事务预查 +

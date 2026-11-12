@@ -149,6 +149,8 @@ export const queryKeys = {
      */
     vodTitleProgress: (parentMediaId: string) =>
       ['profile', profileId, 'vod', 'title-progress', parentMediaId] as const,
+    /** 013 个人偏好设置(播放/外观) */
+    preferences: () => ['profile', profileId, 'preferences'] as const,
   }),
   // ── settings 域:管理数据,每次进入请求最新(privateFetch) ──
   settings: {

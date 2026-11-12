@@ -327,6 +327,7 @@ function stubItem(input: {
     title: input.name,
     year: input.year ?? null,
     remarks: null,
+    posterUrl: null,
   };
 }
 
@@ -349,6 +350,7 @@ function stubDetail(input: {
     title: input.name,
     year: input.year ?? null,
     synopsis: null,
+    posterUrl: null,
     evidence: 'unverified',
     lines: input.lines.map((line, index) => ({
       lineKey: line.lineKey,

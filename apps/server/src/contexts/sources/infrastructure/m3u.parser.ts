@@ -1,6 +1,14 @@
 import type { Readable } from 'node:stream';
 import { TextDecoder } from 'node:util';
 import { IMPORT_BUDGETS } from '@platform/config/import-budgets';
+import { LOGO_URL_MAX_LENGTH, normalizeLogoUrl } from '@contexts/sources/infrastructure/logo-url';
+// 016 T018(US3 多线路聚合):归一键复用 live-tv 领域纯函数 normalizeChannelKey
+// (research R1「命中相同规范化 key 的流合并为同一逻辑频道的备用线路」)。
+// 跨上下文只读 import 领域纯函数(零 IO/零框架依赖,无行为副作用);落点为
+// live-tv/domain 深路径,属 dependency-cruiser R2「跨上下文落点仅限发布面 index」
+// 的豁免申请点 —— 待 live-tv 所有权代理在 index.ts 再导出后应收口为
+// `import { normalizeChannelKey } from '@contexts/live-tv'`(功能与本注释同步移除)。
+import { normalizeChannelKey } from '@contexts/live-tv/domain/channel-normalizer';
 
 /**
  * M3U 流式解析器(T022;对照 research R2/R6):
@@ -15,7 +23,12 @@ import { IMPORT_BUDGETS } from '@platform/config/import-budgets';
  * - 失败语义:抛 M3UParseFailure(稳定 code,见下方常量);message 只含行号与语义,
  *   绝不携带 URL/凭据/行原文(research R3:地址可能带密钥,日志与错误不得回显);
  * - 解析层只输出原始身份材料:tvgId 原文(或 null)与完整 url 原样保留,
- *   SHA-256 摘要与重复身份冲突判定由后续 staging/catalog-diff 任务负责(research R6)。
+ *   SHA-256 摘要与重复身份冲突判定由后续 staging/catalog-diff 任务负责(research R6);
+ * - 014 T014:EXTINF 额外捕获 tvg-logo 属性并做解析层归一化(沿 group_title 先例,
+ *   research R1):trim 后 9~2048 字符且仅 http/https scheme,不满足一律归 null ——
+ *   Logo 是装饰性证据,坏数据按缺失处理(FR-010),绝不让解析失败或抛错;
+ *   值域与 0009 source_entry.logo_url CHECK(NULL 或 http(s) 且 9~2048)一致,
+ *   保证发布层永不写入会撞 CHECK 的地址。
  */
 
 /** 稳定错误码:M3U 解析失败类别(测试断言与日志只允许携带 code,不携带原文) */
@@ -60,10 +73,24 @@ export interface M3UEntry {
    * trim 后超长(>100)→ M3U_GROUP_TITLE_INVALID 整次失败,不截断伪造分组。
    */
   groupTitle?: string | null;
+  /**
+   * 014 T014(014 data-model §1):EXTINF tvg-logo 归一化产物 ——
+   * trim 后 9~2048 字符且仅 http/https scheme(原文保留,大小写/query 不改写);
+   * 属性缺失/空值/trim 超长/非法 scheme 一律 null(按缺失处理,FR-010 不失败)。
+   */
+  tvgLogo: string | null;
 }
 
 /** group-title 存储值域上界(与 source_entry_group_title_check 一致;T146) */
 export const M3U_GROUP_TITLE_MAX_LENGTH = 100;
+
+/**
+ * 014 T014:tvg-logo 存储值域上界(与 0009 source_entry.logo_url_check 的 2048 上界一致);
+ * trim 后超长不失败不截断,直接归 null 丢弃(FR-010:Logo 数据质量绝不阻塞导入)。
+ * 数值唯一事实源已收敛至 logo-url.ts 的 LOGO_URL_MAX_LENGTH(014 T032 起 XMLTV icon
+ * 共用同一归一化实现);本常量为既有发布面的再导出别名(测试与既有引用不破)。
+ */
+export const M3U_LOGO_MAX_LENGTH = LOGO_URL_MAX_LENGTH;
 
 export interface M3UParseResult {
   entries: M3UEntry[];
@@ -75,6 +102,8 @@ interface PendingEntryInfo {
   tvgName: string | null;
   /** group-title 属性原文;缺失/空值(null)等同无分组 */
   groupTitle: string | null;
+  /** tvg-logo 属性原文(未归一化);缺失/空值(null)等同无 Logo */
+  tvgLogo: string | null;
   /** EXTINF 逗号后的原始标题文本;空串表示缺失 */
   title: string;
   /** 记录 EXTINF 所在行号,供标题缺失报错定位 */
@@ -88,6 +117,14 @@ function attrValue(section: string, name: string): string | null {
   const value = match?.[1];
   return value !== undefined && value !== '' ? value : null;
 }
+
+/**
+ * 014 T014:tvg-logo 解析层归一化(research R1;沿 group_title 的 trim 先例):
+ * trim 后 9~2048 字符且仅 http/https scheme(大小写不敏感,与 0009 CHECK 的 LIKE
+ * 口径一致),原文保留不转小写;不满足一律归 null(非法输入按缺失处理,绝不抛错
+ * —— FR-010:解析含坏 logo 的整份文件不失败)。
+ * 014 T032 起实现收敛至 logo-url.ts 的 normalizeLogoUrl(M3U/XMLTV 唯一共享实现)。
+ */
 
 /** 逐行状态机:消费解码后的文本行,产出条目;全部预算与失败语义集中在此 */
 class M3UStreamParser {
@@ -218,7 +255,7 @@ class M3UStreamParser {
     this.completeEntry(line);
   }
 
-  /** #EXTINF 行:记录 tvg-id/tvg-name/标题,等待后随播放地址行收口 */
+  /** #EXTINF 行:记录 tvg-id/tvg-name/group-title/tvg-logo/标题,等待后随播放地址行收口 */
   private beginEntry(line: string): void {
     if (this.pending !== null) {
       throw new M3UParseFailure(
@@ -245,6 +282,7 @@ class M3UStreamParser {
       tvgId: attrValue(attrSection, 'tvg-id'),
       tvgName: attrValue(attrSection, 'tvg-name'),
       groupTitle: attrValue(attrSection, 'group-title'),
+      tvgLogo: attrValue(attrSection, 'tvg-logo'),
       title: rawTitle,
       lineNumber: this.lineNumber,
     };
@@ -283,8 +321,10 @@ class M3UStreamParser {
         groupTitle = trimmed;
       }
     }
+    // 014 T014:tvg-logo 归一化(trim;9~2048 且仅 http/https;非法一律 null,绝不失败 —— FR-010)
+    const tvgLogo = normalizeLogoUrl(pending.tvgLogo);
     this.pending = null;
-    this.entries.push({ tvgId: pending.tvgId, title, url, groupTitle });
+    this.entries.push({ tvgId: pending.tvgId, title, url, groupTitle, tvgLogo });
     if (this.entries.length > IMPORT_BUDGETS.M3U_MAX_ENTRIES) {
       throw new M3UParseFailure(M3U_BUDGET_EXCEEDED, `条目数超过 ${IMPORT_BUDGETS.M3U_MAX_ENTRIES} 预算`);
     }
@@ -304,4 +344,128 @@ export async function parseM3U(input: Readable | AsyncIterable<Buffer>): Promise
     parser.consumeChunk(typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk);
   }
   return parser.finish();
+}
+
+/* ------------------------------------------------------------------ */
+/* 016 T018(US3 多线路聚合):线路属性派生纯函数                            */
+/* ------------------------------------------------------------------ */
+/* 016 research R1/data-model §2.1:同名流(归一键相同)聚合为单 media_item 的多条  */
+/* 线路(source_entry);线路元数据 label/priority 为派生属性,本节集中其确定性公式: */
+/* - channelKeyOf:复用 live-tv normalizeChannelKey(单点复用,聚合与投影共用同键);   */
+/* - extractLineDifferenceLabel:线路差异段 = 括注段原文,缺省回退清晰度噪音词;      */
+/* - deriveLinePriority:来源 priority(越小越优)+ 清晰度罚分(越清晰罚分越小);     */
+/* - buildLineLabel:「线路 N [差异段|来源名]」公开投影形态(resolve 组装共用)。      */
+/* 全部为零 IO 纯函数,导入发布事务与播放解析只读消费,规则改动一处生效。            */
+
+/**
+ * 频道归一键(016 R1 聚合键):委托 live-tv normalizeChannelKey 的单点薄封装。
+ * 空串语义与上游一致 = 「无法归一化」,调用方(发布聚合)按不同名不合并处理。
+ */
+export function channelKeyOf(rawTitle: string): string {
+  return normalizeChannelKey(rawTitle);
+}
+
+/** 清晰度规则表(罚分升序 = 清晰度降序;词边界判定与 channel-normalizer 同口径):
+ *  - 字母开头 ASCII 词(hd/sd/fhd/uhd)仅被字母前邻阻挡(允许紧邻数字,cctv-1hd → hd);
+ *  - 数字开头 ASCII 词(4k/8k/1080p/720p/1080i)仅被数字前邻阻挡(允许紧邻字母,cctv4k 不算);
+ *  - CJK 词无词边界概念,直接命中(超高清 先于 高清 由规则序与整词保证)。 */
+const LINE_CLARITY_RULES: ReadonlyArray<{
+  readonly penalty: number;
+  readonly ascii: readonly string[];
+  readonly cjk: readonly string[];
+}> = [
+  { penalty: 0, ascii: ['8k', 'uhd'], cjk: ['超高清'] },
+  { penalty: 2, ascii: ['4k'], cjk: [] },
+  { penalty: 4, ascii: ['1080p', '1080i', 'fhd'], cjk: ['蓝光'] },
+  { penalty: 8, ascii: ['720p', 'hd'], cjk: ['高清', '超清'] },
+  { penalty: 16, ascii: ['sd'], cjk: ['标清'] },
+];
+
+/** ASCII 词边界判定(与 channel-normalizer isRemovableNoise 同口径的正则形):
+ *  字母开头词前邻禁 [a-z](防 shenzhen 误伤);数字开头词前邻禁 [0-9](防 2048 误伤);
+ *  后邻一律禁 [a-z0-9](防词内片段)。 */
+function asciiClarityPattern(token: string): RegExp {
+  const digitLed = /^[0-9]/.test(token);
+  const before = digitLed ? '(?<![0-9])' : '(?<![a-z])';
+  return new RegExp(`${before}${token}(?![a-z0-9])`, 'i');
+}
+
+/** 逐规则命中清晰度词,返回原文(大小写不折损)命中列表(规则序即清晰度序,去重) */
+function matchedClarityTokens(rawTitle: string): string[] {
+  const lower = rawTitle.toLowerCase();
+  const seen = new Set<string>();
+  const tokens: string[] = [];
+  for (const rule of LINE_CLARITY_RULES) {
+    for (const token of rule.cjk) {
+      if (lower.includes(token) && !seen.has(token)) {
+        seen.add(token);
+        tokens.push(token);
+      }
+    }
+    for (const token of rule.ascii) {
+      const match = asciiClarityPattern(token).exec(rawTitle);
+      if (match !== null && !seen.has(match[0].toLowerCase())) {
+        seen.add(match[0].toLowerCase());
+        tokens.push(match[0]);
+      }
+    }
+  }
+  return tokens;
+}
+
+/** 括注段提取(与 channel-normalizer 的包裹段同形:[]/()/【】;取内文原文) */
+const LINE_BRACKET_PATTERN = /\[[^\][]*\]|\([^()]*\)|【[^【】]*】/g;
+
+/**
+ * 线路差异段提取(016 T018,保守规则):
+ * 1) 优先取原始名中的括注段内文([1080P]/(备用)/【超清】;多段以空格连接,原文保留);
+ * 2) 无括注时回退清晰度噪音词原文(1080P/4K/高清…);
+ * 3) 两者皆无 → 空串(调用方以来源名兜底,即 buildLineLabel 的回退语义)。
+ * 刻意不做:语义词识别(「备用/主源/联通」等)—— 无可靠判据,误标风险高(保守不做项)。
+ */
+export function extractLineDifferenceLabel(rawTitle: string): string {
+  const bracketContents: string[] = [];
+  for (const match of rawTitle.matchAll(LINE_BRACKET_PATTERN)) {
+    const inner = match[0].slice(1, -1).trim();
+    if (inner !== '') {
+      bracketContents.push(inner);
+    }
+  }
+  if (bracketContents.length > 0) {
+    return bracketContents.join(' ');
+  }
+  return matchedClarityTokens(rawTitle).join(' ');
+}
+
+/**
+ * 线路排序权重(016 T018 确定性公式,写明供测试与评审核对):
+ *   priority = 来源 priority(media_source.priority,缺省 100)+ 清晰度罚分
+ * 清晰度罚分:8K/UHD/超高清 0 → 4K 2 → 1080P/1080i/FHD/蓝光 4 → 720P/HD/高清/超清 8
+ * → SD/标清 16;未标注 = 0(中性 —— 不改变来源顺序,既有无标注导入行为零变化)。
+ * 数值越小越优先(priority ASC);同分由调用方以 lineId 二进制升序决胜(确定性投影)。
+ * sourcePriority 非有限数值(部分迁移库缺列的 SELECT * 读取)按缺省 100 兜底。
+ */
+export function deriveLinePriority(sourcePriority: number | undefined, rawTitle: string): number {
+  const base = typeof sourcePriority === 'number' && Number.isFinite(sourcePriority) && sourcePriority >= 0 ? sourcePriority : 100;
+  const lower = rawTitle.toLowerCase();
+  for (const rule of LINE_CLARITY_RULES) {
+    if (rule.cjk.some((token) => lower.includes(token))) {
+      return base + rule.penalty;
+    }
+    if (rule.ascii.some((token) => asciiClarityPattern(token).test(rawTitle))) {
+      return base + rule.penalty;
+    }
+  }
+  return base;
+}
+
+/**
+ * 线路公开标签(016 data-model §2.1/api.md §2.1:「线路 1 [1080P]」形态):
+ * 差异段优先(导入侧可由原始名提取),缺失回退来源名;两者皆缺省略方括号。
+ * resolve 侧受「原始名不入库(无持久化列)」所限,差异段恒走来源名回退(任务书
+ * 「优先用清洗差异/来源名」的保守分支);导入侧纯函数面已由 extractLineDifferenceLabel 承载。
+ */
+export function buildLineLabel(ordinal: number, differenceLabel: string, fallbackSourceTitle: string): string {
+  const suffix = differenceLabel !== '' ? differenceLabel : fallbackSourceTitle;
+  return suffix === '' ? `线路 ${ordinal}` : `线路 ${ordinal} [${suffix}]`;
 }

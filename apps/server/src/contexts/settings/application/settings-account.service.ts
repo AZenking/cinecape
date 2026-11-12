@@ -5,7 +5,7 @@ import { hashPassword, requireManagementRole } from '@contexts/identity-access';
 import { verifyOwnerPassword } from '@contexts/settings/application/settings-owner-password';
 import { clearDeviceSessionsProfile, revokeUnlockGrantsForProfile } from '@contexts/profile';
 import { revokeSettingsGrantsForAccountTx } from '@contexts/settings/application/settings-access-revocation';
-import { requireValidSettingsGrantTx } from '@contexts/settings/application/settings-access-grant.service';
+import { requireMainProfileTx } from '@contexts/settings/application/settings-access-grant.service';
 import { settingsStore, type AccountCredentialRow, type SettingsTxStore } from '@contexts/settings/application/settings-store.port';
 
 /**
@@ -17,7 +17,7 @@ import { settingsStore, type AccountCredentialRow, type SettingsTxStore } from '
  *   旧密码验证(沿用既有持久错误计数/锁定,parent_verification_state)→
  *   验证旧密码后再重读 credential_version(快照,避免并发密码变化窗口)→
  *   新密码哈希在事务外 → BEGIN IMMEDIATE 提交前重验 credential_version + 权限快照
- *   (requireValidSettingsGrantTx)→ 更新 password_hash/credential_version+1、
+ *   (requireMainProfileTx)→ 更新 password_hash/credential_version+1、
  *   撤销该账号全部 device_session 与设置授予、有身份的会话按失效回落语义清档并
  *   终态化活动播放 → 提交后撤销内存选档授予。
  *
@@ -66,7 +66,7 @@ export async function changeAccountPassword(context: SessionContext, input: Chan
         throw createDomainError('VERSION_CONFLICT');
       }
       // 权限快照重验(grant 撤销/过期、换档、主档案变化、PIN 变化 → 403)
-      requireValidSettingsGrantTx(tx, context);
+      requireMainProfileTx(tx, context);
 
       // 同事务撤销该账号全部 device_session(含当前会话)
       const sessions = tx.listAccountSessions(context.account.id, context.session.householdId);

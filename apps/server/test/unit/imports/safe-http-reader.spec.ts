@@ -15,6 +15,7 @@ import type { LanTarget } from '@platform/config/env.schema';
 import {
   ABORTED,
   BUDGET_EXCEEDED,
+  DEFAULT_UPSTREAM_USER_AGENT,
   DNS_INVALID,
   IDLE_TIMEOUT,
   REDIRECT_LIMIT,
@@ -239,6 +240,27 @@ describe('safe-http-reader(T014/T021):放行与透传', () => {
     expect(seenCookie).toBeUndefined();
     await source.close();
     expect(server.requestCount('/playlist.m3u')).toBe(1);
+  });
+
+  it('出站请求携带默认 User-Agent(上游 WAF 拒绝无 UA 请求,读取器固定最小头集)', async () => {
+    const m3u = buildM3u([{ tvgId: 'cctv1', name: 'CCTV-1 综合', url: 'http://192.168.8.10:9981/cctv1' }]);
+    let seenUserAgent: string | undefined = 'not-called';
+    const server = await startServer([]);
+    server.setRoute('/playlist.m3u', {
+      kind: 'raw',
+      respond: ({ req, res }) => {
+        seenUserAgent = req.headers['user-agent'];
+        res.writeHead(200, { 'content-type': 'audio/x-mpegurl' });
+        res.end(m3u);
+      },
+    });
+
+    const source = await openRemoteSource(`http://127.0.0.1:${server.port}/playlist.m3u`, {
+      allowedTargets: allowFixture(server.port),
+    });
+    await collect(source.stream);
+    await source.close();
+    expect(seenUserAgent).toBe(DEFAULT_UPSTREAM_USER_AGENT);
   });
 
   it('gzip 路由:返回原始压缩流(content-encoding 透传,字节一致,不做解压)', async () => {

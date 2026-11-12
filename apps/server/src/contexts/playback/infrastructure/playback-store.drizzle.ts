@@ -37,6 +37,7 @@ import type {
   EnabledPlaybackResourceRow,
   FailureEventInsert,
   MediaItemRow,
+  PlaybackLineRow,
   PlaybackSessionRow,
   PlaybackStore,
   ProfilePolicyDefaultInsert,
@@ -198,6 +199,41 @@ class DrizzlePlaybackStore implements PlaybackStore {
         playbackSourceId: playbackSource.id,
         sourceId: playbackSource.sourceId,
         protocol: playbackSource.protocol,
+      })
+      .from(playbackSource)
+      .innerJoin(
+        mediaSource,
+        and(eq(mediaSource.householdId, playbackSource.householdId), eq(mediaSource.id, playbackSource.sourceId)),
+      )
+      .innerJoin(
+        sourceEntry,
+        and(eq(sourceEntry.householdId, playbackSource.householdId), eq(sourceEntry.id, playbackSource.sourceEntryId)),
+      )
+      .where(
+        and(
+          eq(playbackSource.householdId, householdId),
+          eq(playbackSource.mediaItemId, mediaId),
+          eq(sourceEntry.mediaId, mediaId),
+          eq(mediaSource.enabled, 1),
+          eq(sourceEntry.present, 1),
+        ),
+      )
+      .all();
+  }
+
+  /**
+   * 016 T019(US3 多线路):与 listEnabledPlaybackResourceRows 同 join 链同谓词的线路事实
+   * 投影 —— lineId=source_entry.id(不透明),sourceTitle=来源显示名,linePriority=线路
+   * 排序权重(playback_source.priority)。投影刻意不含 location/mime(源地址/凭据永不下发)。
+   */
+  listPlaybackLineRows(householdId: string, mediaId: string): PlaybackLineRow[] {
+    return this.db()
+      .select({
+        playbackSourceId: playbackSource.id,
+        lineId: sourceEntry.id,
+        sourceId: playbackSource.sourceId,
+        sourceTitle: mediaSource.name,
+        linePriority: playbackSource.priority,
       })
       .from(playbackSource)
       .innerJoin(

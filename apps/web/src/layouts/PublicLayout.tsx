@@ -11,15 +11,9 @@
  *   深度响应式(768 窄窗收拢、身份菜单)归 US5/Polish,本阶段保证宽窗横排导航。
  */
 import type { ReactNode } from 'react';
-import { Link, NavLink, Outlet } from 'react-router';
+import { Link, Outlet } from 'react-router';
 import { IdentityMenu } from '../features/profiles/identity-menu';
-
-/** 公共导航项;`/` 用 end 避免所有路由都命中首页激活态 */
-const NAV_ITEMS = [
-  { to: '/', label: '首页', end: true },
-  { to: '/vod', label: '点播', end: false },
-  { to: '/live', label: '直播', end: false },
-] as const;
+import { PublicNav } from '../shared/ui';
 
 export function PublicLayout(): ReactNode {
   return (
@@ -33,22 +27,7 @@ export function PublicLayout(): ReactNode {
             >
               HOME MEDIA
             </Link>
-            <nav aria-label="公共导航" className="flex items-center gap-4">
-              {NAV_ITEMS.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  className={({ isActive }) =>
-                    `rounded px-1 py-1 text-sm transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
-                      isActive ? 'font-medium text-foreground' : 'text-muted'
-                    }`
-                  }
-                >
-                  {item.label}
-                </NavLink>
-              ))}
-            </nav>
+            <PublicNav />
           </div>
           {/* 登录入口插槽(ui.md §2):IdentityMenu 自足覆盖 游客=登录(restoring=轻量恢复;
               登录未选档=账号+选择 Profile;已选档=账号+头像/名称菜单,切档/设置入口/退出),

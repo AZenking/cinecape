@@ -4,7 +4,6 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { SettingsAccessProvider } from '../../src/features/settings/settings-access-provider';
-import { SettingsUnlockGate } from '../../src/features/settings/settings-unlock-gate';
 import { SettingsProfilesPage } from '../../src/features/settings/settings-profiles-page';
 import { POST_IDENTITY_CHANGE_NOTICE } from '../../src/features/settings/shared/access-expiry';
 import { useAppToast } from '../../src/shared/ui';
@@ -12,11 +11,12 @@ import { queryClient as appQueryClient } from '../../src/shared/query/client';
 import type { ReactNode } from 'react';
 
 /**
- * T010(006-US1,先 FAIL)· 主档案转移完成提示:window.alert → AlertDialog + Toast:
- * - 弹层正文逐字等于 POST_IDENTITY_CHANGE_NOTICE.mainProfile(文案不丢失,FR-001);
- * - 具备确认动作(浏览器 alert 的「好」等价:单一确认按钮);
- * - 确认后结果经 useAppToast 反馈,并回到首页(原 alert 后 navigate('/') 等价);
- * - 授权同步撤销(access.lock,DELETE /api/settings/access)仍发生在确认链路内。
+ * 主档案转移完成提示(设置页操作提示统一走 Toast):
+ * - 转移成功即经 useAppToast.success 反馈,文案逐字等于
+ *   POST_IDENTITY_CHANGE_NOTICE.mainProfile(文案不丢失,FR-001);
+ * - 不再挂页面级 AlertDialog(设置页操作提示统一 Toast,AppToastRegion 挂应用
+ *   根部,路由跳转/页面卸载后仍可见);
+ * - 反馈后直接回首页(013:客户端无锁态,不再 DELETE /api/settings/access)。
  */
 
 // 间谍 useAppToast:组件经共享 ui 出口取用轻反馈;这里替换为可断言的 spy
@@ -30,7 +30,11 @@ vi.mock('../../src/shared/ui', async (importOriginal) => {
   };
 });
 
-vi.mocked(useAppToast).mockReturnValue({ success: vi.fn(() => 'toast-id'), error: vi.fn(() => 'toast-id') });
+vi.mocked(useAppToast).mockReturnValue({
+  success: vi.fn(() => 'toast-id'),
+  error: vi.fn(() => 'toast-id'),
+  warning: vi.fn(() => 'toast-id'),
+});
 
 interface FetchCall {
   method: string;
@@ -72,9 +76,7 @@ function renderPage(): void {
         <SettingsAccessProvider>
           <Routes>
             <Route path="/settings/profiles" element={
-              <SettingsUnlockGate onCancel={() => undefined}>
-                <SettingsProfilesPage />
-              </SettingsUnlockGate>
+              <SettingsProfilesPage />
             } />
             <Route path="/" element={<HomeMarker />} />
           </Routes>
@@ -84,7 +86,16 @@ function renderPage(): void {
   );
 }
 
-describe('T015 · 主档案转移完成提示 AlertDialog + Toast(文案不变)', () => {
+async function transferMain(): Promise<void> {
+  const user = userEvent.setup();
+  await user.click(await screen.findByTestId(`profile-transfer-${MAIN.id}`));
+  await user.click(screen.getByRole('radio', { name: /新主档案/ }));
+  await user.click(screen.getByTestId('transfer-main-open'));
+  await user.type(screen.getByLabelText('主账号密码(当次验证)'), 'password-123');
+  await user.click(screen.getByTestId('password-submit'));
+}
+
+describe('主档案转移完成提示(设置页操作提示统一走 Toast)', () => {
   beforeEach(() => {
     fetchCalls = [];
     vi.stubGlobal(
@@ -118,42 +129,22 @@ describe('T015 · 主档案转移完成提示 AlertDialog + Toast(文案不变)'
     vi.clearAllMocks();
   });
 
-  it('转移成功后弹 AlertDialog:正文逐字等于提示文案,单一确认动作', async () => {
-    const user = userEvent.setup();
+  it('转移成功即出 Toast:文案逐字等于提示文案,不再挂页面级 AlertDialog', async () => {
     renderPage();
-    await user.click(await screen.findByTestId(`profile-transfer-${MAIN.id}`));
-    await user.click(screen.getByRole('radio', { name: /新主档案/ }));
-    await user.click(screen.getByTestId('transfer-main-open'));
-    await user.type(screen.getByLabelText('主账号密码(当次验证)'), 'password-123');
-    await user.click(screen.getByTestId('password-submit'));
-    // 弹层出现:文案逐字一致(不再走 window.alert)
-    const notice = await screen.findByTestId('identity-notice-text');
-    expect(notice).toHaveTextContent(POST_IDENTITY_CHANGE_NOTICE.mainProfile);
-    expect(notice.textContent).toBe(POST_IDENTITY_CHANGE_NOTICE.mainProfile);
-    // 单一确认动作存在(alert 的「好」等价)
-    expect(screen.getByTestId('identity-notice-confirm')).toBeVisible();
-  });
-
-  it('确认后:结果经 useAppToast 反馈(同文案)、授权撤销(DELETE access)、回首页', async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await user.click(await screen.findByTestId(`profile-transfer-${MAIN.id}`));
-    await user.click(screen.getByRole('radio', { name: /新主档案/ }));
-    await user.click(screen.getByTestId('transfer-main-open'));
-    await user.type(screen.getByLabelText('主账号密码(当次验证)'), 'password-123');
-    await user.click(screen.getByTestId('password-submit'));
-    await screen.findByTestId('identity-notice-text');
-    await user.click(screen.getByTestId('identity-notice-confirm'));
-    // 结果经 Toast 轻反馈(与弹层同文案)
+    await transferMain();
     const toast = vi.mocked(useAppToast).mock.results.at(-1)?.value;
     await waitFor(() => expect(toast?.success).toHaveBeenCalledWith(POST_IDENTITY_CHANGE_NOTICE.mainProfile));
-    // 授权同步撤销仍在链路内(客户端失效态 + 服务端 DELETE)
-    await waitFor(() => {
-      expect(fetchCalls.some((call) => call.method === 'DELETE' && call.path === '/api/settings/access')).toBe(true);
-    });
-    // 回首页(原 alert 后 navigate('/'))
+    // 页面级确认弹层已移除(设置页操作提示统一走 Toast)
+    expect(screen.queryByTestId('identity-notice-text')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('identity-notice-confirm')).not.toBeInTheDocument();
+  });
+
+  it('反馈后直接回首页(013:客户端无锁态,不再 DELETE access)', async () => {
+    renderPage();
+    await transferMain();
+    // 013(ADR-0017):客户端无锁态可翻 —— 不再调用 DELETE /api/settings/access,
+    // 授权事实由服务端主档案转移事务收敛;完成提示经 Toast 后直接回首页
+    expect(fetchCalls.some((call) => call.method === 'DELETE' && call.path === '/api/settings/access')).toBe(false);
     await waitFor(() => expect(screen.getByTestId('home-marker')).toBeInTheDocument());
-    // 弹层已关闭
-    await waitFor(() => expect(screen.queryByTestId('identity-notice-text')).not.toBeInTheDocument());
   });
 });

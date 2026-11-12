@@ -65,8 +65,12 @@ export interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
+export function useOptionalSession(): SessionContextValue | null {
+  return useContext(SessionContext);
+}
+
 export function useSession(): SessionContextValue {
-  const value = useContext(SessionContext);
+  const value = useOptionalSession();
   if (value === null) {
     throw new Error('useSession 必须在 <SessionProvider> 内使用');
   }

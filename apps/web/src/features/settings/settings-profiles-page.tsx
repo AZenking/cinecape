@@ -1,13 +1,16 @@
 /**
- * Profile 管理页(T133,US8;FR-036;T025 数据层迁移):
+ * Profile 管理页(T133,US8;FR-036;T025 数据层迁移;013/ADR-0017 演进):
  * - 档案列表 + 家庭设置经 useAppQuery(settings.profiles 键,合并读取,硬请求 +
  *   isPending 门控 / isError RetryableAlert(formatApiError + 重试)/ 成功出主体);
- * - 创建/编辑/停用/清 PIN/主档案转移均为 confirmed 变更:等待服务端确认,成功后
- *   失效 settings.profiles 键以服务端真值回填(替代原手工 load());expectedVersion
- *   CAS;主档案不允许清 PIN、不能停用最后一个可用档案、现任主档案须先转移
+ * - 创建/编辑为常规管理操作(013/ADR-0017:常规运维免当次密码):等待服务端确认,
+ *   成功后失效 settings.profiles 键以服务端真值回填(替代原手工 load());
+ *   expectedVersion CAS;编辑档案按提交内容条件验证 —— 仅当本次包含 PIN 设置时
+ *   弹单次密码确认并在请求体携带 ownerPassword,仅改名/默认档案时直接保存;
+ * - 停用/清 PIN/主档案转移为高危操作,保留单次密码确认(PasswordConfirmModal);
+ *   主档案不允许清 PIN、不能停用最后一个可用档案、现任主档案须先转移
  *   (错误以服务端稳定文案呈现);
  * - 主档案转移:目标须为「可用 + 成人 + 已设 PIN」;三项 CAS 来自打开模块时的
- *   服务端现值(refetch 取新),当次密码确认;成功后关闭设置进入切档验证(不静默
+ *   服务端现值(refetch 取新),单次密码确认;成功后关闭设置进入切档验证(不静默
  *   激活目标),该变更声明零失效集合 —— 全部设置授予已在服务端撤销,不再读取设置主体;
  * - 409 VERSION_CONFLICT 提示冲突并按失效重读现值,不静默覆盖;
  * - 403 SETTINGS_ACCESS_* 经 handleAccessLost 立即隐藏;重新解锁后解锁门卸载本页、
@@ -15,7 +18,7 @@
  */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
-import { AlertDialog, Button, Checkbox, Form, Input, Label, Radio, RadioGroup, TextField } from '@heroui/react';
+import { Button, Card, Checkbox, Form, Input, Label, Radio, RadioGroup, TextField } from '@heroui/react';
 import { LoadingSpinner, PinField, RetryableAlert, useAppToast } from '../../shared/ui';
 import { useAppMutation, useAppQuery } from '../../shared/query/hooks';
 import { queryKeys } from '../../shared/query/keys';
@@ -26,6 +29,8 @@ import type { HouseholdSettings, ProfileSummary } from './shared/settings-api';
 import { PasswordConfirmModal } from './shared/password-confirm-modal';
 import { useSettingsAccess } from './settings-access-provider';
 import { useSettingsPageMeta } from './settings-modules';
+import { SettingsPageHeader } from './shared/settings-page-header';
+import { SettingsSection } from './shared/settings-section';
 
 /** 档案管理域合并读取:列表 + 家庭设置(mainProfileVersion 供转移 CAS) */
 interface ProfilesPageData {
@@ -41,10 +46,6 @@ export function SettingsProfilesPage(): ReactNode {
   const [editing, setEditing] = useState<ProfileSummary | null>(null);
   const [creating, setCreating] = useState(false);
   const [transferring, setTransferring] = useState<{ profiles: ProfileSummary[]; household: HouseholdSettings } | null>(null);
-  const [pageError, setPageError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  /** T015:主档案转移完成提示(替代原 window.alert)以组件状态承载 */
-  const [identityNoticeOpen, setIdentityNoticeOpen] = useState(false);
 
   const profilesQuery = useAppQuery<ProfilesPageData>({
     domain: 'settings',
@@ -64,21 +65,14 @@ export function SettingsProfilesPage(): ReactNode {
   }, [profilesQuery.isError, profilesQuery.error, access]);
 
   /**
-   * T015 UX 选择说明:原 window.alert 弹窗(POST_IDENTITY_CHANGE_NOTICE.mainProfile)是
-   * 纯信息提示(浏览器 alert 仅一个「好」按钮,无确认/取消语义),故等价改为
-   * 单一「知道了」确认动作的 AlertDialog(阻断式:Backdrop 默认不可点外关闭、
-   * Esc 关闭禁用,必须显式确认)。结果反馈改经 Toast(轻反馈,文案与弹层一致,
-   * AppToastRegion 挂应用根部,页面卸载后仍可见);确认后仍先 access.lock() 同步
-   * 客户端失效态再回首页(原为 alert 关闭后 navigate('/'))。
-   * 顺序调整原因:lock() 会翻转解锁门(unlocked→locked)并卸载本页,弹层必须
-   * 在 lock 之前存续,故把 lock 从「转移成功即触发」移到「确认后触发」。
+   * 主档案转移完成提示:统一走 HeroUI Toast(AppToastRegion 挂应用根部,
+   * 页面卸载/路由跳转后仍可见)。013(ADR-0017):客户端无锁态可翻 ——
+   * 主档案转移已服务端撤销授权事实,会话刷新后按新身份收敛;
+   * 直接回首页,管理页由路由守卫/403 分类兜底。
    */
-  const confirmIdentityNotice = (): void => {
-    setIdentityNoticeOpen(false);
+  const notifyTransferred = (): void => {
     toast.success(POST_IDENTITY_CHANGE_NOTICE.mainProfile);
-    void access.lock().finally(() => {
-      void navigate('/');
-    });
+    void navigate('/');
   };
 
   /** 变更后服务端错误 → 页面级处置(403 授权丢失立即隐藏;其余呈现稳定文案) */
@@ -88,14 +82,28 @@ export function SettingsProfilesPage(): ReactNode {
       access.handleAccessLost();
       return;
     }
-    setPageError(formatApiError(cause));
+    toast.error(formatApiError(cause));
   };
 
   const profiles = profilesQuery.data?.profiles ?? null;
 
   return (
-    <section aria-label={`设置 · ${title}`} className="flex flex-1 flex-col gap-4 py-2">
-      <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+    <section aria-label={`设置 · ${title}`} className="flex flex-1 flex-col gap-6">
+      <SettingsPageHeader
+        description="为家人保留独立的观看空间"
+        actions={
+          <Button
+            variant="primary"
+            size="sm"
+            data-testid="create-profile-open"
+            onPress={() => {
+              setCreating(true);
+            }}
+          >
+            新增成员
+          </Button>
+        }
+      />
       {profilesQuery.isPending ? <LoadingSpinner label="正在读取档案…" /> : null}
       {profilesQuery.isError ? (
         <RetryableAlert
@@ -104,39 +112,22 @@ export function SettingsProfilesPage(): ReactNode {
           onRetry={() => void profilesQuery.refetch()}
         />
       ) : null}
-      {pageError !== null ? <p role="alert" className="text-sm text-danger">{pageError}</p> : null}
-      {notice !== null ? <p role="status" className="text-sm text-success" data-testid="profiles-notice">{notice}</p> : null}
       {profiles !== null ? (
         <>
-          <div className="flex justify-end">
-            <Button
-              variant="primary"
-              size="sm"
-              data-testid="create-profile-open"
-              onPress={() => {
-                setPageError(null);
-                setCreating(true);
-              }}
-            >
-              新建档案
-            </Button>
-          </div>
-          <ul className="flex flex-col gap-2" data-testid="profile-list">
+          <ul className="flex flex-col gap-6" data-testid="profile-list">
             {profiles.map((profile) => (
               <ProfileRow
                 key={profile.id}
                 profile={profile}
                 onEdited={(message) => {
-                  setNotice(message);
+                  toast.success(message);
                   // 列表回填由变更的 invalidate(settings.profiles)统一驱动
                 }}
                 onError={refreshAfterMutation}
                 onEdit={() => {
-                  setPageError(null);
                   setEditing(profile);
                 }}
                 onTransferMain={() => {
-                  setPageError(null);
                   // 转移 CAS 三版本必须来自打开模块时的服务端现值:显式 refetch 取新后入模
                   void profilesQuery.refetch().then((fresh) => {
                     if (fresh.data) {
@@ -157,7 +148,7 @@ export function SettingsProfilesPage(): ReactNode {
         <CreateProfileForm
           onDone={(message) => {
             setCreating(false);
-            setNotice(message);
+            toast.success(message);
           }}
           onCancel={() => setCreating(false)}
           onError={refreshAfterMutation}
@@ -169,13 +160,13 @@ export function SettingsProfilesPage(): ReactNode {
           profile={editing}
           onDone={(message) => {
             setEditing(null);
-            setNotice(message);
+            toast.success(message);
           }}
           onCancel={() => setEditing(null)}
           onConflict={() => {
             // 409:提示冲突;失效已触发按服务端现值重读,不静默覆盖(用户可基于现值显式重试)
             setEditing(null);
-            setPageError('保存被拒绝(版本冲突):档案已被其他操作修改,列表已按服务端现值刷新,请基于现值重新编辑。');
+            toast.error('保存被拒绝(版本冲突):档案已被其他操作修改,列表已按服务端现值刷新,请基于现值重新编辑。');
           }}
           onError={refreshAfterMutation}
         />
@@ -185,30 +176,10 @@ export function SettingsProfilesPage(): ReactNode {
         <TransferMainModal
           data={transferring}
           onClose={() => setTransferring(null)}
-          onTransferred={() => setIdentityNoticeOpen(true)}
+          onTransferred={notifyTransferred}
         />
       ) : null}
 
-      {/* T015:主档案转移完成提示(替代原 window.alert)——文案不变,单一确认动作 */}
-      <AlertDialog.Root isOpen={identityNoticeOpen}>
-        <AlertDialog.Backdrop>
-          <AlertDialog.Container placement="center" size="sm">
-            <AlertDialog.Dialog aria-label="主档案转移完成">
-              <AlertDialog.Header>
-                <AlertDialog.Heading className="text-base font-semibold">主档案转移已完成</AlertDialog.Heading>
-              </AlertDialog.Header>
-              <AlertDialog.Body>
-                <p data-testid="identity-notice-text">{POST_IDENTITY_CHANGE_NOTICE.mainProfile}</p>
-              </AlertDialog.Body>
-              <AlertDialog.Footer>
-                <Button variant="primary" size="sm" onPress={confirmIdentityNotice} data-testid="identity-notice-confirm">
-                  知道了
-                </Button>
-              </AlertDialog.Footer>
-            </AlertDialog.Dialog>
-          </AlertDialog.Container>
-        </AlertDialog.Backdrop>
-      </AlertDialog.Root>
     </section>
   );
 }
@@ -278,47 +249,51 @@ function ProfileRow({
   };
 
   return (
-    <li className="flex flex-wrap items-center justify-between gap-3 rounded border border-border p-3">
-      <div className="flex min-w-0 flex-col">
-        <span className="truncate text-sm font-medium text-foreground">{profile.name}</span>
-        <span className="text-xs text-muted">{profileTypeLabel(profile)}</span>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Button variant="ghost" size="sm" onPress={onEdit} data-testid={`profile-edit-${profile.id}`}>
-          编辑 / PIN
-        </Button>
-        {profile.isMain ? (
-          <Button variant="ghost" size="sm" onPress={onTransferMain} data-testid={`profile-transfer-${profile.id}`}>
-            转移主档案
-          </Button>
-        ) : null}
-        {profile.pinProtected && !profile.isMain ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            onPress={() => {
-              setAction('clearPin');
-              setConfirmOpen(true);
-            }}
-            data-testid={`profile-clearpin-${profile.id}`}
-          >
-            清除 PIN
-          </Button>
-        ) : null}
-        {profile.status === 'active' ? (
-          <Button
-            variant="danger"
-            size="sm"
-            onPress={() => {
-              setAction('disable');
-              setConfirmOpen(true);
-            }}
-            data-testid={`profile-disable-${profile.id}`}
-          >
-            停用
-          </Button>
-        ) : null}
-      </div>
+    <li>
+      <Card variant="default" className="rounded-2xl p-0 shadow-none">
+        <Card.Content className="flex flex-wrap items-center justify-between gap-4 p-4">
+          <div className="flex min-w-0 flex-col">
+            <span className="truncate text-sm font-medium text-foreground">{profile.name}</span>
+            <span className="text-xs text-muted">{profileTypeLabel(profile)}</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" size="sm" onPress={onEdit} data-testid={`profile-edit-${profile.id}`}>
+              编辑与 PIN
+            </Button>
+            {profile.isMain ? (
+              <Button variant="secondary" size="sm" onPress={onTransferMain} data-testid={`profile-transfer-${profile.id}`}>
+                转移主档案
+              </Button>
+            ) : null}
+            {profile.pinProtected && !profile.isMain ? (
+              <Button
+                variant="danger-soft"
+                size="sm"
+                onPress={() => {
+                  setAction('clearPin');
+                  setConfirmOpen(true);
+                }}
+                data-testid={`profile-clearpin-${profile.id}`}
+              >
+                清除 PIN
+              </Button>
+            ) : null}
+            {profile.status === 'active' ? (
+              <Button
+                variant="danger-soft"
+                size="sm"
+                onPress={() => {
+                  setAction('disable');
+                  setConfirmOpen(true);
+                }}
+                data-testid={`profile-disable-${profile.id}`}
+              >
+                停用成员
+              </Button>
+            ) : null}
+          </div>
+        </Card.Content>
+      </Card>
       <PasswordConfirmModal
         open={confirmOpen}
         title={action === 'disable' ? `停用档案「${profile.name}」` : `清除「${profile.name}」的 PIN`}
@@ -347,18 +322,16 @@ function CreateProfileForm({
   const [type, setType] = useState<'adult' | 'child'>('child');
   const [pin, setPin] = useState('');
   const [isDefault, setIsDefault] = useState(false);
-  const [passwordOpen, setPasswordOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 创建档案:confirmed 变更(当次密码);成功后失效档案列表回填
+  // 创建档案:常规操作免当次密码(013/ADR-0017);成功后失效档案列表回填
   const createProfile = useAppMutation({
     domain: 'settings',
     feedback: 'confirmed',
-    mutationFn: (vars: { ownerPassword: string }) =>
+    mutationFn: () =>
       privateFetch<ProfileSummary>('/settings/profiles', {
         method: 'POST',
         body: {
-          ownerPassword: vars.ownerPassword,
           name: name.trim(),
           type,
           isDefault,
@@ -368,9 +341,9 @@ function CreateProfileForm({
     invalidate: [queryKeys.settings.profiles()],
   });
 
-  const submit = (ownerPassword: string): Promise<void> =>
-    createProfile
-      .mutateAsync({ ownerPassword })
+  const submitCreate = (): void => {
+    void createProfile
+      .mutateAsync(undefined)
       .then((created) => {
         onDone(`档案「${created.name}」已创建`);
       })
@@ -380,8 +353,9 @@ function CreateProfileForm({
           onError(cause);
           return;
         }
-        throw cause; // 密码错误:弹层保持
+        // 其余拒绝由 useAppMutation onError 统一经 toast 呈现
       });
+  };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -394,14 +368,26 @@ function CreateProfileForm({
       return;
     }
     setError(null);
-    setPasswordOpen(true); // 下一步:独立当次密码验证
+    submitCreate(); // 013/ADR-0017:创建档案为常规操作,免当次密码直接提交
   };
 
   const pinError = error === 'PIN 必须为 6 位数字' ? error : undefined;
 
   return (
-    <Form onSubmit={handleSubmit} className="flex max-w-md flex-col gap-3 rounded border border-border p-4" aria-label="新建档案">
-      <h3 className="text-sm font-semibold text-foreground">新建档案</h3>
+    <Form onSubmit={handleSubmit} className="flex max-w-md flex-col" aria-label="新建档案">
+      <SettingsSection
+        title="新建档案"
+        footer={
+          <div className="flex w-full justify-end gap-2">
+            <Button type="button" variant="ghost" size="sm" onPress={onCancel}>
+              取消
+            </Button>
+            <Button type="submit" variant="primary" size="sm" data-testid="create-profile-submit">
+              创建
+            </Button>
+          </div>
+        }
+      >
       <TextField className="w-full" value={name} onChange={setName}>
         <Label>档案名称</Label>
         <Input name="name" maxLength={50} />
@@ -445,22 +431,7 @@ function CreateProfileForm({
       {error !== null && pinError === undefined ? (
         <p role="alert" className="text-sm text-danger">{error}</p>
       ) : null}
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" size="sm" onPress={onCancel}>
-          取消
-        </Button>
-        <Button type="submit" variant="primary" size="sm" data-testid="create-profile-submit">
-          创建(下一步输密码)
-        </Button>
-      </div>
-      <PasswordConfirmModal
-        open={passwordOpen}
-        title="确认创建档案"
-        description={`将创建${type === 'adult' ? '成人' : '儿童'}档案「${name.trim()}」${pin !== '' ? '(含 PIN)' : ''}。`}
-        submitLabel="确认创建"
-        onSubmit={submit}
-        onClose={() => setPasswordOpen(false)}
-      />
+      </SettingsSection>
     </Form>
   );
 }
@@ -479,6 +450,7 @@ function EditProfileForm({
   onError: (cause: unknown) => void;
 }): ReactNode {
   const access = useSettingsAccess();
+  const toast = useAppToast();
   const [name, setName] = useState(profile.name);
   const [pin, setPin] = useState('');
   const [isDefault, setIsDefault] = useState(profile.isDefault);
@@ -489,28 +461,34 @@ function EditProfileForm({
     name !== profile.name || pin !== '' || isDefault !== profile.isDefault;
   const pinError = error === 'PIN 必须为 6 位数字' ? error : undefined;
 
-  // 保存档案修改:confirmed 变更 + CAS;成功后失效档案列表回填
+  /**
+   * 保存档案修改(013/ADR-0017 条件密码):仅当本次提交包含 PIN 设置(pin !== '')
+   * 时弹单次密码确认并在请求体携带 ownerPassword;仅改名/默认档案时直接保存、
+   * 不弹窗不带密码字段(服务端 strict 契约拒绝未知字段)。请求体经确认分流组装:
+   * - 免密直存:{ expectedVersion, name?, isDefault?, clearPin: false }
+   * - 含 PIN:{ expectedVersion, name?, isDefault?, pin, clearPin: false, ownerPassword }
+   */
   const patchProfile = useAppMutation({
     domain: 'settings',
     feedback: 'confirmed',
-    mutationFn: (vars: { ownerPassword: string }) =>
+    mutationFn: (vars: { ownerPassword?: string }) =>
       privateFetch<ProfileSummary>(`/settings/profiles/${profile.id}`, {
         method: 'PATCH',
         body: {
-          ownerPassword: vars.ownerPassword,
           expectedVersion: profile.version,
           ...(name !== profile.name ? { name } : {}),
           ...(isDefault !== profile.isDefault ? { isDefault } : {}),
           ...(pin !== '' ? { pin } : {}),
           clearPin: false,
+          ...(vars.ownerPassword !== undefined ? { ownerPassword: vars.ownerPassword } : {}),
         },
       }),
     invalidate: [queryKeys.settings.profiles()],
   });
 
-  const submit = (ownerPassword: string): Promise<void> =>
+  const submit = (ownerPassword?: string): Promise<void> =>
     patchProfile
-      .mutateAsync({ ownerPassword })
+      .mutateAsync(ownerPassword === undefined ? {} : { ownerPassword })
       .then(() => {
         onDone(`档案「${profile.name}」已保存`);
       })
@@ -524,7 +502,12 @@ function EditProfileForm({
           onConflict();
           return;
         }
-        throw cause; // 密码错误:弹层保持
+        if (ownerPassword === undefined) {
+          // 免密直存路径:无弹层承载,错误经 toast 呈现(数据层亦同步轻提示)
+          toast.error(formatApiError(cause));
+          return;
+        }
+        throw cause; // 密码路径:弹层保持并呈现服务端稳定文案
       });
 
   return (
@@ -543,12 +526,29 @@ function EditProfileForm({
           return;
         }
         setError(null);
-        setPasswordOpen(true);
+        // 013/ADR-0017 条件密码:本次提交含 PIN 设置 → 弹单次密码确认;否则直接保存
+        if (pin !== '') {
+          setPasswordOpen(true);
+        } else {
+          void submit();
+        }
       }}
-      className="flex max-w-md flex-col gap-3 rounded border border-border p-4"
+      className="flex max-w-md flex-col"
       aria-label={`编辑档案 ${profile.name}`}
     >
-      <h3 className="text-sm font-semibold text-foreground">编辑档案(版本 {profile.version})</h3>
+      <SettingsSection
+        title={`编辑档案(版本 ${profile.version})`}
+        footer={
+          <div className="flex w-full justify-end gap-2">
+            <Button type="button" variant="ghost" size="sm" onPress={onCancel}>
+              取消
+            </Button>
+            <Button type="submit" variant="primary" size="sm" isDisabled={!dirty}>
+              保存
+            </Button>
+          </div>
+        }
+      >
       <TextField className="w-full" value={name} onChange={setName}>
         <Label>名称</Label>
         <Input name="name" maxLength={50} />
@@ -561,7 +561,11 @@ function EditProfileForm({
         isRequired={false}
         errorMessage={pinError}
         isInvalid={pinError !== undefined}
-        description={profile.pinProtected ? '留空保持不变' : '留空则选择时无需 PIN'}
+        description={
+          profile.pinProtected
+            ? '留空保持不变;重设 PIN 需验证主账号密码(单次)'
+            : '留空则选择时无需 PIN;设置 PIN 需验证主账号密码(单次)'
+        }
       />
       <Checkbox isSelected={isDefault} onChange={setIsDefault}>
         <Checkbox.Content>
@@ -572,21 +576,15 @@ function EditProfileForm({
       {error !== null && pinError === undefined ? (
         <p role="alert" className="text-sm text-danger">{error}</p>
       ) : null}
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" size="sm" onPress={onCancel}>
-          取消
-        </Button>
-        <Button type="submit" variant="primary" size="sm" isDisabled={!dirty}>
-          保存(下一步输密码)
-        </Button>
-      </div>
       <PasswordConfirmModal
         open={passwordOpen}
-        title="保存档案修改"
+        title="保存 PIN 修改"
+        description={`将为档案「${profile.name}」设置新 PIN(高危变更,单次密码验证)。`}
         submitLabel="确认保存"
-        onSubmit={submit}
+        onSubmit={(password: string) => submit(password)}
         onClose={() => setPasswordOpen(false)}
       />
+      </SettingsSection>
     </Form>
   );
 }
@@ -637,9 +635,8 @@ function TransferMainModal({
     return transferMain
       .mutateAsync({ profileId: target.id, ownerPassword })
       .then(() => {
-        // 成功:全部设置授予已在服务端撤销 —— 关闭转移模块并展示完成提示弹层
-        // (T015:原 window.alert 改为页面级 AlertDialog + Toast;客户端 lock()
-        // 延后到确认动作,避免解锁门先卸载本页导致弹层无法存活)
+        // 成功:全部设置授予已在服务端撤销 —— 关闭转移模块并经 Toast 提示完成
+        // (AppToastRegion 挂应用根部,路由跳转/页面卸载后提示仍可见)
         onClose();
         onTransferred();
       })
@@ -662,8 +659,28 @@ function TransferMainModal({
   };
 
   return (
-    <div className="flex max-w-xl flex-col gap-3 rounded border border-border p-4" aria-label="主档案转移">
-      <h3 className="text-sm font-semibold text-foreground">主档案转移(三项版本校验)</h3>
+    <div className="flex max-w-xl flex-col" aria-label="主档案转移">
+      <SettingsSection
+        title="主档案转移(三项版本校验)"
+        footer={
+          candidates.length === 0 ? undefined : (
+            <div className="flex w-full justify-end gap-2">
+              <Button variant="ghost" size="sm" onPress={onClose}>
+                取消
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                isDisabled={target === null}
+                onPress={() => setConfirmOpen(true)}
+                data-testid="transfer-main-open"
+              >
+                转移(下一步输密码)
+              </Button>
+            </div>
+          )
+        }
+      >
       {candidates.length === 0 ? (
         <p className="text-sm text-muted">
           没有可转移的目标:目标必须为「可用 + 成人 + 已设 PIN」的档案。请先为某个成人档案设置 PIN。
@@ -689,20 +706,6 @@ function TransferMainModal({
           {error !== null ? (
             <p role="alert" className="text-sm text-danger">{error}</p>
           ) : null}
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onPress={onClose}>
-              取消
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              isDisabled={target === null}
-              onPress={() => setConfirmOpen(true)}
-              data-testid="transfer-main-open"
-            >
-              转移(下一步输密码)
-            </Button>
-          </div>
           <PasswordConfirmModal
             open={confirmOpen}
             title="确认转移主档案"
@@ -717,6 +720,7 @@ function TransferMainModal({
           />
         </>
       )}
+      </SettingsSection>
     </div>
   );
 }

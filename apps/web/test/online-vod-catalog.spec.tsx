@@ -309,7 +309,10 @@ describe('在线搜索:提交/卡片渲染/partial/过期(ui.md §1 /vod?mode=on
         searchId: 's-1',
         nextCursor: 'c-2',
         sources: [{ sourceRef: 'src-1', status: 'ok', hasMore: true }],
-        items: [vodCard({ titleRef: 'tr-1', title: '星际漂流', year: '2024', sourceLabel: '资源站A' })],
+        items: [
+          vodCard({ titleRef: 'tr-1', title: '星际漂流', year: '2024', sourceLabel: '资源站A' }),
+          vodCard({ titleRef: 'tr-2p', title: '带海报剧集', year: '2023', sourceLabel: '资源站A', posterRef: 'p1-poster-opaque' }),
+        ],
       }),
     });
     installPrivateRoutes({ authenticated: false });
@@ -327,6 +330,13 @@ describe('在线搜索:提交/卡片渲染/partial/过期(ui.md §1 /vod?mode=on
     // posterRef 恒 null:渲染占位,绝不渲染外部地址(无 img 元素)
     expect(within(card).getByText('无海报')).toBeInTheDocument();
     expect(within(card).queryByRole('img')).not.toBeInTheDocument();
+
+    // posterRef 存在(同页响应第二卡):渲染同源代理海报,src 为 /api/public/vod/posters/:ref
+    const posterCard = await screen.findByRole('link', { name: /带海报剧集/ });
+    // 装饰性海报(alt=""):以 DOM 查询钉同源代理 src(不携带上游地址)
+    const posterImg = posterCard.querySelector('img');
+    expect(posterImg).not.toBeNull();
+    expect(posterImg).toHaveAttribute('src', '/api/public/vod/posters/p1-poster-opaque');
 
     // URL 保留 mode/q/searchId(ui.md §1)
     await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('searchId=s-1'));

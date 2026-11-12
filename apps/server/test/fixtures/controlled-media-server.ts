@@ -336,6 +336,8 @@ export interface M3uEntryInput {
   tvgId?: string;
   tvgName?: string;
   groupTitle?: string;
+  /** 014 T012/T013:EXTINF tvg-logo 属性原文(按需透传,缺省不输出该属性) */
+  tvgLogo?: string;
   duration?: number;
 }
 
@@ -352,6 +354,9 @@ export function buildM3u(entries: readonly M3uEntryInput[]): string {
     }
     if (entry.groupTitle !== undefined) {
       attrs.push(`group-title="${entry.groupTitle}"`);
+    }
+    if (entry.tvgLogo !== undefined) {
+      attrs.push(`tvg-logo="${entry.tvgLogo}"`);
     }
     const duration = entry.duration ?? -1;
     lines.push(`#EXTINF:${duration}${attrs.length > 0 ? ` ${attrs.join(' ')}` : ''},${entry.name}`);

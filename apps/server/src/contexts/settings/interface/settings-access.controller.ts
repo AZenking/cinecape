@@ -14,6 +14,11 @@ import {
 import { verifyAndIssueSettingsAccess } from '@contexts/settings/application/settings-pin-verification.service';
 
 /**
+ * @deprecated 013/ADR-0017:进入设置不再需要 15 分钟临时 Ticket,本控制器的
+ * GET/POST/DELETE /settings/access 仅为 005 时代兼容与元数据查询保留;新代码
+ * 不应调用(管理边界统一由 SettingsGuard 以 activeProfile.isMain 判定)。
+ */
+/**
  * /settings/access 独立入口契约路由(T083,005 contracts/api.md §6/§7):
  *
  * - /settings/access 是「独立入口」(§7):GET/DELETE 仅 Session;POST 用

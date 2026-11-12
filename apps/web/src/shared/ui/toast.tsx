@@ -1,6 +1,6 @@
 import { Toast } from '@heroui/react';
 import { useMemo } from 'react';
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 
 /**
  * 全局轻反馈 Toast(006 ui-components 契约:轻反馈 Toast)——
@@ -24,11 +24,23 @@ import type { ReactNode } from 'react';
 
 /**
  * Toast 区域(应用根部挂载一次)——
- * placement 固定底部(媒体界面底部有播放条等控件时依然最不遮挡视线;
- * 如需调整由 providers lane 决定,本组件不引入主题切换/布局分支)。
+ * placement 固定「底部居中」(HeroUI `bottom` = `bottom-4 left-1/2 -translate-x-1/2`,
+ * 与 `bottom start`/`bottom end` 角位变体相对;媒体界面底部有播放条等控件时依然最不遮挡
+ * 视线;如需调整由 providers lane 决定,本组件不引入主题切换/布局分支)。
+ * `data-testid="app-toast-region"`:测试统一经该区域断言 toast 文案。
  */
 export function AppToastRegion(): ReactNode {
-  return <Toast.Provider placement="bottom" />;
+  return <Toast.Provider placement="bottom" data-testid="app-toast-region" />;
+}
+
+/** useAppToast 返回的最小面:轻反馈语义 + 冲突类警示(不暴露队列管理细节) */
+export interface AppToastWarningOptions {
+  /** 次行说明文案(如服务端现值摘要) */
+  description?: ReactNode;
+  /** 单一动作按钮文案(如「读取现值并放弃我的编辑」);缺省无动作 */
+  actionLabel?: string;
+  /** 动作按钮回调 */
+  onAction?: () => void;
 }
 
 /** useAppToast 返回的最小面:仅轻反馈语义,不暴露队列管理细节 */
@@ -37,11 +49,13 @@ export interface AppToast {
   success: (message: string) => string;
   /** 失败反馈(语义 danger 变体) */
   error: (message: string) => string;
+  /** 警示反馈(语义 warning 变体;可携带次行说明与单一动作按钮) */
+  warning: (message: string, options?: AppToastWarningOptions) => string;
 }
 
 /**
- * 轻反馈 hook——`{ success(msg), error(msg) }`,底层为 HeroUI 命令式
- * `Toast.toast.success/danger`(入共享队列,由 AppToastRegion 渲染)。
+ * 轻反馈 hook——`{ success(msg), error(msg), warning(msg, opts?) }`,底层为 HeroUI
+ * 命令式 `Toast.toast.success/danger/warning`(入共享队列,由 AppToastRegion 渲染)。
  * 返回值经 useMemo 保持引用稳定,可直接作为 effect 依赖;
  * 返回 string 为该条 Toast 的队列 id(可用于 Toast.toast.close(id) 手动关闭)。
  * 适用场景:保存成功、复制成功等操作结果轻提示;数据加载失败仍走
@@ -52,6 +66,24 @@ export function useAppToast(): AppToast {
     () => ({
       success: (message) => Toast.toast.success(message),
       error: (message) => Toast.toast.danger(message),
+      warning: (message, options) => {
+        if (options === undefined) {
+          return Toast.toast.warning(message);
+        }
+        return Toast.toast.warning(message, {
+          ...(options.description !== undefined ? { description: options.description } : {}),
+          ...(options.actionLabel !== undefined
+            ? {
+                actionProps: {
+                  children: options.actionLabel,
+                  variant: 'outline',
+                  size: 'sm',
+                  onPress: options.onAction,
+                } as ComponentProps<typeof Toast.ActionButton>,
+              }
+            : {}),
+        });
+      },
     }),
     [],
   );

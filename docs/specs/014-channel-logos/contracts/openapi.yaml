@@ -1,0 +1,99 @@
+openapi: 3.1.0
+info:
+  title: Home Media Platform — 014 Channel Logos (Public)
+  version: 0.14.0-proposed
+  description: >
+    频道 Logo 同源代理公共契约（Proposed 设计，spec 未 Accepted 前不构成实现承诺）。
+    安全边界逐字沿用 010 海报代理口径；posterRef 语义注记增补见
+    docs/specs/005-pc-browsing-flow/contracts/openapi.yaml（随本规格实施）。
+servers:
+  - url: /
+paths:
+  /public/media/logos/{logoRef}:
+    get:
+      operationId: getPublicMediaLogo
+      summary: 频道 Logo 同源代理（image/* 字节流）
+      description: >
+        公开浏览（ADR-0010）：无会话要求，家庭上下文由服务端部署配置确定，不由客户端指定。
+        logoRef 为家庭级不透明引用（LiveChannel/PublicMedia posterRef 字段原样回传；不可解码，
+        不携带上游地址）。服务端经 SafeUpstream 有界读取注册的私有 Logo 地址（≤2MiB、8s/4s/3 跳），
+        仅接受上游 image/* 且 identity 编码响应并原样回传字节。伪造/未签发/跨家庭 404 同形；
+        墓碑窗口内（引用已随源刷新失效）410 MEDIA_LOGO_REVOKED；上游失败或非图片 502
+        MEDIA_LOGO_UPSTREAM_FAILED；超预算 504 MEDIA_LOGO_UPSTREAM_TIMEOUT。全部错误形态
+        不回显上游地址与细节。纯读不落盘；浏览器缓存 max-age=300（引用键控，无跨家庭串味面）。
+      parameters:
+        - name: logoRef
+          in: path
+          required: true
+          description: 不透明引用；服务端不解析其内容，仅注册表反查
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      responses:
+        '200':
+          description: Logo 字节（上游 image/* 原样回传）
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: public, max-age=300
+        '404':
+          description: 未签发/伪造/跨家庭——与目录资源不存在完全同形，不可区分
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '410':
+          description: 引用已失效（源刷新移除/替换后的墓碑窗口内）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '502':
+          description: 上游读取失败或响应非 image/*/非 identity 编码（脱敏）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '504':
+          description: 上游读取超出预算时限（脱敏）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 公共限频（与直播公共面同档），附 Retry-After
+          headers:
+            Retry-After:
+              schema:
+                type: string
+components:
+  schemas:
+    Problem:
+      type: object
+      description: 既有 ProblemJsonFilter 错误信封（与 vod 上游错误同构）；脱敏文案在 title/detail，不含上游地址或内部细节
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+          description: 脱敏文案（titleFromCode 推导）
+        status:
+          type: integer
+        code:
+          type: string
+          description: 稳定问题码（NOT_FOUND / MEDIA_LOGO_REVOKED / MEDIA_LOGO_UPSTREAM_FAILED / MEDIA_LOGO_UPSTREAM_TIMEOUT）
+        detail:
+          type: string
+          description: 脱敏补充文案；不得含上游地址或内部细节
+      required:
+        - type
+        - title
+        - status
+        - code

@@ -26,14 +26,14 @@ import { selectMainAndUnlockSettings } from '../helpers-management';
  * T019(US1 契约 e2e):刷新执行与待确认 —— POST /sources/{sourceId}/refresh、
  * GET /refreshes/{refreshId}、POST /refreshes/{refreshId}/confirm、POST /refreshes/{refreshId}/discard,
  * 对照 003 contracts/api.md「权限与验证顺序」「刷新与待确认」「错误」节与
- * openapi.yaml RefreshRequest/JobAction/Refresh schema。
- * - 判定次序与来源管理一致:SessionGuard(401)→ owner(403)→ 严格 zod(400)→
- *   家长验证(缺失/空串统一 403 REQUIRED;错误 403 FAILED)→ 会话重验(401)→
+ * openapi.yaml RefreshRequest/JobAction/Refresh schema;
+ * 013-role-differentiated-settings/ADR-0017:发起/确认/丢弃刷新属常规运维,免当次主账号密码。
+ * - 判定次序:SessionGuard(401)→ owner(403)→ 严格 zod(400)→
  *   目标归属(404 同形)/禁用(422)→ 幂等(409)/版本(409)/同来源互斥(409)/队列(429);
  * - 202 + Location 不等待导入;RefreshDto 契约形状(counts 六字段全量非负、null 字段在场,
  *   不携带 householdId/源内容/原始条目/地址/原始解析错误);
  * - 网络与解析失败 → 任务 failed(稳定 errorCode)且保留上次成功目录;
- * - 空快照/25% 缺失 → awaiting_confirmation → confirm/discard(ownerPassword+expectedVersion),
+ * - 空快照/25% 缺失 → awaiting_confirmation → confirm/discard(expectedVersion),
  *   终态重复操作 409 REFRESH_STATE_CONFLICT、过期/基线变化 409 REFRESH_STALE。
  * 环境说明:受控夹具绑定 127.0.0.1,创建期字面校验拒绝回环地址,故来源经真实 API 创建后
  * 以既有 DB 访问模式把 remote_url 接到夹具(刷新期由 LAN_ALLOWED_TARGETS='127.0.0.1' 精确许可放行);
@@ -163,10 +163,9 @@ interface CreateOverrides {
   relativeDirectory?: string;
 }
 
-/** 带 ownerPassword 的合法创建体(默认 IPTV);NAS 时剥离 remoteUrl */
+/** 合法创建体(默认 IPTV;013 起免当次密码);NAS 时剥离 remoteUrl */
 function createBody(overrides: CreateOverrides = {}): Record<string, unknown> {
   const body: Record<string, unknown> = {
-    ownerPassword: OWNER_PASSWORD,
     kind: 'iptv',
     name: '直播源',
     remoteUrl: 'http://tv.example.com:8080/live/list.m3u',
@@ -219,7 +218,6 @@ async function startRefreshOk(
   overrides: Record<string, unknown> = {},
 ): Promise<StartedRefresh> {
   const res = await postRefresh(s, sourceId, {
-    ownerPassword: OWNER_PASSWORD,
     expectedVersion: 1,
     operationKey: randomUUID(),
     ...overrides,
@@ -482,7 +480,7 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
     expectRefreshDtoShape(done, '完成任务');
   });
 
-  it('同 operationKey 同语义重试返回同一任务 id 且仍重新验证密码(错/缺/空密码 403);异语义 409 IDEMPOTENCY_CONFLICT;请求体形态 400 先于家长验证', async () => {
+  it('同 operationKey 同语义重试返回同一任务 id(013 起免当次密码,不再验密码);异语义 409 IDEMPOTENCY_CONFLICT;请求体形态 400', async () => {
     const s = await bootstrap();
     const source = await createSource(s, { kind: 'nas', name: '空影库', relativeDirectory: '' });
     const sourceId = source.body.id as string;
@@ -497,28 +495,25 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
     expect(retry.body.status).toBe('succeeded');
     expect(countRefreshRows(sourceId)).toBe(1);
 
-    // 幂等重放仍验证身份:错密码 403 FAILED(不返回任务)
-    const wrongPwd = await postRefresh(s, sourceId, {
+    // 013/ADR-0017:刷新属常规运维,密码字段已从契约移除 —— strictObject 携带即 400
+    const withPassword = await postRefresh(s, sourceId, {
       ownerPassword: 'not-the-password',
       expectedVersion: 1,
       operationKey,
     });
-    expect(wrongPwd.status).toBe(403);
-    expectProblemContentType(wrongPwd);
-    expect(wrongPwd.body.code).toBe(ProblemCode.PARENT_VERIFICATION_FAILED);
-    expectNotContaining(JSON.stringify(wrongPwd.body), ['not-the-password'], '错误响应');
+    expect(withPassword.status).toBe(400);
+    expectProblemContentType(withPassword);
+    expect(withPassword.body.code).toBe(ProblemCode.VALIDATION_FAILED);
+    expectNotContaining(JSON.stringify(withPassword.body), ['not-the-password'], '错误响应');
 
-    // 缺失/空串密码 → 统一 403 REQUIRED(而非 400)
-    for (const ownerPassword of [undefined, '']) {
-      const res = await postRefresh(s, sourceId, { ownerPassword, expectedVersion: 1, operationKey });
-      expect(res.status, ownerPassword === '' ? '空串密码' : '缺失密码').toBe(403);
-      expect(res.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
-    }
+    // 缺失密码(空对象/缺字段)照常 202:同 key 同语义幂等返回原任务
+    const noPassword = await postRefresh(s, sourceId, { expectedVersion: 1, operationKey });
+    expect(noPassword.status).toBe(202);
+    expect((noPassword.body as Record<string, unknown>).id).toBe(first.id);
     expect(countRefreshRows(sourceId)).toBe(1);
 
     // 同 key 异语义(来源版本不同)→ 409 IDEMPOTENCY_CONFLICT
     const conflict = await postRefresh(s, sourceId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 2,
       operationKey,
     });
@@ -527,14 +522,14 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
     expect(conflict.body.code).toBe(ProblemCode.IDEMPOTENCY_CONFLICT);
     expect(countRefreshRows(sourceId)).toBe(1);
 
-    // 请求体严格形态(未知字段拒绝;先于家长验证 → 400,不消耗密码失败次数)
+    // 请求体严格形态(未知字段拒绝 → 400)
     const badBodies: Array<[string, Record<string, unknown>]> = [
-      ['operationKey 非 uuid', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, operationKey: 'not-a-uuid' }],
-      ['缺 operationKey', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1 }],
-      ['缺 expectedVersion', { ownerPassword: OWNER_PASSWORD, operationKey: randomUUID() }],
-      ['expectedVersion 0', { ownerPassword: OWNER_PASSWORD, expectedVersion: 0, operationKey: randomUUID() }],
-      ['expectedVersion 小数', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1.5, operationKey: randomUUID() }],
-      ['未知字段', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, operationKey: randomUUID(), extra: 1 }],
+      ['operationKey 非 uuid', { expectedVersion: 1, operationKey: 'not-a-uuid' }],
+      ['缺 operationKey', { expectedVersion: 1 }],
+      ['缺 expectedVersion', { operationKey: randomUUID() }],
+      ['expectedVersion 0', { expectedVersion: 0, operationKey: randomUUID() }],
+      ['expectedVersion 小数', { expectedVersion: 1.5, operationKey: randomUUID() }],
+      ['未知字段', { expectedVersion: 1, operationKey: randomUUID(), extra: 1 }],
     ];
     for (const [label, body] of badBodies) {
       const res = await postRefresh(s, sourceId, body);
@@ -559,7 +554,6 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
     const runningJob = await startRefreshOk(s, iptvId);
     await waitForStatus(s, runningJob.id, ['running']);
     const busyRunning = await postRefresh(s, iptvId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       operationKey: randomUUID(),
     });
@@ -587,7 +581,6 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
     const awaitingJob = await startRefreshOk(s, nasId);
     await waitForStatus(s, awaitingJob.id, ['awaiting_confirmation']);
     const busyAwaiting = await postRefresh(s, nasId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       operationKey: randomUUID(),
     });
@@ -623,7 +616,7 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
     expect(cross.status).toBe(404);
     expect(cross.body).toEqual(missing.body);
 
-    // 禁用来源 → 422 SOURCE_DISABLED(家长验证通过后判定)
+    // 禁用来源 → 422 SOURCE_DISABLED(013 起无家长验证步骤,守卫链后直接判定)
     const disabled = await createSource(s, { name: '停用源', enabled: false });
     const disabledRefresh = await postRefresh(s, disabled.body.id as string, validRefreshBody());
     expect(disabledRefresh.status).toBe(422);
@@ -663,14 +656,12 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
     const source = await createSource(s, { kind: 'nas', name: '影库', relativeDirectory: '' });
     const sourceId = source.body.id as string;
     const patched = await patchSource(s, sourceId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       name: '改名影库',
     });
     expect(patched.status).toBe(200);
 
     const stale = await postRefresh(s, sourceId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1, // 来源已到 v2
       operationKey: randomUUID(),
     });
@@ -767,9 +758,8 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
     expect(awaiting.counts).toMatchObject({ added: 0, updated: 0, missing: 2 });
     expectRefreshDtoShape(awaiting, '待确认任务');
 
-    // confirm:ownerPassword + expectedVersion=任务当前 version → 终态 succeeded
+    // confirm:expectedVersion=任务当前 version(013 起免当次密码)→ 终态 succeeded
     const confirmed = await postConfirm(s, awaitingJob.id, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: awaiting.version,
     });
     expect(confirmed.status).toBe(200);
@@ -779,7 +769,6 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
 
     // 终态重复确认 → 409 REFRESH_STATE_CONFLICT(终态 immutable)
     const repeat = await postConfirm(s, awaitingJob.id, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: awaiting.version,
     });
     expect(repeat.status).toBe(409);
@@ -810,7 +799,6 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
       awaitingJob.id,
     );
     const confirm = await postConfirm(s, awaitingJob.id, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: awaiting.version,
     });
     expect(confirm.status).toBe(409);
@@ -832,13 +820,11 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
     expect(lazySeen.body.status).toBe('expired');
     expectRefreshDtoShape(lazySeen.body, '懒过期任务');
     const confirmAfterLazy = await postConfirm(s, secondAwaiting.id, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: awaiting2.version,
     });
     expect(confirmAfterLazy.status).toBe(409);
     expect(confirmAfterLazy.body.code).toBe(ProblemCode.REFRESH_STATE_CONFLICT);
     const discardAfterLazy = await postDiscard(s, secondAwaiting.id, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: awaiting2.version,
     });
     expect(discardAfterLazy.status).toBe(409);
@@ -865,7 +851,6 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
 
     // discard:200 discarded,目录保留上次成功内容
     const discarded = await postDiscard(s, awaitingJob.id, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: awaiting.version,
     });
     expect(discarded.status).toBe(200);
@@ -876,7 +861,6 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
 
     // 终态重复丢弃 → 409 REFRESH_STATE_CONFLICT
     const repeat = await postDiscard(s, awaitingJob.id, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: awaiting.version,
     });
     expect(repeat.status).toBe(409);
@@ -902,14 +886,12 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
     const staleJob = await startRefreshOk(s, sourceId);
     const staleAwaiting = await waitForStatus(s, staleJob.id, ['awaiting_confirmation']);
     const patched = await patchSource(s, sourceId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       name: '改名影库',
     });
     expect(patched.status).toBe(200);
     expect(refreshRowOf(staleJob.id)).toMatchObject({ status: 'stale', version: (staleAwaiting.version as number) + 1 });
     const confirmStale = await postConfirm(s, staleJob.id, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: staleAwaiting.version,
     });
     expect(confirmStale.status).toBe(409);
@@ -922,7 +904,6 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
     const baselineAwaiting = await waitForStatus(s, baselineJob.id, ['awaiting_confirmation']);
     Database.db.prepare('UPDATE catalog_state SET revision = revision + 1 WHERE household_id = ?').run(s.householdId);
     const confirmBaseline = await postConfirm(s, baselineJob.id, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: baselineAwaiting.version,
     });
     expect(confirmBaseline.status).toBe(409);
@@ -937,9 +918,10 @@ describe('T019 刷新执行与待确认(契约 e2e)', () => {
 /* ------------------------------------------------------------------ */
 
 function validRefreshBody(): Record<string, unknown> {
-  return { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, operationKey: randomUUID() };
+  // 013/ADR-0017:刷新/确认/丢弃免当次密码,请求体不再携带 ownerPassword
+  return { expectedVersion: 1, operationKey: randomUUID() };
 }
 
 function validJobBody(): Record<string, unknown> {
-  return { ownerPassword: OWNER_PASSWORD, expectedVersion: 1 };
+  return { expectedVersion: 1 };
 }

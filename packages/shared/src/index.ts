@@ -30,6 +30,7 @@ export type MediaPageDto = catalogComponents['schemas']['MediaPage'];
 export type ProgrammesDto = catalogComponents['schemas']['Programmes'];
 /** 003 contracts/openapi.yaml components/schemas/Candidate */
 export type CandidateDto = catalogComponents['schemas']['Candidate'];
+export type Candidate = CandidateDto;
 /** 003 contracts/openapi.yaml components/schemas/CandidatePage */
 export type CandidatePageDto = catalogComponents['schemas']['CandidatePage'];
 /** 003 contracts/openapi.yaml components/schemas/CandidateQuery */
@@ -97,6 +98,8 @@ export type SelectionPlaybackRequest = playbackComponents['schemas']['SelectionR
 export type SeekPlaybackRequest = playbackComponents['schemas']['SeekRequest'];
 /** 004 contracts/openapi.yaml components/schemas/PlaybackRecordQueryRequest */
 export type RecordQueryRequest = playbackComponents['schemas']['PlaybackRecordQueryRequest'];
+/** 004 contracts/openapi.yaml components/schemas/StreamLine(016 多线路投影,换线 UI/自动容灾) */
+export type StreamLineDto = playbackComponents['schemas']['StreamLine'];
 // 阶段 5 契约类型(独立生成产物 experience-schema.d.ts;001~004 schema 保持不变)
 // paths/operations 聚合导出仍以 001 schema.d.ts 为准(既有模式);此处仅按需暴露 components 别名
 import type { components as experienceComponents } from './experience-schema';
@@ -123,6 +126,12 @@ export type GroupPageDto = experienceComponents['schemas']['GroupPage'];
 export type ChannelRowDto = experienceComponents['schemas']['ChannelRow'];
 /** 005 contracts/openapi.yaml components/schemas/ChannelPage */
 export type ChannelPageDto = experienceComponents['schemas']['ChannelPage'];
+/** 005 contracts/openapi.yaml components/schemas/CurrentNextProjection(016 §2.3 当前/下一档排期投影) */
+export type CurrentNextProjectionDto = experienceComponents['schemas']['CurrentNextProjection'];
+/** 005 contracts/openapi.yaml components/schemas/NowPlayingPage(016 §1.1 批量当前/下一档投影响应) */
+export type NowPlayingPageDto = experienceComponents['schemas']['NowPlayingPage'];
+/** 005 contracts/openapi.yaml components/schemas/EpgSourcePriority(016 §3.1 EPG 源优先级视图;settings-schema 为手写产物无生成管线) */
+export type EpgSourcePriorityDto = experienceComponents['schemas']['EpgSourcePriority'];
 /** 005 contracts/openapi.yaml components/schemas/GuideChannel(EPG 墙频道行) */
 export type GuideChannelDto = experienceComponents['schemas']['GuideChannel'];
 /** 005 contracts/openapi.yaml components/schemas/GuideWindow(EPG 墙节目窗口) */
@@ -175,3 +184,11 @@ export type EmptyDto = experienceComponents['schemas']['Empty'];
 // 不逐个别名倒出以免冲突,统一以 Vod 命名空间入口暴露,
 // 下游经 `Vod.components['schemas']['Xxx']` / `Vod.paths['/public/vod/...']` 取用
 export type * as Vod from './vod-schema';
+// 013 角色差异化设置体系契约类型
+export type * from './settings-schema';
+// 014 频道 Logo 契约类型(独立生成产物 logo-schema.d.ts;001~010/013 schema 保持不变)
+// paths/operations 聚合导出仍以 001 schema.d.ts 为准(既有模式);Problem 与 005/010 同名,
+// 同 010 以 Logos 命名空间入口暴露,下游经 `Logos.components['schemas']['Xxx']` /
+// `Logos.paths['/public/media/logos/{logoRef}']` 取用
+export type * as Logos from './logo-schema';
+

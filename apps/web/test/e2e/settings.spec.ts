@@ -1,8 +1,10 @@
 import { expect, request, test, type Page } from '@playwright/test';
 
 /**
- * T124(005 US8 Playwright e2e,先 FAIL):设置七子模块纯键盘代表性读写 + 持久化。
- * 权威:tasks.md T124、contracts/ui.md §7、contracts/api.md §6/§7、data-model §3。
+ * T124(005 US8 Playwright e2e,先 FAIL;013/ADR-0017 契约矩阵同步):设置七子模块纯键盘代表性读写 + 持久化。
+ * 权威:tasks.md T124、contracts/ui.md §7、contracts/api.md §6/§7、data-model §3
+ * + 013/ADR-0017:常规管理运维免当次密码(来源/策略/家庭设置/档案创建/EPG 匹配等
+ * 直接提交,请求体不带 ownerPassword);单次密码仅保留于高危面(撤销设备等)。
  *
  * 前置:E2E_SEED_SCALE=1 规模夹具(fixtureadmin/password-123;主档案 mainPin=135790;
  * 夹具预置来源 fx-src-a-iptv-main / fx-src-a-epg-xmltv / fx-src-a-nas-vod,其 remoteUrl
@@ -12,8 +14,12 @@ import { expect, request, test, type Page } from '@playwright/test';
  *
  * 覆盖:
  * - 1280 宽:纯键盘(Tab 焦点/focus+Enter、Esc)完成七子模块各一项代表性读写
- *   (账号读/建档案+PIN/改策略名单/建 IPTV 来源+手动导入(到任务层)/EPG 手动同步+
- *   逐频道匹配与解除/撤销设备/改家庭名称与时区);
+ *   (账号读/建档案+PIN(免密码直接创建)/改策略名单(免密码直接保存)/建 IPTV 来源+
+ *   手动导入(免密码,到任务层)/频道匹配标签 EPG 手动同步+逐频道匹配与解除(免密码)/
+ *   撤销设备(保留单次密码)/改家庭名称与时区(免密码直接保存))。
+ *   设置菜单拆分:家庭管理组内原「来源管理/EPG 管理」重组为「IPTV 管理」(直播源/
+ *   EPG 来源/频道匹配三标签,?tab= 深链)与「NAS/点播」;IPTV 来源建导走「IPTV 管理」
+ *   直播源标签,EPG 同步与逐频道匹配走「频道匹配」标签;
  * - 刷新后数据持久;
  * - 1024/1440/1920/2560 宽:键盘导航遍历七模块均可用;
  * - 768 窄窗/600 高:折叠菜单键盘可用;200% 缩放按等价 CSS 视口(640×540,
@@ -31,7 +37,8 @@ const MAIN_PIN = '135790';
 const PIN_FIELD = '设置 PIN(6 位数字)';
 const OWNER_PASSWORD_FIELD = '主账号密码(当次验证)';
 
-const MODULE_TITLES = ['账号与安全', '档案管理', '内容策略', '来源管理', 'EPG 管理', '设备管理', '通用设置'] as const;
+// 菜单拆分后侧栏名:IPTV 管理(/settings/iptv)+ NAS/点播(/settings/sources)
+const MODULE_TITLES = ['账号信息', '成员管理', '内容策略', 'IPTV 管理', 'NAS/点播', '设备管理', '家庭设置'] as const;
 
 interface ProfileSummaryDto {
   id: string;
@@ -93,17 +100,17 @@ async function ensureUnlocked(page: Page, unlockedIndicator?: ReturnType<Page['g
   await expect(indicator).toBeVisible({ timeout: 10_000 });
 }
 
-/** 键盘导航到子模块:左菜单链接 focus+Enter(纯键盘;窄窗折叠菜单见窄窗用例) */
+/** 键盘导航到子模块:左菜单 ListBox 选项 focus+Enter(纯键盘;窄窗折叠菜单见窄窗用例) */
 async function navToModule(page: Page, title: string): Promise<void> {
-  const link = page.getByRole('navigation', { name: '设置子菜单' }).getByRole('link', { name: title });
-  await link.focus();
+  const option = page.getByRole('navigation', { name: '设置子菜单' }).getByRole('option', { name: title });
+  await option.focus();
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('settings-current-module')).toHaveText(title);
 }
 
 /** 统一当次密码弹层:键盘输入密码并 Enter 提交(验证失败时弹层保持,由调用方断言)。
- *  页面可能同时挂多个弹层实例(关闭动画期短暂共存),调用方可传 dialogName 精确收窄;
- *  缺省以「可见字段」过滤。 */
+ *  013/ADR-0017 后仅高危保留流程(撤销设备等)仍弹此层;页面可能同时挂多个弹层实例
+ *  (关闭动画期短暂共存),调用方可传 dialogName 精确收窄;缺省以「可见字段」过滤。 */
 async function confirmWithPassword(page: Page, password: string = LOGIN.password, dialogName?: string): Promise<void> {
   const dialog = dialogName === undefined ? page.getByRole('dialog') : page.getByRole('dialog', { name: dialogName });
   const field = dialog.getByLabel(OWNER_PASSWORD_FIELD);
@@ -121,22 +128,21 @@ test.describe.serial('T124 · 设置七子模块纯键盘代表性读写与持�
 
     await openSettingsViaKeyboard(page);
 
-    // ── 1) 账号与安全:代表性读(键盘可达的只读主体) ──
+    // ── 1) 账号信息:代表性读(键盘可达的只读主体) ──
     await expect(page.getByTestId('account-summary')).toContainText('fixtureadmin');
 
-    // ── 2) 档案管理:建档案 + PIN(键盘填写 + 当次密码) ──
-    await navToModule(page, '档案管理');
+    // ── 2) 成员管理:建档案 + PIN(013/ADR-0017:常规操作免当次密码,直接创建) ──
+    await navToModule(page, '成员管理');
     await page.getByTestId('create-profile-open').focus();
     await page.keyboard.press('Enter');
     await page.getByLabel('档案名称').fill('键盘儿童');
     await page.getByLabel('PIN(可选,6 位数字)').fill('234567');
     await page.getByTestId('create-profile-submit').focus();
     await page.keyboard.press('Enter');
-    await confirmWithPassword(page);
-    await expect(page.getByTestId('profiles-notice')).toContainText('已创建');
+    await expect(page.getByTestId('app-toast-region')).toContainText('已创建');
     await expect(page.getByTestId('profile-list')).toContainText('键盘儿童');
 
-    // ── 3) 内容策略:改名单(频道白名单整体替换写入 fx-ch-001)──
+    // ── 3) 内容策略:改名单(频道白名单整体替换写入 fx-ch-001;免当次密码直接保存)──
     // ListEditor 的 label 未以 for/id 关联(纯视觉标签),以 policy-editor 内第三个
     // textarea(允许/禁止/白名单固定次序)定位
     await navToModule(page, '内容策略');
@@ -145,11 +151,11 @@ test.describe.serial('T124 · 设置七子模块纯键盘代表性读写与持�
     await channelAllowlist.fill('fx-ch-001');
     await page.getByTestId('policy-save-lists').focus();
     await page.keyboard.press('Enter');
-    await confirmWithPassword(page);
-    await expect(page.getByTestId('policy-notice')).toContainText('名单已整体替换保存');
+    await expect(page.getByTestId('app-toast-region')).toContainText('名单已整体替换保存');
 
-    // ── 4) 来源管理:建 IPTV 来源 + 手动导入 + 快照确认(本文件内可达上游) ──
-    await navToModule(page, '来源管理');
+    // ── 4) IPTV 管理 · 直播源标签:建 IPTV 来源 + 手动导入(免当次密码直接执行;本文件内可达上游)
+    //       (菜单拆分:IPTV 来源建导自原「来源管理」迁入「IPTV 管理」直播源标签) ──
+    await navToModule(page, 'IPTV 管理');
     await page.getByTestId('create-source-open').focus();
     await page.keyboard.press('Enter');
     await page.getByLabel('来源名称').fill('键盘IPTV');
@@ -158,10 +164,9 @@ test.describe.serial('T124 · 设置七子模块纯键盘代表性读写与持�
     await page.getByLabel('播放列表地址(M3U URL)').fill('http://kb-iptv.e2e.invalid/list.m3u8');
     await page.getByTestId('create-source-submit').focus();
     await page.keyboard.press('Enter');
-    await confirmWithPassword(page);
-    // 创建成功明确「开始导入」下一步(FR-037)
+    // 创建成功明确「开始导入」下一步(FR-037);免当次密码直接导入
     await expect(page.getByTestId('source-created-next-step')).toContainText('键盘IPTV');
-    await page.getByTestId('source-start-import').focus();
+    await page.getByTestId('source-start-sync').focus();
     await page.keyboard.press('Enter');
     // 任务创建 + 状态轮询层(注明:e2e 环境上游不可达 → 任务异步以 failed 终态收束,
     // 失败保留上次成功目录;awaiting_confirmation→确认发布链路由服务端契约测试与
@@ -180,9 +185,8 @@ test.describe.serial('T124 · 设置七子模块纯键盘代表性读写与持�
           .catch(() => undefined);
       }
     });
-    await confirmWithPassword(page);
-    // 任务创建反馈(轮询层入口)
-    await expect(page.getByTestId('sources-notice')).toContainText('导入任务已创建', { timeout: 10_000 });
+    // 任务创建反馈(轮询层入口);免当次密码直接执行
+    await expect(page.getByTestId('app-toast-region')).toContainText('同步任务已创建', { timeout: 10_000 });
     // 轮询到终态:上游不可达 → failed(不伪造成功;行保持「尚无成功导入」)
     await expect
       .poll(
@@ -203,12 +207,16 @@ test.describe.serial('T124 · 设置七子模块纯键盘代表性读写与持�
     const kbSourceRow = page.getByTestId('source-list').locator('li', { hasText: '键盘IPTV' }).first();
     await expect(kbSourceRow).toContainText('尚无成功导入');
 
-    // ── 5) EPG 管理:手动同步(不可达上游 → 断言到任务创建+状态轮询层,注明)+
-    //        逐频道手动匹配与解除 ──
-    await navToModule(page, 'EPG 管理');
-    // 夹具 EPG 上游不可达:同步任务创建后异步以 failed 终态收束(保留上次成功节目单;
-    // 失败任务不回写 last_job_id,行内继续显示上次成功同步 —— 任务生命周期经
-    // 「创建 notice + 轮询 GET /settings/refreshes/{id} 到终态」断言,注明)
+    // ── 5) IPTV 管理 · EPG 来源与频道资产:手动导入/同步(不可达上游 → 断言到
+    //        任务创建+状态轮询层,注明)+ 逐频道手动匹配与解除 ──
+    await navToModule(page, 'IPTV 管理');
+    // a) 节目单标签(018:来源清单 × 优先级合并看板):立即同步
+    const epgTab = page.getByRole('tab', { name: '节目单' });
+    await epgTab.focus();
+    await page.keyboard.press('Enter');
+    await expect(epgTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('settings-current-module')).toHaveText('IPTV 管理');
+
     const epgSyncResponses: Array<{ id: string }> = [];
     page.on('response', (response) => {
       if (response.url().includes('/refresh') && response.request().method() === 'POST') {
@@ -222,11 +230,10 @@ test.describe.serial('T124 · 设置七子模块纯键盘代表性读写与持�
           .catch(() => undefined);
       }
     });
-    const epgSync = page.getByTestId('epg-source-list').getByRole('button', { name: '手动同步' });
+    const epgSync = page.getByTestId('epg-priorities-list').getByRole('button', { name: '立即同步' }).first();
     await epgSync.focus();
     await page.keyboard.press('Enter');
-    await confirmWithPassword(page);
-    await expect(page.getByTestId('epg-notice')).toContainText('同步任务已创建');
+    await expect(page.getByTestId('app-toast-region')).toContainText('同步任务已创建');
     await expect
       .poll(
         async () => {
@@ -242,31 +249,31 @@ test.describe.serial('T124 · 设置七子模块纯键盘代表性读写与持�
         { timeout: 20_000, intervals: [500] },
       )
       .toBe('failed');
-    // 失败保留上次成功节目单:行内「上次同步成功」仍在(fixture 预置成功事实)
-    await expect(page.getByTestId('epg-source-list')).toContainText('上次同步成功');
-    // 逐频道:搜索频道(当次密码)→ 打开匹配面板(当次密码)→ 选定候选(确认匹配)→ 解除
+
+    // b) 切换至频道管理标签:逐频道手动匹配与解除
+    const matchingTab = page.getByRole('tab', { name: '频道管理' });
+    await matchingTab.focus();
+    await page.keyboard.press('Enter');
+    await expect(matchingTab).toHaveAttribute('aria-selected', 'true');
+    // 逐频道:搜索频道 → 打开匹配面板 → 选定候选(免当次密码直接匹配)→ 解除
+    // (013/ADR-0017:EPG 匹配链路常规化,全部免当次密码)
     await page.getByTestId('epg-channel-q').fill('夹具频道 001');
     await page.getByTestId('epg-channel-search').focus();
     await page.keyboard.press('Enter');
-    await confirmWithPassword(page);
     const matchButton = page.getByTestId('epg-channel-list').getByRole('button', { name: '匹配 / 解除' }).first();
     await expect(matchButton).toBeVisible();
     await matchButton.focus();
     await page.keyboard.press('Enter');
-    await confirmWithPassword(page);
     await expect(page.getByTestId('epg-match-panel')).toBeVisible();
     const candidate = page.getByTestId('epg-match-panel').locator('[data-testid^="epg-candidate-"]').first();
     await candidate.focus();
     await page.keyboard.press('Enter');
-    // manual 匹配二次确认(独立当次验证,不复用上一次)
-    await expect(page.getByRole('heading', { name: '手动匹配 EPG 频道' })).toBeVisible();
-    await confirmWithPassword(page, LOGIN.password, '手动匹配 EPG 频道');
-    await expect(page.getByTestId('epg-notice')).toContainText('已手动匹配');
-    // 解除(manual 失效不自动回退:写 auto 墓碑;统一弹层与匹配确认弹层并存,按名收窄)
+    // manual 匹配免当次密码直接保存(013:二次确认弹层已随密码层移除)
+    await expect(page.getByTestId('app-toast-region')).toContainText('已手动匹配');
+    // 解除(manual 失效不自动回退:写 auto 墓碑;免当次密码直接执行)
     await page.getByTestId('epg-unbind').focus();
     await page.keyboard.press('Enter');
-    await confirmWithPassword(page, LOGIN.password, '当次密码验证');
-    await expect(page.getByTestId('epg-notice')).toContainText('已解除');
+    await expect(page.getByTestId('app-toast-region')).toContainText('已解除');
 
     // ── 6) 设备管理:撤销设备(独立 request context 登录一台「待撤销」设备,避免
     //        撤销当前会话设备;独立上下文不共享浏览器 Cookie —— 登录 Set-Cookie
@@ -288,32 +295,32 @@ test.describe.serial('T124 · 设置七子模块纯键盘代表性读写与持�
     await page.getByTestId(`device-revoke-${target!.id}`).focus();
     await page.keyboard.press('Enter');
     await confirmWithPassword(page);
-    await expect(page.getByTestId('devices-notice')).toContainText('设备已撤销');
+    await expect(page.getByTestId('app-toast-region')).toContainText('设备已撤销');
     const revokedRow = page.getByTestId('device-list').locator('li', { hasText: '键盘待撤销设备' });
     await expect(revokedRow).toContainText('撤销');
 
-    // ── 7) 通用设置:改家庭名称 + 时区(CAS + 当次密码) ──
-    await navToModule(page, '通用设置');
+    // ── 7) 家庭设置:改家庭名称 + 时区(CAS + 免当次密码直接保存) ──
+    await navToModule(page, '家庭设置');
     await page.getByLabel('家庭名称').fill('键盘之家');
     await page.getByLabel('时区(IANA,如 Asia/Shanghai)').fill('Asia/Tokyo');
     await page.getByTestId('general-save').focus();
     await page.keyboard.press('Enter');
-    await confirmWithPassword(page);
-    await expect(page.getByTestId('general-save-notice')).toContainText('通用设置已保存');
+    await expect(page.getByTestId('app-toast-region')).toContainText('家庭设置已保存');
 
     // ── 刷新后数据持久(grant 为服务端会话态,刷新不丢) ──
     await page.reload();
     await ensureUnlocked(page, page.getByLabel('家庭名称'));
     await expect(page.getByLabel('家庭名称')).toHaveValue('键盘之家');
     await expect(page.getByLabel('时区(IANA,如 Asia/Shanghai)')).toHaveValue('Asia/Tokyo');
-    await navToModule(page, '档案管理');
+    await navToModule(page, '成员管理');
     await expect(page.getByTestId('profile-list')).toContainText('键盘儿童');
-    await navToModule(page, '来源管理');
+    // IPTV 来源行在「IPTV 管理」直播源标签(NAS/点播页不显示 iptv 类型来源)
+    await navToModule(page, 'IPTV 管理');
     await expect(page.getByTestId('source-list').locator('li', { hasText: '键盘IPTV' })).toContainText('尚无成功导入');
 
     // Esc 键盘路径:设置内 Esc 无残留弹层(密码弹层关闭路径由组件测试覆盖,此处验证主流程无阻塞)
     await page.keyboard.press('Escape');
-    await expect(page.getByTestId('settings-current-module')).toHaveText('来源管理');
+    await expect(page.getByTestId('settings-current-module')).toHaveText('IPTV 管理');
   });
 
   for (const width of [1024, 1440, 1920, 2560]) {
@@ -328,25 +335,29 @@ test.describe.serial('T124 · 设置七子模块纯键盘代表性读写与持�
         await navToModule(page, title);
         // 每模块至少一个主体区域键盘可达可见(代表性,不在每个宽度重复全部读写)
         switch (title) {
-          case '账号与安全':
+          case '账号信息':
             await expect(page.getByTestId('account-summary')).toBeVisible();
             break;
-          case '档案管理':
+          case '成员管理':
             await expect(page.getByTestId('profile-list')).toBeVisible();
             break;
           case '内容策略':
             await expect(page.getByTestId('policy-profile-select')).toBeVisible();
             break;
-          case '来源管理':
+          case 'IPTV 管理':
+            // 直播源标签(默认):来源列表可达;频道管理标签切过去后主体可达
             await expect(page.getByTestId('source-list')).toBeVisible();
-            break;
-          case 'EPG 管理':
+            await page.getByRole('tab', { name: '频道管理' }).focus();
+            await page.keyboard.press('Enter');
             await expect(page.getByTestId('epg-channel-q')).toBeVisible();
+            break;
+          case 'NAS/点播':
+            await expect(page.getByTestId('source-list')).toBeVisible();
             break;
           case '设备管理':
             await expect(page.getByTestId('device-list')).toBeVisible();
             break;
-          case '通用设置':
+          case '家庭设置':
             await expect(page.getByLabel('家庭名称')).toBeVisible();
             break;
         }
@@ -376,10 +387,10 @@ test.describe.serial('T124 · 设置七子模块纯键盘代表性读写与持�
       await expect(menuButton).toBeVisible();
       await menuButton.focus();
       await page.keyboard.press('Enter');
-      const link = page.getByRole('navigation', { name: '设置子菜单' }).getByRole('link', { name: '通用设置' });
-      await link.focus();
+      const option = page.getByRole('navigation', { name: '设置子菜单' }).getByRole('option', { name: '家庭设置' });
+      await option.focus();
       await page.keyboard.press('Enter');
-      await expect(page.getByTestId('settings-current-module')).toHaveText('通用设置');
+      await expect(page.getByTestId('settings-current-module')).toHaveText('家庭设置');
       // 折叠菜单导航后收起;主体表单键盘可读写(代表性:改家庭名不保存,验证输入可达)
       await expect(page.getByLabel('家庭名称')).toBeVisible();
       await page.getByLabel('家庭名称').fill(`窄窗之家-${viewport.width}`);
@@ -389,14 +400,14 @@ test.describe.serial('T124 · 设置七子模块纯键盘代表性读写与持�
       await page.keyboard.press('Enter');
       await page
         .getByRole('navigation', { name: '设置子菜单' })
-        .getByRole('link', { name: '账号与安全' })
+        .getByRole('option', { name: '账号信息' })
         .focus();
       await page.keyboard.press('Enter');
       const overlay = page.getByTestId('unsaved-overlay');
       await expect(overlay).toBeVisible();
       await page.getByTestId('unsaved-discard').focus();
       await page.keyboard.press('Enter');
-      await expect(page.getByTestId('settings-current-module')).toHaveText('账号与安全');
+      await expect(page.getByTestId('settings-current-module')).toHaveText('账号信息');
       await expect(page.getByTestId('account-summary')).toBeVisible();
     }
 
@@ -412,7 +423,7 @@ test.describe.serial('T124 · 设置七子模块纯键盘代表性读写与持�
       await collapsedMenu.focus();
       await page.keyboard.press('Enter');
     }
-    await navToModule(page, '通用设置');
+    await navToModule(page, '家庭设置');
     await expect(page.getByLabel('家庭名称')).toBeVisible();
   });
 
@@ -424,7 +435,7 @@ test.describe.serial('T124 · 设置七子模块纯键盘代表性读写与持�
     const fav = await page.request.put('/api/me/favorites/channels/fx-ch-001', { data: {} });
     expect([200, 201, 204]).toContain(fav.status());
 
-    // 键盘进入设置 → 账号与安全改密
+    // 键盘进入设置 → 账号信息改密
     await page.goto('/settings/account');
     await ensureUnlocked(page);
     await expect(page.getByTestId('account-summary')).toBeVisible();

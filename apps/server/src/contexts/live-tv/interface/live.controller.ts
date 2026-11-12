@@ -1,6 +1,14 @@
 import { Controller, Get, Inject, Param, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
-import type { ChannelPageDto, ChannelRowDto, ExperienceProgrammesDto, GroupPageDto, PublicMediaDto } from '@hmp/shared';
+import type {
+  ChannelPageDto,
+  ChannelRowDto,
+  CurrentNextProjectionDto,
+  ExperienceProgrammesDto,
+  GroupPageDto,
+  NowPlayingPageDto,
+  PublicMediaDto,
+} from '@hmp/shared';
 import { ProblemCode } from '@hmp/shared';
 import { DomainError } from '@platform/http-common/domain-error';
 import { RateLimit } from '@platform/http-common/rate-limit/rate-limit.decorator';
@@ -12,7 +20,7 @@ import { readCatalogRevision } from '@contexts/epg';
 import { liveNowMs } from '@contexts/live-tv/domain/live-clock';
 import { groupKeyOf, OTHER_GROUP_LABEL } from '@contexts/live-tv/domain/live-grouping';
 import { loadLiveGroups } from '@contexts/live-tv/application/live-grouping.service';
-import { loadLiveChannelWindows } from '@contexts/live-tv/application/live-projection.service';
+import { loadLiveChannelWindows, type LiveChannelProjection } from '@contexts/live-tv/application/live-projection.service';
 import { DEFAULT_PAGE_SIZE, paginate, sortChannelRows, type LiveSectionName, type SectionSortableRow } from '@contexts/live-tv/domain/live-sections';
 
 /**
@@ -41,6 +49,97 @@ const channelsQuerySchema = z.strictObject({
 
 /** groups 与 programmes 查询:契约无输入,未知键一律 400 */
 const emptyQuerySchema = z.strictObject({});
+
+/**
+ * GET /public/live/channels/now-playing 查询(016 api.md §1.1):
+ * - mediaIds 可选,逗号分隔媒体 ID(缺省 = 全部可用频道);此处只做长度界防滥用,
+ *   逐段去空格/去空段/去重/上限截断由 parseNowPlayingMediaIds 完成;
+ * - now 可选基准毫秒时间戳(走查测试用;空串视同缺省),取值须为 [0, 8.64e15] 内整数
+ *   (Date 可表示范围),非法(非数字/非整数/越界)一律 400;未知键一律 400。
+ */
+const nowPlayingQuerySchema = z.strictObject({
+  mediaIds: z.string().max(65_536).optional(),
+  now: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.coerce.number().int().min(0).max(8_640_000_000_000_000).optional(),
+  ),
+});
+
+/** mediaIds 解析上限(016 api.md §1.1 未定上限;固定界防无界 IN 集合与响应膨胀) */
+const NOW_PLAYING_MEDIA_ID_LIMIT = 500;
+
+/**
+ * 逗号分隔 mediaIds → 去空段/去空格/去重/上限截断后的 ID 列表;
+ * 缺省或全部为空段 → undefined(语义 = 未过滤,返回全部可用频道)。
+ * 非空但未命中的 id 形态不在此拒绝(跟随既有公共端点风格:未命中值返回空集而非 400,
+ * 见 channels 的 q 过滤),由「映射键集合 = 请求∩可用频道」自然收敛。
+ */
+function parseNowPlayingMediaIds(raw: string | undefined): readonly string[] | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  const ids = new Set<string>();
+  for (const segment of raw.split(',')) {
+    const mediaId = segment.trim();
+    if (mediaId === '') {
+      continue;
+    }
+    ids.add(mediaId);
+    if (ids.size >= NOW_PLAYING_MEDIA_ID_LIMIT) {
+      break;
+    }
+  }
+  return ids.size === 0 ? undefined : [...ids];
+}
+
+/** 当前进度:窗口起止与基准时刻之比,保留两位小数并钳制 0~1(016 api.md §1.1) */
+function progressOf(startsAt: string, endsAt: string, nowMs: number): number {
+  const startMs = Date.parse(startsAt);
+  const endMs = Date.parse(endsAt);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    return 0;
+  }
+  const ratio = (nowMs - startMs) / (endMs - startMs);
+  return Math.round(Math.min(1, Math.max(0, ratio)) * 100) / 100;
+}
+
+/**
+ * US2 T014 并行接口缝:LiveChannelProjection 将新增可选 matchMode/epgSourceId 字段。
+ * 以交叉类型读取该可选缝并统一兜底(`?? 'none'` / `?? null`),保证服务两态
+ * (扩展字段已声明/未声明)下本控制器均编译且行为正确;契约语义见 016 data-model §2.3。
+ */
+type ProjectionMatchSeam = LiveChannelProjection & {
+  readonly matchMode?: CurrentNextProjectionDto['matchMode'];
+  readonly epgSourceId?: string | null;
+};
+
+/** 单频道投影映射:内部窗口(startsAt/endsAt)→ 016 data-model §2.3 CurrentNextProjection(start/end/progress) */
+function toCurrentNextProjection(projection: LiveChannelProjection, nowMs: number): CurrentNextProjectionDto {
+  const { matchMode, epgSourceId } = projection as ProjectionMatchSeam;
+  return {
+    current:
+      projection.current === null
+        ? null
+        : {
+            key: projection.current.key,
+            title: projection.current.title,
+            start: projection.current.startsAt,
+            end: projection.current.endsAt,
+            progress: progressOf(projection.current.startsAt, projection.current.endsAt, nowMs),
+          },
+    next:
+      projection.next === null
+        ? null
+        : {
+            key: projection.next.key,
+            title: projection.next.title,
+            start: projection.next.startsAt,
+            end: projection.next.endsAt,
+          },
+    epgSourceId: epgSourceId ?? null,
+    matchMode: matchMode ?? 'none',
+  };
+}
 
 /** 同步快照三元组(now 一次冻结;timezone/catalogRevision 同事务读取) */
 interface LiveSnapshot {
@@ -168,6 +267,40 @@ export class LivePublicController {
       };
     });
     return { items, page: page.page, pageSize: page.pageSize, total: page.total, ...snapshot };
+  }
+
+  /**
+   * GET /public/live/channels/now-playing(016 T008;016 contracts/api.md §1.1):
+   * 批量当前/下一档节目投影。公开免认证(同本控制器公共边界,ADR-0010):
+   * - mediaIds 逗号分隔可选(去空段/去重/上限 500 截断;缺省 = 全部可用频道)、
+   *   now 基准毫秒时间戳可选(缺省 liveNowMs;走查测试用),未知键一律 400;
+   * - 复用 loadLiveChannelWindows 固定次数集合查询(防 N+1:SQL 次数不随频道数增长,
+   *   与 channels 端点共用同一批量投影管线,绝不在循环内逐频道取节目),
+   *   映射为 016 data-model §2.3 CurrentNextProjection;progress 由窗口起止与 now
+   *   计算(两位小数,钳制 0~1);matchMode/epgSourceId 经并行缝兜底(见 ProjectionMatchSeam);
+   * - 未初始化部署 200 { programmes: {} }(与 groups/channels 空投影同形);
+   *   mediaIds 未命中/未知 id 不 404 —— 映射键集合 = 请求∩可用频道(§1.1 只返回命中的键)。
+   */
+  @Get('live/channels/now-playing')
+  nowPlaying(
+    @Query(new StrictQueryPipe(nowPlayingQuerySchema)) query: z.infer<typeof nowPlayingQuerySchema>,
+  ): NowPlayingPageDto {
+    const nowMs = query.now ?? liveNowMs();
+    const scope = this.publicContext.requireScope();
+    if (!scope.initialized) {
+      return { now: new Date(nowMs).toISOString(), programmes: {} };
+    }
+    const mediaIds = parseNowPlayingMediaIds(query.mediaIds);
+    const projections = loadLiveChannelWindows(
+      scope.household.householdId,
+      nowMs,
+      mediaIds === undefined ? {} : { mediaIds },
+    );
+    const programmes: Record<string, CurrentNextProjectionDto> = {};
+    for (const projection of projections) {
+      programmes[projection.mediaId] = toCurrentNextProjection(projection, nowMs);
+    }
+    return { now: new Date(nowMs).toISOString(), programmes };
   }
 
   /**

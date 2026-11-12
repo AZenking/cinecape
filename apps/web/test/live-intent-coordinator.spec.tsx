@@ -391,7 +391,9 @@ describe('T007 · 无凭据字段与零浏览器存储写入', () => {
 
     // 播放目标保持最小面:仅 mediaId/title/startMode,不含凭据或外部 URL 目标
     expect(Object.keys(liveChannelTarget()).sort()).toEqual(['mediaId', 'startMode', 'title'].sort());
-    // 播放面字段集固定(known set;ticketExpiresAt 为到期时刻,非凭据值)
+    // 播放面字段集固定(known set;ticketExpiresAt 为到期时刻,非凭据值);
+    // 016 T020 增量:lines/selectedLineId 为服务端公开线路投影(api.md §2.1,
+    // 不透明 lineId/来源标题,零上游凭据/源地址),一并纳入 known set 扫描
     const playback = full.playback;
     expect(playback).not.toBeNull();
     expect(Object.keys(playback ?? {}).sort()).toEqual(
@@ -406,6 +408,8 @@ describe('T007 · 无凭据字段与零浏览器存储写入', () => {
         'delivery',
         'presentationStartSeconds',
         'message',
+        'lines',
+        'selectedLineId',
       ].sort(),
     );
   });

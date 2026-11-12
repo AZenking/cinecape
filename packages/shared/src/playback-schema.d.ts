@@ -219,6 +219,8 @@ export interface components {
              * @description 目标媒体标识;不可见媒体(被禁/跨家庭/无源)与不存在同形 404。
              */
             mediaId: string;
+            /** @description 指定收看的物理线路 ID(016 api.md §2.1 增量,可选);缺省由系统按 priority ASC/isDefault 选择默认优选线路;选中结果见响应 selectedLineId/lines。 */
+            lineId?: string;
         };
         RenewTicketRequest: {
             /** @description 客户端持有的当前 generation(≥1);在签发票的短事务内与服务端当前 generation 比较, 不一致 409 PLAYBACK_GENERATION_STALE 且不写票。 */
@@ -294,7 +296,7 @@ export interface components {
             audio: components["schemas"]["PlaybackTrackAudio"][];
             subtitles: components["schemas"]["PlaybackTrackSubtitle"][];
         };
-        /** @description 播放会话公共视图(api.md PlaybackDto;字段可空性以 data-model.md 为权威)。 playbackUrl/ticketExpiresAt 始终可空,且除 renew(TicketReply)响应外恒为 null (GET 不重签也不复现旧票);delivery 在探测完成前为 null;tracks 探测未完成为空数组。 任何字段不含源地址、文件路径、上游凭据、所选源ID、ffmpeg 命令或 stderr; playbackUrl 为携带 opaque ticket 的同源相对路径(无源地址),不得写入 localStorage 或审计日志。 */
+        /** @description 播放会话公共视图(api.md PlaybackDto;字段可空性以 data-model.md 为权威)。 playbackUrl/ticketExpiresAt 始终可空,且除 renew(TicketReply)响应外恒为 null (GET 不重签也不复现旧票);delivery 在探测完成前为 null;tracks 探测未完成为空数组。 任何字段不含源地址、文件路径、上游凭据、ffmpeg 命令或 stderr;016 多线路增量字段 selectedLineId/lines 仅含面向换线 UI 的公开线路投影(不透明 lineId/sourceId 等), 不含上游凭据或源地址; playbackUrl 为携带 opaque ticket 的同源相对路径(无源地址),不得写入 localStorage 或审计日志。 */
         PlaybackDto: {
             /**
              * Format: uuid
@@ -327,6 +329,10 @@ export interface components {
             tracks: components["schemas"]["PlaybackTracks"];
             /** @description 公开稳定失败码;仅 state=failed 时出现且非空(data-model:失败码仅 failed 非空), 如 PLAYBACK_FORMAT_UNSUPPORTED / PLAYBACK_RESOURCE_UNAVAILABLE / PLAYBACK_PERFORMANCE_INSUFFICIENT / PLAYBACK_STORAGE_LIMIT / PLAYBACK_PREPARE_TIMEOUT / PLAYBACK_SEEK_TIMEOUT;不含源诊断。 */
             failureCode?: string;
+            /** @description 本次解析实际选中的物理线路 ID(016 api.md §2.1 增量,可选;仅直播频道出现, 请求 lineId 指定或系统默认优选的结果);线路未定/无多线路语义时为 null。 */
+            selectedLineId?: string | null;
+            /** @description 该频道可用线路清单(016 api.md §2.1 增量,可选;仅直播频道返回,按 priority ASC 排序,数值越小越优先),供播放器自动容灾顺位与 OSD 手动换线;NAS 影片不返回该字段。 */
+            lines?: components["schemas"]["StreamLine"][];
         };
         /** @description 播放凭据回复(仅 renew 成功返回):URL 携带 opaque ticket,访问日志必须去掉 ticket, 页面不向第三方发送 referrer;URL 不得写入 localStorage 或审计日志。 默认 5 分钟 TTL(可配置),首次 ready 后立即申请,以后到期前 60 秒续期。 */
         TicketReply: {
@@ -431,6 +437,23 @@ export interface components {
              * @description 关联媒体 ID;仅可见媒体可关联,不可见媒体为 null(不存客户端原始目标 ID)。
              */
             mediaId: string | null;
+        };
+        /** @description 物理流线路视图(016 data-model §2.1/api.md §2.1):同一逻辑频道聚合出的可用线路投影, 供播放器自动容灾顺位与 OSD 手动换线展示;不含源地址、上游凭据或文件路径。 */
+        StreamLine: {
+            /** @description 线路唯一标识(对应 source_entry.id,不透明);换线请求经 resolve 请求体 lineId 回传。 */
+            lineId: string;
+            /** @description 所属 IPTV 来源 ID(目录 Source,不透明)。 */
+            sourceId: string;
+            /** @description 来源显示名称(如"电信主源"/"移动备用")。 */
+            sourceTitle: string;
+            /** @description 线路显示标签(如"线路 1 [1080P]")。 */
+            label: string;
+            /** @description 线路排序权重;数值越小越优先(priority ASC,由来源优先级与清晰度加权)。 */
+            priority: number;
+            /** @description 是否为首选起播线路;同频道内至多一条为 true。 */
+            isDefault: boolean;
+            /** @description 是否启用;前端可据此提示线路可用性,自动容灾仅顺位尝试启用线路。 */
+            isEnabled: boolean;
         };
     };
     responses: {

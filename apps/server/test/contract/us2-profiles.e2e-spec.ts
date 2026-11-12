@@ -72,19 +72,18 @@ async function bootstrap(): Promise<SessionFixture> {
 }
 
 function createProfile(s: SessionFixture, body: Record<string, unknown>): request.Test {
-  // 阶段 2(002 契约变更):创建/编辑为管理写操作,须携带主账号密码;
-  // 默认注入测试账号密码,个别用例可用 ownerPassword: undefined 显式省略
+  // 013/ADR-0017:创建/编辑档案属常规运维,免当次主账号密码(请求体不再携带 ownerPassword)
   return request(s.app.getHttpServer())
     .post('/api/settings/profiles')
     .set('Cookie', s.cookie)
-    .send({ ownerPassword: INITIALIZE_BODY.password, ...body });
+    .send(body);
 }
 
 function patchProfileWith(s: SessionFixture, cookie: string, profileId: string, body: Record<string, unknown>): request.Test {
   return request(s.app.getHttpServer())
     .patch(`/api/settings/profiles/${profileId}`)
     .set('Cookie', cookie)
-    .send({ clearPin: false, expectedVersion: 1, ownerPassword: INITIALIZE_BODY.password, ...body });
+    .send({ clearPin: false, expectedVersion: 1, ...body });
 }
 
 function patchProfile(s: SessionFixture, profileId: string, body: Record<string, unknown>): request.Test {
@@ -92,7 +91,7 @@ function patchProfile(s: SessionFixture, profileId: string, body: Record<string,
   return request(s.app.getHttpServer())
     .patch(`/api/settings/profiles/${profileId}`)
     .set('Cookie', s.cookie)
-    .send({ clearPin: false, expectedVersion: 1, ownerPassword: INITIALIZE_BODY.password, ...body });
+    .send({ clearPin: false, expectedVersion: 1, ...body });
 }
 
 function selectProfile(s: SessionFixture, profileId: string, forgedQueryProfileId?: string, ownerPassword?: string): request.Test {

@@ -19,7 +19,7 @@ export interface paths {
         put?: never;
         /**
          * createVodSource
-         * @description Settings + 当次 ownerPassword；201。010 仅新增 kind=vod 分支：name + remoteUrl(http(s) 根地址并校验) + adapter=apple-cms-json；iptv/epg/nas 仍按 005 定义。限 10 启用源，超额 409 VOD_QUOTA_EXCEEDED。密码缺失/空串/错误走 403，锁定 423；授权错误不包装为业务结果。Settings 沿用 005 独立请求体上限（非 16KiB 通用写上限）。
+         * @description Settings；201。013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。010 仅新增 kind=vod 分支：name + remoteUrl(http(s) 根地址并校验) + adapter=apple-cms-json；iptv/epg/nas 仍按 005 定义。限 10 启用源，超额 409 VOD_QUOTA_EXCEEDED；授权错误不包装为业务结果。Settings 沿用 005 独立请求体上限（非 16KiB 通用写上限）。
          */
         post: operations["vod_settings_createVodSource"];
         delete?: never;
@@ -43,7 +43,7 @@ export interface paths {
         head?: never;
         /**
          * patchSource (010 rules)
-         * @description Settings + 当次 ownerPassword + CAS(expectedVersion)。010 约束：根地址字段（remoteUrl 等）拒绝 400；改名不失效活动 locator，启停均使 locator 失效（locator_revision+1 防 ABA）。跨家庭/不存在 404 同形。
+         * @description Settings + CAS(expectedVersion)。013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。010 约束：根地址字段 （remoteUrl 等）拒绝 400；改名不失效活动 locator，启停均使 locator 失效（locator_revision+1 防 ABA）。 跨家庭/不存在 404 同形。
          */
         patch: operations["vod_settings_patchSource"];
         trace?: never;
@@ -59,7 +59,7 @@ export interface paths {
         put?: never;
         /**
          * testSource
-         * @description Settings + 当次 ownerPassword。对配置源做可达/兼容/能力探测；不写媒体、不建目录。授权错误不能包装为测试结果（密码 缺失/错误 403，锁定 423）。有界请求，超时/无效/不可用以 reason 表达。
+         * @description Settings；013(ADR-0017/FR-005)起免当次主账号密码，请求体为空对象。对配置源做可达/兼容/能力探测；不写媒体、不建目录。 有界请求，超时/无效/不可用以 reason 表达。
          */
         post: operations["vod_settings_testSource"];
         delete?: never;
@@ -100,6 +100,26 @@ export interface paths {
          * @description Public。200 VodPreview；ref 失效 410 VOD_PREVIEW_EXPIRED；跨家庭/伪造 404 同形。预算：最多 20 线路/单线 2000 集/合计 5000 集/4MiB，超体积与超条目一律 422 整次失败（VOD_DETAIL_TOO_LARGE）。预览不物化、不建个人记录； 每家庭 1000 个活预览，超额拒绝或淘汰最早过期项。禁源/配置失配先失效缓存再拒绝旧页。
          */
         get: operations["vod_publicTitlePreview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/vod/posters/{posterRef}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * vodPublicPosterProxy
+         * @description Public 同源海报代理。posterRef 为 p 级不透明引用（搜索/预览卡片 posterRef 字段原样回传； 不可解码，不携带上游地址）。服务端经 SafeUpstream 有界读取注册的私有海报地址（≤2MiB、8s/4s/3 跳， 与来源许可列表同一口径），仅接受上游 image/* 未编码响应并原样回传字节。伪造/未签发/跨家庭 404 同形； 过期未淘汰 410 VOD_PREVIEW_EXPIRED；上游失败或非图片响应 502 UpstreamFailed502；超预算 504 GatewayTimeout504。纯读不落盘；公共读取不根据 cookie 过滤内容。
+         */
+        get: operations["vod_publicPosterProxy"];
         put?: never;
         post?: never;
         delete?: never;
@@ -551,7 +571,8 @@ export interface components {
             title: string;
             year: string | null;
             sourceLabel: string;
-            posterRef: null;
+            /** @description 同源海报资源不透明引用（经 /public/vod/posters/{posterRef} 服务端代理取回）；上游未给海报 → null。不得携带可解码的上游地址。 */
+            posterRef: string | null;
         };
         VodSearchSource: {
             /** @description 不透明来源引用；无源配置 ID。 */
@@ -594,7 +615,8 @@ export interface components {
             description: string | null;
             year: string | null;
             sourceLabel: string;
-            posterRef: null;
+            /** @description 同源海报资源不透明引用（与卡片 posterRef 同值；经 /public/vod/posters/{posterRef} 服务端代理取回）；上游未给海报 → null。 */
+            posterRef: string | null;
             previewRevision: number;
             /** Format: date-time */
             fetchedAt: string;
@@ -981,10 +1003,8 @@ export interface components {
             page: number;
             pageSize: number;
         };
-        /** @description 010 新增 kind=vod 分支：根 URL 只接受 http(s) 并校验；限 10 启用源。ownerPassword 缺失/空串/错误走 403， 锁定 423。iptv/epg/nas 分支仍按 005 B003CreateSource 定义。 */
+        /** @description 010 新增 kind=vod 分支：根 URL 只接受 http(s) 并校验；限 10 启用源。013(ADR-0017/FR-005)起免当次主账号密码。 iptv/epg/nas 分支仍按 005 B003CreateSource 定义。 */
         VodCreateSourceRequest: {
-            /** Format: password */
-            ownerPassword?: string;
             /** @enum {string} */
             kind: "vod";
             name: string;
@@ -993,21 +1013,14 @@ export interface components {
             /** @enum {string} */
             adapter: "apple-cms-json";
         };
-        /** @description 010 约束：根地址字段拒绝（400）；改名不失效活动 locator，启停均使 locator 失效。CAS expectedVersion。 */
+        /** @description 010 约束：根地址字段拒绝（400）；改名不失效活动 locator，启停均使 locator 失效。CAS expectedVersion。 013(ADR-0017/FR-005)起免当次主账号密码。 */
         VodPatchSourceRequest: {
-            /** Format: password */
-            ownerPassword?: string;
             expectedVersion: number;
             name?: string;
             enabled?: boolean;
         };
-        SourceTestRequest: {
-            /**
-             * Format: password
-             * @description Settings 当次密码；缺失/错误 403，锁定 423；不回显、不落日志。
-             */
-            ownerPassword: string;
-        };
+        /** @description 013(ADR-0017/FR-005)起免当次主账号密码；请求体为空对象 */
+        SourceTestRequest: Record<string, never>;
         /** @description 不写媒体；授权错误不能包装为测试结果。 */
         SourceTestResult: {
             reachable: boolean;
@@ -1185,7 +1198,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description 403 Settings guard 未通过/设置 PIN 缺失（SETTINGS_PIN_REQUIRED/SETTINGS_ACCESS_REQUIRED）或当次密码 缺失/错误（PARENT_VERIFICATION_*）；授权错误不包装为测试结果。 */
+        /** @description 403 Settings guard 未通过/设置 PIN 缺失（SETTINGS_PIN_REQUIRED/SETTINGS_ACCESS_REQUIRED）；013(ADR-0017/FR-005)起 本组端点免当次密码，不再出现 PARENT_VERIFICATION_*；授权错误不包装为测试结果。 */
         SettingsForbidden403: {
             headers: {
                 "Cache-Control": components["headers"]["CacheControlNoStore"];
@@ -1642,6 +1655,35 @@ export interface operations {
             410: components["responses"]["VodPreviewExpired410"];
             422: components["responses"]["VodDetailTooLarge422"];
             429: components["responses"]["RateLimited429"];
+        };
+    };
+    vod_publicPosterProxy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description p 级不透明海报引用（搜索/预览响应 posterRef 字段原样回传） */
+                posterRef: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/*": string;
+                };
+            };
+            400: components["responses"]["BadRequest400"];
+            404: components["responses"]["NotFound404"];
+            410: components["responses"]["VodPreviewExpired410"];
+            429: components["responses"]["RateLimited429"];
+            502: components["responses"]["UpstreamFailed502"];
+            504: components["responses"]["GatewayTimeout504"];
         };
     };
     vod_publicMediaList: {

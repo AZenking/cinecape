@@ -131,10 +131,9 @@ interface CreateOverrides {
   epgSourceId?: string | null;
 }
 
-/** 带 ownerPassword 的合法创建体(kind=epg 默认;iptv 时覆盖) */
+/** 合法创建体(kind=epg 默认;iptv 时覆盖;013 起免当次密码) */
 function createBody(overrides: CreateOverrides = {}): Record<string, unknown> {
   return {
-    ownerPassword: OWNER_PASSWORD,
     kind: 'epg',
     name: '频道指南',
     remoteUrl: 'http://guide.example.com/epg/guide.xml?token=topsecret',
@@ -167,7 +166,6 @@ async function startMediaServer(
 /** 发起刷新(断言 202 + Location;期望 version 可覆盖) */
 async function startRefreshOk(s: EpgRig, sourceId: string, expectedVersion = 1): Promise<Record<string, unknown>> {
   const res = await postRefresh(s, sourceId, {
-    ownerPassword: OWNER_PASSWORD,
     expectedVersion,
     operationKey: randomUUID(),
   });
@@ -408,7 +406,7 @@ describe('T041/T043 EPG 设置与真实刷新链路(契约 e2e)', () => {
     const profile = await request(s.app.getHttpServer())
       .post('/api/settings/profiles')
       .set('Cookie', s.cookie)
-      .send({ name: '成人', type: 'adult', ownerPassword: OWNER_PASSWORD });
+      .send({ name: '成人', type: 'adult' });
     expect(profile.status).toBe(201);
     const selected = await request(s.app.getHttpServer())
       .post(`/api/profiles/${(profile.body as { id: string }).id}/select`)
@@ -554,7 +552,7 @@ describe('T041/T043 EPG 设置与真实刷新链路(契约 e2e)', () => {
     const originalUrl = sourceRowOf(epgId).remote_url;
 
     // 省略地址:仅改名 → 现值保留
-    const renamed = await patchSource(s, epgId, { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, name: '改名指南' });
+    const renamed = await patchSource(s, epgId, { expectedVersion: 1, name: '改名指南' });
     expect(renamed.status).toBe(200);
     expect(renamed.body.name).toBe('改名指南');
     expect(renamed.body.locationLabel).toBe('guide.example.com');
@@ -563,7 +561,6 @@ describe('T041/T043 EPG 设置与真实刷新链路(契约 e2e)', () => {
     // 掩码不能作为新地址保存(400 VALIDATION_FAILED)
     for (const masked of ['***', 'http://***:8080/guide.xml']) {
       const rejected = await patchSource(s, epgId, {
-        ownerPassword: OWNER_PASSWORD,
         expectedVersion: 2,
         remoteUrl: masked,
       });
@@ -576,13 +573,12 @@ describe('T041/T043 EPG 设置与真实刷新链路(契约 e2e)', () => {
     expect(sourceRowOf(epgId).version).toBe(2);
   });
 
-  it('权限矩阵:非 owner 403;错/缺密码 403;未知/跨家庭来源 404 同形;错误响应无凭据', async () => {
+  it('权限矩阵:非 owner 403;013 免当次密码(携带密码字段 400);未知/跨家庭来源 404 同形;错误响应无凭据', async () => {
     const s = await bootstrap();
     const epg = await createSource(s);
     const epgId = epg.body.id as string;
     const foreignEpgId = insertForeignEpgSource();
     const refreshBody = (): Record<string, unknown> => ({
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       operationKey: randomUUID(),
     });
@@ -601,17 +597,15 @@ describe('T041/T043 EPG 设置与真实刷新链路(契约 e2e)', () => {
     expect(adminJob.status).toBe(404); // 未知任务 404 同形(已放行至目标归属段)
     Database.db.prepare("UPDATE account SET role = 'owner'").run();
 
-    // 错密码 403 FAILED(错误响应不回显密码);缺失/空串统一 403 REQUIRED
+    // 013/ADR-0017:刷新免当次密码 —— 缺密码照常;携带 ownerPassword 字段 strictObject 400
+    // (错误响应不回显密码)
     const wrongPwd = await postRefresh(s, epgId, { ...refreshBody(), ownerPassword: 'not-the-password' });
-    expect(wrongPwd.status).toBe(403);
+    expect(wrongPwd.status).toBe(400);
     expectProblemContentType(wrongPwd);
-    expect(wrongPwd.body.code).toBe(ProblemCode.PARENT_VERIFICATION_FAILED);
+    expect(wrongPwd.body.code).toBe(ProblemCode.VALIDATION_FAILED);
     expectNotContaining(JSON.stringify(wrongPwd.body), ['not-the-password'], '错误响应');
-    for (const ownerPassword of [undefined, '']) {
-      const res = await postRefresh(s, epgId, { ...refreshBody(), ownerPassword });
-      expect(res.status, ownerPassword === '' ? '空串密码' : '缺失密码').toBe(403);
-      expect(res.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
-    }
+    const noPwd = await postRefresh(s, epgId, refreshBody());
+    expect(noPwd.status).toBe(202);
 
     // 未知 vs 跨家庭 EPG 来源:404 同形(不泄漏归属)
     const missing = await postRefresh(s, randomUUID(), refreshBody());

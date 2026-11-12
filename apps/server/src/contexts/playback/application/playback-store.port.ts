@@ -64,6 +64,21 @@ export interface EnabledPlaybackResourceRow {
 }
 
 /**
+ * 016 T019(US3 多线路)线路事实只读投影(resolve 多线路下发的判定输入)：
+ * 与 listEnabledPlaybackResourceRows 同 join 链同谓词(present 条目 × 启用父源 × 播放资源),
+ * 另带线路公开事实 —— lineId 即 source_entry.id(不透明),sourceTitle 为来源显示名,
+ * linePriority 为线路排序权重(playback_source.priority,导入发布按「来源 priority + 清晰度」
+ * 派生落库)。不含 location/mime 等私有字段(线路投影绝不下发源地址/凭据)。
+ */
+export interface PlaybackLineRow {
+  readonly playbackSourceId: string;
+  readonly lineId: string;
+  readonly sourceId: string;
+  readonly sourceTitle: string;
+  readonly linePriority: number;
+}
+
+/**
  * 缺失策略行的默认回填值集（backfillDefaultPolicyRow 的 insert values 形态；
  * defaultPolicyValues 由 application 按档案类型计算，port 只承载值集落库）。
  */
@@ -120,6 +135,11 @@ export interface PlaybackStore {
   insertProfilePolicyOnConflictNothing(values: ProfilePolicyDefaultInsert): void;
   /** 家庭可用资源候选（present 条目 × 启用父源 × 播放资源 join 链；逐字迁移） */
   listEnabledPlaybackResourceRows(householdId: string, mediaId: string): EnabledPlaybackResourceRow[];
+  /**
+   * 016 T019(US3 多线路):同 join 链同谓词的线路事实投影(resolve 在授权通过后读取,
+   * 换线不得绕过授权管线)。零行 = 单线路/无线路语义(既有键面保持)。
+   */
+  listPlaybackLineRows(householdId: string, mediaId: string): PlaybackLineRow[];
 
   /* ---------- 审计（playback-audit.service 消费） ---------- */
   /** resolve 拒绝落 playback_failure_event（值集由 application 判定拼装） */

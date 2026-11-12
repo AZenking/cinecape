@@ -37,6 +37,12 @@ export const IDENTITY_KEY_MAX_LENGTH = 255;
 /** 简介纯文本长度上界(data-model §1「简介纯文本<=4096」逐字;恰界合法,超限整体拒绝不截断) */
 export const SYNOPSIS_MAX_LENGTH = 4096;
 
+/**
+ * 海报 URL 长度上界(展示级字段,非身份):归一后超界**丢弃海报置 null**,
+ * 不整体拒绝(海报缺失只影响展示;身份/播放字段语义不受影响)。
+ */
+export const POSTER_URL_MAX_LENGTH = 2048;
+
 /* ------------------------------------------------------------------ */
 /* 解析值类型(与 T023 测试 import 面逐字对齐;全部 readonly 纯值)         */
 /* ------------------------------------------------------------------ */
@@ -100,6 +106,11 @@ export interface ParsedVodSearchItem {
   readonly year: string | null;
   /** NFC+trim(vod_remarks);上游未给(空)→ null */
   readonly remarks: string | null;
+  /**
+   * NFC+trim(vod_pic) 海报地址;上游未给/空/非 http(s)/超 2048 → null(展示级
+   * 丢弃,不整体拒绝)。私有定位:绝不进入公共 DTO,公共面只见 posterRef。
+   */
+  readonly posterUrl: string | null;
 }
 
 /** 详情解析值(基础证据恒 unverified;不含 ref/previewRevision/fetchedAt/sourceLabel) */
@@ -110,6 +121,8 @@ export interface ParsedVodTitleDetail {
   readonly year: string | null;
   /** 简介纯文本(剥 HTML 后);上游未给 → null;超 4096 整体拒绝不截断 */
   readonly synopsis: string | null;
+  /** NFC+trim(vod_pic) 海报地址;丢弃规则同 ParsedVodSearchItem.posterUrl */
+  readonly posterUrl: string | null;
   /** T025:基础 adapter 证据恒 unverified(verified 需完整证据,data-model §2 vod_episode) */
   readonly evidence: 'unverified';
   readonly lines: readonly ParsedVodLine[];

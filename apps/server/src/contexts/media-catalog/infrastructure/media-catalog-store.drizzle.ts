@@ -14,7 +14,8 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import type DatabaseConstructor from 'better-sqlite3';
 import { Database } from '@platform/database/database';
 import { getDb, type Db } from '@platform/database/drizzle';
-import { catalogState, deviceSession, mediaItem } from '@platform/database/schema';
+import { catalogState, epgChannel, manualEpgBinding, mediaItem, mediaSource, playbackSource } from '@platform/database/schema';
+import type { EpgBindingDto } from '@hmp/shared';
 import type {
   AvailabilityQuery,
   HouseholdMediaRow,
@@ -223,9 +224,7 @@ class DrizzleMediaCatalogStore extends DrizzleMediaCatalogTxStore implements Med
     return resolveRaw(this.rawSource);
   }
 
-  findDeviceSession(sessionId: string) {
-    return this.db().select().from(deviceSession).where(eq(deviceSession.id, sessionId)).get();
-  }
+  // 013/ADR-0017:findDeviceSession(家长验证后的会话行重读)随验证闸门摘除而删除。
 
   listHouseholdMediaRows(householdId: string): HouseholdMediaRow[] {
     return this.db()
@@ -236,6 +235,8 @@ class DrizzleMediaCatalogStore extends DrizzleMediaCatalogTxStore implements Med
         description: mediaItem.description,
         contentLevel: mediaItem.contentLevel,
         version: mediaItem.version,
+        visible: mediaItem.visible,
+        posterRef: mediaItem.posterRef,
       })
       .from(mediaItem)
       .where(eq(mediaItem.householdId, householdId))
@@ -256,6 +257,121 @@ class DrizzleMediaCatalogStore extends DrizzleMediaCatalogTxStore implements Med
       .where(and(...conditions))
       .all();
     return new Map(rows.map((row) => [row.id, row.available === 1]));
+  }
+
+  loadMediaLineCounts(householdId: string, mediaIds?: string[]): Map<string, number> {
+    if (mediaIds !== undefined && mediaIds.length === 0) {
+      return new Map();
+    }
+    const conditions = [eq(playbackSource.householdId, householdId)];
+    if (mediaIds !== undefined) {
+      conditions.push(inArray(playbackSource.mediaItemId, mediaIds));
+    }
+    const rows = this.db()
+      .select({
+        mediaItemId: playbackSource.mediaItemId,
+        count: sql<number>`count(*)`,
+      })
+      .from(playbackSource)
+      .where(and(...conditions))
+      .groupBy(playbackSource.mediaItemId)
+      .all();
+    return new Map(rows.map((row) => [row.mediaItemId, Number(row.count)]));
+  }
+
+  loadManualEpgBindings(householdId: string, mediaIds?: string[]): Map<string, EpgBindingDto> {
+    if (mediaIds !== undefined && mediaIds.length === 0) {
+      return new Map();
+    }
+    const conditions = [eq(manualEpgBinding.householdId, householdId)];
+    if (mediaIds !== undefined) {
+      conditions.push(inArray(manualEpgBinding.mediaId, mediaIds));
+    }
+    const rows = this.db()
+      .select({
+        mediaId: manualEpgBinding.mediaId,
+        mode: manualEpgBinding.mode,
+        version: manualEpgBinding.version,
+        epgSourceId: manualEpgBinding.epgSourceId,
+        xmltvChannelId: manualEpgBinding.xmltvChannelId,
+        sourceId: mediaSource.id,
+        sourceEnabled: mediaSource.enabled,
+        channelXmltvId: epgChannel.xmltvChannelId,
+        channelDisplayName: epgChannel.displayName,
+        channelConflicted: epgChannel.conflicted,
+      })
+      .from(manualEpgBinding)
+      .leftJoin(
+        mediaSource,
+        and(
+          eq(mediaSource.householdId, manualEpgBinding.householdId),
+          eq(mediaSource.id, manualEpgBinding.epgSourceId),
+        ),
+      )
+      .leftJoin(
+        epgChannel,
+        and(
+          eq(epgChannel.householdId, manualEpgBinding.householdId),
+          eq(epgChannel.sourceId, manualEpgBinding.epgSourceId),
+          eq(epgChannel.xmltvChannelId, manualEpgBinding.xmltvChannelId),
+        ),
+      )
+      .where(and(...conditions))
+      .all();
+
+    const map = new Map<string, EpgBindingDto>();
+    for (const row of rows) {
+      const isManual = row.mode === 'manual';
+      let status: 'auto' | 'valid' | 'invalid' = 'auto';
+      let invalidReason: null | 'source_disabled' | 'channel_missing' | 'channel_conflict' = null;
+      if (isManual) {
+        if (row.sourceId === null || row.sourceEnabled !== 1) {
+          status = 'invalid';
+          invalidReason = 'source_disabled';
+        } else if (row.channelXmltvId === null) {
+          status = 'invalid';
+          invalidReason = 'channel_missing';
+        } else if (row.channelConflicted === 1) {
+          status = 'invalid';
+          invalidReason = 'channel_conflict';
+        } else {
+          status = 'valid';
+          invalidReason = null;
+        }
+      }
+      map.set(row.mediaId, {
+        mediaId: row.mediaId,
+        mode: isManual ? 'manual' : 'auto',
+        version: row.version,
+        epgSourceId: isManual ? row.epgSourceId : null,
+        xmltvChannelId: isManual ? row.xmltvChannelId : null,
+        status,
+        invalidReason,
+        // 018 节目绑定可读性:manual 目标的 EPG 频道显示名(同 LEFT JOIN 批量带出,
+        // 禁逐行回查;目标频道行缺失 = channel_missing → null,由前端回退「名称不可用」)
+        ...(isManual ? { displayName: row.channelDisplayName ?? null } : {}),
+      });
+    }
+    return map;
+  }
+
+  loadChannelLogoUrls(householdId: string, mediaIds?: string[]): Map<string, string> {
+    if (mediaIds !== undefined && mediaIds.length === 0) {
+      return new Map();
+    }
+    const hasIds = mediaIds !== undefined && mediaIds.length > 0;
+    const placeholders = hasIds ? mediaIds.map(() => '?').join(', ') : '';
+    const sql = `
+      SELECT media_id AS mediaId, upstream_url AS upstreamUrl
+      FROM channel_logo
+      WHERE household_id = ?
+        AND revoked_at IS NULL
+        AND upstream_url IS NOT NULL
+        ${hasIds ? `AND media_id IN (${placeholders})` : ''}
+    `;
+    const params = hasIds ? [householdId, ...mediaIds] : [householdId];
+    const rows = this.raw().prepare(sql).all(...params) as { mediaId: string; upstreamUrl: string }[];
+    return new Map(rows.map((row) => [row.mediaId, row.upstreamUrl]));
   }
 
   findCatalogRevision(householdId: string): { revision: number } | undefined {

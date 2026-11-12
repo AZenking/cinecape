@@ -5,18 +5,25 @@
  * - session restoring = 轻量恢复状态(不遮挡公共区);
  * - 游客 = 登录按钮(经 useAuthAction 打开统一受控弹层);
  * - 登录未选档 = 账号 + 「选择 Profile」入口(bootstrapRequired 时先首建);
- * - 已选档 = 账号 + 头像/名称菜单(切档 / 退出);
+ * - 已选档 = 账号 + 头像/名称菜单(我的档案 / 切档 / 设置 / 退出);
+ *   「我的档案」为 /settings/profile 的唯一导航入口(该页不再进设置侧栏);
  * - 只有当前主 Profile 显示设置入口(隐藏入口不替代 API 校验,FR-005/US7;
  *   /settings 路由权限最终由服务端 API 校验)。
  */
 import type { ReactNode } from 'react';
 import { Button, Dropdown } from '@heroui/react';
-import { useSession } from '../../app/session-provider';
-import { useAuthAction } from '../../app/action-coordinator';
+import { useOptionalSession } from '../../app/session-provider';
+import { useOptionalAuthAction } from '../../app/action-coordinator';
 
 export function IdentityMenu(): ReactNode {
-  const { status, session, logout } = useSession();
-  const auth = useAuthAction();
+  const sessionContext = useOptionalSession();
+  const auth = useOptionalAuthAction();
+
+  if (sessionContext === null || auth === null) {
+    return null;
+  }
+
+  const { status, session, logout } = sessionContext;
 
   // 轻量恢复状态:仅文字提示,不遮挡公共区(ui.md §2)
   if (status === 'restoring') {
@@ -68,10 +75,12 @@ export function IdentityMenu(): ReactNode {
         <Dropdown.Menu
           aria-label="身份菜单"
           onAction={(key) => {
-            if (key === 'switch') {
+            if (key === 'profile') {
+              auth.startSettings('/settings/profile');
+            } else if (key === 'switch') {
               auth.startProfileSelection();
             } else if (key === 'settings') {
-              auth.startSettings('/settings/account');
+              auth.startSettings(profile.isMain ? '/settings/account' : '/settings/playback');
             } else if (key === 'logout') {
               void logout();
             }
@@ -80,11 +89,8 @@ export function IdentityMenu(): ReactNode {
           <Dropdown.Item id="account" isDisabled>
             {session.account.username}
           </Dropdown.Item>
-          {profile.isMain ? (
-            <Dropdown.Item id="settings">
-              设置
-            </Dropdown.Item>
-          ) : null}
+          <Dropdown.Item id="profile">我的档案</Dropdown.Item>
+          <Dropdown.Item id="settings">设置</Dropdown.Item>
           <Dropdown.Item id="switch">切换 Profile</Dropdown.Item>
           <Dropdown.Item id="logout">退出登录</Dropdown.Item>
         </Dropdown.Menu>

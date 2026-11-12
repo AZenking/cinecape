@@ -271,19 +271,20 @@ test.describe.serial('T026 · 播放连续性(退出恢复 / 浮层不中断 / 0
     upstream = await startFixtureUpstream();
     await apiLoginAndSelectMain(page);
     await apiUnlockSettings(page);
+    // 013/ADR-0017:来源创建/导入为常规操作免当次密码,请求体不带 ownerPassword
+    // (服务端 strict 契约拒绝未知字段)
     const create = await page.request.post('/api/settings/sources', {
       data: {
         kind: 'iptv',
         name: 'e2e 受控连续性源(T026)',
         remoteUrl: `${upstream.baseUrl}/live.m3u`,
         enabled: true,
-        ownerPassword: 'password-123',
       },
     });
     expect(create.status(), `源创建应成功:${create.status()}`).toBe(201);
     const source = (await create.json()) as { id: string; version: number };
     const refresh = await page.request.post(`/api/settings/sources/${source.id}/refresh`, {
-      data: { expectedVersion: source.version, operationKey: crypto.randomUUID(), ownerPassword: 'password-123' },
+      data: { expectedVersion: source.version, operationKey: crypto.randomUUID() },
     });
     expect(refresh.status()).toBe(202);
     const refreshId = ((await refresh.json()) as { id: string }).id;

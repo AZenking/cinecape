@@ -185,11 +185,11 @@ async function setupCatalog(): Promise<CatalogFixture> {
   const adult = await request(app.getHttpServer())
     .post('/api/settings/profiles')
     .set('Cookie', cookie)
-    .send({ name: '成人', type: 'adult', ownerPassword: OWNER_PASSWORD });
+    .send({ name: '成人', type: 'adult' });
   const child = await request(app.getHttpServer())
     .post('/api/settings/profiles')
     .set('Cookie', cookie)
-    .send({ name: '儿童', type: 'child', ownerPassword: OWNER_PASSWORD });
+    .send({ name: '儿童', type: 'child' });
   expect(adult.status).toBe(201);
   expect(child.status).toBe(201);
   const adultProfileId = (adult.body as { id: string }).id;
@@ -200,7 +200,7 @@ async function setupCatalog(): Promise<CatalogFixture> {
   const saved = await request(app.getHttpServer())
     .put(`/api/settings/profiles/${childProfileId}/policy`)
     .set('Cookie', cookie)
-    .send({ ownerPassword: OWNER_PASSWORD, expectedVersion: 1, policy: { maxContentLevel: 6, allowUnrated: false } });
+    .send({ expectedVersion: 1, policy: { maxContentLevel: 6, allowUnrated: false } });
   expect(saved.status).toBe(200);
   Database.db
     .prepare('UPDATE profile_policy SET allowed_media_ids = ?, blocked_media_ids = ?, allowed_channel_ids = ? WHERE profile_id = ?')

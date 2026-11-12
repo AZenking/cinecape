@@ -9,7 +9,7 @@ import {
   revokeHouseholdDevice,
   type DeviceDtoBody,
 } from '@contexts/identity-access';
-import { requireValidSettingsGrantTx } from '@contexts/settings/application/settings-access-grant.service';
+import { requireMainProfileTx } from '@contexts/settings/application/settings-access-grant.service';
 import {
   settingsStore,
   type PlaybackFailureEventRow,
@@ -18,12 +18,14 @@ import {
 } from '@contexts/settings/application/settings-store.port';
 
 /**
- * 设备与会话服务(T130,005 contracts/api.md §6「devices 三组」;FR-039/FR-040):
+ * 设备与会话服务(T130,005 contracts/api.md §6「devices 三组」;FR-039/FR-040;
+ * 013-role-differentiated-settings/ADR-0017):
  * - GET /settings/devices:家庭设备列表(含已撤销,revokedAt 标注);
- * - POST /{deviceId}/revoke:{ownerPassword} 必填(当次密码;api.md §6)→ 204;
- *   撤销目标设备全部会话与授予(域核心 revokeHouseholdDevice 零改动,语义见其注释);
- * - POST /{deviceId}/playback-records/query:经必要再验证的播放记录
- *   (ownerPassword 必填;不能用作个人历史)。
+ * - POST /{deviceId}/revoke:{ownerPassword} 必填(不可逆高危操作,保留单次当次密码;
+ *   api.md §6)→ 204;撤销目标设备全部会话与授予(域核心 revokeHouseholdDevice 零改动,
+ *   语义见其注释);
+ * - POST /{deviceId}/playback-records/query:播放记录查询(013 起免当次密码,仅保留
+ *   owner-only 角色与主档案解锁边界;不能用作个人历史)。
  *
  * 记录查询/DTO 所有权(005 US8 收口):设备播放记录入口已随管理迁移整体收口到
  * settings(005 api.md §6 末行 + §8「不保留旧 /devices 管理入口」)——旧
@@ -92,8 +94,9 @@ export async function revokeDevice(context: SessionContext, deviceId: string, in
 }
 
 /**
- * 当次密码验证(缺失/空串统一 403 REQUIRED;错误沿用既有计数/锁定)+
- * 验证后重验会话行(已撤销/过期 401)。
+ * 撤销设备的当次密码验证(013/ADR-0017:撤销设备为不可逆高危操作,保留单次密码;
+ * 缺失/空串统一 403 REQUIRED;错误沿用既有计数/锁定)+ 验证后重验会话行
+ * (已撤销/过期 401)。仅 revoke 消费;常规查询端点不经过本闸门。
  */
 async function requireParentVerification(context: SessionContext, ownerPassword: string | undefined): Promise<void> {
   if (ownerPassword === undefined || ownerPassword === '') {
@@ -111,7 +114,6 @@ async function requireParentVerification(context: SessionContext, ownerPassword:
 /* ------------------------------------------------------------------ */
 
 export interface DevicePlaybackRecordsInput {
-  ownerPassword?: string;
   cursor?: string;
   limit?: number;
 }
@@ -197,11 +199,11 @@ export async function queryDevicePlaybackRecords(
   input: DevicePlaybackRecordsInput,
 ): Promise<PlaybackRecordPageDto> {
   // api.md §7 次序(一般设置主体):Session → 角色(此处 owner-only)→ grant →
-  // 严格入参(控制器 StrictBodyPipe)→ 当次密码 → 目标归属 → 查询
+  // 严格入参(控制器 StrictBodyPipe)→ 目标归属 → 查询
+  // 013/ADR-0017:播放记录查询属常规只读运维,不再要求当次主账号密码。
   requireOwnerRole(context);
   const store = settingsStore();
-  requireValidSettingsGrantTx(store, context);
-  await requireParentVerification(context, input.ownerPassword);
+  requireMainProfileTx(store, context);
   requireDeviceOfHousehold(store, context.session.householdId, deviceId);
   const limit = input.limit ?? 20;
   const cursor = input.cursor === undefined ? undefined : decodeCursor(input.cursor);

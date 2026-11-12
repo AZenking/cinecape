@@ -10,8 +10,8 @@ import type { LiveResource } from '../hooks/use-live-sections';
  * 即将播放分区(T067;FR-021 顺序第三区):
  * - Netflix 式横向瓦片行:section=next 首页(20 项,不施加 2 小时窗口限制,ui.md §5),
  *   「查看更多」于行头右侧进入聚焦视图;
- * - 点击即将播放节目仅展示节目时段详情(频道与起止时间,FR-024,详见共享
- *   shared-programme/ProgrammeDetailPanel 面板宿主)。
+ * - 卡片承载 upcoming 档位:信息区展示下一档节目名(点击仅展示节目时段详情,
+ *   频道与起止时间,FR-024,详见共享 shared-programme/ProgrammeDetailPanel 面板宿主)。
  */
 
 export interface NextSectionProps {
@@ -49,7 +49,7 @@ export function NextSection({ resource, onRetry, onViewMore, onOpenProgramme, on
             <li key={row.media.id} className="w-60 shrink-0 snap-start sm:w-64 lg:w-72">
               <ChannelTile
                 row={row}
-                timezone={data?.timezone ?? 'UTC'}
+                slot="upcoming"
                 nowIso={data?.now ?? null}
                 onOpenProgramme={onOpenProgramme}
                 onRequireAuth={onRequireAuth}

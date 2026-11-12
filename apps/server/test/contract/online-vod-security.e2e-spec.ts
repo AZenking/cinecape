@@ -707,7 +707,7 @@ async function blockAllContentPolicy(rig: SecurityRig): Promise<void> {
   const saved = await request(rig.app.getHttpServer())
     .put(`/api/settings/profiles/${rig.profileAId}/policy`)
     .set('Cookie', rig.cookieA)
-    .send({ ownerPassword: 'password-123', expectedVersion: version, policy: { maxContentLevel: 0, allowUnrated: false } });
+    .send({ expectedVersion: version, policy: { maxContentLevel: 0, allowUnrated: false } });
   expect(saved.status, `策略收紧应 200(实际 ${saved.status} ${JSON.stringify(saved.body).slice(0, 160)})`).toBe(200);
 }
 

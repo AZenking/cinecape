@@ -82,6 +82,15 @@ export const ProblemCode = {
   NEXT_PLAN_EXPIRED: 'NEXT_PLAN_EXPIRED',
   TRANSITION_EXPIRED: 'TRANSITION_EXPIRED',
   VOD_DETAIL_TOO_LARGE: 'VOD_DETAIL_TOO_LARGE',
+  /**
+   * 014 频道 Logo(contracts/api.md §1「稳定错误形态」;命名沿 VOD_UPSTREAM_* 惯例):
+   * 410 MEDIA_LOGO_REVOKED(命中墓碑,「已失效,请刷新列表」);502 MEDIA_LOGO_UPSTREAM_FAILED
+   * (上游读取失败/非图片/非 identity 编码);504 MEDIA_LOGO_UPSTREAM_TIMEOUT(超预算时限)。
+   * 404(未签发/伪造/跨家庭)复用既有 NOT_FOUND,不重复登记。
+   */
+  MEDIA_LOGO_REVOKED: 'MEDIA_LOGO_REVOKED',
+  MEDIA_LOGO_UPSTREAM_FAILED: 'MEDIA_LOGO_UPSTREAM_FAILED',
+  MEDIA_LOGO_UPSTREAM_TIMEOUT: 'MEDIA_LOGO_UPSTREAM_TIMEOUT',
 } as const;
 export type ProblemCode = (typeof ProblemCode)[keyof typeof ProblemCode];
 

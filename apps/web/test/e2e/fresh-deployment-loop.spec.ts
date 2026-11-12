@@ -30,7 +30,9 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  *
  * ══ 断言深度与口径(报告口径注明)══
  * - 完整闭环:账号配置→登录→首建档案→选档→导入来源(IPTV m3u + NAS 影库)→
- *   公开浏览→收藏→播放→历史→设置,全部经真实 UI/HTTP 完成;
+ *   公开浏览→收藏→播放→历史→设置,全部经真实 UI/HTTP 完成。
+ *   设置菜单拆分:IPTV 来源经「IPTV 管理」(/settings/iptv 直播源标签)创建导入,
+ *   NAS 来源经「NAS/点播」(/settings/sources)创建导入;
  * - 播放:UI 点击断言到 resolve(201)→ prepare 层;NAS 真实 mp4 使 probe 产生可信
  *   时长,会话可到 ready/playing(本环境可真实完成的深度;IPTV 流地址指向不可达
  *   端口,稳定拒绝属预期 —— 夹具无真实媒体交付链,交付层归 004 runtime);
@@ -161,17 +163,6 @@ async function expectStep(page: Page, title: string): Promise<void> {
   await expect(authDialog(page).getByRole('heading', { name: title, exact: true })).toBeVisible();
 }
 
-const OWNER_PASSWORD_FIELD = '主账号密码(当次验证)';
-
-/** 统一当次密码弹层(可能多实例并存,以可见字段收窄;settings.spec 同模式) */
-async function confirmWithPassword(page: Page, password: string = OWNER.password): Promise<void> {
-  const dialog = page.getByRole('dialog');
-  const field = dialog.getByLabel(OWNER_PASSWORD_FIELD);
-  await expect(field).toBeVisible();
-  await field.fill(password);
-  await field.press('Enter');
-}
-
 /** 导入任务 POST 记录(URL 收窄到 /sources/{id}/refresh,排除 confirm/discard) */
 function trackRefreshPosts(page: Page): () => string[] {
   const ids: string[] = [];
@@ -218,8 +209,8 @@ async function apiLoginAndSelectMain(page: Page): Promise<void> {
 const PIN_FIELD = '设置 PIN(6 位数字)';
 
 async function navToSettingsModule(page: Page, title: string): Promise<void> {
-  const link = page.getByRole('navigation', { name: '设置子菜单' }).getByRole('link', { name: title });
-  await link.focus();
+  const option = page.getByRole('navigation', { name: '设置子菜单' }).getByRole('option', { name: title });
+  await option.focus();
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('settings-current-module')).toHaveText(title);
 }
@@ -308,43 +299,44 @@ test.describe.serial('T139 · 新环境完整闭环(SC-010 / FR-048)', () => {
       await page.getByRole('button', { name: '验证并进入设置' }).click();
     }
     await expect(indicator).toBeVisible({ timeout: 10_000 });
-    await navToSettingsModule(page, '来源管理');
+    // 菜单拆分:IPTV 来源建导走「IPTV 管理」直播源标签;NAS 来源建导走「NAS/点播」
+    await navToSettingsModule(page, 'IPTV 管理');
 
     const nextRefreshId = trackRefreshPosts(page);
 
-    // ── IPTV:来源创建(可达上游地址,创建期字面类别校验放行非回环私网 IP)→ 开始导入 ──
+    // ── IPTV:来源创建(可达上游地址,创建期字面类别校验放行非回环私网 IP)→ 开始导入
+    //    (013/ADR-0017:来源创建/导入为常规操作免当次密码,直接执行)──
     await page.getByTestId('create-source-open').click();
     await page.getByLabel('来源名称').fill(IPTV_SOURCE_NAME);
     await page.getByLabel('播放列表地址(M3U URL)').fill(upstreamM3uUrlHolder.url);
     await page.getByTestId('create-source-submit').click();
-    await confirmWithPassword(page);
     await expect(page.getByTestId('source-created-next-step')).toContainText(IPTV_SOURCE_NAME);
     await page.getByTestId('source-start-import').click();
-    await confirmWithPassword(page);
-    await expect(page.getByTestId('sources-notice')).toContainText('导入任务已创建', { timeout: 10_000 });
+    await expect(page.getByTestId('app-toast-region')).toContainText('导入任务已创建', { timeout: 10_000 });
     const iptvRefreshId = nextRefreshId()[nextRefreshId().length - 1];
     expect(iptvRefreshId, '应捕获 IPTV 导入任务 id').toBeDefined();
     await expectRefreshTerminal(page, iptvRefreshId!, 'succeeded');
+    // 直播源标签行回写成功事实(IPTV 来源仅出现在「IPTV 管理」,NAS/点播页不显示)
+    await expect(page.getByTestId('source-list').locator('li', { hasText: IPTV_SOURCE_NAME })).toBeVisible();
 
-    // ── NAS:真实 mp4 根扫描(首扫全部新增 → 自动发布成功)──
+    // ── NAS:真实 mp4 根扫描(首扫全部新增 → 自动发布成功;免当次密码直接执行)
+    //    (菜单拆分:NAS 来源在「NAS/点播」页创建,创建表单仅 NAS/在线点播两类标签)──
+    await navToSettingsModule(page, 'NAS/点播');
     const nas = nasRootOf(MEDIA_ROOTS_RAW);
     await page.getByTestId('create-source-open').click();
-    await page.getByRole('radio', { name: 'NAS' }).check();
+    await page.getByRole('tab', { name: 'NAS' }).click();
     await page.getByLabel('来源名称').fill(NAS_SOURCE_NAME);
     await page.getByLabel('NAS 根目录').selectOption(nas.rootKey);
     await page.getByLabel('相对目录').fill('movies');
     await page.getByTestId('create-source-submit').click();
-    await confirmWithPassword(page);
     await expect(page.getByTestId('source-created-next-step')).toContainText(NAS_SOURCE_NAME);
     await page.getByTestId('source-start-import').click();
-    await confirmWithPassword(page);
-    await expect(page.getByTestId('sources-notice')).toContainText('导入任务已创建', { timeout: 10_000 });
+    await expect(page.getByTestId('app-toast-region')).toContainText('导入任务已创建', { timeout: 10_000 });
     const nasRefreshId = nextRefreshId()[nextRefreshId().length - 1];
     expect(nasRefreshId, '应捕获 NAS 导入任务 id').toBeDefined();
     await expectRefreshTerminal(page, nasRefreshId!, 'succeeded');
 
-    // 来源行回写成功事实(不再显示「尚无成功导入」)
-    await expect(page.getByTestId('source-list').locator('li', { hasText: IPTV_SOURCE_NAME })).toBeVisible();
+    // NAS 来源行回写成功事实(不再显示「尚无成功导入」)
     await expect(page.getByTestId('source-list').locator('li', { hasText: NAS_SOURCE_NAME })).not.toContainText('尚无成功导入');
 
     // 目录事实(服务端):频道 2 + 视频 1,均为可用
@@ -484,7 +476,7 @@ test.describe.serial('T139 · 新环境完整闭环(SC-010 / FR-048)', () => {
     await expect(page.getByRole('button', { name: `继续观看 ${MOVIE_TITLE}` })).toBeVisible();
   });
 
-  test('⑦ 设置:PIN 解锁 + 改家庭名称保存 + 刷新持久(FR-031/033/041)', async ({ page }) => {
+  test('⑦ 设置:PIN 解锁 + 改家庭名称保存(免当次密码直接提交)+ 刷新持久(FR-031/033/041)', async ({ page }) => {
     trackRequests(page);
     await apiLoginAndSelectMain(page);
     await page.goto('/settings/account');
@@ -496,11 +488,10 @@ test.describe.serial('T139 · 新环境完整闭环(SC-010 / FR-048)', () => {
       await page.getByRole('button', { name: '验证并进入设置' }).click();
     }
     await expect(indicator).toBeVisible({ timeout: 10_000 });
-    await navToSettingsModule(page, '通用设置');
+    await navToSettingsModule(page, '家庭设置');
     await page.getByLabel('家庭名称').fill(HOUSEHOLD_RENAMED);
     await page.getByTestId('general-save').click();
-    await confirmWithPassword(page);
-    await expect(page.getByTestId('general-save-notice')).toContainText('通用设置已保存');
+    await expect(page.getByTestId('app-toast-region')).toContainText('家庭设置已保存');
     // 刷新持久(grant 服务端会话态,刷新不丢;CAS 已提交)
     await page.reload();
     await expect(gate.or(page.getByLabel('家庭名称')).first()).toBeVisible({ timeout: 10_000 });

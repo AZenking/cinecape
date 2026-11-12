@@ -154,7 +154,17 @@ export class PlaybackStreamController {
   ): Promise<void> {
     // 异常不吞:未发 headers 的错误交由全局 ProblemJsonFilter 渲染 problem+json;
     // 已发字节后的迟到错误由过滤器「流后边界」守卫丢弃(不注入 JSON)
-    await this.deliver(context, res.req, res, sessionId, generation, assetId, ticket, false);
+    const startMs = Date.now();
+    try {
+      await this.deliver(context, res.req, res, sessionId, generation, assetId, ticket, false);
+    } catch (error) {
+      // TEMP-DIAG:播放失败临时诊断日志(定位后移除);ProblemJsonFilter 不打 DomainError 明细
+      const failure = error as { code?: string; message?: string };
+      console.warn(
+        `[stream-diag] asset=${assetId} 耗时=${Date.now() - startMs}ms code=${failure.code ?? '-'} msg=${failure.message ?? '-'}`,
+      );
+      throw error;
+    }
   }
 
   @Head(':sessionId/:generation/:assetId')
@@ -379,6 +389,10 @@ export class PlaybackStreamController {
     if (resolved === undefined && assetId === ENTRY_ASSET_ID && playbackSourceId !== null) {
       // 入口清单未注册:按当前代源 location 注册(桥接 playback_source 私有 location)
       const located = await this.sourceLocator.locate(playbackSourceId);
+      if (located === null) {
+        // TEMP-DIAG:固定输入租约缺失(绑定行存在但内存 lease 未落记/probe 未完成)
+        console.warn('[stream-diag] locate miss: playbackSourceId 有行但无有效固定输入租约');
+      }
       if (located !== null) {
         this.assets.registerEntry(householdId, session.id, generation, located.location);
         this.setPlaylistDepth(householdId, session.id, generation, ENTRY_ASSET_ID, 0);

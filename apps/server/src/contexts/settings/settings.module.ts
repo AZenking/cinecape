@@ -6,7 +6,7 @@ import { SettingsHouseholdController } from '@contexts/settings/interface/settin
 import { SettingsProfilesController } from '@contexts/settings/interface/settings-profiles.controller';
 import { SettingsPolicyController } from '@contexts/settings/interface/settings-policy.controller';
 import { SettingsSourcesController, SettingsCatalogController } from '@contexts/settings/interface/settings-sources.controller';
-import { SettingsEpgBindingController } from '@contexts/settings/interface/settings-epg.controller';
+import { SettingsEpgBindingController, SettingsEpgPrioritiesController } from '@contexts/settings/interface/settings-epg.controller';
 import { SettingsDevicesController } from '@contexts/settings/interface/settings-devices.controller';
 import { SettingsGrantStartupRevocation } from '@contexts/settings/application/settings-access-revocation';
 import { requireValidSettingsGrant } from '@contexts/settings/application/settings-access-grant.service';
@@ -56,6 +56,7 @@ import type { ISettingsAccessGrantService } from '@contexts/settings/settings.po
     SettingsSourcesController,
     SettingsCatalogController,
     SettingsEpgBindingController,
+    SettingsEpgPrioritiesController,
     SettingsDevicesController,
   ],
   providers: [

@@ -206,7 +206,6 @@ function putPolicyLevel(
   cookie: string,
   profileId: string,
   body: {
-    ownerPassword: string;
     expectedVersion: number;
     policy: { maxContentLevel: number; allowUnrated: boolean };
   },
@@ -220,7 +219,6 @@ function putPolicyLists(
   cookie: string,
   profileId: string,
   body: {
-    ownerPassword: string;
     expectedVersion: number;
     allowedMediaIds?: string[];
     blockedMediaIds?: string[];
@@ -241,7 +239,7 @@ async function currentPolicyVersion(app: INestApplication, cookie: string, profi
   return res.body.version as number;
 }
 
-/** 经 HTTP 名单入口把媒体加入黑名单(家长验证 + version+1;返回新 version;名单落在 targetProfileId) */
+/** 经 HTTP 名单入口把媒体加入黑名单(013 起免当次密码;version+1;返回新 version;名单落在 targetProfileId) */
 async function blockMediaViaLists(
   app: INestApplication,
   cookie: string,
@@ -251,7 +249,6 @@ async function blockMediaViaLists(
 ): Promise<void> {
   const version = await currentPolicyVersion(app, cookie, targetProfileId);
   const res = await putPolicyLists(app, cookie, targetProfileId, {
-    ownerPassword: world.password,
     expectedVersion: version,
     blockedMediaIds: [mediaId],
   });
@@ -269,7 +266,7 @@ async function createChildProfile(
   const create = await request(app.getHttpServer())
     .post('/api/settings/profiles')
     .set('Cookie', cookieOf(world))
-    .send({ name: '儿童档案', type: 'child', ownerPassword: world.password });
+    .send({ name: '儿童档案', type: 'child' });
   expect(create.status, 'POST /settings/profiles 应 201').toBe(201);
   const childProfileId = (create.body as Record<string, unknown>)['id'] as string;
   const fresh = await login(app, world.username, world.password);
@@ -615,7 +612,6 @@ describe('T035 策略维度(儿童等级/未评级/黑白名单/收紧)', () => 
     // HTTP 等级入口收紧:allowUnrated=false(version+1)
     const version = await currentPolicyVersion(rig.app, cookie, world.profileWithPinId);
     const tightened = await putPolicyLevel(rig.app, cookie, world.profileWithPinId, {
-      ownerPassword: world.password,
       expectedVersion: version,
       policy: { maxContentLevel: 18, allowUnrated: false },
     });
@@ -638,7 +634,6 @@ describe('T035 策略维度(儿童等级/未评级/黑白名单/收紧)', () => 
     // 名单落在儿童档案(判定以当前观看者档案策略为准);家长验证用 owner 会话
     const version = await currentPolicyVersion(rig.app, cookieOf(world), child.profileId);
     const res = await putPolicyLists(rig.app, cookieOf(world), child.profileId, {
-      ownerPassword: world.password,
       expectedVersion: version,
       allowedChannelIds: [world.iptv.mediaId],
     });

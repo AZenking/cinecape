@@ -6,6 +6,10 @@ import type { SessionContext, SessionRequest } from '@platform/http-common/curre
 import { SETTINGS_GRANT_VALIDATOR_PORT, type SettingsGrantValidatorPort } from '@platform/http-common/platform.ports';
 
 /**
+ * @deprecated 013/ADR-0017 起不再挂载于任何路由(全部 settings 控制器已改用
+ * SettingsGuard,见 contexts/settings/infrastructure/settings.guard.ts)。本类与
+ * SETTINGS_GRANT_VALIDATOR_PORT 绑定仅为 005 时代兼容保留,请勿在新路由挂载。
+ *
  * SettingsAccessGuard(T009 占位 → T083 填充,005 contracts/api.md §1 Settings 边界、
  * §7「一般设置主体次序」、data-model §3、ADR-0011 决议 5)——
  *

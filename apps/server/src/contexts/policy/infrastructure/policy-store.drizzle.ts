@@ -95,12 +95,13 @@ class DrizzlePolicyStore extends DrizzlePolicyTxStore implements PolicyStore {
   }
 
   loadAvailableMediaIdSet(householdId: string): Set<string> {
-    // 逐字迁移自 loadAvailableMediaIdSet 的 join 链（等价性由 batch-policy-context.spec 双跑对比钉住）
+    // 逐字迁移自 loadAvailableMediaIdSet 的 join 链（018 增加 mi.visible = 1 过滤）
     const rows = this.db().all<{ id: string }>(sql`
     SELECT se.media_id AS id
     FROM source_entry se
     INNER JOIN media_source ms ON ms.household_id = se.household_id AND ms.id = se.source_id AND ms.enabled = 1
     INNER JOIN playback_source ps ON ps.household_id = se.household_id AND ps.source_entry_id = se.id AND ps.media_item_id = se.media_id
+    INNER JOIN media_item mi ON mi.household_id = se.household_id AND mi.id = se.media_id AND mi.visible = 1
     WHERE se.household_id = ${householdId}
       AND se.present = 1
       AND se.media_id IS NOT NULL

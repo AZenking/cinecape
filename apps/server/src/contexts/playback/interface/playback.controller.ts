@@ -83,11 +83,15 @@ import {
  * 过渡分支 {mediaId,transitionIntentId} 为严格互斥 union —— 两分支各自 .strict(),
  * additionalProperties 互斥:过渡请求携 startMode、基础请求携 transitionIntentId 均
  * 以未知字段 400(不依赖 refine 的「共现拒绝」,分支面即判别面)。
+ * 016 api.md §2.1 增量(经父代理契约-现实裁决走现行 POST /playback/resolve 请求体):
+ * lineId 可选(指定物理线路,= resolve 响应 lines[].lineId 回传);过渡分支不收 lineId
+ * (严格面保持)。service 层无法收口:strict zod 在控制器先拒绝未知字段。
  */
 const resolveBaseRequestSchema = z
   .object({
     mediaId: z.string().min(1),
     startMode: z.enum(['beginning', 'resume']).optional(),
+    lineId: z.string().min(1).optional(),
   })
   .strict();
 
@@ -298,7 +302,7 @@ export class PlaybackController {
       return transitioned.dto;
     }
     const outcome = await this.resolver
-      .resolve(context, input.mediaId, { startMode: input.startMode })
+      .resolve(context, input.mediaId, { startMode: input.startMode, lineId: input.lineId })
       .catch((error: unknown) => {
         this.audit.recordResolveRejection(context, input.mediaId, error);
         throw error;

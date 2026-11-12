@@ -21,15 +21,12 @@
  *   application 不再持有 db 句柄实参；
  * - seam 未绑定即调用为编程错误（显式失败，不静默空转；008 FR-004）。
  */
-import type { deviceSession, mediaSource } from '@platform/database/schema';
+import type { mediaSource } from '@platform/database/schema';
 import type {
   LoadedStagedEntry,
   StageEntriesParams,
   StageEntriesResult,
 } from '@contexts/sources/infrastructure/refresh-staging.service';
-
-/** 会话行（drizzle 投影；sources.service 会话/设备重验读取形态） */
-export type SessionRow = typeof deviceSession.$inferSelect;
 
 /** 媒体来源行（drizzle 投影，camelCase；来源管理读路径与写事务的行形态） */
 export type MediaSource = typeof mediaSource.$inferSelect;
@@ -97,6 +94,8 @@ export interface MediaSourceRow {
   relative_directory: string | null;
   enabled: number;
   version: number;
+  /** 0010(016 data-model §1.1):多源优先级,数值越小越优先;SELECT * 经 DDL DEFAULT 100 兜底 */
+  readonly priority: number;
 }
 
 /** source_entry 基线行（发布事务 mark missing/替换判定投影；自 refresh-publish.service 原样迁移） */
@@ -115,6 +114,74 @@ export interface SessionDeviceValidityRow {
   session_revoked_at: string | null;
   expires_at: string;
   device_revoked_at: string | null;
+}
+
+/* ------------------------------------------------------------------ */
+/* 014 T015:channel_logo 胜者注册表参与者端口（跨上下文类型镜像）          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 镜像 ChannelLogoWinnerRow（源：media-catalog infrastructure/transaction-participants.ts，
+ * internal-ports.md §2 findChannelLogo 返回形状；R2 禁深导入，结构一致性由
+ * infrastructure 装配处编译期赋值强制）。channel_logo 行归 media-catalog 域所有，
+ * sources 发布只经参与者读写，绝不直写他域表（internal-ports.md §1/§5）。
+ */
+export interface ChannelLogoWinnerRowMirror {
+  readonly mediaId: string;
+  /** 私有上游地址；墓碑态必须为 NULL（data-model §2 CHECK） */
+  readonly upstreamUrl: string | null;
+  readonly ref: string;
+  readonly sourceKind: 'iptv' | 'epg' | 'custom';
+  /** 来源证据（media_source 同家庭行） */
+  readonly sourceId: string;
+  readonly revision: number;
+  /** 墓碑时间（ISO-8601）；NULL=active */
+  readonly revokedAt: string | null;
+}
+
+/** 镜像 ChannelLogoWinnerCommand（源同上；upsertChannelLogoWinner 命令形状） */
+export interface ChannelLogoWinnerCommandMirror {
+  readonly householdId: string;
+  readonly mediaId: string;
+  readonly upstreamUrl: string;
+  readonly sourceKind: 'iptv' | 'epg';
+  readonly sourceId: string;
+  /** 事务内时间戳（ISO-8601）；缺省 = 参与者内取当前时间 */
+  readonly nowIso?: string;
+}
+
+/**
+ * 镜像 ChannelLogoParticipantMirror（014 internal-ports.md §2「发布参与者」）：
+ * channel_logo 注册表事务参与者端口 —— 合并语义（data-model §4 M1–M4）由参与者
+ * 内部执行（active 同源同 url 无操作不换 ref；epg 不覆盖 iptv；墓碑复 active 换
+ * ref/revision+1；引用签发在参与者内完成），发布方只接收「要写到 media_item.poster_ref
+ * 的值」（internal-ports.md §2 规则）。
+ */
+export interface ChannelLogoParticipant {
+  findChannelLogo(householdId: string, mediaId: string): ChannelLogoWinnerRowMirror | undefined;
+  upsertChannelLogoWinner(command: ChannelLogoWinnerCommandMirror): { ref: string };
+  revokeChannelLogo(householdId: string, mediaId: string, nowIso: string): void;
+  gcExpiredChannelLogoTombstones(householdId: string, olderThanIso: string): void;
+  setChannelPosterRef(householdId: string, mediaId: string, ref: string | null): void;
+}
+
+/**
+ * 镜像 CHANNEL_LOGO_TOMBSTONE_WINDOW_MS（源：media-catalog transaction-participants.ts；
+ * data-model §4「墓碑窗口：revoked_at ≤ now−7d 的行在任一发布事务内集合 DELETE」）。
+ * 发布方据此计算 gcExpiredChannelLogoTombstones 的 olderThanIso。
+ */
+export const CHANNEL_LOGO_TOMBSTONE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * epg_channel 证据行投影（014 T033 M2 epg 填补判定输入；本域自有表，非镜像）。
+ * icon_url = XMLTV 首个 <icon src> 解析层归一化产物（NULL 或 http(s) 且 9~2048）。
+ */
+export interface EpgChannelIconRow {
+  readonly sourceId: string;
+  readonly xmltvChannelId: string;
+  readonly conflicted: number;
+  /** 私有证据列；NULL = 该 XMLTV 频道无有效图标 */
+  readonly iconUrl: string | null;
 }
 
 /** queued 任务创建参数（requestRefresh 事务外单语句 INSERT 的值集） */
@@ -224,6 +291,18 @@ export interface RefreshTxStore {
   ): void;
   nullMediaItemContentLevel(mediaId: string, householdId: string, updatedAtIso: string): void;
   sourceEntryHasGroupTitleColumn(): boolean;
+  /** 缺列容忍守卫（pragma_table_info）：仅应用 0001~0008 的部分迁移库为 false（0009 原子增补） */
+  sourceEntryHasLogoUrlColumn(): boolean;
+  /** source_entry.logo_url 私有证据列落值（IPTV 发布事务内；014 T015，同事务） */
+  setSourceEntryLogoUrl(logoUrl: string | null, entryId: string, householdId: string): void;
+  /** 未就绪库守卫：channel_logo 表（0009）缺失时 Logo 合并/墓碑 GC 静默跳过 */
+  hasChannelLogoTable(): boolean;
+  /**
+   * channel_logo 胜者注册表参与者（同事务连接绑定；014 T015）。经 media-catalog
+   * 参与者执行 M1 合并（upsert → poster_ref）与墓碑 GC，sources 绝不直写他域 SQL
+   * （internal-ports.md §1/§5）；绑定生命周期与所属事务回调一致（连接级事务语义）。
+   */
+  channelLogoParticipant(): ChannelLogoParticipant;
   insertSourceEntry(
     entryId: string,
     householdId: string,
@@ -284,6 +363,8 @@ export interface RefreshTxStore {
     location: string,
     createdAtIso: string,
     updatedAtIso: string,
+    /** 016 T018:线路排序权重(播放解析按 priority ASC 选默认线路;playback_source 列自 0003 即存在) */
+    priority: number,
   ): void;
   updatePlaybackSource(
     mediaItemId: string,
@@ -292,7 +373,15 @@ export interface RefreshTxStore {
     updatedAtIso: string,
     playbackId: string,
     householdId: string,
+    /** 016 T018:线路排序权重随发布刷新(来源 priority/清晰度变化时重算) */
+    priority: number,
   ): void;
+  /**
+   * 016 T018(US3 多线路聚合):家庭内可聚合频道行投影(type='channel' 且
+   * title_overridden=0 —— 人工改名的频道不参与自动归并,保住家长人工修正)。
+   * 跨来源同名归并键 = normalizeChannelKey(title);单次集合查询,发布事务内消费。
+   */
+  listAggregatableChannelMediaRows(householdId: string): Array<{ id: string; title: string }>;
   findPlaybackSourceId(householdId: string, sourceEntryId: string): string | undefined;
   /** NAS 替换清理（发布事务内）：profile_policy 名单行（严格解析由 application 承担） */
   listProfileIdsInHousehold(householdId: string): string[];
@@ -319,6 +408,26 @@ export interface RefreshTxStore {
     displayName: string,
     conflicted: number,
   ): void;
+  /** 缺列容忍守卫（pragma_table_info）：仅应用 0001~0008 的部分迁移库为 false（0009 原子增补） */
+  epgChannelHasIconUrlColumn(): boolean;
+  /**
+   * epg_channel.icon_url 私有证据列随窗口 upsert 写入（XMLTV 解析层归一化产物；
+   * 014 T033，发布事务内同事务）。hasIconUrlColumn=false 的未就绪库静默跳过 icon 写入。
+   */
+  insertEpgChannelWithIcon(
+    householdId: string,
+    sourceId: string,
+    xmltvChannelId: string,
+    displayName: string,
+    conflicted: number,
+    iconUrl: string | null,
+  ): void;
+  /**
+   * 家庭全部 EPG 频道证据行（icon_url + conflicted 投影；014 T033 M2 epg 填补的
+   * 判定输入）：单次集合查询，查询次数不随频道数线性增长（对齐 live-projection
+   * 集合查询纪律）。icon_url 为私有载荷，绝不进入公共 DTO（internal-ports §5）。
+   */
+  listEpgChannelIconRows(householdId: string): EpgChannelIconRow[];
   /** INSERT OR IGNORE：返回 changes（完全相同节目按唯一键去重计数） */
   insertEpgProgrammeIfAbsent(
     programmeId: string,
@@ -337,7 +446,8 @@ export interface RefreshTxStore {
 /** sources 上下文仓储端口（来源管理读写 + 刷新管线语句面 + 事务入口 + 复合状态迁移） */
 export interface SourcesStore extends RefreshTxStore {
   /* ---------- 来源管理（drizzle；sources.service 消费） ---------- */
-  findDeviceSession(sessionId: string): SessionRow | undefined;
+  // 013/ADR-0017:原「家长验证后重读会话行」专设的 findDeviceSession 随验证闸门摘除
+  // （常规运维免当次密码,会话有效性由 SessionGuard 逐请求承担）。
   findMediaSourceById(sourceId: string): MediaSource | undefined;
   findOwnedMediaSource(sourceId: string, householdId: string): MediaSource | undefined;
   /** GET /sources 分页读（count 与 page 查询同一 where；total 缺行补 0） */

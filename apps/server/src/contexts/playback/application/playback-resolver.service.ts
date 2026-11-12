@@ -1,7 +1,11 @@
 import { createDomainError, type DomainError } from '@platform/http-common/domain-error';
 import type { PlaybackBudgets } from '@platform/config/playback-budgets';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
-import { playbackStore } from '@contexts/playback/application/playback-store.port';
+import { playbackStore, type PlaybackLineRow } from '@contexts/playback/application/playback-store.port';
+import type { StreamLineDto } from '@hmp/shared';
+// 016 T019(US3 多线路):线路公开标签与导入派生共用同一形态(经 sources 发布面合法跨上下文,
+// 单一事实源,禁第二份「线路 N [差异段|来源名]」模板)
+import { buildLineLabel } from '@contexts/sources';
 import type { PlaybackAuthorizationService, PlaybackResourceCandidate } from '@contexts/playback/application/playback-authorization.service';
 import type { PlaybackRepository } from '@contexts/playback/infrastructure/playback.repository';
 import type { PlaybackProgressBindPort, PlaybackResumePositionPort } from '@contexts/personal-data';
@@ -370,6 +374,45 @@ export function probeFailureToCode(kind: PlaybackProbeFailureKind): PlaybackErro
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* 016 T019(US3 多线路):线路投影与顺位(纯函数,导入侧单测共用)              */
+/* ------------------------------------------------------------------ */
+
+/** 字节序(二进制)字符串比较 —— 线路同权重的确定性决胜口径(与授权候选排序一致) */
+function compareBinaryStrings(a: string, b: string): number {
+  return Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
+}
+
+/**
+ * 线路顺位比较(priority ASC;同权重以 lineId 二进制升序决胜 —— 确定性投影,
+ * 两次解析同目录事实恒同序)。停用线路不入投影(读取谓词已过滤启用源×present 条目)。
+ */
+export function comparePlaybackLines(a: PlaybackLineRow, b: PlaybackLineRow): number {
+  const priorityDelta = a.linePriority - b.linePriority;
+  if (priorityDelta !== 0) {
+    return priorityDelta;
+  }
+  return compareBinaryStrings(a.lineId, b.lineId);
+}
+
+/**
+ * 线路公开投影(016 data-model §2.1/api.md §2.1 StreamLine):按线路顺位映射 ——
+ * isDefault = 顺位首条(至多一条 true),isEnabled 恒 true(读取谓词仅含启用线路),
+ * label = 「线路 N [来源名]」(resolve 侧原始名不入库,差异段走来源名回退 ——
+ * 模板单一事实源经 sources 发布面 buildLineLabel)。输出恰七键,绝无源地址/凭据/位置。
+ */
+export function buildStreamLines(rows: readonly PlaybackLineRow[]): StreamLineDto[] {
+  return [...rows].sort(comparePlaybackLines).map((row, index) => ({
+    lineId: row.lineId,
+    sourceId: row.sourceId,
+    sourceTitle: row.sourceTitle,
+    label: buildLineLabel(index + 1, '', row.sourceTitle),
+    priority: row.linePriority,
+    isDefault: index === 0,
+    isEnabled: true,
+  }));
+}
+
 /** 播放状态 DTO(contracts/api.md 公共数据类型 PlaybackDto;不含源 ID/位置) */
 export interface PlaybackDto {
   readonly id: string;
@@ -401,6 +444,18 @@ export interface PlaybackDto {
   readonly startBasis?: 'beginning' | 'target_history' | 'transition_carry';
   readonly resumeDisposition?: 'pending' | 'resume' | 'beginning';
   readonly resumeReason?: VodResumeDispositionReason | null;
+  /**
+   * 016 api.md §2.1 增量(经父代理裁决走现行 POST /playback/resolve 入口):本次解析
+   * 实际选中的物理线路 ID(不透明,= source_entry.id)。仅直播频道的多线路/指定线路
+   * resolve 下发;单线路频道保持既有键面(无多线路语义不携带,契约字段可选)。
+   */
+  readonly selectedLineId?: string;
+  /**
+   * 016 api.md §2.1 增量:该频道可用线路公开投影(StreamLine 七键:lineId/sourceId/
+   * sourceTitle/label/priority/isDefault/isEnabled;按 priority ASC,绝无源地址/凭据/
+   * 位置)。下发条件同 selectedLineId(多线路直播 resolve);单线路/非直播缺省既有键面。
+   */
+  readonly lines?: readonly StreamLineDto[];
 }
 
 export interface PlaybackDtoOptions {
@@ -422,6 +477,14 @@ export interface ResolveOptions {
    * 参数校验与透传,不改变 preparing 建档路径。
    */
   readonly startMode?: 'beginning' | 'resume';
+  /**
+   * 016 api.md §2.1 增量(经父代理裁决走现行 POST /playback/resolve 请求体):指定收看的
+   * 物理线路 ID(= lines[].lineId 回传)。缺省由系统按权重(priority ASC)选默认线路;
+   * 指定线路不存在 → 404 MEDIA_NOT_FOUND 同形(在建 session 之前拒绝,不悬挂半建档);
+   * 仅直播频道受理,非直播媒体携带按线路不存在同形 404。授权(策略/白名单裁决)恒先于
+   * 线路选择 —— 换线不得成为越权通道(授权链在 authorizeResolve 内已完整执行)。
+   */
+  readonly lineId?: string;
 }
 
 export interface ResolveOutcome {
@@ -480,6 +543,38 @@ export class PlaybackResolverService {
     // 1.5 startMode 透传校验(005 api.md §5:resume 仅点播;频道请求 resume 稳定 400)
     if (options.startMode === 'resume' && grant.mediaType === 'channel') {
       throw createDomainError('PLAYBACK_SEEK_UNSUPPORTED', '直播频道不支持续播定位');
+    }
+    // 1.6 多线路裁决(016 T019,api.md §2.1 增量):授权已完整通过(身份/档案/PIN/策略/
+    //    白名单全链)之后才读线路事实 —— 换线(lineId)不得先于或绕过授权管线(硬约束)。
+    //    指定线路不存在/已停用/非直播媒体 → 404 MEDIA_NOT_FOUND 同形,在建 session 之前
+    //    拒绝(不悬挂半建档);缺省由系统按权重选默认线路。
+    const lineRows =
+      grant.mediaType === 'channel' ? playbackStore().listPlaybackLineRows(grant.snapshot.householdId, grant.snapshot.mediaId) : [];
+    if (options.lineId !== undefined && !lineRows.some((row) => row.lineId === options.lineId)) {
+      throw createDomainError('MEDIA_NOT_FOUND');
+    }
+    const hasMultiLine = grant.mediaType === 'channel' && lineRows.length >= 2;
+    // probe 候选顺位(授权排序在多线路直播上按线路权重精化;其余场景零变化):
+    // - 指定线路:收敛为该线路(用户显式换线按其选择探测,不再顺位尝试他线);
+    // - 多线路缺省:默认线路(权重最高)首 probe,其余按顺位容灾(排序稳定,非线路候选保位);
+    // - 单线路/非直播:授权原序(既有行为)。
+    let candidatesForProbe = grant.candidates;
+    if (options.lineId !== undefined) {
+      const target = lineRows.find((row) => row.lineId === options.lineId) as PlaybackLineRow;
+      const targeted = grant.candidates.filter((candidate) => candidate.playbackSourceId === target.playbackSourceId);
+      if (targeted.length > 0) {
+        candidatesForProbe = targeted;
+      }
+    } else if (hasMultiLine) {
+      const rowByPlaybackSource = new Map(lineRows.map((row) => [row.playbackSourceId, row] as const));
+      candidatesForProbe = [...grant.candidates].sort((left, right) => {
+        const leftRow = rowByPlaybackSource.get(left.playbackSourceId);
+        const rightRow = rowByPlaybackSource.get(right.playbackSourceId);
+        if (leftRow === undefined || rightRow === undefined) {
+          return 0; // 防御:无线路事实的候选保持原相对序(stable sort)
+        }
+        return comparePlaybackLines(leftRow, rightRow);
+      });
     }
     // T043:在线 vod 判别(服务端目录事实;授权快照面不携带角色 —— NAS/IPTV/直播与
     // 未装配场景走既有路径零变化)
@@ -577,11 +672,22 @@ export class PlaybackResolverService {
         resumeReason: null,
       });
     }
-    // 3. fire-and-forget 异步准备(总期限共享:单次端口调用携带全部候选与同一 30s 期限)
+    // 3. fire-and-forget 异步准备(总期限共享:单次端口调用携带全部候选与同一 30s 期限;
+    //    候选顺位见 1.6 —— 指定线路收敛/多线路按权重精化/其余授权原序)
     const deadlineMs = options.deadlineMs ?? this.budgets.watchdog.prepareTimeoutSeconds * 1000;
-    void this.prepare(grant.snapshot.householdId, grant.snapshot.profileId, session.id, session.generation, session.version, grant.candidates, deadlineMs, options.at);
-    // 4. 返回 preparing 形态(delivery/源为空:不猜 delivery)
-    return { session, dto: this.toDto(session) };
+    void this.prepare(grant.snapshot.householdId, grant.snapshot.profileId, session.id, session.generation, session.version, candidatesForProbe, deadlineMs, options.at);
+    // 4. 返回 preparing 形态(delivery/源为空:不猜 delivery);016 多线路直播增量下发
+    //    线路投影与选中线路 —— 下发条件:多线路频道,或请求显式指定 lineId(单线路指定
+    //    亦回应选中事实);其余保持既有 DTO 键面(契约字段可选,004/005 契约回归)。
+    const baseDto = this.toDto(session);
+    if (!hasMultiLine && options.lineId === undefined) {
+      return { session, dto: baseDto };
+    }
+    const lines = buildStreamLines(lineRows);
+    return {
+      session,
+      dto: { ...baseDto, lines, selectedLineId: options.lineId ?? lines[0]?.lineId },
+    };
   }
 
   /**

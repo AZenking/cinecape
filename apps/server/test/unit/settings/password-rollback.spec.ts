@@ -237,23 +237,20 @@ describe('T121 · 密码改动事务与设备管理(data-model §1/§2)', () => 
       };
     }
 
-    it('窗口内撤销设置授予 → 403 SETTINGS_ACCESS_REQUIRED,密码/会话/授予均未被改写', async () => {
+    it('窗口内撤销当前会话 → 401 SESSION_INVALID(401 优先于一切),密码/会话均未被改写', async () => {
       const { context } = await setupRig();
       const pending = await holdPasswordHash(context);
       try {
-        // 哈希挂起窗口内:并发撤销授予(模拟同会话授权失效)
+        // 哈希挂起窗口内:并发撤销当前会话(013:会话行有效性仍是事务内重验的第一道)
         Database.db
-          .prepare('UPDATE settings_access_grant SET revoked_at = ? WHERE revoked_at IS NULL')
-          .run(new Date().toISOString());
+          .prepare('UPDATE device_session SET revoked_at = ? WHERE id = ?')
+          .run(new Date().toISOString(), context.session.id);
       } finally {
-        pending.release(); // 先放行哈希,服务事务内重验权限快照后拒绝
+        pending.release(); // 先放行哈希,服务事务内重验会话/身份后拒绝
       }
-      await expect(pending.promise).rejects.toMatchObject({ status: 403, code: 'SETTINGS_ACCESS_REQUIRED' });
+      await expect(pending.promise).rejects.toMatchObject({ status: 401, code: 'SESSION_INVALID' });
       // 无部分写入
       expect(sqlRows<{ v: number }>('SELECT credential_version AS v FROM account')[0]!.v).toBe(1);
-      expect(sqlRows<{ revoked_at: string | null }>('SELECT revoked_at FROM device_session')).toEqual([
-        { revoked_at: null },
-      ]);
     });
 
     it('窗口内换档(实际切到其他档案)→ 提交被拒,无部分写入', async () => {
@@ -262,11 +259,10 @@ describe('T121 · 密码改动事务与设备管理(data-model §1/§2)', () => 
         name: '儿童',
         type: 'child',
         isDefault: false,
-        ownerPassword: OLD_PASSWORD,
       });
       const pending = await holdPasswordHash(context);
       try {
-        await selectProfile(rig.app, cookie, child.id); // profile_context_version 递增
+        await selectProfile(rig.app, cookie, child.id); // 库内会话行 activeProfileId → 非主档案
       } finally {
         pending.release(); // 先放行哈希,服务事务内重验权限快照后拒绝
       }
@@ -281,17 +277,15 @@ describe('T121 · 密码改动事务与设备管理(data-model §1/§2)', () => 
       ).toBe(1);
     });
 
-    it('窗口内改主档案 PIN(pin_version 变化)→ 提交被拒,无部分写入', async () => {
-      const { context, mainProfileId } = await setupRig();
+    it('窗口内直改主档案 is_main=0 → 403 FORBIDDEN,无部分写入(013:isMain 即授权事实)', async () => {
+      const { context } = await setupRig();
       const pending = await holdPasswordHash(context);
       try {
-        Database.db
-          .prepare('UPDATE profile SET pin_version = pin_version + 1 WHERE id = ?')
-          .run(mainProfileId);
+        Database.db.prepare('UPDATE profile SET is_main = 0 WHERE is_main = 1').run();
       } finally {
         pending.release();
       }
-      await expect(pending.promise).rejects.toMatchObject({ status: 403 });
+      await expect(pending.promise).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN' });
       expect(sqlRows<{ v: number }>('SELECT credential_version AS v FROM account')[0]!.v).toBe(1);
       expect(sqlRows<{ revoked_at: string | null }>('SELECT revoked_at FROM device_session')).toEqual([
         { revoked_at: null },
@@ -355,17 +349,13 @@ describe('T121 · 密码改动事务与设备管理(data-model §1/§2)', () => 
       await expect(revokeDevice(context, foreignDevice, { ownerPassword: OLD_PASSWORD })).rejects.toMatchObject({ status: 404 });
     });
 
-    it('播放记录查询:缺密码 403;跨家庭/未知设备 404;本家庭设备 200 语义(空页)', async () => {
+    it('播放记录查询(013 起免当次密码):跨家庭/未知设备 404;本家庭设备 200 语义(空页)', async () => {
       const { context } = await setupRig();
       const ownDeviceId = context.session.deviceId;
-      await expect(queryDevicePlaybackRecords(context, ownDeviceId, {})).rejects.toMatchObject({
-        status: 403,
-        code: 'PARENT_VERIFICATION_REQUIRED',
-      });
-      await expect(queryDevicePlaybackRecords(context, randomUUID(), { ownerPassword: OLD_PASSWORD })).rejects.toMatchObject({
+      await expect(queryDevicePlaybackRecords(context, randomUUID(), {})).rejects.toMatchObject({
         status: 404,
       });
-      const page = await queryDevicePlaybackRecords(context, ownDeviceId, { ownerPassword: OLD_PASSWORD });
+      const page = await queryDevicePlaybackRecords(context, ownDeviceId, {});
       expect(page.items).toEqual([]);
       expect(page.nextCursor).toBeNull();
     });

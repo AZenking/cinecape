@@ -471,13 +471,17 @@ export interface VodSourceConfigurationPort {
   findSourceConfig(householdId: string, sourceId: string): VodSourceConfigRow | undefined;
 }
 
-/** 公共搜索卡片值（api §1 PublicVodCard；无源配置 ID，posterRef 恒 null） */
+/**
+ * 公共搜索卡片值(api §1 PublicVodCard;无源配置 ID)。
+ * posterRef:同源海报资源的不透明引用(经 /public/vod/posters/:posterRef 服务端
+ * 代理取回);上游未给海报 → null。绝不携带上游地址本身。
+ */
 export interface PublicVodCardValues {
   readonly titleRef: string;
   readonly title: string;
   readonly year: string | null;
   readonly sourceLabel: string;
-  readonly posterRef: null;
+  readonly posterRef: string | null;
 }
 
 /** 单源搜索状态值（api §1 SearchPage.sources 元素） */

@@ -90,7 +90,11 @@ export interface RefreshJobView {
   expiresAt: string | null;
 }
 
-/** 发起刷新入参(家长验证由调用方完成后置 ownerPasswordVerified=true;本服务只做业务) */
+/**
+ * 发起刷新入参(013/ADR-0017:执行器内部不变式 —— ownerPasswordVerified 声明位保留,
+ * 公开入口 requestSourceRefresh 恒置 true;常规刷新已免当次密码,该标志仅表达
+ * 「入口已通过自身校验链」的执行器内部契约,本服务只做业务)。
+ */
 export interface RequestRefreshInput {
   householdId: string;
   accountId: string;
@@ -206,8 +210,8 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
 
   /**
    * 发起刷新(请求事务内创建 queued 任务;返回原任务 = 202 语义,由 T028 包装)。
-   * 校验次序:家长验证声明 → 来源 404 同形 → 禁用 422 → 幂等 → 版本 409 →
-   * 同来源互斥 409 → 全局排队 429 → 创建。
+   * 校验次序(013 起公开入口恒满足声明,内部不变式校验保留为最小防线):ownerPasswordVerified
+   * 声明 → 来源 404 同形 → 禁用 422 → 幂等 → 版本 409 → 同来源互斥 409 → 全局排队 429 → 创建。
    */
   requestRefresh(input: RequestRefreshInput): RefreshJobView {
     if (input.ownerPasswordVerified !== true) {

@@ -12,9 +12,20 @@
  * 与 UnitOfWork 的接合:装配期注册进 createUnitOfWork txStores(键 'catalog'),
  * 每次 run 由平台以同一连接 TransactionBinding 调用工厂;全部方法同步执行,
  * 任何方法抛错(含 FK/CHECK 冲突)即整体回滚。列名对照 schema.ts / migrations/0007。
+ *
+ * 014 T008 增量:channel_logo 胜者注册表镜像方法面(internal-ports.md §2,签名形状
+ * 以该节冻结)——findChannelLogo / upsertChannelLogoWinner / revokeChannelLogo /
+ * gcExpiredChannelLogoTombstones / setChannelPosterRef;合并语义按 data-model §4
+ * M1–M4:active 同源同 url 无操作不换 ref;epg 绝不覆盖 iptv 胜者;upsert 活动行
+ * 覆盖墓碑(清 revoked_at、换 ref、revision+1);引用签发(随机 128-bit hex)在
+ * 参与者内完成,UNIQUE(household_id, ref) 冲突重签重试(唯一约束兜底)。
+ * channel_logo DDL 权威在 migrations/0009_channel_logos(data-model §2);本文件
+ * 原生 SQL 不依赖 drizzle schema 对象(与 MEDIA_ITEM_SELECT 同风格)。
  */
+import { randomBytes } from 'node:crypto';
 import type { MediaItem } from '@platform/database/schema';
 import type { TransactionBinding } from '@platform/database/unit-of-work';
+import { issueLogoRef, type LogoRef, type RandomBytesFn } from '@contexts/media-catalog/domain/logo-ref';
 
 /* ------------------------------ 跨上下文类型镜像(R2 禁深导入;源: online-vod publication-work-set.port.ts) ------------------------------ */
 
@@ -84,11 +95,94 @@ const MEDIA_ITEM_SELECT = `
   FROM media_item
 `;
 
+/* ------------------------------------------------------------------ */
+/* 014 T008:channel_logo 胜者注册表镜像(internal-ports.md §2)           */
+/* ------------------------------------------------------------------ */
+
+/** channel_logo 胜者来源词汇(data-model §2 source_kind CHECK) */
+export type ChannelLogoSourceKind = 'iptv' | 'epg' | 'custom';
+
+/** channel_logo 行投影(胜者读取;internal-ports §2 findChannelLogo 返回形状) */
+export interface ChannelLogoWinnerRow {
+  readonly mediaId: string;
+  readonly ref: string;
+  /** 私有上游地址;墓碑态必须为 NULL(data-model §2 CHECK) */
+  readonly upstreamUrl: string | null;
+  readonly sourceKind: ChannelLogoSourceKind;
+  /** 来源证据(media_source 同家庭行) */
+  readonly sourceId: string;
+  readonly revision: number;
+  /** 墓碑时间(ISO-8601);NULL=active */
+  readonly revokedAt: string | null;
+}
+
+/** 胜者写入命令(internal-ports §2 upsertChannelLogoWinner 命令形状) */
+export interface ChannelLogoWinnerCommand {
+  readonly householdId: string;
+  readonly mediaId: string;
+  readonly upstreamUrl: string;
+  readonly sourceKind: ChannelLogoSourceKind;
+  readonly sourceId: string;
+  /** 事务内时间戳(ISO-8601);缺省 = 参与者内取当前时间(测试可注入确定性值) */
+  readonly nowIso?: string;
+}
+
 /**
- * media-catalog 事务参与者绑定实现(目录发布/复用/派生展示/公共 revision)。
+ * 镜像 ChannelLogoParticipant:channel_logo 注册表事务参与者端口
+ * (镜像源:014 internal-ports.md §2「发布参与者(media-catalog 事务镜像扩展)」;
+ * 消费方 sources/epg 发布工作集经结构镜像类型消费,同 CatalogParticipantMirror 惯例)。
  */
-export class DrizzleMediaCatalogTxParticipants implements CatalogParticipantMirror {
-  constructor(private readonly binding: TransactionBinding) {}
+export interface ChannelLogoParticipantMirror {
+  findChannelLogo(householdId: string, mediaId: string): ChannelLogoWinnerRow | undefined;
+  upsertChannelLogoWinner(command: ChannelLogoWinnerCommand): { ref: string };
+  revokeChannelLogo(householdId: string, mediaId: string, nowIso: string): void;
+  gcExpiredChannelLogoTombstones(householdId: string, olderThanIso: string): void;
+  setChannelPosterRef(householdId: string, mediaId: string, ref: string | null): void;
+}
+
+/**
+ * 墓碑 GC 窗口(data-model §4「墓碑窗口:revoked_at ≤ now−7d 的行在任一发布事务内
+ * 集合 DELETE」);发布方据此计算 gcExpiredChannelLogoTombstones 的 olderThanIso。
+ */
+export const CHANNEL_LOGO_TOMBSTONE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** channel_logo 胜者读取(列别名 camelCase;按 (household_id, media_id) 单查) */
+const CHANNEL_LOGO_SELECT = `
+  SELECT
+    media_id AS mediaId,
+    ref,
+    upstream_url AS upstreamUrl,
+    source_kind AS sourceKind,
+    source_id AS sourceId,
+    revision,
+    revoked_at AS revokedAt
+  FROM channel_logo
+`;
+
+/** UNIQUE(household_id, ref) 冲突判定(重签重试的唯一触发面;其余约束原样上抛) */
+function isChannelLogoRefConflict(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code ?? '';
+  const message = error instanceof Error ? error.message : '';
+  return code.startsWith('SQLITE_CONSTRAINT') && message.includes('channel_logo.household_id, channel_logo.ref');
+}
+
+/** 重签重试上限(128-bit 随机下冲突概率可忽略;上限纯为防御失控循环) */
+const LOGO_REF_ISSUE_MAX_ATTEMPTS = 5;
+
+/**
+ * media-catalog 事务参与者绑定实现(目录发布/复用/派生展示/公共 revision;
+ * 014 T008 起兼任 channel_logo 注册表参与者)。
+ */
+export class DrizzleMediaCatalogTxParticipants implements CatalogParticipantMirror, ChannelLogoParticipantMirror {
+  /** 随机字节源(T007 引用签发;测试注入确定性字节驱动重签路径) */
+  private readonly random: RandomBytesFn;
+
+  constructor(
+    private readonly binding: TransactionBinding,
+    random: RandomBytesFn = randomBytes,
+  ) {
+    this.random = random;
+  }
 
   findCatalogMedia(householdId: string, mediaId: string): CatalogMediaRowMirror | undefined {
     return this.binding.get<CatalogMediaRowMirror>(
@@ -174,9 +268,138 @@ export class DrizzleMediaCatalogTxParticipants implements CatalogParticipantMirr
       [householdId],
     );
   }
+
+  /* ---------------------------------------------------------------- */
+  /* 014 T008:channel_logo 胜者注册表(internal-ports.md §2 / M1–M4)      */
+  /* ---------------------------------------------------------------- */
+
+  /** 胜者读取(合并判定输入;无行 undefined) */
+  findChannelLogo(householdId: string, mediaId: string): ChannelLogoWinnerRow | undefined {
+    return this.binding.get<ChannelLogoWinnerRow>(
+      `${CHANNEL_LOGO_SELECT} WHERE household_id = ? AND media_id = ?`,
+      [householdId, mediaId],
+    );
+  }
+
+  /**
+   * 胜者写入/撤销的原子执行体(data-model §4 M1/M3 写入路径;调用方先经
+   * findChannelLogo 判定来源证据后再进入,BEGIN IMMEDIATE 事务内读算写原子):
+   * - 行存在且 active 且(同源同 url)⇒ 无操作不换 ref(ref 稳定性 = 浏览器缓存
+   *   与 revision 不变,data-model §6);
+   * - 行存在且 active(iptv) 且本次来源 epg ⇒ 不动,epg 绝不覆盖 iptv 胜者
+   *   (data-model §4「任何场景」行),返回既有 ref;
+   * - 其余(缺行新签 / active 换源换 url / 墓碑复 active)⇒ 同行写入:新签 ref、
+   *   revision+1(缺行 1)、清 revoked_at;引用签发在参与者内完成
+   *   (internal-ports §2「签发 + 写 poster_ref 同事务同域」),UNIQUE
+   *   (household_id, ref) 冲突时重签重试(唯一约束兜底,T007)。
+   */
+  upsertChannelLogoWinner(command: ChannelLogoWinnerCommand): { ref: LogoRef } {
+    const nowIso = command.nowIso ?? new Date().toISOString();
+    const current = this.findChannelLogo(command.householdId, command.mediaId);
+    if (current !== undefined && current.revokedAt === null) {
+      if (current.upstreamUrl === command.upstreamUrl && current.sourceKind === command.sourceKind) {
+        return { ref: current.ref };
+      }
+      if (current.sourceKind === 'iptv' && command.sourceKind === 'epg') {
+        return { ref: current.ref };
+      }
+      if (current.sourceKind === 'custom' && command.sourceKind !== 'custom') {
+        return { ref: current.ref };
+      }
+    }
+    const nextRevision = (current?.revision ?? 0) + 1;
+    for (let attempt = 0; attempt < LOGO_REF_ISSUE_MAX_ATTEMPTS; attempt += 1) {
+      const ref = issueLogoRef(this.random);
+      try {
+        if (current === undefined) {
+          this.binding.exec(
+            `INSERT INTO channel_logo (
+              household_id, media_id, ref, upstream_url, source_kind, source_id,
+              revision, revoked_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+            [
+              command.householdId,
+              command.mediaId,
+              ref,
+              command.upstreamUrl,
+              command.sourceKind,
+              command.sourceId,
+              nextRevision,
+              nowIso,
+              nowIso,
+            ],
+          );
+        } else {
+          // 同行覆盖(墓碑复 active / 换源换 url):清 revoked_at、换 ref、revision+1
+          this.binding.exec(
+            `UPDATE channel_logo
+             SET ref = ?, upstream_url = ?, source_kind = ?, source_id = ?,
+                 revision = ?, revoked_at = NULL, updated_at = ?
+             WHERE household_id = ? AND media_id = ?`,
+            [
+              ref,
+              command.upstreamUrl,
+              command.sourceKind,
+              command.sourceId,
+              nextRevision,
+              nowIso,
+              command.householdId,
+              command.mediaId,
+            ],
+          );
+        }
+        return { ref };
+      } catch (error) {
+        // ref 撞同家庭其他频道行(128-bit 随机,现实不可达;唯一约束兜底):重签重试
+        if (!isChannelLogoRefConflict(error)) {
+          throw error;
+        }
+      }
+    }
+    throw new Error(`channel_logo ref 签发重签重试耗尽(${LOGO_REF_ISSUE_MAX_ATTEMPTS} 次)`);
+  }
+
+  /**
+   * 撤销转墓碑(M2/M4 执行体):清 upstream_url + 置 revoked_at(data-model §5
+   * active → tombstone)。仅对 active 行生效(幂等:无行/已墓碑 no-op,不刷新
+   * 已有 revoked_at——墓碑窗口以首次撤销时间计);来源证据门(只撤自己来源的
+   * 胜者,M2 仅 active(iptv)/M4 仅 active(epg))由发布方先读后判,本执行体
+   * 不重复证据判定(BEGIN IMMEDIATE 同事务内读算写原子)。
+   */
+  revokeChannelLogo(householdId: string, mediaId: string, nowIso: string): void {
+    this.binding.exec(
+      `UPDATE channel_logo
+       SET upstream_url = NULL, revoked_at = ?, updated_at = ?
+       WHERE household_id = ? AND media_id = ? AND revoked_at IS NULL`,
+      [nowIso, nowIso, householdId, mediaId],
+    );
+  }
+
+  /**
+   * 墓碑 GC(data-model §4「revoked_at ≤ now−7d 的行在任一发布事务内集合 DELETE,
+   * 无后台任务」):olderThanIso 由发布方以 CHANNEL_LOGO_TOMBSTONE_WINDOW_MS 计算;
+   * 集合 DELETE 仅触该家庭,active 行不受影响。
+   */
+  gcExpiredChannelLogoTombstones(householdId: string, olderThanIso: string): void {
+    this.binding.exec(
+      'DELETE FROM channel_logo WHERE household_id = ? AND revoked_at IS NOT NULL AND revoked_at <= ?',
+      [householdId, olderThanIso],
+    );
+  }
+
+  /** media_item.poster_ref 落值(发布事务内;既有 updateDerivedPresentation 同风格) */
+  setChannelPosterRef(householdId: string, mediaId: string, ref: string | null): void {
+    this.binding.exec(
+      'UPDATE media_item SET poster_ref = ? WHERE household_id = ? AND id = ?',
+      [ref, householdId, mediaId],
+    );
+  }
 }
 
-/** TxStore 工厂(装配期注册进 UnitOfWork txStores,键 'catalog') */
-export function createMediaCatalogTxParticipants(binding: TransactionBinding): DrizzleMediaCatalogTxParticipants {
-  return new DrizzleMediaCatalogTxParticipants(binding);
+/** TxStore 工厂(装配期注册进 UnitOfWork txStores,键 'catalog';random 仅供测试注入重签序列) */
+export function createMediaCatalogTxParticipants(
+  binding: TransactionBinding,
+  random?: RandomBytesFn,
+): DrizzleMediaCatalogTxParticipants {
+  return new DrizzleMediaCatalogTxParticipants(binding, random);
 }

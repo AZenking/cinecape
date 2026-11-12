@@ -899,6 +899,11 @@ components:
           type: string
           format: uuid
           description: 目标媒体标识;不可见媒体(被禁/跨家庭/无源)与不存在同形 404。
+        lineId:
+          type: string
+          description: >-
+            指定收看的物理线路 ID(016 api.md §2.1 增量,可选);缺省由系统按
+            priority ASC/isDefault 选择默认优选线路;选中结果见响应 selectedLineId/lines。
 
     RenewTicketRequest:
       type: object
@@ -1075,7 +1080,9 @@ components:
         播放会话公共视图(api.md PlaybackDto;字段可空性以 data-model.md 为权威)。
         playbackUrl/ticketExpiresAt 始终可空,且除 renew(TicketReply)响应外恒为 null
         (GET 不重签也不复现旧票);delivery 在探测完成前为 null;tracks 探测未完成为空数组。
-        任何字段不含源地址、文件路径、上游凭据、所选源ID、ffmpeg 命令或 stderr;
+        任何字段不含源地址、文件路径、上游凭据、ffmpeg 命令或 stderr;016 多线路增量字段
+        selectedLineId/lines 仅含面向换线 UI 的公开线路投影(不透明 lineId/sourceId 等),
+        不含上游凭据或源地址;
         playbackUrl 为携带 opaque ticket 的同源相对路径(无源地址),不得写入 localStorage 或审计日志。
       additionalProperties: false
       required:
@@ -1157,6 +1164,18 @@ components:
             如 PLAYBACK_FORMAT_UNSUPPORTED / PLAYBACK_RESOURCE_UNAVAILABLE /
             PLAYBACK_PERFORMANCE_INSUFFICIENT / PLAYBACK_STORAGE_LIMIT /
             PLAYBACK_PREPARE_TIMEOUT / PLAYBACK_SEEK_TIMEOUT;不含源诊断。
+        selectedLineId:
+          type: [string, 'null']
+          description: >-
+            本次解析实际选中的物理线路 ID(016 api.md §2.1 增量,可选;仅直播频道出现,
+            请求 lineId 指定或系统默认优选的结果);线路未定/无多线路语义时为 null。
+        lines:
+          type: array
+          description: >-
+            该频道可用线路清单(016 api.md §2.1 增量,可选;仅直播频道返回,按 priority ASC
+            排序,数值越小越优先),供播放器自动容灾顺位与 OSD 手动换线;NAS 影片不返回该字段。
+          items:
+            $ref: '#/components/schemas/StreamLine'
 
     TicketReply:
       type: object
@@ -1298,6 +1317,36 @@ components:
           format: uuid
           description: >-
             关联媒体 ID;仅可见媒体可关联,不可见媒体为 null(不存客户端原始目标 ID)。
+
+    StreamLine:
+      type: object
+      description: >-
+        物理流线路视图(016 data-model §2.1/api.md §2.1):同一逻辑频道聚合出的可用线路投影,
+        供播放器自动容灾顺位与 OSD 手动换线展示;不含源地址、上游凭据或文件路径。
+      additionalProperties: false
+      required: [lineId, sourceId, sourceTitle, label, priority, isDefault, isEnabled]
+      properties:
+        lineId:
+          type: string
+          description: 线路唯一标识(对应 source_entry.id,不透明);换线请求经 resolve 请求体 lineId 回传。
+        sourceId:
+          type: string
+          description: 所属 IPTV 来源 ID(目录 Source,不透明)。
+        sourceTitle:
+          type: string
+          description: 来源显示名称(如"电信主源"/"移动备用")。
+        label:
+          type: string
+          description: 线路显示标签(如"线路 1 [1080P]")。
+        priority:
+          type: integer
+          description: 线路排序权重;数值越小越优先(priority ASC,由来源优先级与清晰度加权)。
+        isDefault:
+          type: boolean
+          description: 是否为首选起播线路;同频道内至多一条为 true。
+        isEnabled:
+          type: boolean
+          description: 是否启用;前端可据此提示线路可用性,自动容灾仅顺位尝试启用线路。
 
 # FR-001～FR-019 与契约端点映射总表(与各 operation 的 x-fr-mapping 一致)
 # 说明:FR-009(详情页门控)/FR-014(兼容矩阵)/FR-015(硬件回退与性能不足)无独立端点,

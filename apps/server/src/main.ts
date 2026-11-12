@@ -13,14 +13,21 @@ async function bootstrap(): Promise<void> {
   // 拒绝(旧已初始化库/损坏/未知)时以可判读原因退出,不打开目标库。
   const gate = precheckForStartup();
   if (!gate.allowed) {
-    console.error(`[hmp-server] 启动拒绝(${gate.code}):${gate.reason}`);
+    // 仅 reject 形态携带稳定错误码;「已回滚待补齐」等可恢复形态无 code,
+    // 打印 verdict kind(如 generation2-vod-rolled-back)保证括号内恒可判读
+    console.error(`[hmp-server] 启动拒绝(${gate.code ?? gate.kind}):${gate.reason}`);
     process.exitCode = 1;
     return;
   }
   if (gate.kind === 'fresh-empty') {
     console.log(`[hmp-server] ${gate.reason}`);
   }
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: ['log', 'warn', 'error'] });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
+    logger: ['log', 'warn', 'error'],
+  });
+  app.useBodyParser('json', { limit: '10mb' });
+  app.useBodyParser('urlencoded', { extended: true, limit: '10mb' });
   app.setGlobalPrefix('api');
   app.enableShutdownHooks();
   const webDir = path.resolve(__dirname, '../../web/dist');

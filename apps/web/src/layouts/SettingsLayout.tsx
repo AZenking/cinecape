@@ -1,107 +1,217 @@
 /**
- * SettingsLayout(T086,005 contracts/ui.md §1/§7 + FR-028/FR-031/FR-041;012 T033 分组)。
+ * SettingsLayout
  *
- * - 布局与公共观看职责分离:本布局不经 PublicLayout(routes.tsx 顶层挂载);
- *   宽窗口(≥900px,min-width 媒体查询)左侧子菜单约 220px、右侧主体 min-width:0;
- *   窄窗口(<900px,覆盖 768px 宽/600 高/200% 缩放场景)折叠为菜单按钮(012 T035:
- *   折叠列表限高可滚,低高度下入口可达),面包屑/标题仍显示
- *   当前模块;
- * - 012 T033(ui.md §5.1/FR-024/FR-032):左侧子菜单按组渲染 —— 个人偏好 →
- *   家庭管理 → 系统(SETTINGS_GROUPS 既定顺序);组头显示作用范围标注,家庭
- *   管理组标注「需要管理授权」;个人偏好组本期零支持项整组不渲染(Q1/SC-007,
- *   由 settingsModuleGroups() 统一隐藏空组);「关于与帮助」本期不落位(FR-025
- *   注记)。分组仅改变菜单组织与视觉,不改地址语义(七条 /settings/{key} 与
- *   默认 account 不变);解锁门行为保持既有(本布局仅展示层,判定逻辑零改动);
- * - 七个子模块导航全部注册(SETTINGS_MODULES 单一事实源,数组顺序 = 组间渲染
- *   顺序),地址与菜单同步;
- * - 首次进入先经 SettingsUnlockGate(GET /api/settings/access),未解锁不渲染
- *   <Outlet/>(管理主体零请求;未解锁直达子模块保存目标 —— URL 不变 —— 但不预取);
- * - 403/过期立即隐藏管理主体(Provider 状态驱动),提示编辑未保存;重新验证后
- *   子模块以 reloadEpoch 重读最新现值;
- * - 「返回观看」是普通路由跳转(保留登录);独立的退出入口属身份菜单职责;
- * - 授权事实全在服务端:客户端 expiresAt 仅作提示(SettingsAccessProvider)。
+ * 设置中心的布局基准与 Figma HeroUI Kit 保持一致：
+ * - 桌面端为 256px 侧栏 + 自适应内容区；侧栏使用 HeroUI Surface/ListBox；
+ * - 页面主体使用统一 864px 内容轨道，页头与 Card 的间距遵循 4px rhythm；
+ * - 窄屏折叠为菜单按钮，所有导航仍由当前 URL 派生；
+ * - 顶栏常驻公共导航(首页/点播/直播,shared/ui PublicNav 同源)，从设置直达观看页；
+ * - 管理授权事实仍来自 SettingsAccessProvider，未保存提示与登出确认保留。
  */
-import { useState, type ReactNode } from 'react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router';
-import { Button } from '@heroui/react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Outlet, useLocation, useNavigate } from 'react-router';
+import { Alert, Button, Header, Label, ListBox, Modal, Surface } from '@heroui/react';
+import { useOptionalSession } from '../app/session-provider';
+import { IdentityMenu } from '../features/profiles/identity-menu';
 import { SettingsAccessProvider, useSettingsAccess } from '../features/settings/settings-access-provider';
-import { SettingsUnlockGate } from '../features/settings/settings-unlock-gate';
 import { UnsavedGuardProvider } from '../features/settings/shared/unsaved-guard';
-import { settingsModuleGroups, settingsModulePath, useSettingsPageMeta } from '../features/settings/settings-modules';
-// T033(006 US4):useMediaQuery 收编至 shared/hooks(原 features/settings/use-media-query.ts 已删除)
+import {
+  getVisibleSettingsGroups,
+  settingsModulePath,
+  useSettingsPageMeta,
+  type SettingsModuleGroupView,
+  type SettingsModuleKey,
+} from '../features/settings/settings-modules';
 import { useMediaQuery } from '../shared/hooks';
+import { PublicNav } from '../shared/ui';
 
-/**
- * 左侧分组子菜单(012 T033,ui.md §5.1):每组一个命名 section(组头 + 成员链接)。
- * 组头作用范围标注之外、模块自身 scopeLabel 不同的成员(本期仅 general「含家庭
- * 配置(需管理授权)」)在链接下方以小字另行呈现 —— 不进入链接可访问名称,保持
- * 「链接集合 = 注册表 titles」读屏简洁。
- */
-function SettingsSubmenu({ onNavigate }: { onNavigate?: () => void }): ReactNode {
-  const groups = settingsModuleGroups();
-  return (
-    <nav aria-label="设置子菜单" className="flex flex-col gap-5">
-      {groups.map((group) => (
-        <section
-          key={group.key}
-          aria-label={group.label}
-          data-testid={`settings-group-${group.key}`}
-          className="flex flex-col gap-1"
-        >
-          <div className="flex flex-col gap-0.5 px-3 pb-1">
-            <span className="text-xs font-semibold tracking-wide text-muted">{group.label}</span>
-            {group.scopeLabel !== null ? (
-              <span className="text-xs text-muted" data-testid={`settings-group-${group.key}-scope`}>
-                {group.scopeLabel}
-              </span>
-            ) : null}
-          </div>
-          {group.modules.map((module) => {
-            const hint = module.scopeLabel !== group.scopeLabel ? module.scopeLabel : null;
-            return (
-              <div key={module.key}>
-                <NavLink
-                  to={settingsModulePath(module.key)}
-                  onClick={onNavigate}
-                  className={({ isActive }) =>
-                    `rounded px-3 py-2 text-sm transition-colors hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
-                      isActive ? 'bg-surface font-medium text-foreground' : 'text-muted'
-                    }`
-                  }
-                >
-                  {module.title}
-                </NavLink>
-                {hint !== null ? <p className="px-3 text-xs text-muted">{hint}</p> : null}
-              </div>
-            );
-          })}
-        </section>
-      ))}
-    </nav>
-  );
+export interface SettingsLayoutProps {
+  /** 可选注入 isMainProfile 覆盖 (用于测试或显式指定) */
+  readonly isMainProfile?: boolean;
 }
 
-function SettingsShell(): ReactNode {
+function SettingsSubmenu({
+  isMainProfile,
+  onNavigate,
+  mobile = false,
+}: {
+  isMainProfile: boolean;
+  onNavigate?: () => void;
+  mobile?: boolean;
+}): ReactNode {
+  const session = useOptionalSession();
   const navigate = useNavigate();
-  const access = useSettingsAccess();
   const current = useSettingsPageMeta();
-  const wide = useMediaQuery('(min-width: 900px)');
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const groups = getVisibleSettingsGroups(isMainProfile);
+  const mainGroups = groups.filter((group) => group.key !== 'system');
+  const footerGroups = groups.filter((group) => group.key === 'system');
 
-  /** 取消 PIN 输入:清凭据(门内已清)并回到原页面 —— 返回观看保留登录 */
-  const handleCancel = (): void => {
-    if (window.history.length > 1) {
-      void navigate(-1);
-    } else {
-      void navigate('/');
+  const handleLogout = (): void => {
+    setLogoutConfirmOpen(false);
+    void session?.logout?.();
+  };
+
+  const activeProfile = session?.session?.activeProfile;
+  const profileName = activeProfile?.name || (isMainProfile ? '主管理员' : '家庭成员');
+
+  const renderSection = (group: SettingsModuleGroupView): ReactNode => (
+    <ListBox.Section
+      key={group.key}
+      aria-label={group.label}
+      data-testid={`settings-group-${group.key}`}
+    >
+      <Header className="flex w-full flex-col gap-1 px-3 pb-1.5 pt-2.5">
+        <span className="text-[11px] font-normal leading-4 text-muted">{group.label}</span>
+      </Header>
+      {group.modules.map((module) => (
+        <ListBox.Item
+          key={module.key}
+          id={module.key}
+          textValue={module.title}
+          aria-label={module.title}
+          className="flex min-h-10 items-center rounded-full px-3 py-2 text-sm text-muted outline-none transition-colors hover:bg-surface-secondary/60 data-[selected=true]:bg-surface-secondary data-[selected=true]:font-medium data-[selected=true]:text-foreground"
+        >
+          <Label className="text-sm leading-6">{module.title}</Label>
+        </ListBox.Item>
+      ))}
+    </ListBox.Section>
+  );
+
+  const navigateOnSelection = (keys: 'all' | Set<SettingsModuleKey | string | number>): void => {
+    if (keys === 'all') {
+      return;
     }
+    const key = keys.values().next().value;
+    if (key === undefined) {
+      return;
+    }
+    void navigate(settingsModulePath(String(key) as SettingsModuleKey));
+    onNavigate?.();
   };
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="border-b border-border bg-black/30">
-        <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-4">
-          <div className="flex min-w-0 items-center gap-2">
+    <Surface
+      variant="default"
+      className={`flex h-full flex-col rounded-none p-6 shadow-none ${mobile ? 'min-h-0' : 'min-h-screen'}`}
+    >
+      <nav aria-label="设置子菜单" className="flex min-h-0 flex-1 flex-col">
+        <div className="mb-6 flex min-w-0 flex-col gap-1">
+          <span className="truncate text-2xl font-semibold leading-9 text-foreground">redRoad</span>
+          <span className="truncate text-xs leading-5 text-muted" title={profileName}>
+            {profileName} · {isMainProfile ? '家庭主管理员' : '家庭成员'}
+          </span>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <ListBox
+            aria-label="设置模块"
+            className="w-full"
+            selectionMode="single"
+            disallowEmptySelection
+            selectedKeys={[current.key]}
+            onSelectionChange={navigateOnSelection}
+          >
+            {mainGroups.map(renderSection)}
+          </ListBox>
+        </div>
+
+        <div className="mt-4 flex flex-col border-t border-border/20 pb-1 pt-4">
+          {footerGroups.length > 0 ? (
+            <ListBox
+              aria-label="设置模块 · 账号"
+              className="w-full"
+              selectionMode="single"
+              disallowEmptySelection
+              selectedKeys={[current.key]}
+              onSelectionChange={navigateOnSelection}
+            >
+              {footerGroups.map(renderSection)}
+            </ListBox>
+          ) : null}
+          <Button
+            variant="secondary"
+            className="mt-1 w-fit min-w-24 justify-start rounded-full px-3 text-sm"
+            onPress={() => setLogoutConfirmOpen(true)}
+            data-testid="sidebar-logout"
+          >
+            退出登录
+          </Button>
+        </div>
+      </nav>
+
+      {logoutConfirmOpen ? (
+        <Modal.Backdrop
+          isOpen
+          onOpenChange={(open) => {
+            if (!open) {
+              setLogoutConfirmOpen(false);
+            }
+          }}
+          data-testid="logout-confirm-overlay"
+        >
+          <Modal.Container placement="center" size="xs">
+            <Modal.Dialog role="alertdialog" aria-label="退出登录" className="gap-3">
+              <h2 className="text-base font-semibold text-foreground">退出登录</h2>
+              <p role="alert" className="text-sm text-muted">
+                确认退出当前账号？退出后需重新登录才能继续观看。
+              </p>
+              <div className="mt-1 flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => setLogoutConfirmOpen(false)}
+                  data-testid="logout-cancel"
+                  autoFocus
+                >
+                  取消
+                </Button>
+                <Button variant="danger" size="sm" onPress={handleLogout} data-testid="logout-confirm">
+                  退出登录
+                </Button>
+              </div>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      ) : null}
+    </Surface>
+  );
+}
+
+function SettingsShell({ isMainProfile: propIsMainProfile }: SettingsLayoutProps): ReactNode {
+  const access = useSettingsAccess();
+  const { pathname } = useLocation();
+  const isWideLayout =
+    pathname === '/settings/epg' ||
+    pathname === '/settings/iptv';
+  const useSession = useOptionalSession();
+  const wide = useMediaQuery('(min-width: 900px)');
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [pathname]);
+
+  const isMainProfile =
+    propIsMainProfile !== undefined ? propIsMainProfile : useSession === null ? true : access.isMainProfile;
+
+  return (
+    <div className="flex min-h-screen bg-background text-foreground">
+      {wide ? (
+        <aside
+          className="sticky top-0 h-screen w-[220px] shrink-0 self-start min-[900px]:w-[256px]"
+          data-testid="settings-sidebar"
+        >
+          <SettingsSubmenu isMainProfile={isMainProfile} />
+        </aside>
+      ) : null}
+
+      <div className="min-w-0 flex-1">
+        {/* 顶栏常驻(013 FR-003):身份切换唯一收敛于右上角头像菜单,各视口均可达;
+            左区窄屏附菜单按钮与「设置」标题,两种视口均常驻公共导航(首页/点播/直播,
+            与观看页顶栏同源)—— 从设置可直达观看页面;面包屑仍在页面内容区。 */}
+        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-border/30 bg-background/90 px-4 backdrop-blur-md">
+          <div className="flex min-w-0 items-center gap-3">
             {wide ? null : (
               <Button
                 size="sm"
@@ -113,65 +223,48 @@ function SettingsShell(): ReactNode {
                 菜单
               </Button>
             )}
-            {/* 面包屑/标题:当前模块(宽窄窗均可见,ui.md §7) */}
-            <nav aria-label="设置面包屑" className="flex min-w-0 items-center gap-2 text-sm">
-              <Link to="/" className="rounded text-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
-                返回观看
-              </Link>
-              <span aria-hidden className="text-muted">
-                /
-              </span>
-              <span className="text-muted">设置</span>
-              <span aria-hidden className="text-muted">
-                /
-              </span>
-              <span className="truncate font-medium text-foreground" data-testid="settings-current-module">
-                {current.title}
-              </span>
-            </nav>
+            {wide ? null : <span className="text-sm font-semibold text-foreground">设置</span>}
+            <PublicNav className="min-w-0" />
           </div>
-          {access.status === 'unlocked' && access.expiresAt !== null ? (
-            <span className="shrink-0 text-xs text-muted" data-testid="settings-expires-hint">
-              授权至 {access.expiresAt.slice(11, 16)}
-            </span>
-          ) : null}
-        </div>
-      </header>
-      <div className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-4 py-6">
-        {wide ? (
-          <aside className="w-[220px] shrink-0">
-            <SettingsSubmenu />
-          </aside>
+          <IdentityMenu />
+        </header>
+
+        {access.unsavedNotice ? (
+          <div className="mx-auto w-full max-w-[960px] px-6 pt-6 sm:px-8 lg:px-12">
+            <Alert status="warning" data-testid="settings-access-lost-notice">
+              <Alert.Content>
+                <Alert.Title>检测到管理授权变化,编辑未保存</Alert.Title>
+                <Alert.Description>请通过右上角头像菜单重新选择主管理员档案后再核对最新配置。</Alert.Description>
+              </Alert.Content>
+            </Alert>
+          </div>
         ) : null}
+
         {!wide && menuOpen ? (
-          /* 012 T035(FR-032/ui.md §6.4):折叠列表限高为「视口高 - 头部 3.5rem(h-14)」
-              并可滚动 —— 200% 缩放(有效视口高减半)或低高度窗口下,固定定位的面板
-              不得把底部模块入口裁出视口(须可达);仅布局尺寸,无发明视觉值。 */
           <div
             id="settings-submenu"
-            className="fixed inset-x-0 top-14 z-30 max-h-[calc(100vh-3.5rem)] overflow-y-auto border-b border-border bg-background p-4 shadow-lg"
+            className="fixed inset-x-0 top-14 z-30 max-h-[calc(100vh-3.5rem)] overflow-y-auto border-b border-border/30 bg-background/95 shadow-xl backdrop-blur-md"
           >
-            <SettingsSubmenu onNavigate={() => setMenuOpen(false)} />
+            <SettingsSubmenu isMainProfile={isMainProfile} mobile onNavigate={() => setMenuOpen(false)} />
           </div>
         ) : null}
-        <main className="min-w-0 flex-1">
-          {/* 解锁门:未解锁不渲染 Outlet(管理主体零请求;目标由 URL 保存)。
-              门内再挂布局级未保存拦截(T135:子模块切换时 Provider 不卸载,可拦截)。 */}
-          <SettingsUnlockGate onCancel={handleCancel}>
-            <UnsavedGuardProvider>
+
+        <main className="min-w-0">
+          <UnsavedGuardProvider>
+            <div className={`w-full ${isWideLayout ? 'max-w-[1216px]' : 'max-w-[960px]'} px-6 py-8 sm:px-8 sm:py-10 lg:px-12 lg:py-12`}>
               <Outlet />
-            </UnsavedGuardProvider>
-          </SettingsUnlockGate>
+            </div>
+          </UnsavedGuardProvider>
         </main>
       </div>
     </div>
   );
 }
 
-export function SettingsLayout(): ReactNode {
+export function SettingsLayout(props: SettingsLayoutProps): ReactNode {
   return (
     <SettingsAccessProvider>
-      <SettingsShell />
+      <SettingsShell {...props} />
     </SettingsAccessProvider>
   );
 }

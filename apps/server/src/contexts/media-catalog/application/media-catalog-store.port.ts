@@ -13,10 +13,12 @@
  * - public-catalog 的原生 prepare 查询（better-sqlite3）同样经本端口表达，
  *   实现侧逐字保留 Database.db.prepare 调用形态（infra→platform 合法边）。
  */
-import type { deviceSession, mediaItem } from '@platform/database/schema';
+import type { mediaItem } from '@platform/database/schema';
+import type { EpgBindingDto } from '@hmp/shared';
 
 export type MediaItemRow = typeof mediaItem.$inferSelect;
-export type DeviceSessionRow = typeof deviceSession.$inferSelect;
+// 013/ADR-0017:原「家长验证后重读会话行」专设的 DeviceSessionRow/findDeviceSession
+// 已随验证闸门摘除而删除(常规运维免当次密码,会话有效性由 SessionGuard 逐请求承担)。
 
 /** 家庭候选媒体投影列（queryCandidates 装载形态，列集与迁移前一致） */
 export interface HouseholdMediaRow {
@@ -26,6 +28,8 @@ export interface HouseholdMediaRow {
   description: string | null;
   contentLevel: number | null;
   version: number;
+  visible: number;
+  posterRef: string | null;
 }
 
 /**
@@ -54,7 +58,7 @@ export type MediaItemPatch = Record<string, string | number | null>;
 
 /* ─────────────── 010 T030 增量：父级公共可用性/角色/分页分集投影 ───────────────
  * 以下类型与方法为 010 在线点播新增读面；既有方法（上方 MediaCatalogTxStore 与
- * findDeviceSession/listHouseholdMediaRows/loadMediaAvailabilityFacts/findCatalogRevision/
+ * listHouseholdMediaRows/loadMediaAvailabilityFacts/findCatalogRevision/
  * listPublicMediaRows/findPublicMediaRowById）签名与行为零变化（NAS/IPTV 面不动）。
  * 数据事实（010 data-model §2）：media_item.media_role ∈ standalone|vod_title|vod_episode；
  * 「父可浏览=至少一个已发布 present 子项、启用来源、完整 locator；与子可解析候选集合分开」。
@@ -112,12 +116,16 @@ export interface MediaCatalogTxStore {
 
 /** media-catalog 上下文仓储端口（读路径 + 事务入口） */
 export interface MediaCatalogStore extends MediaCatalogTxStore {
-  /** 家长验证通过后的会话行重读（requireParentVerification 的撤销/过期竞态不放行判定） */
-  findDeviceSession(sessionId: string): DeviceSessionRow | undefined;
   /** 家庭候选全集（queryCandidates 装载列集；可用性由 loadMediaAvailabilityFacts 单独装载） */
   listHouseholdMediaRows(householdId: string): HouseholdMediaRow[];
   /** 批量可用性事实：mediaId → 是否可用（resource-reader 的 EXISTS 链逐字迁移） */
   loadMediaAvailabilityFacts(query: AvailabilityQuery): Map<string, boolean>;
+  /** 批量统计媒体播放线路数量（playback_source 行数；按 media_item_id 分组） */
+  loadMediaLineCounts(householdId: string, mediaIds?: string[]): Map<string, number>;
+  /** 批量查询手动 EPG 绑定快照（按 media_id 映射，含有效性派生） */
+  loadManualEpgBindings(householdId: string, mediaIds?: string[]): Map<string, EpgBindingDto>;
+  /** 批量查询频道活动台标原始 URL（按 media_id 映射） */
+  loadChannelLogoUrls(householdId: string, mediaIds?: string[]): Map<string, string>;
   /** 目录修订单查（无行视为初版 1；catalog_state 行由发布/来源配置事务维护） */
   findCatalogRevision(householdId: string): { revision: number } | undefined;
   /** 家庭媒体白名单来源列全集（poster_ref 仅为白名单投影输入；不查播放/来源身份列） */

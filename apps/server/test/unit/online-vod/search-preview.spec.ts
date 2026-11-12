@@ -918,3 +918,116 @@ describe('T028 · 缓存上限与零写库(api.md §2 缓存段)', () => {
     expect(tableCountOf('source_entry')).toBe(0);
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* P 海报(posterRef):签发/私有载荷/预览承继/无海报 null                  */
+/* ------------------------------------------------------------------ */
+
+describe('海报代理前置 · posterRef 签发与承继(api.md §1 posterRef:string|null)', () => {
+  it('P1 上游给 vod_pic:卡片签发 p 级 opaque posterRef;绑定载私有 posterUrl;预览原样承继', async () => {
+    const rig = await startVodRig('vod-poster-p1');
+    const sourceId = seedVodSource(rig.householdId, '海报源');
+    const pic = 'http://127.0.0.1:9/pic/poster.jpg';
+    const detailItem = {
+      ...makeBriefItem(1, '海报片甲', 'posterkw'),
+      vod_pic: pic,
+      vod_play_from: '线路一',
+      vod_play_url: '第01集$http://127.0.0.1:9/hls/1/index.m3u8',
+    };
+    const { cache, search, preview } = wireServices(rig, {
+      sources: [
+        {
+          sourceId,
+          mode: 'ok',
+          pages: [buildAppleCmsListDocument([{ ...makeBriefItem(1, '海报片甲', 'posterkw'), vod_pic: pic }])],
+          details: new Map([['1', detailItem]]),
+        },
+      ],
+    });
+    const page = await search.search({ mode: 'query', householdId: rig.householdId, query: 'posterkw' });
+    const card = page.items[0];
+    expect(card?.posterRef).not.toBeNull();
+    const posterRef = card?.posterRef as string;
+    // p 级前缀 + 不可解码(无 http/无源配置 ID)
+    expect(posterRef.startsWith('p1-')).toBe(true);
+    expect(posterRef).not.toContain('http');
+    expect(posterRef).not.toContain(pic);
+    expect(posterRef).not.toContain(sourceId);
+    // 注册表可逆:local 类别 = poster 前缀,entryId = titleRef(posterRef 与标题绑定
+    // 条目同寿:绑定淘汰/失效级联清除,会话淘汰不影响仍可用的标题绑定)
+    const resolved = cache.resolveRef(posterRef);
+    expect(resolved?.local.startsWith('poster:')).toBe(true);
+    expect(resolved?.entryId).toBe(card?.titleRef ?? '');
+    // 绑定载荷:私有 posterUrl 与公共面隔离
+    const binding = cache.get<{ posterUrl: string | null; posterRef: string | null }>(resolved?.entryId ?? '');
+    expect(binding?.payload.posterUrl).toBe(pic);
+    expect(binding?.payload.posterRef).toBe(posterRef);
+    // 预览(取详情)快照原样承继:重放/卡片一致
+    const previewView = await preview.preview({ householdId: rig.householdId, titleRef: card?.titleRef ?? '' });
+    expect(previewView.posterRef).toBe(posterRef);
+  });
+
+  it('P2 上游未给 vod_pic:posterRef 恒 null 且不签发 p 级 ref', async () => {
+    const rig = await startVodRig('vod-poster-p2');
+    const sourceId = seedVodSource(rig.householdId, '无海报源');
+    const { cache, search } = wireServices(rig, {
+      sources: [
+        {
+          sourceId,
+          mode: 'ok',
+          pages: [buildAppleCmsListDocument([makeBriefItem(1, '无海报片', 'nopickw')])],
+          details: new Map([]),
+        },
+      ],
+    });
+    const page = await search.search({ mode: 'query', householdId: rig.householdId, query: 'nopickw' });
+    expect(page.items[0]?.posterRef).toBeNull();
+    // 全部注册 ref 的 local 无 poster 类别(未签发)
+    const posterRefs = [...page.items].filter((item) => item.posterRef !== null);
+    expect(posterRefs).toHaveLength(0);
+    const bindingView = cache.get<{ posterUrl: string | null }>(page.items[0]?.titleRef ?? '');
+    expect(bindingView?.payload.posterUrl).toBeNull();
+  });
+});
+
+describe('海报补签 · 详情侧(ac=list 缺图、ac=detail 带图)', () => {
+  it('P3 绑定无图 + 详情带 vod_pic:预览快照补发 posterRef 且重放稳定;卡片仍 null(诚实)', async () => {
+    const rig = await startVodRig('vod-poster-p3');
+    const sourceId = seedVodSource(rig.householdId, '详情图源');
+    const detailPic = 'http://127.0.0.1:9/pic/detail-poster.webp';
+    const detailItem = {
+      ...makeBriefItem(1, '详情图片甲', 'detpicw'),
+      vod_pic: detailPic,
+      vod_play_from: '线路一',
+      vod_play_url: '第01集$http://127.0.0.1:9/hls/1/index.m3u8',
+    };
+    const { cache, search, preview } = wireServices(rig, {
+      sources: [
+        {
+          sourceId,
+          mode: 'ok',
+          pages: [buildAppleCmsListDocument([makeBriefItem(1, '详情图片甲', 'detpicw')])],
+          details: new Map([['1', detailItem]]),
+        },
+      ],
+    });
+    const page = await search.search({ mode: 'query', householdId: rig.householdId, query: 'detpicw' });
+    const card = page.items[0];
+    // 列表无图:卡片诚实 null,未签发 p 级 ref
+    expect(card?.posterRef).toBeNull();
+    // 预览:快照组装时补签(p 级、绑定在 titleRef 条目、载荷携带详情海报地址)
+    const previewView = await preview.preview({ householdId: rig.householdId, titleRef: card?.titleRef ?? '' });
+    expect(previewView.posterRef).not.toBeNull();
+    const posterRef = previewView.posterRef as string;
+    expect(posterRef.startsWith('p1-')).toBe(true);
+    const resolved = cache.resolveRef(posterRef);
+    expect(resolved?.entryId).toBe(card?.titleRef ?? '');
+    const snapshot = cache.get<{ posterUrl: string | null; posterRef: string | null }>(card?.titleRef ?? '');
+    expect(snapshot?.payload.posterUrl).toBe(detailPic);
+    expect(snapshot?.payload.posterRef).toBe(posterRef);
+    // 缓存命中重放:posterRef 逐字段不变
+    const replay = await preview.preview({ householdId: rig.householdId, titleRef: card?.titleRef ?? '' });
+    expect(replay.posterRef).toBe(posterRef);
+    expect(replay.previewRevision).toBe(previewView.previewRevision);
+  });
+});

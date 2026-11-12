@@ -30,6 +30,31 @@ if (typeof globalThis.ResizeObserver !== 'function') {
   globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
 }
 
+// Node 26+ 实验性 Storage 缺少 --localstorage-file 时为 undefined，修补 jsdom window.localStorage/sessionStorage
+if (typeof window !== 'undefined') {
+  if (!window.localStorage && (window as any)._localStorage) {
+    Object.defineProperty(window, 'localStorage', {
+      value: (window as any)._localStorage,
+      configurable: true,
+      writable: true,
+    });
+  }
+  if (!window.sessionStorage && (window as any)._sessionStorage) {
+    Object.defineProperty(window, 'sessionStorage', {
+      value: (window as any)._sessionStorage,
+      configurable: true,
+      writable: true,
+    });
+  }
+}
+
+// jsdom 未实现 Element.getAnimations(Web Animations API):react-aria-components 的
+// SharedElementTransition 在嵌套弹层开/关时调用它(如 创建来源弹层 + 当次密码弹层
+// 叠加)。返回空列表 = 无在途动画,过渡立即完成(与上面垫片同一策略)。
+if (typeof window !== 'undefined' && typeof window.Element.prototype.getAnimations !== 'function') {
+  window.Element.prototype.getAnimations = (): Animation[] => [];
+}
+
 // 注册 jest-dom 匹配器(vitest 入口)并在每个用例后卸载已渲染组件,
 // 避免 DOM 状态跨用例泄漏(与 Testing Library 官方指南一致)。
 afterEach(() => {

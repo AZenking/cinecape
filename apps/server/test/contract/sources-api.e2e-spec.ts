@@ -22,8 +22,9 @@ import { selectMainAndUnlockSettings } from '../helpers-management';
  * T018(US1 契约 e2e):来源管理 —— GET /sources、POST /sources、PATCH /sources/{sourceId}、
  * GET /source-roots,对照 003 contracts/api.md「来源管理」「权限与验证顺序」「错误」节与
  * openapi.yaml Source/SourcePage/CreateSource/PatchSource/Root schema。
- * 判定次序:SessionGuard(401)→ owner(403)→ 严格格式(400)→ 家长验证(403/423,缺失/空串
- * 统一 403 REQUIRED 而非 400)→ 会话/设备重验 → 目标归属与许可(404 同形 / 422)→
+ * 判定次序(013-role-differentiated-settings/ADR-0017:来源增删改属常规运维,免当次
+ * 主账号密码,ownerPassword 已移出契约 —— strictObject 携带即 400):
+ * SessionGuard(401)→ owner(403)→ 严格格式(400)→ 目标归属与许可(404 同形 / 422)→
  * 版本(409)→ 事务(catalogRevision+1、旧 awaiting_confirmation 快照标 stale)。
  * 脱敏:locationLabel 仅远程 origin 主机标签(host[:port])或 rootKey,无 path/query/userinfo;
  * 任何响应不出现 remote_url 原文、绝对路径或 userinfo。
@@ -110,13 +111,11 @@ interface CreateOverrides {
   relativeDirectory?: string;
   privateAccessApproved?: boolean;
   epgSourceId?: string | null;
-  ownerPassword?: string;
 }
 
-/** 带 ownerPassword 的合法创建体(默认 IPTV);按需覆盖字段。kind=nas 时缺省剥离 remoteUrl(除非显式给出) */
+/** 合法创建体(默认 IPTV;013 起免当次密码);按需覆盖字段。kind=nas 时缺省剥离 remoteUrl(除非显式给出) */
 function createBody(overrides: CreateOverrides = {}): Record<string, unknown> {
   const body: Record<string, unknown> = {
-    ownerPassword: OWNER_PASSWORD,
     kind: 'iptv',
     name: '直播源',
     remoteUrl: 'http://tv.example.com:8080/live/list.m3u',
@@ -292,7 +291,6 @@ describe('T018 来源管理(契约 e2e)', () => {
     expect(created.body.version).toBe(1);
 
     const patched = await patchSource(s, (created.body as { id: string }).id, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       name: 'X',
     });
@@ -429,24 +427,24 @@ describe('T018 来源管理(契约 e2e)', () => {
     expect(revisionOf(s.householdId)).toBe(3);
   });
 
-  it('POST /sources:名称/URL 形态与跨字段格式校验 400(未知字段/kind/名称边界/互斥字段/file: 非远程),不触达密码验证、不落库', async () => {
+  it('POST /sources:名称/URL 形态与跨字段格式校验 400(未知字段/kind/名称边界/互斥字段/file: 非远程),不落库', async () => {
     const s = await bootstrap();
     const cases: Array<[string, Record<string, unknown>]> = [
       ['未知顶层字段', { ...createBody(), extra: 1 }],
-      ['缺 kind', { ownerPassword: OWNER_PASSWORD, name: 'X', remoteUrl: 'http://a.example.com/x' }],
+      ['缺 kind', { name: 'X', remoteUrl: 'http://a.example.com/x' }],
       ['kind 非法', createBody({ kind: 'ftp' })],
-      ['缺 name', { ownerPassword: OWNER_PASSWORD, kind: 'iptv', remoteUrl: 'http://a.example.com/x' }],
+      ['缺 name', { kind: 'iptv', remoteUrl: 'http://a.example.com/x' }],
       ['name 空串', createBody({ name: '' })],
       ['name 101 字符', createBody({ name: '名'.repeat(101) })],
-      ['iptv 缺 remoteUrl', { ownerPassword: OWNER_PASSWORD, kind: 'iptv', name: 'X' }],
+      ['iptv 缺 remoteUrl', { kind: 'iptv', name: 'X' }],
       ['iptv 带 rootKey', createBody({ rootKey: 'nas-main' })],
       ['iptv 带 relativeDirectory', createBody({ relativeDirectory: 'x' })],
       ['epg 带 epgSourceId', createBody({ kind: 'epg', remoteUrl: 'https://e.example.com/g.xml', epgSourceId: randomUUID() })],
-      ['nas 缺 rootKey', { ownerPassword: OWNER_PASSWORD, kind: 'nas', name: 'X', relativeDirectory: '' }],
-      ['nas rootKey 空串', { ownerPassword: OWNER_PASSWORD, kind: 'nas', name: 'X', rootKey: '', relativeDirectory: '' }],
-      ['nas 缺 relativeDirectory', { ownerPassword: OWNER_PASSWORD, kind: 'nas', name: 'X', rootKey: 'nas-main' }],
-      ['nas 带 remoteUrl', { ownerPassword: OWNER_PASSWORD, kind: 'nas', name: 'X', rootKey: 'nas-main', relativeDirectory: '', remoteUrl: 'http://a.example.com/x' }],
-      ['nas 带 epgSourceId(null)', { ownerPassword: OWNER_PASSWORD, kind: 'nas', name: 'X', rootKey: 'nas-main', relativeDirectory: '', epgSourceId: null }],
+      ['nas 缺 rootKey', { kind: 'nas', name: 'X', relativeDirectory: '' }],
+      ['nas rootKey 空串', { kind: 'nas', name: 'X', rootKey: '', relativeDirectory: '' }],
+      ['nas 缺 relativeDirectory', { kind: 'nas', name: 'X', rootKey: 'nas-main' }],
+      ['nas 带 remoteUrl', { kind: 'nas', name: 'X', rootKey: 'nas-main', relativeDirectory: '', remoteUrl: 'http://a.example.com/x' }],
+      ['nas 带 epgSourceId(null)', { kind: 'nas', name: 'X', rootKey: 'nas-main', relativeDirectory: '', epgSourceId: null }],
       ['remoteUrl 非法 URL', createBody({ remoteUrl: 'not-a-url' })],
       ['remoteUrl 缺主机', createBody({ remoteUrl: 'http://' })],
       ['remoteUrl 非远程 scheme(file:)', createBody({ remoteUrl: 'file:///etc/hosts' })],
@@ -468,27 +466,28 @@ describe('T018 来源管理(契约 e2e)', () => {
     expect(sourceCountInHousehold(s.householdId)).toBe(2);
   });
 
-  it('POST /sources:家长验证语义(缺失/空串统一 403 REQUIRED;错误密码 403 FAILED 且先于目标字面校验)', async () => {
+  it('POST /sources:013 免当次密码语义(缺密码照常创建 201;携带 ownerPassword 字段 strictObject 400,不落库)', async () => {
     const s = await bootstrap();
-    const missing = await postSource(s, { ...createBody(), ownerPassword: undefined });
-    expect(missing.status).toBe(403);
-    expect(missing.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
+    // 缺失密码 → 常规运维免当次密码,照常创建
+    const noPassword = await postSource(s, { ...createBody(), ownerPassword: undefined });
+    expect(noPassword.status, JSON.stringify(noPassword.body)).toBe(201);
 
-    const empty = await postSource(s, createBody({ ownerPassword: '' }));
-    expect(empty.status).toBe(403);
-    expect(empty.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
+    // 携带 ownerPassword 字段 → 契约已移除该字段,strictObject 拒绝 400
+    const withPassword = await postSource(s, { ...createBody(), ownerPassword: '' });
+    expect(withPassword.status).toBe(400);
+    expect(withPassword.body.code).toBe(ProblemCode.VALIDATION_FAILED);
 
-    // 错误密码 + 回环目标:验证次序在目标校验之前 → 403 FAILED 而非 422
-    const wrongPwdLoopback = await postSource(s, {
-      ...createBody({ remoteUrl: 'http://127.0.0.1:9000/live' }),
+    const withWrongPassword = await postSource(s, {
+      ...createBody({ remoteUrl: 'http://tv.example.com:8080/other.m3u' }),
       ownerPassword: 'not-the-password',
     });
-    expect(wrongPwdLoopback.status).toBe(403);
-    expect(wrongPwdLoopback.body.code).toBe(ProblemCode.PARENT_VERIFICATION_FAILED);
-    expect(String(wrongPwdLoopback.body.detail ?? '')).not.toContain('not-the-password');
+    expect(withWrongPassword.status).toBe(400);
+    expect(withWrongPassword.body.code).toBe(ProblemCode.VALIDATION_FAILED);
+    expect(String(withWrongPassword.body.detail ?? '')).not.toContain('not-the-password');
 
-    expect(parentFailureAttempts()).toBe(1);
-    expect(sourceCountInHousehold(s.householdId)).toBe(0);
+    // 全程无密码验证计数推进(常规端点不再触达 parent_verification_state)
+    expect(parentFailureAttempts()).toBeUndefined();
+    expect(sourceCountInHousehold(s.householdId)).toBe(1);
   });
 
   it('POST /sources:远程目标字面拒绝 422 SOURCE_TARGET_DENIED(回环/元数据/未指定/多播/广播/IPv4-mapped/非 http(s));detail 不回显 URL', async () => {
@@ -568,7 +567,6 @@ describe('T018 来源管理(契约 e2e)', () => {
     const baseline = revisionOf(s.householdId) ?? 1;
 
     const res = await patchSource(s, sourceId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       name: '改名源',
       enabled: false,
@@ -589,7 +587,6 @@ describe('T018 来源管理(契约 e2e)', () => {
 
     // 只改 name:enabled/remoteUrl 保留
     const keep = await patchSource(s, sourceId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 2,
       name: '再改名',
     });
@@ -598,13 +595,13 @@ describe('T018 来源管理(契约 e2e)', () => {
     expect(revisionOf(s.householdId)).toBe(baseline + 2);
   });
 
-  it('PATCH /sources/{id}:格式与不可变字段(kind/rootKey/relativeDirectory/未知字段/remoteUrl null·空串·掩码 → 400),不触达密码验证、不落库', async () => {
+  it('PATCH /sources/{id}:格式与不可变字段(kind/rootKey/relativeDirectory/未知字段/remoteUrl null·空串·掩码 → 400),不落库', async () => {
     const s = await bootstrap();
     const source = await createSource(s);
     const sourceId = source.body.id as string;
-    const base = { ownerPassword: OWNER_PASSWORD, expectedVersion: 1 };
+    const base = { expectedVersion: 1 };
     const cases: Array<[string, Record<string, unknown>]> = [
-      ['缺 expectedVersion', { ownerPassword: OWNER_PASSWORD, name: 'X' }],
+      ['缺 expectedVersion', { name: 'X' }],
       ['expectedVersion 0', { ...base, expectedVersion: 0 }],
       ['expectedVersion 非整数', { ...base, expectedVersion: 1.5 }],
       ['携带 kind', { ...base, kind: 'nas' }],
@@ -633,10 +630,9 @@ describe('T018 来源管理(契约 e2e)', () => {
     const s = await bootstrap();
     const source = await createSource(s);
     const sourceId = source.body.id as string;
-    await patchSource(s, sourceId, { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, name: 'v2' });
+    await patchSource(s, sourceId, { expectedVersion: 1, name: 'v2' });
 
     const stale = await patchSource(s, sourceId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       name: '过期写入',
     });
@@ -653,7 +649,6 @@ describe('T018 来源管理(契约 e2e)', () => {
 
     // 未同时批准 → 422(不继承旧目标许可)
     const denied = await patchSource(s, sourceId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       remoteUrl: 'http://new.example.com/b.m3u',
     });
@@ -663,7 +658,6 @@ describe('T018 来源管理(契约 e2e)', () => {
 
     // 显式批准 → 成功
     const approved = await patchSource(s, sourceId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       remoteUrl: 'http://new.example.com/b.m3u',
       privateAccessApproved: true,
@@ -677,14 +671,12 @@ describe('T018 来源管理(契约 e2e)', () => {
 
     // 再次换地址:旧批准不能继承 → 422;显式 false 同样拒绝
     const inherit = await patchSource(s, sourceId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 2,
       remoteUrl: 'http://third.example.com/c.m3u',
     });
     expect(inherit.status).toBe(422);
     expect(inherit.body.code).toBe(ProblemCode.SOURCE_TARGET_DENIED);
     const explicitFalse = await patchSource(s, sourceId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 2,
       remoteUrl: 'http://third.example.com/c.m3u',
       privateAccessApproved: false,
@@ -694,7 +686,6 @@ describe('T018 来源管理(契约 e2e)', () => {
 
     // 新地址字面拒绝(即使批准)
     const loopback = await patchSource(s, sourceId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 2,
       remoteUrl: 'http://127.0.0.1/x',
       privateAccessApproved: true,
@@ -704,7 +695,6 @@ describe('T018 来源管理(契约 e2e)', () => {
 
     // 地址不变的批准开关本身可改
     const toggle = await patchSource(s, sourceId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 2,
       privateAccessApproved: false,
     });
@@ -725,7 +715,7 @@ describe('T018 来源管理(契约 e2e)', () => {
     const nas = await createSource(s, { kind: 'nas', name: '影库', rootKey: 'nas-main', relativeDirectory: '' });
     const nasId = nas.body.id as string;
     const foreign = insertForeignSources();
-    const base = { ownerPassword: OWNER_PASSWORD };
+    const base = {};
 
     const linked = await patchSource(s, iptvId, { ...base, expectedVersion: 1, epgSourceId: epgId });
     expect(linked.status).toBe(200);
@@ -775,19 +765,18 @@ describe('T018 来源管理(契约 e2e)', () => {
     const refreshId = insertAwaitingRefresh(s, sourceId);
     const baseline = revisionOf(s.householdId) ?? 1;
 
-    const res = await patchSource(s, sourceId, { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, name: '触陈旧' });
+    const res = await patchSource(s, sourceId, { expectedVersion: 1, name: '触陈旧' });
     expect(res.status).toBe(200);
     expect(refreshRowOf(refreshId)).toMatchObject({ status: 'stale', version: 2 });
     expect(revisionOf(s.householdId)).toBe(baseline + 1);
   });
 
-  it('PATCH /sources/{id}:目标 404 同形与次序(不存在/跨家庭统一 404;错误密码先 403 FAILED;缺失密码 403 REQUIRED)', async () => {
+  it('PATCH /sources/{id}:目标 404 同形(不存在/跨家庭统一 404;013 起免当次密码,携带密码字段 400 不改写)', async () => {
     const s = await bootstrap();
     await createSource(s);
     const foreign = insertForeignSources();
 
     const missing = await patchSource(s, randomUUID(), {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       name: 'X',
     });
@@ -795,24 +784,25 @@ describe('T018 来源管理(契约 e2e)', () => {
     expect(missing.body.code).toBe(ProblemCode.NOT_FOUND);
 
     const cross = await patchSource(s, foreign.iptvId, {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 1,
       name: 'X',
     });
     expect(cross.status).toBe(404);
     expect(cross.body).toEqual(missing.body);
 
-    const wrongPwd = await patchSource(s, foreign.iptvId, {
+    // 携带已移除的 ownerPassword 字段 → strictObject 400(不落库)
+    const withPassword = await patchSource(s, foreign.iptvId, {
       ownerPassword: 'nope',
       expectedVersion: 1,
       name: 'X',
     });
-    expect(wrongPwd.status).toBe(403);
-    expect(wrongPwd.body.code).toBe(ProblemCode.PARENT_VERIFICATION_FAILED);
+    expect(withPassword.status).toBe(400);
+    expect(withPassword.body.code).toBe(ProblemCode.VALIDATION_FAILED);
 
+    // 跨家庭来源 + 不带密码 → 仍 404 同形(免密码不改变归属判定)
     const noPwd = await patchSource(s, foreign.iptvId, { expectedVersion: 1, name: 'X' });
-    expect(noPwd.status).toBe(403);
-    expect(noPwd.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
+    expect(noPwd.status).toBe(404);
+    expect(noPwd.body.code).toBe(ProblemCode.NOT_FOUND);
   });
 
   it('GET /source-roots:无会话 401;RootDto(rootKey+label)不含绝对路径;admin 允许;未配置根为空数组', async () => {

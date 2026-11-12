@@ -10,9 +10,9 @@
  *   重新解锁后重挂 —— settings 域挂载即清硬请求,等价原 reloadEpoch 重读,FR-041)。
  */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { Button, Form, TextField, Label, Input } from '@heroui/react';
-import { privateFetch } from '../../shared/fetch';
-import { LoadingSpinner, RetryableAlert } from '../../shared/ui';
+import { Button, Chip, Form, Input, Label, Separator, TextField } from '@heroui/react';
+import { privateFetch, isFetchApiError } from '../../shared/fetch';
+import { LoadingSpinner, RetryableAlert, useAppToast } from '../../shared/ui';
 import { useAppMutation, useAppQuery } from '../../shared/query/hooks';
 import { queryKeys } from '../../shared/query/keys';
 import { formatApiError } from '../../shared/query/error';
@@ -20,6 +20,8 @@ import { classifySettingsWriteError, POST_IDENTITY_CHANGE_NOTICE } from './share
 import type { AccountSummary } from './shared/settings-api';
 import { useSettingsAccess } from './settings-access-provider';
 import { useSettingsPageMeta } from './settings-modules';
+import { SettingsPageHeader } from './shared/settings-page-header';
+import { SettingsSection } from './shared/settings-section';
 
 export function SettingsAccountPage(): ReactNode {
   const access = useSettingsAccess();
@@ -38,8 +40,8 @@ export function SettingsAccountPage(): ReactNode {
   }, [account.isError, account.error, access]);
 
   return (
-    <section aria-label={`设置 · ${title}`} className="flex flex-1 flex-col gap-6 py-2">
-      <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+    <section aria-label={`设置 · ${title}`} data-testid="settings-account-page" className="flex flex-1 flex-col gap-6 py-2">
+      <SettingsPageHeader description="管理登录身份与账号安全" />
       {account.isPending ? <LoadingSpinner label="正在读取账号信息…" /> : null}
       {account.isError ? (
         <RetryableAlert
@@ -50,16 +52,25 @@ export function SettingsAccountPage(): ReactNode {
       ) : null}
       {account.data ? (
         <>
-          <dl className="flex max-w-md flex-col gap-2 text-sm" data-testid="account-summary">
-            <div className="flex justify-between gap-6 border-b border-border pb-2">
-              <dt className="text-muted">用户名</dt>
-              <dd className="font-medium text-foreground">{account.data.username}</dd>
-            </div>
-            <div className="flex justify-between gap-6 border-b border-border pb-2">
-              <dt className="text-muted">角色</dt>
-              <dd className="font-medium text-foreground">{account.data.role === 'owner' ? '所有者' : '管理员'}</dd>
-            </div>
-          </dl>
+          <div className="w-full" data-testid="account-summary">
+            <SettingsSection title="账号信息">
+              <dl className="flex flex-col gap-3 text-sm">
+                <div className="flex items-center justify-between py-1">
+                  <dt className="text-muted">用户名</dt>
+                  <dd className="font-medium text-foreground">{account.data.username}</dd>
+                </div>
+                <Separator />
+                <div className="flex items-center justify-between py-1">
+                  <dt className="text-muted">角色</dt>
+                  <dd>
+                    <Chip size="sm" variant="soft" color={account.data.role === 'owner' ? 'accent' : 'default'}>
+                      {account.data.role === 'owner' ? '所有者' : '管理员'}
+                    </Chip>
+                  </dd>
+                </div>
+              </dl>
+            </SettingsSection>
+          </div>
           <PasswordChangeSection username={account.data.username} />
         </>
       ) : null}
@@ -68,10 +79,11 @@ export function SettingsAccountPage(): ReactNode {
 }
 
 function PasswordChangeSection({ username }: { username: string }): ReactNode {
+  const access = useSettingsAccess();
+  const toast = useAppToast();
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
   // 改密:confirmed 变更(无乐观写,等待服务端确认)。invalidate 刻意为空:
@@ -79,10 +91,10 @@ function PasswordChangeSection({ username }: { username: string }): ReactNode {
   const changePassword = useAppMutation({
     domain: 'settings',
     feedback: 'confirmed',
-    mutationFn: (vars: { oldPassword: string; newPassword: string }) =>
+    mutationFn: (vars: { currentPassword: string; newPassword: string }) =>
       privateFetch<void>('/settings/account/password', {
         method: 'PUT',
-        body: { ownerPassword: vars.oldPassword, newPassword: vars.newPassword },
+        body: { currentPassword: vars.currentPassword, newPassword: vars.newPassword },
       }),
   });
   const busy = changePassword.isPending;
@@ -93,83 +105,119 @@ function PasswordChangeSection({ username }: { username: string }): ReactNode {
       return;
     }
     if (oldPassword === '' || newPassword === '' || confirmPassword === '') {
-      setError('请完整填写旧密码与新密码');
+      toast.error('请完整填写当前密码与新密码');
       return;
     }
     if (newPassword.length < 8 || newPassword.length > 128) {
-      setError('新密码长度须为 8~128 位');
+      toast.error('新密码长度须为 8~128 位');
       return;
     }
     if (newPassword !== confirmPassword) {
-      setError('两次输入的新密码不一致');
+      toast.error('两次输入的新密码不一致');
       return;
     }
-    setError(null);
     void changePassword
-      .mutateAsync({ oldPassword, newPassword })
+      .mutateAsync({ currentPassword: oldPassword, newPassword })
       .then(() => {
         // 成功:旧会话/设置授予已服务端撤销 —— 不再读取任何设置主体,仅提示重登
         setDone(true);
         setOldPassword('');
         setNewPassword('');
         setConfirmPassword('');
+        toast.success(POST_IDENTITY_CHANGE_NOTICE.password);
       })
       .catch((cause: unknown) => {
-        // 验证失败不丢表单:呈现服务端稳定文案(数据层已同步经 formatApiError 轻提示)
-        setError(formatApiError(cause));
+        // 验证失败不丢表单:结果提示统一走 toast(底部居中),表单内容保留
+        const kind = classifySettingsWriteError(cause);
+        if (kind === 'access-lost') {
+          access.handleAccessLost();
+          return;
+        }
+        if (isFetchApiError(cause)) {
+          if (cause.status === 401) {
+            toast.error('会话已失效，请重新登录');
+            return;
+          }
+          if (cause.status === 403) {
+            toast.error(cause.detail ?? cause.title ?? '当前密码错误或无权限修改');
+            return;
+          }
+        }
+        toast.error(formatApiError(cause));
       });
   };
 
   if (done) {
     return (
-      <div className="flex max-w-md flex-col gap-3" data-testid="password-change-done">
-        <p role="status" className="text-sm text-success">{POST_IDENTITY_CHANGE_NOTICE.password}</p>
-        <Button
-          variant="primary"
-          size="sm"
-          onPress={() => {
-            // 跳转登录:服务端会话已失效;由公共登录弹层流程重新建立会话
-            void privateFetch<void>('/auth/logout', { method: 'POST' })
-              .catch(() => undefined)
-              .finally(() => {
-                window.location.assign('/?intent=login');
-              });
-          }}
-        >
-          使用新密码重新登录
-        </Button>
+      <div className="w-full">
+        <SettingsSection title="修改密码" description="主账号密码修改已完成">
+          <div className="flex flex-col gap-4" data-testid="password-change-done">
+            <div className="flex justify-end">
+              <Button
+                variant="secondary"
+                size="sm"
+                onPress={() => {
+                  // 跳转登录:服务端会话已失效;由公共登录弹层流程重新建立会话
+                  void privateFetch<void>('/auth/logout', { method: 'POST' })
+                    .catch(() => undefined)
+                    .finally(() => {
+                      window.location.assign('/?intent=login');
+                    });
+                }}
+              >
+                使用新密码重新登录
+              </Button>
+            </div>
+          </div>
+        </SettingsSection>
       </div>
     );
   }
 
   return (
-    <Form onSubmit={handleSubmit} className="flex max-w-md flex-col gap-3" aria-label="修改密码">
-      <h3 className="text-sm font-semibold text-foreground">修改密码</h3>
-      <TextField className="w-full" value={oldPassword} onChange={setOldPassword} isDisabled={busy} autoComplete="off">
-        <Label>当前密码({username} 的主账号密码)</Label>
-        <Input name="ownerPassword" type="password" placeholder="••••••••" />
-      </TextField>
-      <TextField className="w-full" value={newPassword} onChange={setNewPassword} isDisabled={busy} autoComplete="new-password">
-        <Label>新密码(8~128 位)</Label>
-        <Input name="newPassword" type="password" placeholder="••••••••" />
-      </TextField>
-      <TextField className="w-full" value={confirmPassword} onChange={setConfirmPassword} isDisabled={busy} autoComplete="new-password">
-        <Label>确认新密码</Label>
-        <Input name="confirmPassword" type="password" placeholder="••••••••" />
-      </TextField>
-      {error !== null ? (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      ) : null}
-      <p className="text-xs text-muted">
-        修改成功后所有已登录会话与设置解锁立即失效,需要以新密码重新登录;Profile 收藏与观看历史保留。
-      </p>
-      <div className="flex justify-end">
-        <Button type="submit" variant="primary" size="sm" isDisabled={busy} data-testid="password-change-submit">
-          {busy ? '提交中…' : '修改密码'}
-        </Button>
-      </div>
-    </Form>
+    <div className="w-full">
+      <Form onSubmit={handleSubmit} data-testid="account-password-form" className="flex flex-col gap-4" aria-label="修改密码">
+        <SettingsSection title="修改密码" description="新密码须为 8~128 位">
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-1">
+                <span className="text-sm font-medium text-foreground">当前密码</span>
+                <span className="text-xs text-muted">{username} 的主账号密码</span>
+              </div>
+              <TextField className="w-full shrink-0 sm:w-64" value={oldPassword} onChange={setOldPassword} isDisabled={busy} autoComplete="off">
+                <Label className="sr-only">当前密码({username} 的主账号密码)</Label>
+                <Input name="currentPassword" type="password" placeholder="••••••••" variant="secondary" data-testid="current-password-input" />
+              </TextField>
+            </div>
+            <Separator />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-1">
+                <span className="text-sm font-medium text-foreground">新密码</span>
+                <span className="text-xs text-muted">8~128 位</span>
+              </div>
+              <TextField className="w-full shrink-0 sm:w-64" value={newPassword} onChange={setNewPassword} isDisabled={busy} autoComplete="new-password">
+                <Label className="sr-only">新密码(8~128 位)</Label>
+                <Input name="newPassword" type="password" placeholder="••••••••" variant="secondary" data-testid="new-password-input" />
+              </TextField>
+            </div>
+            <Separator />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-1">
+                <span className="text-sm font-medium text-foreground">确认新密码</span>
+                <span className="text-xs text-muted">再次输入新密码</span>
+              </div>
+              <TextField className="w-full shrink-0 sm:w-64" value={confirmPassword} onChange={setConfirmPassword} isDisabled={busy} autoComplete="new-password">
+                <Label className="sr-only">确认新密码</Label>
+                <Input name="confirmPassword" type="password" placeholder="••••••••" variant="secondary" data-testid="confirm-password-input" />
+              </TextField>
+            </div>
+          </div>
+          <Button type="submit" variant="secondary" size="sm" className="self-start" isDisabled={busy} data-testid="password-change-submit">
+            {busy ? '提交中…' : '修改密码'}
+          </Button>
+        </SettingsSection>
+        <p className="text-xs text-muted">修改后所有设备需要重新登录；收藏与观看历史会保留。</p>
+      </Form>
+    </div>
   );
 }

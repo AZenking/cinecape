@@ -34,7 +34,6 @@ import { selectMainAndUnlockSettings } from '../helpers-management';
  * (失败原因分类:端点未实现),T071 落地后本文件应转绿。
  */
 
-const OWNER_PASSWORD = INITIALIZE_BODY.password;
 const API = '/api/settings/catalog/media';
 const NOW_ISO = '2026-01-01T00:00:00.000Z';
 
@@ -120,7 +119,7 @@ async function setupBindingRig(): Promise<BindingFixture> {
   const fixture: BindingFixture = { app, cookie, householdId };
 
   // 正控守卫(T069 预期红):端点未实现时此处 404,整文件用例统一失败于「端点未实现」
-  const probe = await queryBinding(fixture, 'm-chan', { ownerPassword: OWNER_PASSWORD });
+  const probe = await queryBinding(fixture, 'm-chan', {});
   if (probe.status !== 200) {
     throw new Error(
       `manual EPG 管理端点未实现(T071):POST /api/settings/catalog/media/{id}/epg-binding/query 返回 ${probe.status};` +
@@ -149,7 +148,6 @@ function putBinding(f: BindingFixture, mediaId: string, body: Record<string, unk
 /** 管理保存的最小合法 body(目标 src-epg-a / cctv-2,无节目候选) */
 function manualSaveBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    ownerPassword: OWNER_PASSWORD,
     expectedVersion: 0,
     mode: 'manual',
     epgSourceId: 'src-epg-a',
@@ -167,7 +165,7 @@ describe('POST /catalog/media/{mediaId}/epg-binding/query(管理读取,quickstar
   });
 
   it('无行:200 {mode:auto,version:0,status:auto,invalidReason:null};no-store;响应无源位置/凭据', async () => {
-    const res = await queryBinding(f, 'm-chan', { ownerPassword: OWNER_PASSWORD });
+    const res = await queryBinding(f, 'm-chan', {});
     expect(res.status).toBe(200);
     expect(res.headers['cache-control']).toBe('no-store');
     expect(res.body).toEqual({
@@ -187,7 +185,7 @@ describe('POST /catalog/media/{mediaId}/epg-binding/query(管理读取,quickstar
   it('已保存 manual 且无节目:status=valid(无节目 ≠ 失效);BindingDto 不含目标源位置', async () => {
     const saved = await putBinding(f, 'm-chan', manualSaveBody());
     expect(saved.status).toBe(200);
-    const res = await queryBinding(f, 'm-chan', { ownerPassword: OWNER_PASSWORD });
+    const res = await queryBinding(f, 'm-chan', {});
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ mode: 'manual', version: 1, epgSourceId: 'src-epg-a', xmltvChannelId: 'cctv-2', status: 'valid', invalidReason: null });
     for (const fragment of FORBIDDEN_LEAK_FRAGMENTS) {
@@ -199,44 +197,43 @@ describe('POST /catalog/media/{mediaId}/epg-binding/query(管理读取,quickstar
     expect(programmes.body).toMatchObject({ status: 'unavailable', current: null, next: null });
   });
 
-  it('缺密码 → 403 PARENT_VERIFICATION_REQUIRED;错密码 → 403 PARENT_VERIFICATION_FAILED(problem+json)', async () => {
+  it('013 免当次密码:缺密码照常 200;携带 ownerPassword 字段 strictObject 400(problem+json)', async () => {
     const missing = await queryBinding(f, 'm-chan', {});
-    expect(missing.status).toBe(403);
-    expectProblemContentType(missing);
-    expect(missing.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
+    expect(missing.status).toBe(200);
 
     const wrong = await queryBinding(f, 'm-chan', { ownerPassword: 'definitely-wrong' });
-    expect(wrong.status).toBe(403);
-    expect(wrong.body.code).toBe(ProblemCode.PARENT_VERIFICATION_FAILED);
+    expect(wrong.status).toBe(400);
+    expectProblemContentType(wrong);
+    expect(wrong.body.code).toBe(ProblemCode.VALIDATION_FAILED);
   });
 
-  it('连续 5 次错密码 → 第 6 次(即使正确)423 PARENT_VERIFICATION_LOCKED(账号级共享)', async () => {
+  it('013:EPG 绑定管理不再触达密码错误计数(连续请求不落锁定窗口,恒 200)', async () => {
     for (let i = 0; i < 5; i += 1) {
-      const res = await queryBinding(f, 'm-chan', { ownerPassword: `wrong-${i}` });
-      expect(res.status).toBe(403);
-      expect(res.body.code).toBe(ProblemCode.PARENT_VERIFICATION_FAILED);
+      const res = await queryBinding(f, 'm-chan', {});
+      expect(res.status).toBe(200);
     }
-    const locked = await queryBinding(f, 'm-chan', { ownerPassword: OWNER_PASSWORD });
-    expect(locked.status).toBe(423);
-    expect(locked.body.code).toBe(ProblemCode.PARENT_VERIFICATION_LOCKED);
+    const state = Database.db.prepare('SELECT failed_attempts FROM parent_verification_state').get() as
+      | { failed_attempts: number }
+      | undefined;
+    expect(state).toBeUndefined();
   });
 
   it('撤销会话 → 401 SESSION_INVALID;无 Cookie → 401', async () => {
     Database.db.prepare('UPDATE device_session SET revoked_at = ?').run(new Date().toISOString());
-    const revoked = await queryBinding(f, 'm-chan', { ownerPassword: OWNER_PASSWORD });
+    const revoked = await queryBinding(f, 'm-chan', {});
     expect(revoked.status).toBe(401);
     expect(revoked.body.code).toBe(ProblemCode.SESSION_INVALID);
 
     const anonymous = await request(f.app.getHttpServer())
       .post(`${API}/m-chan/epg-binding/query`)
-      .send({ ownerPassword: OWNER_PASSWORD });
+      .send({});
     expect(anonymous.status).toBe(401);
   });
 
   it('跨家庭媒体与未知媒体统一 404 同形 problem+json(NOT_FOUND),不泄漏存在性差异', async () => {
     const [foreign, unknown] = await Promise.all([
-      queryBinding(f, 'm-foreign', { ownerPassword: OWNER_PASSWORD }),
-      queryBinding(f, '00000000-0000-4000-8000-000000000000', { ownerPassword: OWNER_PASSWORD }),
+      queryBinding(f, 'm-foreign', {}),
+      queryBinding(f, '00000000-0000-4000-8000-000000000000', {}),
     ]);
     for (const res of [foreign, unknown]) {
       expect(res.status).toBe(404);
@@ -269,7 +266,7 @@ describe('PUT /catalog/media/{mediaId}/epg-binding(保存/解除,quickstart H4)'
     expect(v1.status).toBe(200);
     expect(v1.body).toMatchObject({ mode: 'manual', version: 1, status: 'valid' });
 
-    const v2 = await putBinding(f, 'm-chan', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, mode: 'auto' });
+    const v2 = await putBinding(f, 'm-chan', { expectedVersion: 1, mode: 'auto' });
     expect(v2.status).toBe(200);
     expect(v2.body).toMatchObject({ mode: 'auto', version: 2, epgSourceId: null, xmltvChannelId: null });
 
@@ -289,13 +286,13 @@ describe('PUT /catalog/media/{mediaId}/epg-binding(保存/解除,quickstart H4)'
     expect(staleSave.status).toBe(409);
     expect(staleSave.body.code).toBe('EPG_BINDING_VERSION_CONFLICT');
 
-    const staleUnbind = await putBinding(f, 'm-chan', { ownerPassword: OWNER_PASSWORD, expectedVersion: 0, mode: 'auto' });
+    const staleUnbind = await putBinding(f, 'm-chan', { expectedVersion: 0, mode: 'auto' });
     expect(staleUnbind.status).toBe(409);
     expect(staleUnbind.body.code).toBe('EPG_BINDING_VERSION_CONFLICT');
     expect(Database.db.prepare('SELECT * FROM manual_epg_binding WHERE media_id = ?').get('m-chan')).toEqual(rowAfterSave);
 
     // 解除(auto v2)后,旧 version0 的保存请求仍 409 且墓碑不变
-    expect((await putBinding(f, 'm-chan', { ownerPassword: OWNER_PASSWORD, expectedVersion: 1, mode: 'auto' })).status).toBe(200);
+    expect((await putBinding(f, 'm-chan', { expectedVersion: 1, mode: 'auto' })).status).toBe(200);
     const tombstone = Database.db.prepare('SELECT * FROM manual_epg_binding WHERE media_id = ?').get('m-chan');
     const lateZero = await putBinding(f, 'm-chan', manualSaveBody({ expectedVersion: 0 }));
     expect(lateZero.status).toBe(409);
@@ -314,7 +311,7 @@ describe('PUT /catalog/media/{mediaId}/epg-binding(保存/解除,quickstart H4)'
   });
 
   it('候选查询后 EPG generation 变化 → 409 EPG_CANDIDATE_STALE,原配置不变(要求重查候选)', async () => {
-    const candidates = await queryCandidates(f, 'm-chan', { ownerPassword: OWNER_PASSWORD, epgSourceId: 'src-epg-a' });
+    const candidates = await queryCandidates(f, 'm-chan', { epgSourceId: 'src-epg-a' });
     expect(candidates.status).toBe(200);
     const generation = (candidates.body as { epgGeneration: number }).epgGeneration;
     expect(generation).toBe(3);
@@ -352,7 +349,6 @@ describe('PUT /catalog/media/{mediaId}/epg-binding(保存/解除,quickstart H4)'
     expect(foreign.body.code).toBe(ProblemCode.NOT_FOUND);
 
     const autoWithTarget = await putBinding(f, 'm-chan', {
-      ownerPassword: OWNER_PASSWORD,
       expectedVersion: 0,
       mode: 'auto',
       xmltvChannelId: 'cctv-2',
@@ -370,7 +366,7 @@ describe('POST /catalog/media/{mediaId}/epg-candidates/query(候选搜索,quicks
   });
 
   it('owner+密码:200 {items,total,page,pageSize,epgGeneration};排除 conflicted;候选无源地址/凭据;current/next 结构', async () => {
-    const res = await queryCandidates(f, 'm-chan', { ownerPassword: OWNER_PASSWORD, epgSourceId: 'src-epg-a' });
+    const res = await queryCandidates(f, 'm-chan', { epgSourceId: 'src-epg-a' });
     expect(res.status).toBe(200);
     expect(res.headers['cache-control']).toBe('no-store');
     const body = res.body as {
@@ -394,21 +390,20 @@ describe('POST /catalog/media/{mediaId}/epg-candidates/query(候选搜索,quicks
     }
 
     // q 过滤 + 分页参数回显
-    const filtered = await queryCandidates(f, 'm-chan', { ownerPassword: OWNER_PASSWORD, epgSourceId: 'src-epg-a', q: '二套' });
+    const filtered = await queryCandidates(f, 'm-chan', { epgSourceId: 'src-epg-a', q: '二套' });
     expect(filtered.status).toBe(200);
     expect((filtered.body as { items: unknown[] }).items).toHaveLength(1);
   });
 
-  it('缺密码 → 403;跨家庭来源 → 404 同形;iptv 来源作为候选来源 → 422 EPG_SOURCE_NOT_READY', async () => {
+  it('013 免当次密码(缺密码 200);跨家庭来源 → 404 同形;iptv 来源作为候选来源 → 422 EPG_SOURCE_NOT_READY', async () => {
     const missing = await queryCandidates(f, 'm-chan', { epgSourceId: 'src-epg-a' });
-    expect(missing.status).toBe(403);
-    expect(missing.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
+    expect(missing.status).toBe(200);
 
-    const foreign = await queryCandidates(f, 'm-chan', { ownerPassword: OWNER_PASSWORD, epgSourceId: 'src-foreign-epg' });
+    const foreign = await queryCandidates(f, 'm-chan', { epgSourceId: 'src-foreign-epg' });
     expect(foreign.status).toBe(404);
     expect(foreign.body.code).toBe(ProblemCode.NOT_FOUND);
 
-    const iptv = await queryCandidates(f, 'm-chan', { ownerPassword: OWNER_PASSWORD, epgSourceId: 'src-iptv' });
+    const iptv = await queryCandidates(f, 'm-chan', { epgSourceId: 'src-iptv' });
     expect(iptv.status).toBe(422);
     expect(iptv.body.code).toBe('EPG_SOURCE_NOT_READY');
   });

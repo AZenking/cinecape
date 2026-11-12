@@ -56,16 +56,13 @@ export async function selectMainAndUnlockSettings(
   return main.id;
 }
 
-/** 经设置路由创建档案(管理写迁移后的统一入口;ownerPassword 必填语义由服务端表达) */
+/** 经设置路由创建档案(管理写迁移后的统一入口;013/ADR-0017 起创建档案免当次密码) */
 export async function createProfileViaSettings(
   app: INestApplication,
   cookie: string,
   body: Record<string, unknown>,
 ): Promise<request.Response> {
-  return request(app.getHttpServer()).post('/api/settings/profiles').set('Cookie', cookie).send({
-    ownerPassword: MANAGEMENT_OWNER_PASSWORD,
-    ...body,
-  });
+  return request(app.getHttpServer()).post('/api/settings/profiles').set('Cookie', cookie).send(body);
 }
 
 /** 当前主档案概要(含 version,主档案转移 CAS 用) */

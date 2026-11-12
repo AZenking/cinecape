@@ -209,7 +209,7 @@ describe('T047 · 身份变化事务终态化旧播放并撤票(FR-014)', () => 
     const disable = await request(rig.app.getHttpServer())
       .patch(`/api/settings/profiles/${world.profileId}`)
       .set('Cookie', managementCookie)
-      .send({ status: 'disabled', clearPin: false, expectedVersion: 1, ownerPassword: world.password });
+      .send({ status: 'disabled', expectedVersion: 1 });
     expect(disable.status, JSON.stringify(disable.body)).toBe(200);
 
     const after = deviceSessionRowOf(world.deviceSessionId);

@@ -76,8 +76,8 @@ class DrizzleLiveTvStore implements LiveTvStore {
       .from(mediaItem)
       .where(
         mediaIds === undefined
-          ? and(eq(mediaItem.householdId, householdId), eq(mediaItem.type, 'channel'))
-          : and(eq(mediaItem.householdId, householdId), eq(mediaItem.type, 'channel'), inArray(mediaItem.id, [...mediaIds])),
+          ? and(eq(mediaItem.householdId, householdId), eq(mediaItem.type, 'channel'), eq(mediaItem.visible, 1))
+          : and(eq(mediaItem.householdId, householdId), eq(mediaItem.type, 'channel'), eq(mediaItem.visible, 1), inArray(mediaItem.id, [...mediaIds])),
       )
       .all();
   }
@@ -113,8 +113,9 @@ class DrizzleLiveTvStore implements LiveTvStore {
   }
 
   listMediaSourceRows(householdId: string): MediaSourceRow[] {
+    // 016 T014:priority 并入既有投影列(级联排序输入;0010 列,零新增 SQL)
     return this.db()
-      .select({ id: mediaSource.id, kind: mediaSource.kind, enabled: mediaSource.enabled, epgSourceId: mediaSource.epgSourceId })
+      .select({ id: mediaSource.id, kind: mediaSource.kind, enabled: mediaSource.enabled, epgSourceId: mediaSource.epgSourceId, priority: mediaSource.priority })
       .from(mediaSource)
       .where(eq(mediaSource.householdId, householdId))
       .all();
@@ -129,8 +130,9 @@ class DrizzleLiveTvStore implements LiveTvStore {
   }
 
   listEpgChannelRows(householdId: string): EpgChannelRow[] {
+    // 016 T014:display_name 并入既有投影列(L4 别名索引输入;0004 非空列,零新增 SQL)
     return this.db()
-      .select({ sourceId: epgChannel.sourceId, xmltvChannelId: epgChannel.xmltvChannelId, conflicted: epgChannel.conflicted })
+      .select({ sourceId: epgChannel.sourceId, xmltvChannelId: epgChannel.xmltvChannelId, conflicted: epgChannel.conflicted, displayName: epgChannel.displayName })
       .from(epgChannel)
       .where(eq(epgChannel.householdId, householdId))
       .all();

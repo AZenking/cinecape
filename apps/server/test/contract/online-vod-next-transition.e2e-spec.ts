@@ -50,7 +50,6 @@ import {
 } from '../helpers';
 import {
   MANAGEMENT_MAIN_PIN,
-  MANAGEMENT_OWNER_PASSWORD,
   createProfileViaSettings,
   selectMainAndUnlockSettings,
 } from '../helpers-management';
@@ -1460,7 +1459,6 @@ describe('T052 · A next-plans 计划快照(api.md §7 I3;data-model §10 playba
       .send({
         expectedVersion: (get1.body as { version: number }).version,
         policy: { maxContentLevel: 18, allowUnrated: true },
-        ownerPassword: MANAGEMENT_OWNER_PASSWORD,
       });
     expect(put1.status, JSON.stringify(put1.body)).toBe(200);
     const get2 = await request(rig.app.getHttpServer()).get(policyUrl).set('Cookie', rig.cookieA);
@@ -1472,7 +1470,6 @@ describe('T052 · A next-plans 计划快照(api.md §7 I3;data-model §10 playba
         allowedMediaIds: [],
         blockedMediaIds: [rig.serial.ep02MediaId],
         allowedChannelIds: [],
-        ownerPassword: MANAGEMENT_OWNER_PASSWORD,
       });
     expect(put2.status, JSON.stringify(put2.body)).toBe(200);
     // 设备B 切到档案B;档案B 可看 EP01(allowUnrated)但目标 EP02 被名单阻止

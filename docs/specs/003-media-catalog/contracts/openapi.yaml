@@ -56,7 +56,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -151,7 +151,7 @@
       "post": {
         "operationId": "createSource",
         "summary": "createSource",
-        "description": "owner + 当次密码；类型相关字段严格校验。",
+        "description": "owner；013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。类型相关字段严格校验。",
         "responses": {
           "201": {
             "description": "成功",
@@ -184,7 +184,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -270,7 +270,7 @@
       "patch": {
         "operationId": "patchSource",
         "summary": "patchSource",
-        "description": "owner + 当次密码；来源版本冲突不写入；NAS 根不可更换。",
+        "description": "owner；013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。来源版本冲突不写入；NAS 根不可更换。",
         "responses": {
           "200": {
             "description": "成功",
@@ -303,7 +303,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -436,7 +436,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -512,7 +512,7 @@
       "post": {
         "operationId": "startSourceRefresh",
         "summary": "startSourceRefresh",
-        "description": "owner + 当次密码；幂等任务，后台执行，有界队列；不会直接返回导入数据。",
+        "description": "owner；013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。幂等任务，后台执行，有界队列；不会直接返回导入数据。",
         "responses": {
           "202": {
             "description": "成功",
@@ -553,7 +553,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -683,7 +683,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -770,7 +770,7 @@
       "post": {
         "operationId": "confirmSourceRefresh",
         "summary": "confirmSourceRefresh",
-        "description": "owner + 当次密码；awaiting_confirmation 且任务/来源/目录基线有效；终态不可重复操作。",
+        "description": "owner；013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。awaiting_confirmation 且任务/来源/目录基线有效；终态不可重复操作。",
         "responses": {
           "200": {
             "description": "成功",
@@ -803,7 +803,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -900,7 +900,7 @@
       "post": {
         "operationId": "discardSourceRefresh",
         "summary": "discardSourceRefresh",
-        "description": "owner + 当次密码；awaiting_confirmation 且任务/来源/目录基线有效；终态不可重复操作。",
+        "description": "owner；013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。awaiting_confirmation 且任务/来源/目录基线有效；终态不可重复操作。",
         "responses": {
           "200": {
             "description": "成功",
@@ -933,7 +933,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1063,7 +1063,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1215,7 +1215,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1335,7 +1335,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1422,7 +1422,7 @@
       "post": {
         "operationId": "queryMediaCandidates",
         "summary": "queryMediaCandidates",
-        "description": "owner + 当次密码；可见家庭中观看策略隐藏的候选，不下发位置。",
+        "description": "owner；013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。可见家庭中观看策略隐藏的候选，不下发位置。",
         "responses": {
           "200": {
             "description": "成功",
@@ -1455,7 +1455,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1541,7 +1541,7 @@
       "patch": {
         "operationId": "patchMediaMetadata",
         "summary": "patchMediaMetadata",
-        "description": "owner + 当次密码；人工修正及 catalog revision 在同事务递增。",
+        "description": "owner；013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。人工修正及 catalog revision 在同事务递增。",
         "responses": {
           "200": {
             "description": "成功",
@@ -1574,7 +1574,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1671,7 +1671,7 @@
       "put": {
         "operationId": "replacePolicyLists",
         "summary": "replacePolicyLists",
-        "description": "owner + 当次密码；同事务验证 Profile 归属、资源归属、频道类型及 expectedVersion；三名单整体替换。",
+        "description": "owner；013(ADR-0017/FR-005)起常规管理操作免当次主账号密码。同事务验证 Profile 归属、资源归属、频道类型及 expectedVersion；三名单整体替换。",
         "responses": {
           "200": {
             "description": "成功",
@@ -1704,7 +1704,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1801,7 +1801,7 @@
       "post": {
         "operationId": "queryManualEpgBinding",
         "summary": "queryManualEpgBinding",
-        "description": "2026-10-24 EPG手动匹配增补，尚未实现；owner+当次密码，验证后重验会话和家庭边界；见api.md。",
+        "description": "2026-10-24 EPG手动匹配增补，尚未实现；owner，验证后重验会话和家庭边界；013(ADR-0017/FR-005)起免当次主账号密码。见api.md。",
         "parameters": [
           {
             "name": "mediaId",
@@ -1863,7 +1863,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1939,7 +1939,7 @@
       "post": {
         "operationId": "queryEpgChannelCandidates",
         "summary": "queryEpgChannelCandidates",
-        "description": "2026-10-24 EPG手动匹配增补；owner+当次密码，验证后重验会话和家庭边界；见api.md。候选按当前/未来有节目的频道优先排序(同组内按 xmltvChannelId 升序)；current 与 next 均为 null 表示该频道在指南窗口内暂无节目数据(绑定仍允许,绑定后显示「暂无节目」并不代表绑定失效)。已实现(2026-10-25)。",
+        "description": "2026-10-24 EPG手动匹配增补；owner，验证后重验会话和家庭边界；013(ADR-0017/FR-005)起免当次主账号密码。见api.md。候选按当前/未来有节目的频道优先排序(同组内按 xmltvChannelId 升序)；current 与 next 均为 null 表示该频道在指南窗口内暂无节目数据(绑定仍允许,绑定后显示「暂无节目」并不代表绑定失效)。已实现(2026-10-25)。",
         "parameters": [
           {
             "name": "mediaId",
@@ -2001,7 +2001,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2077,7 +2077,7 @@
       "put": {
         "operationId": "updateManualEpgBinding",
         "summary": "updateManualEpgBinding",
-        "description": "2026-10-24 EPG手动匹配增补，尚未实现；owner+当次密码，验证后重验会话和家庭边界；见api.md。",
+        "description": "2026-10-24 EPG手动匹配增补，尚未实现；owner，验证后重验会话和家庭边界；013(ADR-0017/FR-005)起免当次主账号密码。见api.md。",
         "parameters": [
           {
             "name": "mediaId",
@@ -2139,7 +2139,7 @@
             }
           },
           "403": {
-            "description": "FORBIDDEN / 家长验证 / ACTIVE_PROFILE_REQUIRED",
+            "description": "FORBIDDEN / ACTIVE_PROFILE_REQUIRED（013 起本契约管理端点免当次密码）",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2321,10 +2321,6 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "ownerPassword": {
-            "type": "string",
-            "writeOnly": true
-          },
           "kind": {
             "type": "string",
             "enum": [
@@ -2372,7 +2368,7 @@
           "kind",
           "name"
         ],
-        "description": "ownerPassword 缺失/空串走 403。远程必须 remoteUrl，NAS 必须 rootKey/relativeDirectory 且无 remoteUrl；epgSourceId 仅 IPTV。跨字段校验见 api.md。",
+        "description": "013(ADR-0017/FR-005)起免当次主账号密码。远程必须 remoteUrl，NAS 必须 rootKey/relativeDirectory 且无 remoteUrl；epgSourceId 仅 IPTV。跨字段校验见 api.md。",
         "allOf": [
           {
             "if": {
@@ -2450,10 +2446,6 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "ownerPassword": {
-            "type": "string",
-            "writeOnly": true
-          },
           "expectedVersion": {
             "type": "integer",
             "minimum": 1
@@ -2490,11 +2482,8 @@
       "RefreshRequest": {
         "type": "object",
         "additionalProperties": false,
+        "description": "013(ADR-0017/FR-005)起免当次主账号密码。",
         "properties": {
-          "ownerPassword": {
-            "type": "string",
-            "writeOnly": true
-          },
           "expectedVersion": {
             "type": "integer",
             "minimum": 1
@@ -2512,11 +2501,8 @@
       "JobAction": {
         "type": "object",
         "additionalProperties": false,
+        "description": "013(ADR-0017/FR-005)起免当次主账号密码。",
         "properties": {
-          "ownerPassword": {
-            "type": "string",
-            "writeOnly": true
-          },
           "expectedVersion": {
             "type": "integer",
             "minimum": 1
@@ -2692,6 +2678,17 @@
           "version": {
             "type": "integer",
             "minimum": 1
+          },
+          "visible": {
+            "type": "boolean",
+            "description": "018:前台显隐(管理修正面)。"
+          },
+          "posterRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "018:活动台标引用(channel_logo.ref;自定义或上游台标)。"
           }
         },
         "required": [
@@ -2748,6 +2745,26 @@
           },
           "available": {
             "type": "boolean"
+          },
+          "lineCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "017:聚合播放线路数(playback_source 行数)。"
+          },
+          "epgBinding": {
+            "$ref": "#/components/schemas/EpgBinding",
+            "description": "017:手动 EPG 绑定快照(仅 manual 绑定返回;含 displayName 目标频道名)。"
+          },
+          "visible": {
+            "type": "boolean",
+            "description": "018:前台显隐。"
+          },
+          "logoUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "018:活动台标原始 URL(自定义优先,其次上游)。"
           }
         },
         "required": [
@@ -2758,7 +2775,8 @@
           "contentLevel",
           "poster",
           "version",
-          "available"
+          "available",
+          "visible"
         ]
       },
       "CandidateQuery": {
@@ -2790,21 +2808,24 @@
               "video"
             ]
           },
-          "ownerPassword": {
+          "visibility": {
             "type": "string",
-            "writeOnly": true
+            "description": "018 频道管理全量过滤修复:可选可见性切片;counts 恒为可见性过滤前统计,total 为过滤后总数;缺省 all(旧请求语义不变)。",
+            "enum": [
+              "all",
+              "visible",
+              "hidden"
+            ],
+            "default": "all"
           }
         },
-        "required": []
+        "required": [],
+        "description": "013(ADR-0017/FR-005)起候选查询免当次主账号密码。"
       },
       "PatchMedia": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "ownerPassword": {
-            "type": "string",
-            "writeOnly": true
-          },
           "expectedVersion": {
             "type": "integer",
             "minimum": 1
@@ -2831,12 +2852,24 @@
             ],
             "minimum": 0,
             "maximum": 18
+          },
+          "visible": {
+            "type": "boolean",
+            "description": "018:前台显隐修正。"
+          },
+          "logoUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2048,
+            "description": "018:自定义台标 URL(null/空串恢复上游台标)。"
           }
         },
         "required": [
           "expectedVersion"
         ],
-        "description": "title/type/contentLevel 至少一项；禁止频道与非频道转换；新类型不建立系列/季集关系。"
+        "description": "title/type/contentLevel/visible/logoUrl 至少一项；禁止频道与非频道转换；新类型不建立系列/季集关系。013(ADR-0017/FR-005)起免当次主账号密码。"
       },
       "Programme": {
         "type": "object",
@@ -2964,10 +2997,6 @@
             },
             "description": "去重后最多 1000 个；大小写敏感；允许/禁止交集保留"
           },
-          "ownerPassword": {
-            "type": "string",
-            "writeOnly": true
-          },
           "expectedVersion": {
             "type": "integer",
             "minimum": 1
@@ -2978,7 +3007,8 @@
           "allowedMediaIds",
           "blockedMediaIds",
           "allowedChannelIds"
-        ]
+        ],
+        "description": "013(ADR-0017/FR-005)起名单整体替换免当次主账号密码。"
       },
       "Policy": {
         "type": "object",
@@ -3133,7 +3163,11 @@
           },
           "total": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "018:可见性过滤后的总数(分页依据)。"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/VisibilityCounts"
           },
           "page": {
             "type": "integer",
@@ -3148,19 +3182,41 @@
         "required": [
           "items",
           "total",
+          "counts",
           "page",
           "pageSize"
+        ]
+      },
+      "VisibilityCounts": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "018 频道管理全量过滤修复:家庭 + 关键词 + 类型过滤后、可见性过滤前的三档计数(切片切换不改计数)。"
+        ,
+        "properties": {
+          "all": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "visible": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hidden": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "all",
+          "visible",
+          "hidden"
         ]
       },
       "BindingQuery": {
         "type": "object",
         "additionalProperties": false,
-        "properties": {
-          "ownerPassword": {
-            "type": "string",
-            "writeOnly": true
-          }
-        },
+        "description": "013(ADR-0017/FR-005)起绑定查询免当次主账号密码；请求体为空对象。",
+        "properties": {},
         "required": []
       },
       "EpgBinding": {
@@ -3214,6 +3270,13 @@
               "channel_missing",
               "channel_conflict"
             ]
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "018 节目绑定可读性:manual 绑定目标的 EPG 频道显示名(批量查询带出);目标频道行缺失为 null(前端回退「名称不可用」)。"
           }
         },
         "required": [
@@ -3229,11 +3292,8 @@
       "EpgCandidateQuery": {
         "type": "object",
         "additionalProperties": false,
+        "description": "013(ADR-0017/FR-005)起候选查询免当次主账号密码。",
         "properties": {
-          "ownerPassword": {
-            "type": "string",
-            "writeOnly": true
-          },
           "epgSourceId": {
             "type": "string",
             "format": "uuid"
@@ -3338,10 +3398,6 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "ownerPassword": {
-            "type": "string",
-            "writeOnly": true
-          },
           "expectedVersion": {
             "type": "integer",
             "minimum": 0
@@ -3413,7 +3469,7 @@
             }
           }
         ],
-        "description": "保存即锁定；auto解除写版本墓碑，不删除行。密码缺失/空串403。绑定version或候选generation旧值409，目标必须同家庭有效EPG频道。"
+        "description": "保存即锁定；auto解除写版本墓碑，不删除行。绑定version或候选generation旧值409，目标必须同家庭有效EPG频道。013(ADR-0017/FR-005)起免当次主账号密码。"
       }
     }
   }

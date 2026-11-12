@@ -45,13 +45,31 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
     'content_revision',
     // 0007_online_vod(T014):standalone/vod_title/vod_episode 角色(010 data-model §2)
     'media_role',
+    // 0011_channel_visibility(018):逻辑频道前台显隐开关(0/1)
+    'visible',
   ],
   media_source: [
     'epg_generation',
     // 0007_online_vod(T014):来源定位器修订(启停防 ABA)
     'locator_revision',
+    // 0010_multi_source_priority(016):多源优先级(数值越小越优先,默认 100;016 data-model §1.1)
+    'priority',
   ],
-  source_entry: ['group_title'],
+  source_entry: ['group_title', 'logo_url'],
+  // 0009_channel_logos(014):EPG 频道图标原始地址与胜者注册表(014 data-model §1/§2)
+  epg_channel: ['icon_url'],
+  channel_logo: [
+    'household_id',
+    'media_id',
+    'ref',
+    'upstream_url',
+    'source_kind',
+    'source_id',
+    'revision',
+    'revoked_at',
+    'created_at',
+    'updated_at',
+  ],
   // 0006_pc_experience(T006):五张新表关键列(对照 005 data-model §3~§7)
   settings_access_grant: [
     'household_id',
@@ -191,6 +209,16 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
     'autoplay_next',
     'switch_carry_position',
     'version',
+  ],
+  profile_preferences: [
+    'household_id',
+    'profile_id',
+    'default_audio_language',
+    'default_subtitle_language',
+    'auto_play_next',
+    'theme_mode',
+    'poster_density',
+    'updated_at',
   ],
   profile_vod_preference_operation: [
     'household_id',
@@ -395,6 +423,10 @@ export class Database {
         'vod_registered_candidate', 'profile_vod_preferences', 'profile_vod_preference_operation',
         'playback_phase_observation', 'playback_finish_receipt', 'playback_next_plan',
         'playback_input_binding', 'playback_transition_intent', 'playback_transition_slot',
+        // 013 个人偏好(0008):profile_preferences
+        'profile_preferences',
+        // 014 频道 Logo(0009):胜者注册表
+        'channel_logo',
       ]) {
         if (!conn.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)) return false;
       }

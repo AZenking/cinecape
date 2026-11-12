@@ -19,6 +19,7 @@
  *   (FR-010 拒绝开放重定向)。
  * 本文件不依赖 React/DOM,供组件与纯逻辑单测共用。
  */
+import type { StreamLineDto } from '@hmp/shared';
 
 /** 统一弹层的步骤(单 Modal 内内容切换) */
 export type AuthStep =
@@ -29,8 +30,7 @@ export type AuthStep =
   | 'bootstrap'
   | 'picker'
   | 'selectionPin'
-  | 'pinRecovery'
-  | 'settingsPin';
+  | 'pinRecovery';
 
 /**
  * 播放意图目标(T053;US3 统一受控播放):所有入口只携带同一最小目标面。
@@ -40,6 +40,11 @@ export interface PlayTarget {
   readonly mediaId: string;
   readonly title: string;
   readonly startMode: 'beginning' | 'resume';
+  /**
+   * 指定物理线路 ID(016 T020/T021;api.md §2.1 可选 lineId):OSD 手动换线与
+   * 容灾续接时携带,缺省由服务端按 priority ASC/isDefault 优选。
+   */
+  readonly lineId?: string;
 }
 
 /** 播放意图阶段(ui.md §3:play → authorize → prepare → playing;拒绝落 unavailable) */
@@ -67,6 +72,13 @@ export interface PlaybackIntentState {
   readonly presentationStartSeconds: number | null;
   /** 面向观看者的稳定提示(授权拒绝/资源不可用;不含内部策略与源位置) */
   readonly message: string | null;
+  /**
+   * 该频道可用线路清单(016 api.md §2.1;resolve 201 投影落 state,playPatch 可更新):
+   * 供 OSD 手动换线与自动容灾顺位消费;空数组 = 无多线路语义(单线路/影片)。
+   */
+  readonly lines: readonly StreamLineDto[];
+  /** 本次解析实际选中线路(016 api.md §2.1;null = 线路未定/无多线路语义) */
+  readonly selectedLineId: string | null;
 }
 
 export interface CoordinatorState {
@@ -207,6 +219,8 @@ export function coordinatorReducer(state: CoordinatorState, action: CoordinatorA
           delivery: null,
           presentationStartSeconds: null,
           message: null,
+          lines: [],
+          selectedLineId: null,
         },
         pendingPlay: null,
       };
@@ -242,6 +256,41 @@ export function coordinatorReducer(state: CoordinatorState, action: CoordinatorA
 /** 旧回调守卫:捕获代次 ≠ 当前代次即失效(FR-013 同源语义:仅最新意图可继续) */
 export function isStaleIntent(state: CoordinatorState, capturedGeneration: number): boolean {
   return capturedGeneration !== state.generation;
+}
+
+// ---------------------------------------------------------------------------
+// 播放面线路容灾顺位(016 T020;research.md R4 / data-model.md §3.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * 容灾顺位选择(016 T020 纯函数;编排层防死循环的单一事实源):
+ *
+ * - 候选 = `isEnabled !== false` 的线路,按 `priority` ASC 稳定排序(数值越小越优先,
+ *   api.md §2.1 契约排序;同权重保持输入序);
+ * - 跳过 `attemptedIds`(跨容灾意图累积的已尝试线路,由编排层 ref 维护)与
+ *   `selectedLineId`(当前刚失败的线路);
+ * - 返回第一条未尝试线路;全部试尽(或无多线路语义)返回 `null`,上层落回既有
+ *   缺省错误通道(unavailable / 60s recover 窗口),绝不无限循环。
+ */
+export function selectNextLine(
+  lines: readonly StreamLineDto[],
+  selectedLineId: string | null,
+  attemptedIds: ReadonlySet<string>,
+): StreamLineDto | null {
+  const excluded = new Set(attemptedIds);
+  if (selectedLineId !== null) {
+    excluded.add(selectedLineId);
+  }
+  const ordered = lines
+    .map((candidate, index) => ({ candidate, index }))
+    .filter((entry) => entry.candidate.isEnabled !== false)
+    .sort((a, b) => a.candidate.priority - b.candidate.priority || a.index - b.index);
+  for (const entry of ordered) {
+    if (!excluded.has(entry.candidate.lineId)) {
+      return entry.candidate;
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

@@ -92,8 +92,9 @@ describe('M3U 流式解析器(T013/T022;research R2/R6)', () => {
       const result = await parseM3U(streamOf(content));
       expect(result.entries).toEqual([
         // T146:group-title 进入条目(存储值域归一化);无属性条目不带该字段
-        { tvgId: 'cctv1', title: 'CCTV-1 综合', url: 'http://stream.example/cctv1', groupTitle: '央视' },
-        { tvgId: null, title: 'News, Headlines', url: 'http://stream.example/news' },
+        // 014 T014:tvg-logo 恒在条目上(缺失/非法归 null)
+        { tvgId: 'cctv1', title: 'CCTV-1 综合', url: 'http://stream.example/cctv1', groupTitle: '央视', tvgLogo: null },
+        { tvgId: null, title: 'News, Headlines', url: 'http://stream.example/news', tvgLogo: null },
       ]);
     });
 
@@ -134,7 +135,7 @@ describe('M3U 流式解析器(T013/T022;research R2/R6)', () => {
         { name: '无ID', url: 'http://stream.example:8000/No-Id?token=abc' },
       ]);
       const { entries } = await parseM3U(streamOf(content));
-      expect(entries[0]).toEqual({ tvgId: 'CCTV-1', title: '有ID', url: 'http://stream.example/with-id' });
+      expect(entries[0]).toEqual({ tvgId: 'CCTV-1', title: '有ID', url: 'http://stream.example/with-id', tvgLogo: null });
       // tvg-id 缺失 → tvgId 为 null,由下游以完整播放地址派生身份;解析层不做归一化
       expect(entries[1]?.tvgId).toBeNull();
       expect(entries[1]?.url).toBe('http://stream.example:8000/No-Id?token=abc');
@@ -291,7 +292,9 @@ describe('M3U 流式解析器(T013/T022;research R2/R6)', () => {
       const content =
         '#EXTM3U\r\n#EXTINF:-1 tvg-id="cctv1" tvg-name="CCTV",央视综合\r\nhttp://stream.example/cctv1\r\n';
       const result = await parseM3U(chunkedStream(content, 3));
-      expect(result.entries).toEqual([{ tvgId: 'cctv1', title: '央视综合', url: 'http://stream.example/cctv1' }]);
+      expect(result.entries).toEqual([
+        { tvgId: 'cctv1', title: '央视综合', url: 'http://stream.example/cctv1', tvgLogo: null },
+      ]);
     });
 
     it('接受 AsyncIterable<Buffer> 输入(不要求 Readable)', async () => {
@@ -305,7 +308,7 @@ describe('M3U 流式解析器(T013/T022;research R2/R6)', () => {
 
     it('无换行符结尾的最后一行作为完整行处理', async () => {
       const result = await parseM3U(streamOf('#EXTM3U\n#EXTINF:-1 tvg-id="a",A\nhttp://stream.example/a'));
-      expect(result.entries).toEqual([{ tvgId: 'a', title: 'A', url: 'http://stream.example/a' }]);
+      expect(result.entries).toEqual([{ tvgId: 'a', title: 'A', url: 'http://stream.example/a', tvgLogo: null }]);
     });
   });
 });

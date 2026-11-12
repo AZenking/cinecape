@@ -42,8 +42,8 @@ async function bootstrap(): Promise<Fixture> {
   const household = await request(app.getHttpServer()).get('/api/household').set('Cookie', cookie);
   const householdId = household.body.id as string;
 
-  const adult = await request(app.getHttpServer()).post('/api/settings/profiles').set('Cookie', cookie).send({ name: '成人', type: 'adult', ownerPassword: INITIALIZE_BODY.password });
-  const child = await request(app.getHttpServer()).post('/api/settings/profiles').set('Cookie', cookie).send({ name: '儿童', type: 'child', ownerPassword: INITIALIZE_BODY.password });
+  const adult = await request(app.getHttpServer()).post('/api/settings/profiles').set('Cookie', cookie).send({ name: '成人', type: 'adult' });
+  const child = await request(app.getHttpServer()).post('/api/settings/profiles').set('Cookie', cookie).send({ name: '儿童', type: 'child' });
 
   // 以 DB 行构造服务端 SessionContext(与 SessionGuard 产出同构;信任源为会话行本身)
   const sessionRow = Database.db
@@ -143,7 +143,7 @@ describe('US2 授权入口 authorizeCurrentProfile(集成,夹具目录)', () => 
     await request(f.app.getHttpServer())
       .patch(`/api/settings/profiles/${f.adultProfileId}`)
       .set('Cookie', mgmt)
-      .send({ status: 'disabled', clearPin: false, expectedVersion: adultVersion, ownerPassword: INITIALIZE_BODY.password });
+      .send({ status: 'disabled', expectedVersion: adultVersion });
     expect(await authorizeCurrentProfile(f.context, 'm-16', catalog)).toStrictEqual({
       allowed: false,
       reason: 'ACTIVE_PROFILE_REQUIRED',
@@ -155,7 +155,7 @@ describe('US2 授权入口 authorizeCurrentProfile(集成,夹具目录)', () => 
     await request(f.app.getHttpServer())
       .patch(`/api/settings/profiles/${f.adultProfileId}`)
       .set('Cookie', mgmt2)
-      .send({ status: 'active', clearPin: false, expectedVersion: adultVersion + 1, ownerPassword: INITIALIZE_BODY.password });
+      .send({ status: 'active', expectedVersion: adultVersion + 1 });
     expect((await selectProfile(f, f.adultProfileId, INITIALIZE_BODY.password)).status).toBe(200);
     expect(await authorizeCurrentProfile(f.context, 'm-16', catalog)).toStrictEqual({
       allowed: true,
@@ -219,7 +219,7 @@ describe('US2 授权入口 authorizeCurrentProfile(集成,夹具目录)', () => 
     const saved = await request(f.app.getHttpServer())
       .put(`/api/settings/profiles/${f.childProfileId}/policy`)
       .set('Cookie', mgmt)
-      .send({ ownerPassword: INITIALIZE_BODY.password, expectedVersion: 1, policy: { maxContentLevel: 16, allowUnrated: false } });
+      .send({ expectedVersion: 1, policy: { maxContentLevel: 16, allowUnrated: false } });
     expect(saved.status).toBe(200);
 
     // 下一次授权(无刷新/无重建)即用新值

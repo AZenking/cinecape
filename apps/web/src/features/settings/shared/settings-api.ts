@@ -108,13 +108,41 @@ export interface CandidateDto {
   poster: string | null;
   version: number;
   available: boolean;
+  lineCount?: number;
+  epgBinding?: EpgBindingDto;
+  visible?: boolean;
+  logoUrl?: string | null;
 }
 
 export interface CandidatePageDto {
   items: CandidateDto[];
   total: number;
+  /** 018 全量过滤修复:家庭+关键词+类型过滤后、可见性过滤前的三档计数 */
+  counts: { all: number; visible: number; hidden: number };
   page: number;
   pageSize: number;
+}
+
+export interface ChannelStreamDto {
+  id: string;
+  sourceEntryId: string;
+  sourceId: string;
+  sourceName: string;
+  protocol: string;
+  location: string;
+  priority: number;
+}
+
+export interface UpdateStreamInput {
+  location?: string;
+  protocol?: string;
+  priority?: number;
+}
+
+export interface AddStreamInput {
+  location: string;
+  protocol?: string;
+  priority?: number;
 }
 
 /** 契约 EpgBindingDto */
@@ -126,6 +154,8 @@ export interface EpgBindingDto {
   xmltvChannelId: string | null;
   status: 'valid' | 'invalid' | 'auto';
   invalidReason: string | null;
+  /** 018:manual 绑定目标的 EPG 频道显示名(服务端批量带出;缺失为 null,前端回退「名称不可用」) */
+  displayName?: string | null;
 }
 
 /** 契约 EpgCandidate */
@@ -154,8 +184,24 @@ export interface DeviceDto {
   createdAt: string;
 }
 
+/** 来源管理按类型分区前读取全部页，防止前一页的其他类型占满后遗漏来源。 */
+export async function fetchAllSettingsSources<TSource extends { id: string } = SourceDto>(
+  signal?: AbortSignal,
+): Promise<Omit<SourcePageDto, 'items'> & { items: TSource[] }> {
+  type Page = Omit<SourcePageDto, 'items'> & { items: TSource[] };
+  const first = await privateFetch<Page>('/settings/sources', { signal });
+  const items = [...first.items];
+  const pageSize = first.pageSize || 100;
+  const lastPage = Math.ceil((first.total ?? items.length) / pageSize);
+  for (let page = (first.page || 1) + 1; page <= lastPage; page += 1) {
+    const next = await privateFetch<Page>(`/settings/sources?page=${page}&pageSize=${pageSize}`, { signal });
+    items.push(...next.items);
+  }
+  return { ...first, items: [...new Map(items.map((item) => [item.id, item])).values()] };
+}
+
 export const settingsApi = {
-  // account
+  // account(changePassword 保留当次密码;013 起常规管理操作免密码,仅高危保留单次验证)
   getAccount: (): Promise<AccountSummary> => privateFetch<AccountSummary>('/settings/account'),
   changePassword: (ownerPassword: string, newPassword: string): Promise<void> =>
     privateFetch<void>('/settings/account/password', { method: 'PUT', body: { ownerPassword, newPassword } }),
@@ -163,7 +209,6 @@ export const settingsApi = {
   getHousehold: (): Promise<HouseholdSettings> => privateFetch<HouseholdSettings>('/settings/household'),
   patchHousehold: (input: {
     expectedVersion: number;
-    ownerPassword: string;
     name?: string;
     language?: string;
     timezone?: string;
@@ -171,18 +216,18 @@ export const settingsApi = {
   // profiles
   listProfiles: (): Promise<ProfileSummary[]> => privateFetch<ProfileSummary[]>('/settings/profiles'),
   createProfile: (input: {
-    ownerPassword: string;
     name: string;
     type: 'adult' | 'child';
     avatar?: string;
     isDefault?: boolean;
     pin?: string;
   }): Promise<ProfileSummary> => privateFetch<ProfileSummary>('/settings/profiles', { method: 'POST', body: input }),
+  /** 013:仅含 pin/clearPin 的提交需携 ownerPassword(条件单次密码),普通编辑不带该字段 */
   patchProfile: (
     profileId: string,
     input: {
       expectedVersion: number;
-      ownerPassword: string;
+      ownerPassword?: string;
       name?: string;
       avatar?: string;
       isDefault?: boolean;
@@ -204,12 +249,11 @@ export const settingsApi = {
     privateFetch<PolicyDto>(`/settings/profiles/${profileId}/policy`),
   updatePolicy: (
     profileId: string,
-    input: { ownerPassword: string; expectedVersion: number; policy: { maxContentLevel: number; allowUnrated: boolean } },
+    input: { expectedVersion: number; policy: { maxContentLevel: number; allowUnrated: boolean } },
   ): Promise<PolicyDto> => privateFetch<PolicyDto>(`/settings/profiles/${profileId}/policy`, { method: 'PUT', body: input }),
   replacePolicyLists: (
     profileId: string,
     input: {
-      ownerPassword: string;
       expectedVersion: number;
       allowedMediaIds: string[];
       blockedMediaIds: string[];
@@ -223,36 +267,49 @@ export const settingsApi = {
     privateFetch<SourceDto>('/settings/sources', { method: 'POST', body: input }),
   patchSource: (sourceId: string, input: Record<string, unknown>): Promise<SourceDto> =>
     privateFetch<SourceDto>(`/settings/sources/${sourceId}`, { method: 'PATCH', body: input }),
-  startRefresh: (sourceId: string, input: { ownerPassword: string; expectedVersion: number; operationKey: string }): Promise<RefreshDto> =>
+  startRefresh: (sourceId: string, input: { expectedVersion: number; operationKey: string }): Promise<RefreshDto> =>
     privateFetch<RefreshDto>(`/settings/sources/${sourceId}/refresh`, { method: 'POST', body: input }),
   getRefresh: (refreshId: string): Promise<RefreshDto> => privateFetch<RefreshDto>(`/settings/refreshes/${refreshId}`),
-  confirmRefresh: (refreshId: string, ownerPassword: string, expectedVersion: number): Promise<RefreshDto> =>
-    privateFetch<RefreshDto>(`/settings/refreshes/${refreshId}/confirm`, { method: 'POST', body: { ownerPassword, expectedVersion } }),
-  discardRefresh: (refreshId: string, ownerPassword: string, expectedVersion: number): Promise<RefreshDto> =>
-    privateFetch<RefreshDto>(`/settings/refreshes/${refreshId}/discard`, { method: 'POST', body: { ownerPassword, expectedVersion } }),
+  confirmRefresh: (refreshId: string, expectedVersion: number): Promise<RefreshDto> =>
+    privateFetch<RefreshDto>(`/settings/refreshes/${refreshId}/confirm`, { method: 'POST', body: { expectedVersion } }),
+  discardRefresh: (refreshId: string, expectedVersion: number): Promise<RefreshDto> =>
+    privateFetch<RefreshDto>(`/settings/refreshes/${refreshId}/discard`, { method: 'POST', body: { expectedVersion } }),
   // catalog
   queryCandidates: (input: {
-    ownerPassword: string;
     q?: string;
     type?: 'channel' | 'movie' | 'series' | 'episode' | 'video';
+    /** 018:可见性切片(缺省 all);counts 恒为过滤前三档计数 */
+    visibility?: 'all' | 'visible' | 'hidden';
     page?: number;
     pageSize?: number;
   }): Promise<CandidatePageDto> =>
     privateFetch<CandidatePageDto>('/settings/catalog/candidates/query', { method: 'POST', body: input }),
-  patchMedia: (mediaId: string, input: { ownerPassword: string; expectedVersion: number } & Record<string, unknown>): Promise<CandidateDto> =>
+  patchMedia: (mediaId: string, input: { expectedVersion: number } & Record<string, unknown>): Promise<CandidateDto> =>
     privateFetch<CandidateDto>(`/settings/catalog/media/${mediaId}`, { method: 'PATCH', body: input }),
+  batchVisibility: (input: { mediaIds?: string[]; all?: boolean; visible: boolean }): Promise<{ updatedCount: number }> =>
+    privateFetch<{ updatedCount: number }>('/settings/catalog/media/batch-visibility', { method: 'POST', body: input }),
+  uploadLogo: (input: { filename: string; data: string }): Promise<{ url: string; filename: string }> =>
+    privateFetch<{ url: string; filename: string }>('/settings/catalog/upload-logo', { method: 'POST', body: input }),
+  // stream lines
+  listStreams: (mediaId: string): Promise<{ items: ChannelStreamDto[] }> =>
+    privateFetch<{ items: ChannelStreamDto[] }>(`/settings/catalog/media/${mediaId}/streams`),
+  addStream: (mediaId: string, input: AddStreamInput): Promise<ChannelStreamDto> =>
+    privateFetch<ChannelStreamDto>(`/settings/catalog/media/${mediaId}/streams`, { method: 'POST', body: input }),
+  updateStream: (mediaId: string, streamId: string, input: UpdateStreamInput): Promise<ChannelStreamDto> =>
+    privateFetch<ChannelStreamDto>(`/settings/catalog/media/${mediaId}/streams/${streamId}`, { method: 'PATCH', body: input }),
+  deleteStream: (mediaId: string, streamId: string): Promise<{ success: boolean }> =>
+    privateFetch<{ success: boolean }>(`/settings/catalog/media/${mediaId}/streams/${streamId}`, { method: 'DELETE' }),
   // epg binding
-  queryBinding: (mediaId: string, ownerPassword: string): Promise<EpgBindingDto> =>
-    privateFetch<EpgBindingDto>(`/settings/catalog/media/${mediaId}/epg-binding/query`, { method: 'POST', body: { ownerPassword } }),
+  queryBinding: (mediaId: string): Promise<EpgBindingDto> =>
+    privateFetch<EpgBindingDto>(`/settings/catalog/media/${mediaId}/epg-binding/query`, { method: 'POST', body: {} }),
   queryEpgCandidates: (
     mediaId: string,
-    input: { ownerPassword: string; epgSourceId: string; q?: string; page?: number; pageSize?: number },
+    input: { epgSourceId: string; q?: string; page?: number; pageSize?: number },
   ): Promise<EpgCandidatePageDto> =>
     privateFetch<EpgCandidatePageDto>(`/settings/catalog/media/${mediaId}/epg-candidates/query`, { method: 'POST', body: input }),
   saveBinding: (
     mediaId: string,
     input: {
-      ownerPassword: string;
       expectedVersion: number;
       mode: 'manual';
       epgSourceId: string;
@@ -261,15 +318,16 @@ export const settingsApi = {
     },
   ): Promise<EpgBindingDto> =>
     privateFetch<EpgBindingDto>(`/settings/catalog/media/${mediaId}/epg-binding`, { method: 'PUT', body: input }),
-  unbindBinding: (mediaId: string, input: { ownerPassword: string; expectedVersion: number; mode: 'auto' }): Promise<EpgBindingDto> =>
+  unbindBinding: (mediaId: string, input: { expectedVersion: number; mode: 'auto' }): Promise<EpgBindingDto> =>
     privateFetch<EpgBindingDto>(`/settings/catalog/media/${mediaId}/epg-binding`, { method: 'PUT', body: input }),
   // devices
   listDevices: (): Promise<DeviceDto[]> => privateFetch<DeviceDto[]>('/settings/devices'),
+  /** 013:撤销设备为保留的高危操作,仍需当次主账号密码 */
   revokeDevice: (deviceId: string, ownerPassword: string): Promise<void> =>
     privateFetch<void>(`/settings/devices/${deviceId}/revoke`, { method: 'POST', body: { ownerPassword } }),
   queryPlaybackRecords: (
     deviceId: string,
-    input: { ownerPassword: string; cursor?: string; limit?: number },
+    input: { cursor?: string; limit?: number },
   ): Promise<{ items: Array<Record<string, unknown>>; nextCursor: string | null }> =>
     privateFetch<{ items: Array<Record<string, unknown>>; nextCursor: string | null }>(
       `/settings/devices/${deviceId}/playback-records/query`,

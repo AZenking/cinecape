@@ -23,7 +23,8 @@ const LOGIN = { username: 'fixtureadmin', password: 'password-123' } as const;
 const MAIN_PIN = '135790';
 const CHILD_PIN = '246800';
 const PIN_FIELD = '设置 PIN(6 位数字)';
-const SETTING_MODULE_TITLES = ['账号与安全', '档案管理', '内容策略', '来源管理', 'EPG 管理', '设备管理', '通用设置'];
+// 菜单拆分:家庭管理组 = IPTV 管理(/settings/iptv)+ NAS/点播(/settings/sources),原「来源管理/EPG 管理」不再存在
+const SETTING_MODULE_TITLES = ['账号信息', '成员管理', '内容策略', 'IPTV 管理', 'NAS/点播', '设备管理', '家庭设置'];
 
 interface ProfileSummaryDto {
   id: string;
@@ -106,29 +107,30 @@ test.describe.serial('T079 · 主 Profile 验证后进入统一设置(SC-007)', 
     const nav = page.getByRole('navigation', { name: '设置子菜单' });
     await expect(nav).toBeVisible();
     for (const title of SETTING_MODULE_TITLES) {
-      await expect(nav.getByRole('link', { name: title })).toBeVisible();
+      await expect(nav.getByRole('option', { name: title })).toBeVisible();
     }
-    await expect(page.getByTestId('settings-current-module')).toHaveText('账号与安全');
-    // 账号与安全实页(T132):只读 AccountSummary 呈现真实服务端数据
+    await expect(page.getByTestId('settings-current-module')).toHaveText('账号信息');
+    // 账号信息实页(T132):只读 AccountSummary 呈现真实服务端数据
     await expect(page.getByTestId('account-summary')).toContainText('fixtureadmin');
     expect(accountRequests.length).toBeGreaterThanOrEqual(1);
 
     // 夹具补一个普通成人档案(后续负向用例使用)。005 US8 起管理写迁入设置边界:
     // 旧 POST /api/profiles 已删除,经 /api/settings/profiles 创建(需先解锁设置,
-    // 上面 UI PIN 验证已解锁;ownerPassword 逐次验证语义由服务端表达)
+    // 上面 UI PIN 验证已解锁;013/ADR-0017:创建档案为常规操作免当次密码,
+    // 请求体不带 ownerPassword —— 服务端 strict 契约拒绝未知字段)
     if (ordinaryAdultId === null) {
       const created = await page.request.post('/api/settings/profiles', {
-        data: { name: '爸爸', type: 'adult', pin: '369258', ownerPassword: LOGIN.password },
+        data: { name: '爸爸', type: 'adult', pin: '369258' },
       });
       if (created.status() === 201) {
         ordinaryAdultId = ((await created.json()) as { id: string }).id;
       }
     }
 
-    // 导航到档案管理:US8 实页(T131 后占位已替换)—— 档案列表呈现真实服务端数据
-    await nav.getByRole('link', { name: '档案管理' }).click();
+    // 导航到成员管理:US8 实页(T131 后占位已替换)—— 档案列表呈现真实服务端数据
+    await nav.getByRole('option', { name: '成员管理' }).click();
     await expect(page).toHaveURL(/\/settings\/profiles$/);
-    await expect(page.getByTestId('settings-current-module')).toHaveText('档案管理');
+    await expect(page.getByTestId('settings-current-module')).toHaveText('成员管理');
     await expect(page.getByTestId('profile-list')).toBeVisible();
     await expect(page.getByTestId('profile-list')).toContainText('主档案');
   });

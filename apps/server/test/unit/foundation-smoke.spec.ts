@@ -35,7 +35,7 @@ import {
  * test/helpers.ts(startFreshApp)既有模式;不新增夹具机制。
  */
 
-/** 与生产 migrate.ts 同目录权威迁移清单(当前全量 = 旧代际 + 0006 + 0007) */
+/** 与生产 migrate.ts 同目录权威迁移清单(当前全量 = 旧代际 + 0006 + 0007 + 0008 + 0009 + 0010) */
 const ALL_MIGRATIONS = [
   '0001_init',
   '0002_profile_policy',
@@ -44,11 +44,18 @@ const ALL_MIGRATIONS = [
   '0005_playback',
   '0006_pc_experience',
   '0007_online_vod',
+  '0008_profile_preferences',
+  '0009_channel_logos',
+  '0010_multi_source_priority',
 ] as const;
 
-// 0007 与 0006 同属数据代际 2:旧代际清单为二者均 down 后的 0001~0005
+// 0007 与 0006 同属数据代际 2:旧代际清单为代际 2 尾段均 down 后的 0001~0005(0009/0010 同属尾段)
 const LEGACY_MIGRATIONS = ALL_MIGRATIONS.filter(
-  (name) => name !== '0006_pc_experience' && name !== '0007_online_vod',
+  (name) =>
+    name !== '0006_pc_experience' &&
+    name !== '0007_online_vod' &&
+    name !== '0009_channel_logos' &&
+    name !== '0010_multi_source_priority',
 );
 
 const T0 = '2026-10-26T00:00:00.000Z';

@@ -129,7 +129,7 @@ async function createIptvSource(rig: Rig, name: string, targetPath: string): Pro
   const created = await request(rig.app.getHttpServer())
     .post('/api/settings/sources')
     .set('Cookie', rig.cookie)
-    .send({ ownerPassword: OWNER_PASSWORD, kind: 'iptv', name, remoteUrl: 'http://iptv.placeholder.invalid/list.m3u' });
+    .send({ kind: 'iptv', name, remoteUrl: 'http://iptv.placeholder.invalid/list.m3u' });
   expect(created.status).toBe(201);
   const sourceId = created.body.id as string;
   const server = activeServers[activeServers.length - 1];
@@ -143,7 +143,7 @@ async function startRefresh(rig: Rig, sourceId: string): Promise<string> {
   const res = await request(rig.app.getHttpServer())
     .post(`/api/settings/sources/${sourceId}/refresh`)
     .set('Cookie', rig.cookie)
-    .send({ ownerPassword: OWNER_PASSWORD, expectedVersion: 1, operationKey: randomUUID() });
+    .send({ expectedVersion: 1, operationKey: randomUUID() });
   expect(res.status, JSON.stringify(res.body)).toBe(202);
   return res.body.id as string;
 }

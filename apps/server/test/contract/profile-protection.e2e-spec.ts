@@ -77,33 +77,30 @@ function policyCount(): number {
 describe('US3 管理写操作家长验证(契约 e2e)', () => {
   afterEach(cleanupRigs);
 
-  it('POST /profiles:密码缺失 403 REQUIRED 且无部分写入;错误密码 403 FAILED 不落库;正确密码 201 且档案+策略原子创建', async () => {
+  it('POST /profiles:013 免当次密码(缺密码 201 且档案+策略原子创建;携带 ownerPassword 字段 strictObject 400 不落库)', async () => {
     const s = await bootstrap();
     const before = policyCount();
     const profilesBefore = (Database.db.prepare('SELECT COUNT(*) AS n FROM profile').get() as { n: number }).n;
 
-    const missing = await createProfile(s, { name: '新档案', type: 'child' });
-    expect(missing.status).toBe(403);
-    expectProblemContentType(missing);
-    expect(missing.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
-
+    // 携带已移除的 ownerPassword 字段 → 400,不落库
     const wrong = await createProfile(s, { name: '新档案', type: 'child', ownerPassword: 'not-it' });
-    expect(wrong.status).toBe(403);
-    expect(wrong.body.code).toBe(ProblemCode.PARENT_VERIFICATION_FAILED);
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.code).toBe(ProblemCode.VALIDATION_FAILED);
     expect(wrong.body.detail).not.toContain('not-it');
 
-    // 无孤儿行:两次失败均未创建档案或策略(主档案为夹具既有行,不计入)
+    // 无孤儿行:失败未创建档案或策略(主档案为夹具既有行,不计入)
     expect(
       (Database.db.prepare('SELECT COUNT(*) AS n FROM profile').get() as { n: number }).n,
     ).toBe(profilesBefore);
     expect(policyCount()).toBe(before);
 
-    const ok = await createProfile(s, { name: '新档案', type: 'child', ownerPassword: PASSWORD });
-    expect(ok.status).toBe(201);
+    // 缺密码 → 常规运维免当次密码,照常创建(档案+默认策略同事务)
+    const ok = await createProfile(s, { name: '新档案', type: 'child' });
+    expect(ok.status, JSON.stringify(ok.body)).toBe(201);
     expect(ok.body).toMatchObject({ name: '新档案', type: 'child' });
     expect(policyCount()).toBe(before + 1);
 
-    // 伪造"已验证"标记(未知字段)不被信任:仍需密码
+    // 伪造"已验证"标记(未知字段)不被信任
     // 005 §1:未知字段(parentVerified/verified 等验证声明)一律 400,不能借此绕过家长验证
     const forged = await createProfile(s, { name: '又一个', type: 'adult', parentVerified: true, verified: 1 });
     // 005 §1:验证声明类未知字段一律 400(验证态只在当次请求 body,不可伪造)
@@ -111,22 +108,28 @@ describe('US3 管理写操作家长验证(契约 e2e)', () => {
     expect(forged.body.code).toBe(ProblemCode.VALIDATION_FAILED);
   });
 
-  it('PATCH /profiles/{id}:名称/设 PIN/清 PIN 全部须家长验证;失败数据不变;type 为不可信未知字段被忽略', async () => {
+  it('PATCH /profiles/{id}:013 条件密码闸 —— 纯改名免密码;设/清 PIN 仍须当次密码(错误密码拒绝且数据不变);type 为不可信字段 400', async () => {
     const s = await bootstrap();
-    const created = await createProfile(s, { name: '原档案', type: 'adult', ownerPassword: PASSWORD });
+    const created = await createProfile(s, { name: '原档案', type: 'adult' });
     const id = created.body.id as string;
 
+    // 纯改名(无 PIN 字段):免当次密码,直接成功
     const renameNoPwd = await patchProfile(s, id, { name: '改名' });
-    expect(renameNoPwd.status).toBe(403);
-    expect(renameNoPwd.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
+    expect(renameNoPwd.status, JSON.stringify(renameNoPwd.body)).toBe(200);
+    expect((Database.db.prepare('SELECT name FROM profile WHERE id = ?').get(id) as { name: string }).name).toBe('改名');
 
-    const renameWrong = await patchProfile(s, id, { name: '改名', ownerPassword: 'nope' });
-    expect(renameWrong.status).toBe(403);
-    expect(renameWrong.body.code).toBe(ProblemCode.PARENT_VERIFICATION_FAILED);
+    // 携带已移除语义的明文错密码 + 纯改名:ownerPassword 为 optional 但非 PIN 变更不触发验证;
+    // 正确密码字段与改名同发亦成功(不校验)
+    const renameWithPwd = await patchProfile(s, id, { name: '再改名', ownerPassword: PASSWORD });
+    expect(renameWithPwd.status).toBe(200);
 
-    const row = Database.db.prepare('SELECT * FROM profile WHERE id = ?').get(id) as Record<string, unknown>;
-    expect(row.name).toBe('原档案');
-    expect(row.pin_hash).toBeNull();
+    // 设 PIN 缺密码 → 403 REQUIRED(条件密码闸:PIN 变更保留单次当次密码)
+    const setPinNoPwd = await patchProfile(s, id, { pin: '135790' });
+    expect(setPinNoPwd.status).toBe(403);
+    expect(setPinNoPwd.body.code).toBe(ProblemCode.PARENT_VERIFICATION_REQUIRED);
+    expect(
+      (Database.db.prepare('SELECT pin_hash FROM profile WHERE id = ?').get(id) as { pin_hash: string | null }).pin_hash,
+    ).toBeNull();
 
     // 正确密码:设 PIN 成功
     const setPin = await patchProfile(s, id, { pin: '135790', ownerPassword: PASSWORD });
@@ -150,8 +153,8 @@ describe('US3 管理写操作家长验证(契约 e2e)', () => {
 
   it('儿童家庭选择无 PIN 成人:须家长验证(403 REQUIRED/FAILED → 正确密码 200);停用儿童同样触发保护', async () => {
     const s = await bootstrap();
-    const adult = await createProfile(s, { name: '无码成人', type: 'adult', ownerPassword: PASSWORD });
-    const child = await createProfile(s, { name: '儿童', type: 'child', ownerPassword: PASSWORD });
+    const adult = await createProfile(s, { name: '无码成人', type: 'adult' });
+    const child = await createProfile(s, { name: '儿童', type: 'child' });
     const adultId = adult.body.id as string;
 
     // 儿童在列(可用)→ 无密码拒绝
@@ -179,8 +182,8 @@ describe('US3 管理写操作家长验证(契约 e2e)', () => {
 
   it('有 PIN 成人沿用 PIN 流程:ownerPassword 不替代 PIN 解锁;儿童选择不受影响;无儿童家庭无 PIN 成人可直接选择', async () => {
     const s = await bootstrap();
-    const pinned = await createProfile(s, { name: '有码成人', type: 'adult', pin: '246813', ownerPassword: PASSWORD });
-    const kid = await createProfile(s, { name: '儿童', type: 'child', ownerPassword: PASSWORD });
+    const pinned = await createProfile(s, { name: '有码成人', type: 'adult', pin: '246813' });
+    const kid = await createProfile(s, { name: '儿童', type: 'child' });
 
     // 未解锁:即使带正确 ownerPassword 也要求 PIN(ownerPassword 不替代解锁授予)
     const withPwd = await selectProfile(s, pinned.body.id, { ownerPassword: PASSWORD });
@@ -201,7 +204,7 @@ describe('US3 管理写操作家长验证(契约 e2e)', () => {
 
     // 无儿童家庭:无 PIN 成人直接可选(阶段 1 行为保留)
     const s2 = await bootstrap();
-    const onlyAdult = await createProfile(s2, { name: '独居成人', type: 'adult', ownerPassword: PASSWORD });
+    const onlyAdult = await createProfile(s2, { name: '独居成人', type: 'adult' });
     const direct = await selectProfile(s2, onlyAdult.body.id);
     expect(direct.status).toBe(200);
   });
@@ -212,7 +215,7 @@ describe('US3 管理写操作家长验证(契约 e2e)', () => {
     const logout = await request(s.app.getHttpServer()).post('/api/auth/logout').set('Cookie', s.cookie);
     expect(logout.status).toBe(204);
 
-    const rejected = await createProfile(s, { name: 'X', type: 'adult', ownerPassword: PASSWORD });
+    const rejected = await createProfile(s, { name: 'X', type: 'adult' });
     expect(rejected.status).toBe(401);
     expect(rejected.body.code).toBe(ProblemCode.SESSION_INVALID);
     const profilesAtEnd = (Database.db.prepare('SELECT COUNT(*) AS n FROM profile').get() as { n: number }).n;

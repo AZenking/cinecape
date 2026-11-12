@@ -64,7 +64,8 @@ export interface VodPreviewValues {
   readonly description: string | null;
   readonly year: string | null;
   readonly sourceLabel: string;
-  readonly posterRef: null;
+  /** 同源海报资源不透明引用(服务端代理取回);上游未给海报 → null */
+  readonly posterRef: string | null;
   readonly previewRevision: number;
   readonly fetchedAt: string;
   readonly expiresAt: string;
@@ -107,6 +108,10 @@ export type VodTitlePayload =
       readonly year: string | null;
       readonly locatorRevision: number;
       readonly searchId: string;
+      /** 上游海报地址(私有定位;上游未给 → null;绑定/快照两形态恒携带) */
+      readonly posterUrl: string | null;
+      /** poster 级不透明 ref(无海报恒 null;快照原样承继绑定值,保持重放不变) */
+      readonly posterRef: string | null;
     }
   | {
       readonly kind: 'title-preview';
@@ -117,6 +122,8 @@ export type VodTitlePayload =
       readonly year: string | null;
       readonly locatorRevision: number;
       readonly searchId: string;
+      readonly posterUrl: string | null;
+      readonly posterRef: string | null;
       readonly synopsis: string | null;
       readonly previewRevision: number;
       readonly fetchedAtMs: number;
@@ -195,7 +202,7 @@ export function createVodPreviewService(deps: VodPreviewServiceDeps): {
       description: payload.synopsis,
       year: payload.year,
       sourceLabel: payload.sourceLabel,
-      posterRef: null,
+      posterRef: payload.posterRef,
       previewRevision: payload.previewRevision,
       fetchedAt: new Date(payload.fetchedAtMs).toISOString(),
       expiresAt: new Date(expiresAtMs).toISOString(),
@@ -391,6 +398,15 @@ export function createVodPreviewService(deps: VodPreviewServiceDeps): {
     revisions.set(key, previewRevision);
     const fetchedAtMs = now();
     const expiresAtMs = fetchedAtMs + deps.cache.ttlMs;
+    // 海报补签:列表简表(ac=list)常缺 vod_pic、详情(ac=detail)才带 —— 绑定缺图而
+    // 详情有图时,在快照组装时补发 poster 级 ref(绑定在 titleRef 条目,随快照原子
+    // 替换保留;绑定已有图则原样承继,不因详情侧海报变化改写已签发 ref)
+    const posterUrl = payload.posterUrl ?? detail.posterUrl;
+    const posterRef =
+      payload.posterRef ??
+      (detail.posterUrl !== null
+        ? deps.cache.allocateRef(command.titleRef, `poster:${payload.sourceId} ${payload.upstreamVodId}`, 'poster')
+        : null);
     const stored: VodTitlePayload = {
       kind: 'title-preview',
       sourceId: payload.sourceId,
@@ -400,6 +416,8 @@ export function createVodPreviewService(deps: VodPreviewServiceDeps): {
       year: detail.year ?? payload.year,
       locatorRevision: payload.locatorRevision,
       searchId: payload.searchId,
+      posterUrl,
+      posterRef,
       synopsis: detail.synopsis,
       previewRevision,
       fetchedAtMs,

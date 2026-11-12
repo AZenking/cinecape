@@ -82,6 +82,8 @@ const mediaRootsSchema = z
 /* LAN_ALLOWED_TARGETS:远程导入目标精确许可列表(T010/research R3)           */
 /* 条目为 host、host:port 或 CIDR(IPv4/IPv6);拒绝通配符与「/0」允许全部,    */
 /* 不提供「允许全部内网」开关。缺省为空 = 全部远程目标拒绝(默认拒绝)。      */
+/* 受控例外:条目 public 放行全部公网单播目标;私网(RFC1918/ULA)与环回/链路  */
+/* 本地/元数据仍须精确条目,类别拒绝(未指定/多播)恒不放宽。                */
 /* ------------------------------------------------------------------------ */
 
 /** 单条精确许可(冻结语义由数组层保证)。 */
@@ -93,7 +95,8 @@ export type LanTarget =
       readonly family: 4 | 6;
       readonly address: string;
       readonly prefixLength: number;
-    };
+    }
+  | { readonly kind: 'public' };
 
 /** 主机名:点分字母/数字/连字符标签(每段 1~63,总长 ≤253,不得以连字符开头/结尾)。 */
 const HOSTNAME_PATTERN =
@@ -128,6 +131,10 @@ function parseLanHost(where: string, host: string): { ok: true; host: string } |
 
 function parseLanTargetEntry(entry: string, index: number): LanEntryResult {
   const where = `第 ${index} 个条目`;
+  if (entry === 'public') {
+    // 受控放行条目:放行全部公网单播目标;私网/环回/元数据仍默认拒绝
+    return { ok: true, target: { kind: 'public' } };
+  }
   if (entry.includes('*')) {
     return { ok: false, error: `${where}含通配符「*」;仅允许精确 host、host:port 或 CIDR` };
   }

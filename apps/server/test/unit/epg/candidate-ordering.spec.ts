@@ -19,8 +19,9 @@ function bootstrap(): { householdId: string; epgSourceId: string } {
   Database.close();
   Database.db.exec('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY NOT NULL, applied_at TEXT NOT NULL)');
   const root = path.join(process.cwd(), 'src/platform/database/migrations');
-  // 010 收敛:rig 迁移清单补到 0007(schema.ts 查询面已含 0007 列,如 media_source.locator_revision)
-  for (const name of ['0001_init', '0002_profile_policy', '0003_media_catalog', '0004_manual_epg_binding', '0005_playback', '0006_pc_experience', '0007_online_vod']) {
+  // 016 收敛:rig 迁移清单补到 0010(schema.ts 查询面已含 0010 列,如 media_source.priority;
+  // 0008~0010 均为代际 2 尾段增量表/列,对本用例候选排序断言面零影响)
+  for (const name of ['0001_init', '0002_profile_policy', '0003_media_catalog', '0004_manual_epg_binding', '0005_playback', '0006_pc_experience', '0007_online_vod', '0008_profile_preferences', '0009_channel_logos', '0010_multi_source_priority']) {
     Database.db.transaction(() => {
       Database.db.exec(fs.readFileSync(path.join(root, name, 'up.sql'), 'utf8'));
       Database.db.prepare('INSERT INTO _migrations (name, applied_at) VALUES (?, ?)').run(name, new Date().toISOString());

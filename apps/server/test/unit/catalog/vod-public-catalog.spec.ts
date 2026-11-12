@@ -50,9 +50,11 @@ const STABLE_EPISODE_ITEM_KEYS = ['mediaId', 'label', 'availability', 'sequenceO
 const PUBLIC_MEDIA_KEYS = ['availability', 'contentLevel', 'description', 'id', 'posterRef', 'title', 'type'] as const;
 
 /* ------------------------------------------------------------------ */
-/* rig:真实 DDL(0001–0007)+ 真实 store + 桩范围                          */
+/* rig:真实 DDL(0001–0010)+ 真实 store + 桩范围                          */
 /* ------------------------------------------------------------------ */
 
+/* 016 收敛:补 0008~0010(代际 2 尾段增量表/列)。0010 的 media_source.priority NOT NULL
+ * 列为 drizzle schema(mediaSource)插入形态所必需,缺列将令 seedSource 造数失败。 */
 const MIGRATIONS = [
   '0001_init',
   '0002_profile_policy',
@@ -61,6 +63,9 @@ const MIGRATIONS = [
   '0005_playback',
   '0006_pc_experience',
   '0007_online_vod',
+  '0008_profile_preferences',
+  '0009_channel_logos',
+  '0010_multi_source_priority',
 ] as const;
 
 const openConnections: DatabaseConstructor.Database[] = [];

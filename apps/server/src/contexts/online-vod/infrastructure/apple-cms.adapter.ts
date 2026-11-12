@@ -45,6 +45,7 @@
 
 import {
   IDENTITY_KEY_MAX_LENGTH,
+  POSTER_URL_MAX_LENGTH,
   SYNOPSIS_MAX_LENGTH,
   normalizeIdentity,
   ProviderParseError,
@@ -86,6 +87,8 @@ export interface AppleCmsVodItemWire {
   vod_serial?: string;
   vod_time?: string;
   vod_time_add?: number;
+  /** 海报地址(展示级;解析层丢弃规则见 parsePosterUrl,不参与身份/完整性) */
+  vod_pic?: string;
   vod_play_from?: string;
   vod_play_url?: string;
   vod_play_note?: string;
@@ -127,6 +130,7 @@ export function parseSearchList(document: AppleCmsListDocumentWire): readonly Pa
       title: identity.name,
       year: identity.year,
       remarks: toNullableText(readOptionalString(item.vod_remarks)),
+      posterUrl: parsePosterUrl(item),
     };
   });
 }
@@ -155,6 +159,7 @@ export function parseDetail(item: AppleCmsVodItemWire, input: VodParseDetailBudg
     title: identity.name,
     year: identity.year,
     synopsis: parseSynopsis(item),
+    posterUrl: parsePosterUrl(item),
     evidence: 'unverified',
     lines,
   };
@@ -231,6 +236,23 @@ function readOptionalString(value: unknown): string {
 function toNullableText(raw: string): string | null {
   const text = normalizeIdentity(raw);
   return text.length > 0 ? text : null;
+}
+
+/**
+ * 海报地址解析(vod_pic,展示级):NFC+trim;空 → null(上游未给不制造);
+ * 非 http(s) 或超 POSTER_URL_MAX_LENGTH → null(丢弃海报,不影响条目身份/解析,
+ * 与播放地址 protocol_unsupported 整体拒绝的语义刻意区分——海报缺失只降级展示)。
+ * 逐字透传不重编码;私有定位,公共面只见 posterRef。
+ */
+function parsePosterUrl(item: AppleCmsVodItemWire): string | null {
+  const url = normalizeIdentity(readOptionalString(item.vod_pic));
+  if (url.length === 0) {
+    return null;
+  }
+  if (!ABSOLUTE_HTTP_URL_RE.test(url) || url.length > POSTER_URL_MAX_LENGTH) {
+    return null;
+  }
+  return url;
 }
 
 /** 标题身份构建:vod_id/vod_name 缺失 → integrity_violation;归一后空/超长 →

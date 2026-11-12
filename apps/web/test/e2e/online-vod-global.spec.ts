@@ -382,22 +382,23 @@ test.describe.serial('T082 · US5 全局播放/退出/守护(Q9/Q7 受控真实�
     await apiLoginAndSelectMain(page);
     await apiUnlockSettings(page);
 
-    // 1. 创建 IPTV 源(指向 spec 进程内受控上游)
+    // 1. 创建 IPTV 源(指向 spec 进程内受控上游;013/ADR-0017:常规操作免当次密码,
+    // 请求体不带 ownerPassword —— 服务端 strict 契约拒绝未知字段)
     const create = await page.request.post('/api/settings/sources', {
       data: {
         kind: 'iptv',
         name: 'e2e 受控直播源(T082)',
         remoteUrl: `${upstream.baseUrl}/live.m3u`,
         enabled: true,
-        ownerPassword: 'password-123',
       },
     });
     expect(create.status(), `源创建应成功:${create.status()}`).toBe(201);
     const source = (await create.json()) as { id: string; version: number };
 
-    // 2. 发起导入 → 等待终态(正常 diff 自动发布 succeeded;异常 diff 才 awaiting_confirmation)
+    // 2. 发起导入 → 等待终态(正常 diff 自动发布 succeeded;异常 diff 才 awaiting_confirmation;
+    //    免当次密码,幂等 operationKey 照旧)
     const refresh = await page.request.post(`/api/settings/sources/${source.id}/refresh`, {
-      data: { expectedVersion: source.version, operationKey: crypto.randomUUID(), ownerPassword: 'password-123' },
+      data: { expectedVersion: source.version, operationKey: crypto.randomUUID() },
     });
     expect(refresh.status()).toBe(202);
     const refreshId = ((await refresh.json()) as { id: string }).id;
