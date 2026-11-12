@@ -373,8 +373,10 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                             : isCurrent
                               ? 'z-[5] border border-accent/60 bg-accent/20 text-foreground shadow-sm hover:border-accent hover:bg-accent/25'
                               : isPast
-                                ? 'border border-border/50 bg-surface/50 text-muted/70 shadow-none hover:bg-surface-secondary/60'
-                                : 'border border-border/80 bg-surface text-foreground shadow-sm hover:border-foreground/30 hover:bg-surface-secondary hover:shadow-md'
+                                // 已结束:默认底色更淡(与卡面区分但仍退后)
+                                ? 'border border-border/50 bg-surface-secondary/40 text-muted/70 shadow-none hover:bg-surface-secondary/60'
+                                // 未开始:统一默认底色(与卡面区分,不再与背景同色)
+                                : 'border border-border/70 bg-surface-secondary/65 text-foreground shadow-sm hover:border-foreground/30 hover:bg-surface-secondary hover:shadow-md'
                         }`}
                         style={{
                           // 块间留 3px 缝隙(左右)与 6px 上下,节目墙更"一格一格"
