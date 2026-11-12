@@ -86,13 +86,17 @@ afterEach(() => {
 });
 
 describe('GuideChannelList · 当前行(直播语义/进度/剩余文案/点击=直接播放)', () => {
-  it('当前行含「正在直播」aria-label、LIVE 标识、「还剩」剩余文案;按产品要求不再展示进度条', () => {
+  it('当前行含「正在直播」aria-label、LIVE 标识、「还剩」剩余文案与可见进度条', () => {
     renderList();
     const currentButton = screen.getByRole('button', { name: /正在直播/ });
     expect(within(currentButton).getByText('LIVE')).toBeInTheDocument();
     expect(currentButton.textContent).toContain('还剩');
-    // 产品评审:正在直播的节目单不再显示进度条(避免画面/列表冗余提示)
-    expect(currentButton.querySelector('span[style*="width"]')).toBeNull();
+    // 产品要求:当前档要有明显进度 —— 内联宽度百分比进度条(0 < p < 100)
+    const bar = currentButton.querySelector('span[style*="width"]') as HTMLElement | null;
+    expect(bar, '当前行应渲染进度条').not.toBeNull();
+    const percent = Number.parseFloat(bar?.style.width ?? '');
+    expect(percent).toBeGreaterThan(0);
+    expect(percent).toBeLessThan(100);
   });
 
   it('点击当前行按钮 → onPlayChannel(mediaId+title)恰调一次,onSelectProgramme 不被调', async () => {

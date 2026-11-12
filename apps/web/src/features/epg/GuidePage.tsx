@@ -279,11 +279,15 @@ export function GuidePage(): ReactNode {
     // 由 autoPosition(align='start',窗口起点)定位,避免先滚到旧窗口 clamp
     // 位置再跳转的抖动
     if (autoPosition !== undefined && autoPosition.align === 'center' && scrollRef.current) {
-      const left = Math.max(0, autoPosition.anchorX - scrollRef.current.clientWidth / 2);
-      if (typeof scrollRef.current.scrollTo === 'function') {
-        scrollRef.current.scrollTo({ left, behavior: 'smooth' });
+      const container = scrollRef.current;
+      const left = Math.max(0, autoPosition.anchorX - container.clientWidth / 2);
+      // 距离超过一屏时直接定位(平滑滚动几千像素要数秒,观感像"没反应");
+      // 近距离仍用平滑,保留"回到此刻"的方向感
+      const far = Math.abs(left - container.scrollLeft) > container.clientWidth;
+      if (typeof container.scrollTo === 'function') {
+        container.scrollTo({ left, behavior: far ? 'auto' : 'smooth' });
       } else {
-        scrollRef.current.scrollLeft = left;
+        container.scrollLeft = left;
       }
     }
   }, [autoPosition, updateParams]);

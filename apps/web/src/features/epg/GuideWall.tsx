@@ -134,6 +134,10 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
   const spanPx = windowSpanPx(fromMs, toMs);
   const titleRef = useRef<HTMLParagraphElement>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  /** NOW 浮标容器(滚动时同步写 left,避免一帧滞后) */
+  const pillRef = useRef<HTMLDivElement | null>(null);
+  /** 最新 nowX(滚动回调里读,避免闭包过期) */
+  const nowXRef = useRef(0);
   /** 墙内可视区(用于 NOW 浮标贴边:超出时钉在左右边缘) */
   const [viewport, setViewport] = useState<{ scrollLeft: number; clientWidth: number }>({
     scrollLeft: 0,
@@ -145,8 +149,22 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
     if (scroller === null) {
       return;
     }
+    // 滚动时**同步**写浮标样式:React 状态更新有一帧滞后,瞬时大跨度滚动
+    // (回到现在)会先看到浮标飞出视口再 snap 回来。
+    const syncPill = (): void => {
+      const el = pillRef.current;
+      if (el === null) {
+        return;
+      }
+      const clientWidth = scroller.clientWidth;
+      // 34 ≈ 胶囊半宽:让胶囊整体留在可视区内,左缘正好停在频道列右侧
+      const leftEdge = scroller.scrollLeft + 34;
+      const rightEdge = scroller.scrollLeft + clientWidth - CHANNEL_COL_PX - 34;
+      el.style.left = `${Math.min(Math.max(nowXRef.current, leftEdge), Math.max(leftEdge, rightEdge))}px`;
+    };
     const update = (): void => {
       setViewport({ scrollLeft: scroller.scrollLeft, clientWidth: scroller.clientWidth });
+      syncPill();
     };
     update();
     scroller.addEventListener('scroll', update, { passive: true });
@@ -163,11 +181,14 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
   // 翻页后焦点定位到新窗口标题(初始渲染不抢焦点)
   useEffect(() => {
     if (focusSignal > 0) {
-      titleRef.current?.focus();
+      // preventScroll:焦点锚在内容左上角,默认聚焦会把滚动容器拉回起点,
+      // 从而抵消「回到现在」的平滑滚动(实测回归)。
+      titleRef.current?.focus({ preventScroll: true });
     }
   }, [focusSignal]);
 
   const nowX = Math.min(Math.max(utcToPx(nowMs, fromMs), 0), spanPx);
+  nowXRef.current = nowX;
   const hasNowInWindow = nowMs >= fromMs && nowMs < toMs;
   // formatTimeInZone 需要 ISO 字符串:ticking nowMs(UTC 毫秒)转 ISO
   const nowIso = new Date(nowMs).toISOString();
@@ -180,8 +201,8 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
     if (viewport.clientWidth <= 0) {
       return nowX;
     }
-    const leftEdge = viewport.scrollLeft + 28;
-    const rightEdge = viewport.scrollLeft + viewport.clientWidth - CHANNEL_COL_PX - 28;
+    const leftEdge = viewport.scrollLeft + 34;
+    const rightEdge = viewport.scrollLeft + viewport.clientWidth - CHANNEL_COL_PX - 34;
     return Math.min(Math.max(nowX, leftEdge), Math.max(leftEdge, rightEdge));
   })();
 
@@ -223,7 +244,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
             </div>
           ))}
           {/* 浮标恒渲染:now 在窗口外(浏览其他日期)时钉在最近边缘,始终提供「回到现在」入口 */}
-          <div className="absolute top-0 z-10 flex -translate-x-1/2 flex-col items-center" style={{ left: nowPillX }}>
+          <div ref={pillRef} className="absolute top-0 z-10 flex -translate-x-1/2 flex-col items-center" style={{ left: nowPillX }}>
               {/* NOW 浮标 = 「回到现在」入口(原工具栏按钮已移除)。滚动/拖拽把 now
                   推出可视区时浮标钉在左/右边缘(左缘不越过频道列),见 nowPillX。 */}
               <button
@@ -323,6 +344,11 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                     const isCurrent = current?.key === programme.key;
                     const isPast = endsAtMs <= nowMs;
                     const rangeLabel = `${formatTimeInZone(programme.startsAt, data.timezone)}–${formatTimeInZone(programme.endsAt, data.timezone)}`;
+                    // 已播比例(服务端基准钟 tick 驱动;仅当前档使用)
+                    const liveProgressPercent =
+                      isCurrent && endsAtMs > startsAtMs
+                        ? Math.min(100, Math.max(0, ((nowMs - startsAtMs) / (endsAtMs - startsAtMs)) * 100))
+                        : 0;
 
                     return (
                       <Card
@@ -358,7 +384,15 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                         className="group/prog flex h-full w-full flex-col text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                       >
                         {/* 两行内容:标题行(+LIVE 角标)+ `HH:mm – HH:mm` muted 行 */}
-                        <span className="flex h-full min-w-0 flex-col justify-center gap-0.5 px-2.5">
+                        {/* 正在直播:左侧按已播比例填充 + 底部进度条(产品要求:当前档要明显) */}
+                        {isCurrent ? (
+                          <span
+                            aria-hidden="true"
+                            className="pointer-events-none absolute inset-y-0 left-0 bg-accent/15"
+                            style={{ width: `${liveProgressPercent}%` }}
+                          />
+                        ) : null}
+                        <span className="relative flex h-full min-w-0 flex-col justify-center gap-0.5 px-2.5">
                           <span className="flex min-w-0 items-center gap-1">
                             <span className="hmp-truncate min-w-0 text-2xs font-medium leading-tight">
                               {programme.title}
@@ -389,6 +423,13 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                         </span>
 
                       </button>
+                      {isCurrent ? (
+                        <span
+                          aria-hidden="true"
+                          className="pointer-events-none absolute bottom-0 left-0 h-1 bg-accent"
+                          style={{ width: `${liveProgressPercent}%` }}
+                        />
+                      ) : null}
                       </Card>
                     );
                   })
