@@ -227,7 +227,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
       <div className="sticky top-0 z-40 flex border-b border-border bg-surface shadow-xs">
         {/* 左上角频道头:sticky left + sticky top(015 线框全中文:仅中文「频道」) */}
         <div
-          className="sticky left-0 z-10 flex shrink-0 items-center border-r border-border bg-surface px-3 text-xs font-semibold text-muted tracking-wider"
+          className="sticky left-0 z-10 flex shrink-0 items-center bg-surface px-3 text-xs font-semibold text-muted tracking-wider"
           style={{ width: CHANNEL_COL_PX, height: 32 }}
         >
           <span>频道</span>
@@ -238,7 +238,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
           {ticks.map((tick) => (
             <div
               key={tick.ms}
-              className="hmp-tabular-nums absolute top-0 bottom-0 flex flex-col justify-center border-l border-border/70 pl-2 text-xs font-medium text-muted/90"
+              className="hmp-tabular-nums absolute top-0 bottom-0 flex flex-col justify-center pl-2 text-xs font-medium text-muted/90"
               style={{ left: utcToPx(tick.ms, fromMs) }}
             >
               <span>{tick.label}</span>
@@ -284,14 +284,14 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
           return (
             <div
               key={channel.media.id}
-              className="group/row flex border-b border-border/70 transition-colors last:border-b-0 even:bg-background/25 hover:bg-surface-secondary/25"
+              className="group/row flex transition-colors hover:bg-surface-secondary/25"
             >
               {/* 频道列:sticky left;整格即「播放该频道当前直播」按钮。
                   产品要求:列内只展示台标(logo 接口),频道名改由 Tooltip 悬浮展示;
                   背景与节目区区分,右缘渐变阴影提示可横向滚动 */}
               <Tooltip delay={200}>
                 <Tooltip.Trigger
-                  className="sticky left-0 z-30 flex shrink-0 items-center justify-center gap-1.5 border-r border-border bg-surface-secondary/70 px-2 transition-colors hover:bg-surface-secondary"
+                  className="sticky left-0 z-30 flex shrink-0 items-center justify-center gap-1.5 bg-surface-secondary/70 px-2 transition-colors hover:bg-surface-secondary"
                   style={{ width: CHANNEL_COL_PX, height: ROW_HEIGHT_PX }}
                 >
                 <button
@@ -343,7 +343,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                   <div
                     key={`grid-${tick.ms}`}
                     aria-hidden="true"
-                    className="pointer-events-none absolute top-0 bottom-0 border-l border-border/40"
+                    className="pointer-events-none absolute top-0 bottom-0"
                     style={{ left: utcToPx(tick.ms, fromMs) }}
                   />
                 ))}
