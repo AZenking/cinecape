@@ -1011,7 +1011,7 @@ describe('010 T063 · 倒计时目标改变重新确认', () => {
 // ────────────────────────── G · 未知 duration 起播不误杀(审查补充) ──────────────────────────
 
 describe('010 T063 · 未知 duration 起播不误杀', () => {
-  it('G1 [现状绿] duration 未知媒体正常播放:started/周期照发、显示进度不可保存、不终止、无倒计时(T049 面)', async () => {
+  it('G1 [现状绿] duration 未知媒体正常播放:started/周期照发、不呈现进度提示、不终止、无倒计时(T049 面)', async () => {
     vi.useFakeTimers();
     renderPlayerView({ durationSeconds: null });
     await pumpTimers(50);
@@ -1019,7 +1019,8 @@ describe('010 T063 · 未知 duration 起播不误杀', () => {
     await pumpTimers(10_000);
     expect(progressBodies().filter((body) => body.reason === 'started')).toHaveLength(1);
     expect(progressBodies().filter((body) => body.reason === 'periodic').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByTestId('progress-unsavable')).toBeInTheDocument();
+    // 产品要求:画面内常驻提示属过度设计,已移除(能力判定仍在逻辑层)
+    expect(screen.queryByTestId('progress-unsavable')).not.toBeInTheDocument();
     expect(terminated, '进度不可保存不得终止播放').not.toHaveBeenCalled();
     expect(screen.queryByTestId('autoplay-countdown')).not.toBeInTheDocument();
   });

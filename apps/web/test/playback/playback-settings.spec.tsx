@@ -394,14 +394,16 @@ describe('T028 · 音轨当前值控制(重建输出同会话换代;FR-020 第 4
   });
 });
 
-// ────────────────────────── D · 直播状态徽标(FR-020 第 2 项) ──────────────────────────
+// ────────────────────────── D · 直播状态呈现(FR-020 第 2 项) ──────────────────────────
 
 describe('T028 · 直播状态文字呈现(时长 null 契约)', () => {
-  it('D1 探针确认直播(时长 null):「正在直播」role=status 文字呈现', async () => {
+  it('D1 探针确认直播(时长 null):控制栏 LIVE 胶囊承载状态,画面内不再有常驻角标', async () => {
     renderPlayer({ durationSeconds: null, seekCapability: 'none' });
-    await waitFor(() => expect(screen.getByTestId('live-status')).toBeInTheDocument());
-    expect(screen.getByTestId('live-status').textContent).toBe('正在直播');
-    expect(screen.getByTestId('live-status').getAttribute('role')).toBe('status');
+    await waitFor(() => expect(screen.getByTestId('player-controls')).toBeInTheDocument());
+    // 产品要求:画面内的「正在直播」常驻角标属过度提示,已移除;
+    // 直播状态由控制栏 LIVE 胶囊给出(文字 + 非颜色手段)
+    expect(screen.queryByTestId('live-status')).not.toBeInTheDocument();
+    expect(screen.getByTestId('player-controls').textContent).toContain('直播');
   });
 
   it('D2 点播(时长已知):不渲染直播徽标(不虚构状态)', async () => {

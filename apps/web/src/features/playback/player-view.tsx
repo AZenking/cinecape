@@ -183,8 +183,6 @@ export function PlayerView({
   const resumeReason = resumeReasonProp !== undefined ? resumeReasonProp : (status?.resumeReason ?? null);
   const durationSeconds = durationSecondsProp !== undefined ? durationSecondsProp : (status?.durationSeconds ?? null);
   const degradedNotice = resumeReason !== null ? (RESUME_REASON_NOTICES[resumeReason] ?? null) : null;
-  // 进度不可保存面(ui.md §6/api.md §7 I4):能力 none 或时长未知(能力已知时)
-  const progressUnsavable = seekCapability === 'none' || (seekCapability !== null && durationSeconds === null);
 
   // 稳定回调面:父层回调以 ref 转发,定时器/安装效果不因父层重渲染重排
   const terminatedRef = useRef(onTerminated);
@@ -568,13 +566,8 @@ export function PlayerView({
         onPlayGestureRequired={handlePlayGestureRequired}
         onManualPlayReady={handleManualPlayReady}
       />
-      {/* 直播状态徽标(012 T028;FR-020 第 2 项):探针确认时长 null(直播契约)
-          即文字状态呈现,不仅靠颜色(FR-030);探针未回/失败不虚构状态 */}
-      {status !== null && durationSeconds === null ? (
-        <p role="status" data-testid="live-status" className="absolute start-4 top-3 z-10 rounded bg-black/70 px-2 py-1 text-xs text-white">
-          正在直播
-        </p>
-      ) : null}
+      {/* 直播状态:控制栏已用 LIVE 胶囊承载(产品要求:去掉画面内的常驻角标,
+          避免与控制栏重复的过度提示) */}
       {/* 控制栏(自绘 HeroUI):基础播放控件 + 右侧业务动作区。
           换源/播放设置/线路/节目单全部收拢于此(产品要求:不再四角浮动)。 */}
       <PlayerControls
@@ -641,12 +634,8 @@ export function PlayerView({
           {degradedNotice}
         </p>
       ) : null}
-      {/* 进度不可保存面(B7b/I4):时长未知或能力 none —— 不虚构可保存进度 */}
-      {progressUnsavable ? (
-        <p role="status" data-testid="progress-unsavable" className="absolute bottom-36 start-4 rounded bg-black/70 px-2 py-1 text-xs text-white">
-          此来源暂不支持进度保存:进度不可保存,不进入观看历史。
-        </p>
-      ) : null}
+      {/* 进度不可保存(产品要求:去掉画面内常驻说明,避免过度提示);
+          能力判定 progressUnsavable 仍保留给控制栏/进度逻辑做门禁 */}
       {/* 进度协议状态提示(未保存/同步失败;不遮挡控制条,错误不只靠颜色) */}
       {progress.syncFailed ? (
         <p role="alert" data-testid="progress-sync-failed" className="absolute bottom-16 start-4 rounded bg-black/70 px-2 py-1 text-xs text-white">
