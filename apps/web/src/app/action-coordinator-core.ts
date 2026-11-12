@@ -40,6 +40,9 @@ export interface PlayTarget {
   readonly mediaId: string;
   readonly title: string;
   readonly startMode: 'beginning' | 'resume';
+  /** 频道/影片标识 logo 引用(海报链路 posterRef;标题栏呈现「logo + 名称」用,
+   *  可缺省 —— 缺省时回退首字徽标,不参与任何请求体) */
+  readonly posterRef?: string | null;
   /**
    * 指定物理线路 ID(016 T020/T021;api.md §2.1 可选 lineId):OSD 手动换线与
    * 容灾续接时携带,缺省由服务端按 priority ASC/isDefault 优选。

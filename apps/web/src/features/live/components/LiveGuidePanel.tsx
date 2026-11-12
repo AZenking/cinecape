@@ -37,7 +37,7 @@ export interface LiveGuidePanelProps {
   /** 当前正在播放的频道 mediaId(行内标记「当前」,不重复切换) */
   readonly currentChannelId?: string | null;
   /** 点击某频道当前节目:切到该频道(宿主统一经 usePlayAction) */
-  readonly onZap: (mediaId: string, title: string) => void;
+  readonly onZap: (mediaId: string, title: string, posterRef: string | null) => void;
 }
 
 interface LiveGuideRowProps {
@@ -45,7 +45,7 @@ interface LiveGuideRowProps {
   readonly nowMs: number;
   readonly timezone: string;
   readonly isCurrent: boolean;
-  readonly onZap: (mediaId: string, title: string) => void;
+  readonly onZap: (mediaId: string, title: string, posterRef: string | null) => void;
 }
 
 function LiveGuideRow({ row, nowMs, timezone, isCurrent, onZap }: LiveGuideRowProps): ReactNode {
@@ -68,7 +68,7 @@ function LiveGuideRow({ row, nowMs, timezone, isCurrent, onZap }: LiveGuideRowPr
       aria-current={isCurrent ? 'true' : undefined}
       onClick={() => {
         if (!isCurrent) {
-          onZap(row.media.id, channelTitle);
+          onZap(row.media.id, channelTitle, row.media.posterRef);
         }
       }}
       className={`flex w-full flex-col gap-1 rounded-md border px-2 py-1.5 text-start transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
@@ -124,7 +124,7 @@ export function LiveGuidePanel({ open, onClose, currentChannelId = null, onZap }
 interface LiveGuidePanelBodyProps {
   readonly onClose: () => void;
   readonly currentChannelId: string | null;
-  readonly onZap: (mediaId: string, title: string) => void;
+  readonly onZap: (mediaId: string, title: string, posterRef: string | null) => void;
 }
 
 function LiveGuidePanelBody({ onClose, currentChannelId, onZap }: LiveGuidePanelBodyProps): ReactNode {
@@ -140,8 +140,8 @@ function LiveGuidePanelBody({ onClose, currentChannelId, onZap }: LiveGuidePanel
   const timezone = page?.timezone ?? 'UTC';
 
   const handleZap = useCallback(
-    (mediaId: string, title: string): void => {
-      onZap(mediaId, title);
+    (mediaId: string, title: string, posterRef: string | null): void => {
+      onZap(mediaId, title, posterRef);
       onClose();
     },
     [onZap, onClose],

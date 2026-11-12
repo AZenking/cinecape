@@ -133,7 +133,7 @@ export interface PlayerViewProps {
   readonly minimized?: boolean;
   readonly onToggleMinimize?: () => void;
   /** 直播频道切换(节目单面板内点击某频道当前节目) */
-  readonly onZapChannel?: (mediaId: string, title: string) => void;
+  readonly onZapChannel?: (mediaId: string, title: string, posterRef: string | null) => void;
   /** 当前播放频道 mediaId(节目单面板标记「当前」用) */
   readonly currentChannelId?: string | null;
 }
@@ -619,8 +619,8 @@ export function PlayerView({
           setGuideOpen(false);
         }}
         currentChannelId={currentChannelId}
-        onZap={(mediaId, title) => {
-          onZapChannel?.(mediaId, title);
+        onZap={(mediaId, title, posterRef) => {
+          onZapChannel?.(mediaId, title, posterRef);
         }}
       />
       {transition.state.drawerOpen ? <VodSourceSwitcher transition={transition} /> : null}

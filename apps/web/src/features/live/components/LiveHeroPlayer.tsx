@@ -81,7 +81,7 @@ export function LiveHeroPlayer({ row, timezone, nowIso, onOpenProgramme }: LiveH
 
   /** 主操作:全屏播放/直接收看 —— 一律直接 play(),登录拦截归 ActionCoordinator */
   const startPlayback = (): void => {
-    play({ mediaId: row.media.id, title: channelTitle, startMode: 'beginning' });
+    play({ mediaId: row.media.id, title: channelTitle, startMode: 'beginning', posterRef: row.media.posterRef });
   };
 
   return (

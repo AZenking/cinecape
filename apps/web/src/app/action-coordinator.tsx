@@ -58,12 +58,9 @@ import { SelectionPinStep } from '../features/profiles/selection-pin-step';
 import { PlayerView } from '../features/playback/player-view';
 import { useVodTransition } from '../features/playback/use-vod-transition';
 import { VodSourceSwitcher } from '../features/playback/vod-source-switcher';
-import { PlayerLineSwitcher } from '../features/live/components/PlayerLineSwitcher';
+import { ChannelLogo } from '../features/live/components/channel-logo';
 import { useAppToast } from '../shared/ui';
-import {
-  VodAutoplayPreferenceProvider,
-  useVodAutoplayPreference,
-} from '../features/playback/vod-autoplay-preference';
+import { VodAutoplayPreferenceProvider } from '../features/playback/vod-autoplay-preference';
 
 export interface AuthActionApi {
   /** 弹层是否打开 */
@@ -90,6 +87,8 @@ export interface PlayActionRequest {
    * 容灾续接时携带并透传 resolve 请求体;缺省由服务端按 priority ASC/isDefault 优选。
    */
   readonly lineId?: string;
+  /** 频道/影片 logo 引用(posterRef;标题栏「logo + 名称」呈现用,仅本地展示) */
+  readonly posterRef?: string | null;
 }
 
 export interface PlayActionApi {
@@ -179,24 +178,6 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
-}
-
-/** 连播开关入口(010 T065;ui.md §3 关闭连播可键盘操作):播放面头部非阻塞开关 ——
- *  关闭即本地门(收口倒计时/零意图,见 vod-autoplay-preference),消费时服务端
- *  偏好仍重验(api.md §5);开关值持久 localStorage,状态经 Provider 全局一致。 */
-function AutoplayNextToggle(): ReactNode {
-  const { autoplayNextEnabled, setAutoplayNextEnabled } = useVodAutoplayPreference();
-  return (
-    <Button
-      size="sm"
-      variant="ghost"
-      aria-label="自动连播开关"
-      aria-pressed={autoplayNextEnabled}
-      onPress={() => setAutoplayNextEnabled(!autoplayNextEnabled)}
-    >
-      {autoplayNextEnabled ? '连播:开' : '连播:关'}
-    </Button>
-  );
 }
 
 /**
@@ -611,6 +592,7 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
         title: request.title,
         startMode: request.startMode ?? 'beginning',
         ...(request.lineId !== undefined ? { lineId: request.lineId } : {}),
+        ...(request.posterRef !== undefined ? { posterRef: request.posterRef } : {}),
       };
       const intentId = stateRef.current.playbackIntentSeq + 1;
       const current = session;
@@ -1173,33 +1155,39 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
           >
             {/* 头部兼作 mini 拖动手柄(cursor-move 仅提示,不改变交互语义);
                 mini 态隐藏标题与退出以外的高频动作,保留还原/关闭 */}
+            {/* 头部:频道/影片标识(logo + 名称)+ 退出。
+                线路切换、连播开关、最小化已全部收进播放器控制栏(产品要求),
+                头部只保留身份与退出;mini 态标题栏兼作拖动手柄。 */}
             <header
               className={`flex items-center justify-between gap-4 border-b border-white/10 ${
-                minimized ? 'cursor-move px-2 py-1' : 'px-4 py-2'
+                minimized ? 'cursor-move px-2 py-1' : 'px-3 py-2'
               }`}
             >
-              <h2 className={`min-w-0 truncate font-medium text-foreground ${minimized ? 'text-xs' : 'text-base'}`}>
-                {playback.target.title}
-              </h2>
-              <div className="flex shrink-0 items-center gap-2">
-                {/* OSD 线路切换(T021;ui-experience §3;playing 相位且 lines ≥2 才有换线面,
-                    组件内单线路/空清单自行返回 null):手动换线 = 新 resolve/新 session 契约语义 */}
-                {playback.phase === 'playing' && !minimized ? (
-                  <PlayerLineSwitcher
-                    lines={playback.lines}
-                    selectedLineId={playback.selectedLineId}
-                    onSelect={handleManualLineSelect}
-                  />
-                ) : null}
-                {!minimized ? <AutoplayNextToggle /> : null}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label={minimized ? '还原播放器' : '最小化播放器'}
-                  onPress={toggleMinimize}
+              <div className="flex min-w-0 items-center gap-2">
+                <span
+                  aria-hidden="true"
+                  className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-sm border border-white/10 bg-white/5 ${
+                    minimized ? 'size-6' : 'size-8'
+                  }`}
                 >
-                  {minimized ? '还原' : '最小化'}
-                </Button>
+                  {playback.target.posterRef !== undefined && playback.target.posterRef !== null ? (
+                    <ChannelLogo
+                      key={playback.target.posterRef}
+                      posterRef={playback.target.posterRef}
+                      channelTitle={playback.target.title}
+                      fallbackClassName="text-[10px] font-black leading-none text-white/70"
+                    />
+                  ) : (
+                    <span className={`font-bold text-white/80 ${minimized ? 'text-[10px]' : 'text-xs'}`}>
+                      {playback.target.title.slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
+                </span>
+                <h2 className={`min-w-0 truncate font-medium text-foreground ${minimized ? 'text-xs' : 'text-base'}`}>
+                  {playback.target.title}
+                </h2>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
                 <Button size="sm" variant="ghost" onPress={close} aria-label="退出播放">
                   退出
                 </Button>
@@ -1227,8 +1215,8 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
                   onToggleMinimize={toggleMinimize}
                   // 直播切台(控制栏「节目单」icon → 播放器内列表面板)
                   currentChannelId={playback.target.mediaId}
-                  onZapChannel={(mediaId, title) => {
-                    play({ mediaId, title });
+                  onZapChannel={(mediaId, title, posterRef) => {
+                    play({ mediaId, title, posterRef });
                   }}
                   onRenew={(url, expiresAt) => {
                     // 续期换装:URL/到期时间更新(意图面收口;URL 不落任何持久存储)

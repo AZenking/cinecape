@@ -210,7 +210,7 @@ export function ChannelTile({ row, slot = 'current', onOpenProgramme, onRequireA
           aria-label={`播放 ${channelTitle}`}
           className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/80 text-accent-foreground opacity-100 shadow-lg backdrop-blur-sm transition-opacity duration-200 [@media(hover:hover)]:pointer-events-none [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:pointer-events-auto [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:pointer-events-auto [@media(hover:hover)]:group-focus-within:opacity-100"
           onPress={() => {
-            play({ mediaId: row.media.id, title: channelTitle, startMode: 'beginning' });
+            play({ mediaId: row.media.id, title: channelTitle, startMode: 'beginning', posterRef: row.media.posterRef });
           }}
         >
           <Play aria-hidden="true" className="size-5 fill-current" />
