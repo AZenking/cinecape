@@ -138,6 +138,8 @@ export interface GuideWallProps {
    * 位置换算保证视觉连续(见 GuidePage)。
    */
   readonly nextDay?: GuideWindowDto | null;
+  /** 前一日窗口(对称的「头部段」):当天 00:00 左侧接上前一日最后 TAIL_MINUTES */
+  readonly prevDay?: GuideWindowDto | null;
 }
 
 interface ProgrammeMeta {
@@ -171,6 +173,12 @@ interface GuideChannelRowProps {
   /** 横向可见窗口(内容坐标;窗口外节目块不渲染) */
   readonly visibleFrom: number;
   readonly visibleTo: number;
+  /** 时间轴起点偏移(前一日头部段宽度)与总宽(头部段 + 当天 + 尾巴段) */
+  readonly timelineOffsetPx: number;
+  readonly timelineWidth: number;
+  /** 前一日头部段节目块 + 其日期标签 */
+  readonly headBlocks: readonly TailBlock[];
+  readonly headDateLabel: string | null;
   readonly onSelectProgramme: (ref: GuideProgrammeRef) => void;
   readonly onPlayChannel: (mediaId: string, channelTitle: string) => void;
 }
@@ -197,6 +205,10 @@ const GuideChannelRow = memo(function GuideChannelRow({
   tailDateLabel,
   visibleFrom,
   visibleTo,
+  timelineOffsetPx,
+  timelineWidth,
+  headBlocks,
+  headDateLabel,
   onSelectProgramme,
   onPlayChannel,
 }: GuideChannelRowProps): ReactNode {
@@ -215,7 +227,8 @@ const GuideChannelRow = memo(function GuideChannelRow({
     isCurrent,
     isPast,
     rangeLabel,
-    isTail = false,
+    dayKind = 'current',
+    dateLabel = null,
   }: {
     programme: ExperienceProgrammeDto;
     left: number;
@@ -224,18 +237,18 @@ const GuideChannelRow = memo(function GuideChannelRow({
     isCurrent: boolean;
     isPast: boolean;
     rangeLabel: string;
-    isTail?: boolean;
+    /** 所属日段:当天 / 次日尾巴段 / 前一日头部段 */
+    dayKind?: 'current' | 'tail' | 'head';
+    dateLabel?: string | null;
   }): ReactNode => {
     // 短标题不会被截断:不挂 Tooltip(减少组件实例),仍保留原生 title 兜底
     const needsTooltip = programme.title.length > 10;
     const blockButtonProps = {
       type: 'button' as const,
       'data-programme-key': programme.key,
-      'aria-label': `${channel.media.title},${programme.title},${
-        isTail === true && tailDateLabel !== null ? `${tailDateLabel},` : ''
-      }${rangeLabel}${isCurrent ? ',正在直播' : ''}`,
+      'aria-label': `${channel.media.title},${programme.title},${dateLabel === null ? '' : `${dateLabel},`}${rangeLabel}${isCurrent ? ',正在直播' : ''}`,
       title: `${programme.title} ${rangeLabel}`,
-      'data-day': isTail === true ? 'tail' : 'current',
+      'data-day': dayKind,
       onClick: () => {
         onSelectProgramme({
           mediaId: channel.media.id,
@@ -361,9 +374,9 @@ const GuideChannelRow = memo(function GuideChannelRow({
       </Tooltip>
 
       {/* 节目轴:当天节目块 + 次日尾巴段(无级横向拖拽);行宽 = 当天 + 尾巴 */}
-      <div className="relative shrink-0" style={{ width: totalSpanPx, height: ROW_HEIGHT_PX }}>
+      <div className="relative shrink-0" style={{ width: timelineWidth, height: ROW_HEIGHT_PX }}>
         {/* 背景小时对齐参考线(延续到尾巴段) */}
-        {[...ticks.map((tick) => utcToPx(tick.ms, fromMs)), ...tailOffsets].map((left, index) => (
+        {[...ticks.map((tick) => timelineOffsetPx + utcToPx(tick.ms, fromMs)), ...tailOffsets].map((left, index) => (
           <div
             key={`grid-${index}`}
             aria-hidden="true"
@@ -378,13 +391,34 @@ const GuideChannelRow = memo(function GuideChannelRow({
           </div>
         ) : (
           <>
+            {headBlocks.map((block) =>
+              block.left + block.width < visibleFrom || block.left > visibleTo
+                ? null
+                : renderBlock({
+                    programme: block.programme,
+                    left: block.left,
+                    width: block.width,
+                    lane: 0,
+                    isCurrent: false,
+                    isPast: true,
+                    rangeLabel: block.rangeLabel,
+                    dayKind: 'head',
+                    dateLabel: headDateLabel,
+                  }),
+            )}
             {channel.programmes.map((programme) => {
               const meta = programmeMeta.get(programme.key);
               const startsAtMs = meta?.startsAtMs ?? Date.parse(programme.startsAt);
               const endsAtMs = meta?.endsAtMs ?? Date.parse(programme.endsAt);
               // 跨日节目不在 24:00 处断开:允许延伸到尾巴段(无尾巴段时 totalSpanPx == spanPx)
-              const left = Math.min(Math.max(utcToPx(startsAtMs, fromMs), 0), totalSpanPx);
-              const right = Math.min(Math.max(utcToPx(endsAtMs, fromMs), 0), totalSpanPx);
+              const left = Math.min(
+                Math.max(timelineOffsetPx + utcToPx(startsAtMs, fromMs), 0),
+                timelineOffsetPx + totalSpanPx,
+              );
+              const right = Math.min(
+                Math.max(timelineOffsetPx + utcToPx(endsAtMs, fromMs), 0),
+                timelineOffsetPx + totalSpanPx,
+              );
               // 横向窗口化:完全在可视窗口外的块不渲染(大幅降低切日/拖动时的渲染量)
               if (right < visibleFrom || left > visibleTo) {
                 return null;
@@ -410,7 +444,8 @@ const GuideChannelRow = memo(function GuideChannelRow({
                 isCurrent: false,
                 isPast: false,
                     rangeLabel: block.rangeLabel,
-                    isTail: true,
+                    dayKind: 'tail',
+                    dateLabel: tailDateLabel,
                   }),
             )}
           </>
@@ -428,6 +463,7 @@ export function GuideWall({
   onPlayChannel,
   onGoNow = () => undefined,
   nextDay = null,
+  prevDay = null,
 }: GuideWallProps): ReactNode {
   const fromMs = Date.parse(data.from);
   const toMs = Date.parse(data.to);
@@ -441,6 +477,8 @@ export function GuideWall({
   const pillRef = useRef<HTMLDivElement | null>(null);
   /** 最新 nowX(滚动回调里读,避免闭包过期) */
   const nowXRef = useRef(0);
+  /** 最新头部段宽度(滚动回调里读) */
+  const headSpanPxRef = useRef(0);
   /** 墙内可视区(用于 NOW 浮标贴边:超出时钉在左右边缘) */
   /**
    * 视口宽度(只用于首次/宽度变化定位浮标)。**不再随每次滚动 setState**:
@@ -466,6 +504,13 @@ export function GuideWall({
   /** 首帧定位(滚到「现在」附近)需要同步建立渲染窗口,否则首屏是空的 */
   const windowInitRef = useRef(false);
   const tailSpanPx = nextDay === null || !nearDayEnd ? 0 : TAIL_MINUTES * PX_PER_MINUTE;
+  /**
+   * 前一日头部段:始终**预留**宽度(prevDay 存在即占位),避免挂载时整体位移造成跳动;
+   * 内容按 nearDayStart 条件渲染(离得远时空着也看不见)。
+   */
+  const headSpanPx = prevDay === null ? 0 : TAIL_MINUTES * PX_PER_MINUTE;
+  /** 当天 00:00 在容器坐标中的位置(频道列 + 头部段) */
+  const dayStartX = CHANNEL_COL_PX + headSpanPx;
   /** 时间轴总宽 = 当天 + 尾巴段 */
   const totalSpanPx = spanPx + tailSpanPx;
 
@@ -485,7 +530,7 @@ export function GuideWall({
       // 34 ≈ 胶囊半宽:让胶囊整体留在可视区内,左缘正好停在频道列右侧
       const leftEdge = scroller.scrollLeft + 34;
       const rightEdge = scroller.scrollLeft + clientWidth - CHANNEL_COL_PX - 34;
-      el.style.left = `${Math.min(Math.max(nowXRef.current, leftEdge), Math.max(leftEdge, rightEdge))}px`;
+      el.style.left = `${Math.min(Math.max(headSpanPxRef.current + nowXRef.current, leftEdge), Math.max(leftEdge, rightEdge))}px`;
     };
     const nearRef = { current: false };
     const update = (): void => {
@@ -496,7 +541,7 @@ export function GuideWall({
       // 接近日界才挂载尾巴段:用 transition 让这次「变重」的渲染不阻塞拖动
       const near =
         width > 0 &&
-        scroller.scrollLeft + width >= CHANNEL_COL_PX + spanPx - width * 0.75;
+        scroller.scrollLeft + width >= dayStartX + spanPx - width * 0.75;
       if (near !== nearRef.current) {
         nearRef.current = near;
         startTransition(() => setNearDayEnd(near));
@@ -551,12 +596,49 @@ export function GuideWall({
     }
     const tailFrom = toMs;
     const tailTo = toMs + TAIL_MINUTES * 60_000;
-    return hourTicksInWindow(tailFrom, tailTo, nextDay.timezone).map((tick) => spanPx + utcToPx(tick.ms, tailFrom));
+    return hourTicksInWindow(tailFrom, tailTo, nextDay.timezone).map(
+      (tick) => headSpanPx + spanPx + utcToPx(tick.ms, tailFrom),
+    );
   }, [nextDay, tailSpanPx, toMs, spanPx]);
 
   /** 横向可见窗口:可视区左缘前一屏 ~ 右缘后两屏(clientWidth 未测量时渲染全部) */
   const visibleFrom = viewport.clientWidth > 0 ? windowLeft : 0;
-  const visibleTo = viewport.clientWidth > 0 ? windowLeft + viewport.clientWidth * 4 : totalSpanPx;
+  // 未测量(jsdom/首帧)时渲染全部:坐标含头部段偏移,上界需一并计入
+  const visibleTo = viewport.clientWidth > 0 ? windowLeft + viewport.clientWidth * 4 : headSpanPx + totalSpanPx;
+
+  /** 前一日头部段(最后 TAIL_MINUTES):位置以当天 00:00 为基准向左推算 */
+  const headBlocksByChannel = useMemo(() => {
+    const map = new Map<string, TailBlock[]>();
+    if (prevDay === null || headSpanPx <= 0) {
+      return map;
+    }
+    const headFrom = fromMs - TAIL_MINUTES * 60_000;
+    for (const channel of prevDay.channels) {
+      const blocks: TailBlock[] = [];
+      for (const programme of channel.programmes) {
+        const startMs = Date.parse(programme.startsAt);
+        const endMs = Date.parse(programme.endsAt);
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= headFrom || startMs >= fromMs) {
+          continue;
+        }
+        const rawLeft = headSpanPx - ((fromMs - startMs) / 60_000) * PX_PER_MINUTE;
+        const rawRight = headSpanPx - ((fromMs - endMs) / 60_000) * PX_PER_MINUTE;
+        const left = Math.max(rawLeft, 0);
+        const right = Math.min(rawRight, headSpanPx);
+        if (right <= left) {
+          continue;
+        }
+        blocks.push({
+          programme,
+          left,
+          width: Math.max(right - left, 2),
+          rangeLabel: `${formatTimeInZone(programme.startsAt, prevDay.timezone)}–${formatTimeInZone(programme.endsAt, prevDay.timezone)}`,
+        });
+      }
+      map.set(channel.media.id, blocks);
+    }
+    return map;
+  }, [prevDay, headSpanPx, fromMs]);
 
   /** 次日尾巴段整点刻度(标签 + 总轴偏移) */
   const tailTickItems = useMemo(() => {
@@ -593,10 +675,10 @@ export function GuideWall({
         ) {
           continue;
         }
-        const rawLeft = spanPx + utcToPx(startMs, tailFrom);
-        const rawRight = spanPx + utcToPx(endMs, tailFrom);
-        const left = Math.max(rawLeft, spanPx);
-        const right = Math.min(rawRight, spanPx + tailSpanPx);
+        const rawLeft = headSpanPx + spanPx + utcToPx(startMs, tailFrom);
+        const rawRight = headSpanPx + spanPx + utcToPx(endMs, tailFrom);
+        const left = Math.max(rawLeft, headSpanPx + spanPx);
+        const right = Math.min(rawRight, headSpanPx + spanPx + tailSpanPx);
         if (right <= left) {
           continue;
         }
@@ -632,6 +714,7 @@ export function GuideWall({
 
   const nowX = Math.min(Math.max(utcToPx(nowMs, fromMs), 0), spanPx);
   nowXRef.current = nowX;
+  headSpanPxRef.current = headSpanPx;
   const hasNowInWindow = nowMs >= fromMs && nowMs < toMs;
   // formatTimeInZone 需要 ISO 字符串:ticking nowMs(UTC 毫秒)转 ISO
   const nowIso = new Date(nowMs).toISOString();
@@ -641,16 +724,17 @@ export function GuideWall({
    * 可视区内(左缘让出频道列,两侧留 28px 让胶囊完整可见)——越界即贴边。
    */
   const nowPillX = ((): number => {
+    const base = headSpanPx + nowX;
     if (viewport.clientWidth <= 0) {
-      return nowX;
+      return base;
     }
     const leftEdge = viewport.scrollLeft + 34;
     const rightEdge = viewport.scrollLeft + viewport.clientWidth - CHANNEL_COL_PX - 34;
-    return Math.min(Math.max(nowX, leftEdge), Math.max(leftEdge, rightEdge));
+    return Math.min(Math.max(base, leftEdge), Math.max(leftEdge, rightEdge));
   })();
 
   return (
-    <div ref={rootRef} className="relative select-none" style={{ width: CHANNEL_COL_PX + totalSpanPx }}>
+    <div ref={rootRef} className="relative select-none" style={{ width: dayStartX + totalSpanPx }}>
       {/* 窗口标题:翻页后的焦点锚(FR-044)与读屏窗口说明。应产品要求不再**可见**
           (日期已由页头日期条承担),降为 hmp-sr-only——id/tabIndex/文案逐字保留,
           焦点定位(toBeFocused)、getAllByText(家庭时区/全天节目单)契约不受影响。 */}
@@ -676,7 +760,7 @@ export function GuideWall({
         </div>
 
         {/* 时间刻度条(相对定位:承载 NOW 胶囊) */}
-        <div className="relative shrink-0" style={{ width: totalSpanPx, height: HEADER_HEIGHT_PX }}>
+        <div className="relative shrink-0" style={{ width: headSpanPx + totalSpanPx, height: HEADER_HEIGHT_PX }}>
           {/* 半小时短刻度:只画短竖线不写标签,给时间轴一个更密的节奏锚点 */}
           {ticks.map((tick) =>
             tick.ms + 1_800_000 < toMs ? (
@@ -695,7 +779,7 @@ export function GuideWall({
               <div
                 key={tick.ms}
                 className="absolute top-0 bottom-0 flex items-center gap-1.5 pl-2"
-                style={{ left: utcToPx(tick.ms, fromMs) }}
+                style={{ left: headSpanPx + utcToPx(tick.ms, fromMs) }}
               >
                 <span
                   aria-hidden="true"
@@ -716,7 +800,7 @@ export function GuideWall({
             <div
               key={`tail-${tick.ms}`}
               className="absolute top-0 bottom-0 flex items-center gap-1.5 pl-2"
-              style={{ left: tick.left }}
+              style={{ left: headSpanPx + tick.left }}
             >
               <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border" />
               <span className="hmp-tabular-nums text-xs font-medium leading-none text-muted">{tick.label}</span>
@@ -726,7 +810,7 @@ export function GuideWall({
           {nextDay !== null ? (
             <div
               className="absolute top-0 bottom-0 flex items-center gap-1.5 pl-2"
-              style={{ left: spanPx }}
+              style={{ left: headSpanPx + spanPx }}
             >
               <span aria-hidden="true" className="h-3 w-px shrink-0 bg-foreground/40" />
               <span className="hmp-tabular-nums text-xs font-semibold leading-none text-foreground/80">
@@ -791,6 +875,12 @@ export function GuideWall({
             }
             visibleFrom={visibleFrom}
             visibleTo={visibleTo}
+            timelineOffsetPx={headSpanPx}
+            timelineWidth={headSpanPx + totalSpanPx}
+            headBlocks={headBlocksByChannel.get(channel.media.id) ?? EMPTY_TAIL_BLOCKS}
+            headDateLabel={
+              prevDay === null ? null : `${Number(prevDay.date.slice(5, 7))}月${Number(prevDay.date.slice(8, 10))}日`
+            }
             onSelectProgramme={onSelectProgramme}
             onPlayChannel={onPlayChannel}
           />
@@ -804,7 +894,7 @@ export function GuideWall({
             // -translate-x-1/2:与头部连接线/胶囊一致地「以 nowX 为中心」,
             // 否则竖线以 left 为左边缘,与连接线差 1px(实测像素错位)
             className="pointer-events-none absolute top-0 bottom-0 z-20 w-[2px] -translate-x-1/2 bg-accent"
-            style={{ left: CHANNEL_COL_PX + nowX }}
+            style={{ left: dayStartX + nowX }}
           />
         ) : null}
       </div>

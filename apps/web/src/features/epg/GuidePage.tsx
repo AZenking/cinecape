@@ -240,6 +240,35 @@ export function GuidePage(): ReactNode {
   // - 非今天(历史/未来日期):锚定窗口起点,不用真实 now(其会被 clamp 到窗口
   //   边缘,「当前时刻附近」语义失真);
   // - now 取服务端基准钟(016 spec 基准时间条款),未校准回落响应快照 data.now
+  /** 当前日与相邻日(按服务端 allowedDates 裁边) */
+  const dayIndex = data === null ? -1 : data.allowedDates.indexOf(data.date);
+  const nextDate = dayIndex >= 0 ? data?.allowedDates[dayIndex + 1] : undefined;
+  const prevDate = dayIndex > 0 ? data?.allowedDates[dayIndex - 1] : undefined;
+  /** 前一日窗口(头部段):与预取同键 */
+  const prevDayResource = useQuery({
+    queryKey: queryKeys.public.guide({ date: prevDate, page: url.channelPage, pageSize: url.pageSize }),
+    queryFn: ({ signal }) =>
+      fetchGuideWindow({ date: prevDate ?? '', page: url.channelPage, pageSize: url.pageSize }, signal),
+    enabled: prevDate !== undefined && prevDate !== '',
+    staleTime: EPG_QUERY_STALE_TIME_MS,
+  });
+
+  /** 次日窗口(尾巴段):与预取同键,通常直接命中缓存 */
+  const nextDayResource = useQuery({
+    queryKey: queryKeys.public.guide({ date: nextDate, page: url.channelPage, pageSize: url.pageSize }),
+    queryFn: ({ signal }) =>
+      fetchGuideWindow({ date: nextDate ?? '', page: url.channelPage, pageSize: url.pageSize }, signal),
+    enabled: nextDate !== undefined && nextDate !== '',
+    staleTime: EPG_QUERY_STALE_TIME_MS,
+  });
+
+  /** 当天窗口宽度(拖拽接续判定用) */
+  const spanPx = data === null ? 0 : windowSpanPx(Date.parse(data.from), Date.parse(data.to));
+  /** 前一日头部段宽度(与 GuideWall 的 TAIL_MINUTES 保持一致) */
+  const headSpanPx = prevDate === undefined ? 0 : 360 * 6;
+  /** 当天 00:00 在容器坐标中的位置 */
+  const dayStartX = CHANNEL_COL_PX + headSpanPx;
+
   const autoPosition = useMemo(() => {
     if (data === null) {
       return undefined;
@@ -250,26 +279,28 @@ export function GuidePage(): ReactNode {
     if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) {
       return undefined;
     }
-    const key = `${data.from}|${data.to}`;
+    // key 含相邻日段:切日当帧相邻日数据可能未到,宽度不足会把锚点钳制;
+    // 段就绪后 key 变化 → 容器按同一锚点重新定位,落点正确
+    const key = `${data.from}|${data.to}|${prevDayResource.data?.date ?? '-'}|${nextDayResource.data?.date ?? '-'}`;
     const isToday = data.date === data.allowedDates[0];
     if (!isToday) {
       // 边界接续:下一日从 00:00 开始(与上一日 24:00 无缝衔接);上一日对齐到 24:00
       if (pendingEdgeRef.current === 'next') {
-        return { key, anchorX: CHANNEL_COL_PX, align: 'start' as const };
+        return { key, anchorX: dayStartX, align: 'start' as const };
       }
       if (pendingEdgeRef.current === 'prev') {
-        return { key, anchorX: CHANNEL_COL_PX + spanPx, align: 'start' as const };
+        return { key, anchorX: dayStartX + spanPx, align: 'start' as const };
       }
       if (pendingEdgeRef.current === 'continue') {
-        // 视觉连续:新一日的 scrollLeft 与拖拽时的位置一一对应(日界已在左缘)
-        return { key, anchorX: Math.max(CHANNEL_COL_PX, pendingContinueScrollRef.current), align: 'start' as const };
+        // 视觉连续:新一日的 scrollLeft 由切日时按「同一时间点」换算得出
+        return { key, anchorX: Math.max(dayStartX, pendingContinueScrollRef.current), align: 'start' as const };
       }
       // 日内锚(切日保持同一时间位置);无挂起锚(首次进入/回到现在后)仍锚窗口起点
       const pending = pendingDayAnchorPxRef.current;
       if (pending !== null) {
         return {
           key,
-          anchorX: CHANNEL_COL_PX + Math.min(Math.max(pending, 0), spanPx),
+          anchorX: dayStartX + Math.min(Math.max(pending, 0), spanPx),
           align: 'center' as const,
         };
       }
@@ -281,8 +312,8 @@ export function GuidePage(): ReactNode {
       return undefined;
     }
     const nowX = Math.min(Math.max(utcToPx(nowMs, fromMs), 0), spanPx);
-    return { key, anchorX: CHANNEL_COL_PX + nowX, align: 'center' as const };
-  }, [data]);
+    return { key, anchorX: dayStartX + nowX, align: 'center' as const };
+  }, [data, prevDayResource.data?.date, nextDayResource.data?.date]);
 
   const selectDate = useCallback(
     (date: string, edge: 'next' | 'prev' | 'continue' | null = null, continueScrollLeft = 0): void => {
@@ -300,7 +331,7 @@ export function GuidePage(): ReactNode {
         const container = scrollRef.current;
         if (container !== null && container.clientWidth > 0) {
           const centerContentX = container.scrollLeft + container.clientWidth / 2;
-          pendingDayAnchorPxRef.current = Math.max(0, centerContentX - CHANNEL_COL_PX);
+          pendingDayAnchorPxRef.current = Math.max(0, centerContentX - dayStartX);
         }
       }
       updateParams((params) => {
@@ -317,9 +348,13 @@ export function GuidePage(): ReactNode {
     [data?.allowedDates, updateParams],
   );
 
-  // 边界接续锚只在「目标日数据到达」这一帧有效,随后清空(避免影响后续手动切日)
+  // 边界接续锚保留一小段时间:目标日数据到达后,相邻日段可能晚一步加载并触发
+  // 再次定位(宽度变大);过早清空会让锚点回落到 0(实测落点跳到日首)。
   useEffect(() => {
-    pendingEdgeRef.current = null;
+    const timer = setTimeout(() => {
+      pendingEdgeRef.current = null;
+    }, 1500);
+    return () => clearTimeout(timer);
   }, [data?.date]);
 
   /**
@@ -345,19 +380,7 @@ export function GuidePage(): ReactNode {
     }
   }, [data, url.channelPage, url.pageSize, queryClient]);
 
-  /** 当前日与相邻日(按服务端 allowedDates 裁边) */
-  const dayIndex = data === null ? -1 : data.allowedDates.indexOf(data.date);
-  const nextDate = dayIndex >= 0 ? data?.allowedDates[dayIndex + 1] : undefined;
-  const prevDate = dayIndex > 0 ? data?.allowedDates[dayIndex - 1] : undefined;
 
-  /** 次日窗口(尾巴段):与预取同键,通常直接命中缓存 */
-  const nextDayResource = useQuery({
-    queryKey: queryKeys.public.guide({ date: nextDate, page: url.channelPage, pageSize: url.pageSize }),
-    queryFn: ({ signal }) =>
-      fetchGuideWindow({ date: nextDate ?? '', page: url.channelPage, pageSize: url.pageSize }, signal),
-    enabled: nextDate !== undefined && nextDate !== '',
-    staleTime: EPG_QUERY_STALE_TIME_MS,
-  });
 
   // 连续拖拽跨日:拖到当天末尾自动接上后一天(24:00 == 次日 00:00,视觉连续);
   // 反向拖到起点接前一天。冷却 600ms,避免接续后的滚动回弹再次触发。
@@ -374,7 +397,8 @@ export function GuidePage(): ReactNode {
       raf = requestAnimationFrame(() => {
         raf = 0;
         const el = scrollRef.current;
-        if (el === null || Date.now() - edgeSwitchAtRef.current < 600) {
+        // 冷却 1.2s:切日后的定位/回弹滚动不能被误判为再次跨日(否则会连环跳日)
+        if (el === null || Date.now() - edgeSwitchAtRef.current < 1200) {
           return;
         }
         const max = el.scrollWidth - el.clientWidth;
@@ -384,13 +408,14 @@ export function GuidePage(): ReactNode {
         const left = el.scrollLeft;
         const previous = lastScrollLeftRef.current;
         lastScrollLeftRef.current = left;
-        // 日界(当天 24:00)内容坐标 = 频道列 + 当天宽度;它到达视口左缘时,
-        // 用旧 scrollLeft − 当天宽度 作为新一日的 scrollLeft,视觉完全连续。
-        const dayBoundary = CHANNEL_COL_PX + spanPx;
-        if (nextDate !== undefined && left > previous && left >= dayBoundary) {
+        // 双向日界:当天 00:00 在 dayStartX、24:00 在 dayStartX + 当天宽度。
+        // 越过任一日界时,新一日按「同一时间点」换算 scrollLeft(+/- 当天宽度),
+        // 新旧两帧内容完全对齐,拖动全程无跳变。
+        const dayEndX = dayStartX + spanPx;
+        if (nextDate !== undefined && left > previous && left >= dayEndX) {
           startTransition(() => selectDate(nextDate, 'continue', left - spanPx));
-        } else if (left < previous && left <= 0 && prevDate !== undefined) {
-          startTransition(() => selectDate(prevDate, 'prev'));
+        } else if (prevDate !== undefined && left < previous && left <= dayStartX) {
+          startTransition(() => selectDate(prevDate, 'continue', left + spanPx));
         }
       });
     };
@@ -403,8 +428,6 @@ export function GuidePage(): ReactNode {
     };
   }, [nextDate, prevDate, selectDate]);
 
-  /** 当天窗口宽度(拖拽接续判定用) */
-  const spanPx = data === null ? 0 : windowSpanPx(Date.parse(data.from), Date.parse(data.to));
 
   const goNow = useCallback((): void => {
     setDetail(null);
@@ -634,6 +657,7 @@ export function GuidePage(): ReactNode {
                   onPlayChannel={onPlayChannel}
                   onGoNow={goNow}
             nextDay={nextDayResource.data ?? null}
+            prevDay={prevDayResource.data ?? null}
                 />
               ) : (
                 <GuideChannelList
