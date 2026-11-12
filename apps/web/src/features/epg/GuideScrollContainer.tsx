@@ -50,9 +50,21 @@ export interface GuideScrollContainerProps {
   readonly containerRef?: RefObject<HTMLDivElement | null>;
   /** 首次/换窗定位指令(见上;缺省不干预滚动) */
   readonly autoPosition?: GuideAutoPosition;
+  /**
+   * 并入宿主卡片(无自带边框/圆角/阴影):节目单页把日期条与节目墙合并为一张卡片时,
+   * 墙体不再需要自己的卡片壳,避免双边框。缺省 false = 独立卡片外观。
+   */
+  readonly flush?: boolean;
 }
 
-export function GuideScrollContainer({ ariaLabel, describedById, children, containerRef, autoPosition }: GuideScrollContainerProps): ReactNode {
+export function GuideScrollContainer({
+  ariaLabel,
+  describedById,
+  children,
+  containerRef,
+  autoPosition,
+  flush = false,
+}: GuideScrollContainerProps): ReactNode {
   const containerSelfRef = useRef<HTMLDivElement | null>(null);
   /** 已应用定位的窗口身份(同 key 不重定位 = 自动刷新不拉回) */
   const appliedKeyRef = useRef<string | null>(null);
@@ -194,7 +206,9 @@ export function GuideScrollContainer({ ariaLabel, describedById, children, conta
       }}
       // 局部二维滚动:max-h 限高(600 高窗口/200% 缩放收拢为内部滚动),overflow 双轴墙内消化;
       // 拖拽态显示 grabbing 光标;touch-action 保留原生触摸平移
-      className="w-full max-w-full overflow-auto rounded-xl border border-border/70 bg-surface shadow-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+      className={`w-full max-w-full overflow-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
+        flush ? 'border-0 bg-transparent' : 'rounded-xl border border-border/70 bg-surface shadow-xs'
+      }`}
       style={{
         maxHeight: 'min(70vh, 640px)',
         cursor: grabbing ? 'grabbing' : 'grab',

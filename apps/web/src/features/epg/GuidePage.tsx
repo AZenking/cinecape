@@ -391,24 +391,6 @@ export function GuidePage(): ReactNode {
           行间用分隔线区分层级。页面标题保留 h1 语义但不呈现可见文案。 */}
       {/* 顶部控制区(单行):左侧日期胶囊条,右侧动作(回到现在 / 显示与筛选 / ±2h)。
           窄窗自动换行(flex-wrap);页面标题保留 h1 语义但不呈现可见文案。 */}
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border/70 bg-surface px-3 py-2 shadow-xs">
-        <h1 className="sr-only">节目单</h1>
-        <div className="min-w-0 flex-1">
-          {data !== null ? (
-            <GuideDateTabs
-              allowedDates={data.allowedDates}
-              timezone={timezone}
-              selected={url.date ?? undefined}
-              onSelect={selectDate}
-            />
-          ) : (
-            <span className="text-sm text-muted" role="status">
-              正在加载日期…
-            </span>
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-x-1.5">
-
       {/* 409:日期已更新提示(回今天;旧窗口响应已丢弃) */}
       {expiredNotice ? (
         <div role="status">
@@ -438,6 +420,25 @@ export function GuidePage(): ReactNode {
         />
       ) : null}
 
+      {/* 顶部控制区 + 节目墙 = 同一张卡片(产品要求:日期条与时间轴是一个整体) */}
+      <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-surface shadow-xs">
+        <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border/60 px-3 py-2">
+        <h1 className="sr-only">节目单</h1>
+        <div className="min-w-0 flex-1">
+          {data !== null ? (
+            <GuideDateTabs
+              allowedDates={data.allowedDates}
+              timezone={timezone}
+              selected={url.date ?? undefined}
+              onSelect={selectDate}
+            />
+          ) : (
+            <span className="text-sm text-muted" role="status">
+              正在加载日期…
+            </span>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-x-1.5">
         <Button size="sm" variant="outline" onPress={goNow}>
           <Clock aria-hidden="true" className="size-3.5" />
           回到现在
@@ -465,7 +466,55 @@ export function GuidePage(): ReactNode {
           </div>
         ) : null}
         </div>
-      </header>
+        </header>
+
+        {/* 节目墙(同一 GuideWindow 响应);详情为右侧抽屉(portal,不影响排版) */}
+        <div className="flex min-w-0 flex-col">
+          {resource.isLoading ? (
+            <div role="status" className="flex flex-col gap-3 py-8">
+              <p className="text-center text-sm text-muted">正在加载节目单…</p>
+              <div className="flex flex-col gap-2" aria-hidden="true">
+                {Array.from({ length: 4 }, (_, row) => (
+                  <div key={row} className="flex items-center gap-3">
+                    <Skeleton className="size-8 shrink-0 rounded-md" />
+                    <Skeleton className="h-8 min-w-0 flex-1 rounded-md" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : data !== null ? (
+            <GuideScrollContainer
+              ariaLabel="节目墙"
+              describedById="guide-window-title"
+              containerRef={scrollRef}
+              autoPosition={autoPosition}
+              flush
+            >
+              {url.view === 'wall' ? (
+                <GuideWall
+                  data={data}
+                  focusSignal={navSeq}
+                  selectedKey={detail?.programme?.key ?? null}
+                  onSelectProgramme={onOpenProgramme}
+                  onPlayChannel={onPlayChannel}
+                />
+              ) : (
+                <GuideChannelList
+                  data={data}
+                  selectedKey={detail?.programme?.key ?? null}
+                  onSelectProgramme={onOpenProgramme}
+                  onPlayChannel={onPlayChannel}
+                />
+              )}
+            </GuideScrollContainer>
+          ) : resource.status === 'ready' ? (
+            <p className="py-10 text-center text-sm text-muted" role="status">
+              暂无节目数据
+            </p>
+          ) : null}
+          {windowLabel !== undefined ? <span className="hmp-sr-only">{`当前窗口 ${windowLabel}`}</span> : null}
+        </div>
+      </div>
 
       {/* 显示与筛选抽屉(参照参考页右侧筛选抽屉):视图/每页频道数/频道分页收拢于此。
           交互逻辑与既有测试契约(aria-label/可访问名/testid/选项文案)零改动,仅换容器。
@@ -598,52 +647,6 @@ export function GuidePage(): ReactNode {
         </Drawer.Content>
       </Drawer.Backdrop>
 
-      {/* 墙/列表(同一 GuideWindow 响应) + 详情 */}
-      <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-start">
-        <div className="min-w-0 flex-1">
-          {resource.isLoading ? (
-            <div role="status" className="flex flex-col gap-3 py-8">
-              <p className="text-center text-sm text-muted">正在加载节目单…</p>
-              <div className="flex flex-col gap-2" aria-hidden="true">
-                {Array.from({ length: 4 }, (_, row) => (
-                  <div key={row} className="flex items-center gap-3">
-                    <Skeleton className="size-8 shrink-0 rounded-md" />
-                    <Skeleton className="h-8 min-w-0 flex-1 rounded-md" />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : data !== null ? (
-            <GuideScrollContainer
-              ariaLabel="节目墙"
-              describedById="guide-window-title"
-              containerRef={scrollRef}
-              autoPosition={autoPosition}
-            >
-              {url.view === 'wall' ? (
-                <GuideWall
-                  data={data}
-                  focusSignal={navSeq}
-                  selectedKey={detail?.programme?.key ?? null}
-                  onSelectProgramme={onOpenProgramme}
-                  onPlayChannel={onPlayChannel}
-                />
-              ) : (
-                <GuideChannelList
-                  data={data}
-                  selectedKey={detail?.programme?.key ?? null}
-                  onSelectProgramme={onOpenProgramme}
-                  onPlayChannel={onPlayChannel}
-                />
-              )}
-            </GuideScrollContainer>
-          ) : resource.status === 'ready' ? (
-            <p className="py-10 text-center text-sm text-muted" role="status">
-              暂无节目数据
-            </p>
-          ) : null}
-          {windowLabel !== undefined ? <span className="hmp-sr-only">{`当前窗口 ${windowLabel}`}</span> : null}
-        </div>
         {/* T022:共享详情面板(与直播首页三区同一组件,FR-013);宿主按 serverNow 裁决
             四状态;动作回调无参,频道身份(mediaId)由宿主闭包持有(§1.4 频道语义) */}
         <ProgrammeDetailPanel
@@ -698,7 +701,6 @@ export function GuidePage(): ReactNode {
             closeDetail('restore');
           }}
         />
-      </div>
 
       {selectedDate !== undefined ? <span className="hmp-sr-only">{`当前日期 ${selectedDate}`}</span> : null}
     </div>
