@@ -142,6 +142,27 @@ export function PlayerControls({
     };
   }, [revealControls]);
 
+  // 唤出监听挂在**整个播放器容器**上(而非控制栏自身):控制栏隐藏后是
+  // pointer-events-none,鼠标移到画面上时事件根本到不了栏内 —— 只挂栏上会导致
+  // 「隐藏后再也唤不出来」(实测回归)。移动/点击/触摸/键盘聚焦任一路径都唤出。
+  useEffect(() => {
+    const host = containerRef?.current ?? videoRef.current?.parentElement ?? null;
+    if (host === null) {
+      return;
+    }
+    const onPointer = (): void => {
+      revealControls();
+    };
+    host.addEventListener('pointermove', onPointer);
+    host.addEventListener('pointerdown', onPointer);
+    host.addEventListener('touchstart', onPointer, { passive: true });
+    return () => {
+      host.removeEventListener('pointermove', onPointer);
+      host.removeEventListener('pointerdown', onPointer);
+      host.removeEventListener('touchstart', onPointer);
+    };
+  }, [containerRef, videoRef, revealControls]);
+
   const togglePlay = useCallback((): void => {
     const el = videoRef.current;
     if (el === null) {
@@ -210,6 +231,14 @@ export function PlayerControls({
         visible ? 'opacity-100' : 'pointer-events-none opacity-0'
       }`}
       onPointerMove={revealControls}
+      onPointerEnter={() => {
+        // 指针停在控制栏上时不自动隐藏(避免「正要点就消失」)
+        if (hideTimerRef.current !== null) {
+          clearTimeout(hideTimerRef.current);
+        }
+        setVisible(true);
+      }}
+      onPointerLeave={revealControls}
       onFocusCapture={revealControls}
     >
       {/* 进度条(点播):拖动期间本地值,松手写回媒体 */}
