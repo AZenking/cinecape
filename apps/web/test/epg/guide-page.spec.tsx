@@ -210,8 +210,9 @@ describe('EPG 节目单页(T109)', () => {
     await waitFor(() => {
       const calls = guideCalls();
       expect(calls.length).toBeGreaterThan(2);
-      const last = calls[calls.length - 1] ?? '';
-      expect(last).toBe('/api/public/guide?page=2&pageSize=20');
+      // 相邻日期预取(无级切换)会追加带 date 的后台请求,因此不再断言"最后一次"，
+      // 而是断言「按恢复语义的请求确实发生过」：page=2 且不带 date/from/to
+      expect(calls).toContain('/api/public/guide?page=2&pageSize=20');
     });
   });
 

@@ -6,7 +6,10 @@ import type { ExperienceProgrammeDto } from '@hmp/shared';
 import { Alert, Button, Drawer, ListBox, Select, Skeleton } from '@heroui/react';
 import { SlidersHorizontal } from 'lucide-react';
 import { RetryableAlert } from '../../shared/ui';
-import { useGuideWindow } from './useGuideWindow';
+import { useQueryClient } from '@tanstack/react-query';
+import { fetchGuideWindow, useGuideWindow } from './useGuideWindow';
+import { queryKeys } from '../../shared/query/keys';
+import { EPG_QUERY_STALE_TIME_MS } from '../../shared/query/hooks';
 import { GuideDateTabs } from './GuideDateTabs';
 import { GuideScrollContainer } from './GuideScrollContainer';
 import { GuideWall, CHANNEL_COL_PX, type GuideProgrammeRef } from './GuideWall';
@@ -154,6 +157,12 @@ export function GuidePage(): ReactNode {
     prevDetailRef = useRef<GuideDetailTarget | null>(null);
   const /** 409 自动回今天只执行一次的守卫 */
     expiredHandledRef = useRef<string | null>(null);
+  /**
+   * 切日时保持「一天中的时间位置」(无级切换):切换前记录视口中心相对当日 00:00
+   * 的像素偏移,新一日数据到达后按同一偏移居中定位,而不是跳回 00:00。
+   */
+  const pendingDayAnchorPxRef = useRef<number | null>(null);
+  const queryClient = useQueryClient();
 
   const resource = useGuideWindow({
     date: url.date,
@@ -237,6 +246,15 @@ export function GuidePage(): ReactNode {
     const key = `${data.from}|${data.to}`;
     const isToday = data.date === data.allowedDates[0];
     if (!isToday) {
+      // 日内锚(切日保持同一时间位置);无挂起锚(首次进入/回到现在后)仍锚窗口起点
+      const pending = pendingDayAnchorPxRef.current;
+      if (pending !== null) {
+        return {
+          key,
+          anchorX: CHANNEL_COL_PX + Math.min(Math.max(pending, 0), spanPx),
+          align: 'center' as const,
+        };
+      }
       return { key, anchorX: 0, align: 'start' as const };
     }
     const snapshotNowMs = Date.parse(data.now);
@@ -252,6 +270,12 @@ export function GuidePage(): ReactNode {
     (date: string): void => {
       setDetail(null);
       setExpiredNotice(false);
+      // 记录当前视口中心相对当日 00:00 的偏移(内容坐标,去掉频道列),供新一日复用
+      const container = scrollRef.current;
+      if (container !== null && container.clientWidth > 0) {
+        const centerContentX = container.scrollLeft + container.clientWidth / 2;
+        pendingDayAnchorPxRef.current = Math.max(0, centerContentX - CHANNEL_COL_PX);
+      }
       updateParams((params) => {
         if (date === (data?.allowedDates[0] ?? '')) {
           params.delete('date');
@@ -266,9 +290,33 @@ export function GuidePage(): ReactNode {
     [data?.allowedDates, updateParams],
   );
 
+  /**
+   * 预取相邻日期(昨天/明天,按服务端 allowedDates 裁边):切日时新窗口已在缓存里,
+   * 命中即渲染(配合 keepPreviousData,页面不出现加载空白)——「无级切换」的数据面。
+   * prefetchQuery 仅在缓存缺失/过期时发请求,重复渲染不会放大请求数。
+   */
+  useEffect(() => {
+    if (data === null) {
+      return;
+    }
+    const index = data.allowedDates.indexOf(data.date);
+    const neighbours = [data.allowedDates[index + 1], data.allowedDates[index - 1]].filter(
+      (value): value is string => typeof value === 'string' && value !== '',
+    );
+    for (const date of neighbours) {
+      const query = { date, page: url.channelPage, pageSize: url.pageSize };
+      void queryClient.prefetchQuery({
+        queryKey: queryKeys.public.guide(query),
+        queryFn: ({ signal }) => fetchGuideWindow(query, signal),
+        staleTime: EPG_QUERY_STALE_TIME_MS,
+      });
+    }
+  }, [data, url.channelPage, url.pageSize, queryClient]);
+
   const goNow = useCallback((): void => {
     setDetail(null);
     setExpiredNotice(false);
+    pendingDayAnchorPxRef.current = null;
     // T023(FR-016、url-state §1 规则4):仅恢复今天 + 当前窗口(删 date/from/to);
     // 其余参数(频道分页/页大小/视图与既有筛选)一律保留,不清筛选。
     updateParams((params) => {
