@@ -71,6 +71,8 @@ export interface GuideProgrammeRef {
   readonly mediaId: string;
   readonly channelTitle: string;
   readonly programme: ExperienceProgrammeDto;
+  /** 频道台标引用(详情抽屉海报区用;不参与播放请求) */
+  readonly posterRef?: string | null;
 }
 
 /** R8 当前判定:覆盖 now(start<=now<end)中 startsAt 最近者,同起点 key 升序;无覆盖 null */
@@ -439,7 +441,12 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                               onClick={() => {
                                 // 产品统一:所有节目块(含正在直播)都进详情抽屉;
                                 // 「正在直播」只在详情里多一个播放按钮,不再块内直接起播。
-                                onSelectProgramme({ mediaId: channel.media.id, channelTitle: channel.media.title, programme });
+                                onSelectProgramme({
+                            mediaId: channel.media.id,
+                            channelTitle: channel.media.title,
+                            programme,
+                            posterRef: channel.media.posterRef,
+                          });
                               }}
                               className="group/prog flex h-full w-full flex-col text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                             >

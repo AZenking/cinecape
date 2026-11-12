@@ -30,6 +30,8 @@ export type ProgrammePanelSource = 'now' | 'next' | 'guide';
 export interface ProgrammeDetailChannel {
   readonly name: string;
   readonly logo?: string | null;
+  /** 频道/影片标识引用(posterRef):用于顶部海报区与频道标识,缺省回退首字徽标 */
+  readonly posterRef?: string | null;
 }
 
 export interface ProgrammeDetailProgramme {
@@ -85,20 +87,49 @@ export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNod
       <Drawer.Content placement="right">
         {/* 宽度加在 Dialog(面板)上:加在 Content(定位容器)上会把整层压窄并贴左 */}
         <Drawer.Dialog aria-label={`节目详情:${channel.name}`} className="w-[420px] max-w-[92vw]">
-          <Drawer.CloseTrigger />
+          {/* 关闭由右上角 X 承担(底部「关闭」按钮已按产品要求移除);
+              保留可访问名「关闭」,既有键盘/测试契约不变 */}
+          <Drawer.CloseTrigger aria-label="关闭" />
           <Drawer.Header>
             <Drawer.Heading className="text-base font-semibold">
               {programme?.title ?? `节目时段:${channel.name}`}
             </Drawer.Heading>
           </Drawer.Header>
-          <Drawer.Body>
+          <Drawer.Body className="flex flex-col gap-4">
+              {/* 海报区:16:9 容器;有 posterRef 时走同源媒体接口(object-contain,
+                  logo 与海报都不会被裁切),无则渐变底 + 频道首字 */}
+              <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-border/60 bg-surface-secondary/60">
+                {channel.posterRef !== undefined && channel.posterRef !== null ? (
+                  <img
+                    src={`/api/public/media/logos/${encodeURIComponent(channel.posterRef)}`}
+                    alt=""
+                    aria-hidden="true"
+                    className="absolute inset-0 h-full w-full object-contain p-6"
+                  />
+                ) : channel.logo !== undefined && channel.logo !== null ? (
+                  <img
+                    src={channel.logo}
+                    alt={`${channel.name} 频道标识`}
+                    className="absolute inset-0 h-full w-full object-contain p-6"
+                  />
+                ) : (
+                  <span className="absolute inset-0 flex items-center justify-center text-3xl font-black text-muted/40">
+                    {channel.name.slice(0, 1).toUpperCase()}
+                  </span>
+                )}
+              </div>
+
               <div className="flex items-center gap-2">
-                {channel.logo ? (
-                  <img src={channel.logo} alt={`${channel.name} 频道标识`} className="h-6 w-6 rounded-sm object-contain" />
+                {channel.logo !== undefined && channel.logo !== null ? (
+                  <img
+                    src={channel.logo}
+                    alt={`${channel.name} 频道标识`}
+                    className="h-6 w-6 rounded-sm object-contain"
+                  />
                 ) : null}
                 <span className="text-sm font-medium text-foreground">{channel.name}</span>
               </div>
-              {programme !== null ? (
+              {programme !== null && programme.description !== null && programme.description !== '' ? (
                 <p className="text-sm text-muted">{programme.description}</p>
               ) : null}
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
@@ -124,27 +155,29 @@ export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNod
               </dl>
               {status === 'none' ? <p className="text-sm text-muted">暂无节目单</p> : null}
               <p className="text-xs text-muted">
-                时间按家庭时区({formatZoneLabel(timezone, programme?.start ?? '')})显示。
-                {status === 'upcoming'
-                  ? '该节目尚未开播;此页仅展示节目时段,不提供未来内容播放。'
-                  : '播放入口指向该频道的当前直播。'}
+                {`时间按家庭时区(${formatZoneLabel(timezone, programme?.start ?? '')})显示。`}
+                {status === 'upcoming' ? '该节目尚未开播,不提供未来内容播放。' : ''}
               </p>
           </Drawer.Body>
-          <Drawer.Footer>
-              <Button size="sm" variant="ghost" onPress={() => onClose()}>
-                关闭
-              </Button>
-              <Button size="sm" variant="ghost" onPress={onFavorite}>
-                收藏频道
-              </Button>
-              <Button size="sm" variant="ghost" onPress={onGuide}>
-                查看节目单
-              </Button>
+          <Drawer.Footer className="flex flex-col gap-2">
+              {/* 主/次操作各占一行、按钮拉满宽度(产品要求);关闭由右上角 X 承担 */}
               {canPlay ? (
-                <Button size="sm" variant="primary" onPress={onPlay}>
+                <Button variant="primary" className="w-full" onPress={onPlay}>
                   播放当前频道
                 </Button>
               ) : null}
+              <Button variant="secondary" className="w-full" onPress={onFavorite}>
+                收藏频道
+              </Button>
+              {/* 次操作:低频动作以文字链呈现,不与两个全宽主/次按钮争夺视觉重量 */}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mx-auto text-xs text-muted data-[hovered=true]:bg-transparent data-[hovered=true]:text-foreground"
+                onPress={onGuide}
+              >
+                查看节目单
+              </Button>
           </Drawer.Footer>
         </Drawer.Dialog>
       </Drawer.Content>

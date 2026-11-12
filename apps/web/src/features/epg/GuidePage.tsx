@@ -110,6 +110,8 @@ function parseIsoParam(value: string | null): number | undefined {
 interface GuideDetailTarget {
   readonly mediaId: string;
   readonly channelTitle: string;
+  /** 频道台标引用(详情抽屉海报区) */
+  readonly posterRef: string | null;
   readonly programme: ExperienceProgrammeDto | null;
 }
 
@@ -323,7 +325,12 @@ export function GuidePage(): ReactNode {
       focusKey: ref.programme.key,
     });
     // 详情选择写入组件状态(URL 浏览位置不动,返回即恢复原位置)
-    setDetail({ mediaId: ref.mediaId, channelTitle: ref.channelTitle, programme: ref.programme });
+    setDetail({
+      mediaId: ref.mediaId,
+      channelTitle: ref.channelTitle,
+      posterRef: ref.posterRef ?? null,
+      programme: ref.programme,
+    });
   }, []);
 
   // T025:详情「开→关」沿触发恢复(滚动 + 触发节目块焦点;SPA 回访场景由
@@ -639,7 +646,7 @@ export function GuidePage(): ReactNode {
             四状态;动作回调无参,频道身份(mediaId)由宿主闭包持有(§1.4 频道语义) */}
         <ProgrammeDetailPanel
           open={detail !== null}
-          channel={{ name: detail?.channelTitle ?? '', logo: null }}
+          channel={{ name: detail?.channelTitle ?? '', logo: null, posterRef: detail?.posterRef ?? null }}
           programme={
             detail === null
               ? null
