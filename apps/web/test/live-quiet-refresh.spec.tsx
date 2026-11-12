@@ -121,17 +121,21 @@ describe('T015 · 安静刷新:焦点不变、筛选不重置(FR-014)', () => {
     vi.unstubAllGlobals();
   });
 
-  it('概览视图连续刷新 ×2:搜索框焦点与值保持,URL(q)保持', async () => {
+  it('概览视图连续刷新 ×2:焦点不被打断,URL(q)保持(FR-014)', async () => {
     const mock = installLiveRefreshFetchMock();
     renderLivePageWorld('/live?q=例牌');
 
     // 概览视图就绪(正在直播分区渲染)
-    await screen.findByRole('region', { name: '正在直播' });
+    const nowRegion = await screen.findByRole('region', { name: '正在直播' });
 
-    const input = screen.getByRole('textbox');
+    // 搜索框已从直播首页移除:改以「正在直播」行尾入口作为焦点锚验证安静刷新
+    // (FR-014 的实质是后台刷新不抢焦点、不重置浏览态,与具体控件无关)
     const user = userEvent.setup();
-    await user.click(input);
-    expect(input).toHaveFocus();
+    const anchor = within(nowRegion).getAllByRole('button', {
+      name: /查看更多|全部正在直播/,
+    })[0] as HTMLElement;
+    anchor.focus();
+    expect(anchor).toHaveFocus();
 
     const urlBefore = screen.getByTestId('live-location').textContent;
 
@@ -142,9 +146,8 @@ describe('T015 · 安静刷新:焦点不变、筛选不重置(FR-014)', () => {
       await waitFor(() => expect(mock.channelsCalls()).toBeGreaterThan(before));
 
       // 焦点元素不变(FR-014:刷新不打断焦点)
-      expect(input).toHaveFocus();
-      // 筛选不重置:输入值与 URL q 保持
-      expect(input).toHaveValue('例牌');
+      expect(anchor).toHaveFocus();
+      // 筛选不重置:URL q 保持(搜索控件已移除,深链参数仍透传给取数)
       expect(screen.getByTestId('live-location').textContent).toBe(urlBefore);
       expect(screen.getByTestId('live-location').textContent).toContain('q=');
     }

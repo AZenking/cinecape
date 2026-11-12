@@ -166,9 +166,9 @@ function LocationProbe(): ReactNode {
   );
 }
 
-function renderLivePage(): void {
+function renderLivePage(entry = '/live'): void {
   render(
-    <MemoryRouter initialEntries={['/live']}>
+    <MemoryRouter initialEntries={[entry]}>
       <SessionProvider>
         <SettingsAccessProvider>
           <ActionCoordinator>
@@ -330,18 +330,20 @@ describe('直播页分区与内容(T061)', () => {
     expect(fetchCalls.filter((call) => call.url.includes('/playback/')).length).toBe(playbackCallsBefore);
   });
 
-  it('URL 与行尾分流:搜索写入 q 参数;正在直播行尾入口直达 /live/guide(FR-003)', async () => {
+  it('深链 q 参数参与过滤;正在直播行尾入口直达 /live/guide(FR-003)', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    renderLivePage();
+    // 搜索框已按产品要求从直播首页移除(工具栏精简),但 ?q= 仍作为深链过滤参数读取:
+    // 这里用直链验证该能力未丢失(routing-and-url-state.md §2.1)
+    renderLivePage('/live?q=新闻');
     await waitFor(() => {
       expect(screen.getAllByRole('heading', { name: '正在直播' }).length).toBeGreaterThan(0);
     });
-    // 搜索:写入 URL 状态并重新拉取(q 参数,routing-and-url-state.md §2.1)
-    const input = screen.getByLabelText('搜索频道');
-    await user.type(input, '新闻');
     await waitFor(() => {
       expect(fetchCalls.some((call) => call.url.includes('q='))).toBe(true);
     });
+    // 搜索输入已移除:确认页面上不再呈现搜索控件
+    expect(screen.queryByLabelText('搜索频道')).toBeNull();
+    expect(screen.queryByPlaceholderText('按频道名称搜索')).toBeNull();
     // 015 FR-003(R3):正在直播行尾入口 → EPG 节目单时间墙。
     // 行尾文案由 015 T012 任务演进(「全部正在直播」),断言不锁文案、只锁接线
     const nowRegion = screen.getByRole('region', { name: '正在直播' });

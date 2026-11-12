@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import type { ChannelRowDto, ExperienceProgrammeDto } from '@hmp/shared';
-import { Alert, Button, Input, Label, TextField } from '@heroui/react';
+import { Alert, Button } from '@heroui/react';
 import { keepPreviousData } from '../../shared/query/hooks';
 import { queryKeys } from '../../shared/query/keys';
 import { fetchLiveChannels, fetchLiveGroups, type LiveChannelQuery } from './live-api';
@@ -89,7 +89,7 @@ export function panelStatusOf(
 }
 
 export function LivePage(): ReactNode {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { refreshKey } = useLiveRefresh();
   const [slotDialog, setSlotDialog] = useState<SlotDialogState | null>(null);
@@ -108,28 +108,6 @@ export function LivePage(): ReactNode {
   });
 
   const qParam = searchParams.get('q') ?? '';
-
-  const updateParams = useCallback(
-    (mutate: (params: URLSearchParams) => void): void => {
-      const next = new URLSearchParams(searchParams);
-      mutate(next);
-      setSearchParams(next, { replace: false });
-    },
-    [searchParams, setSearchParams],
-  );
-
-  const setQuery = useCallback(
-    (q: string): void => {
-      updateParams((params) => {
-        if (q === '') {
-          params.delete('q');
-        } else {
-          params.set('q', q);
-        }
-      });
-    },
-    [updateParams],
-  );
 
   /* ---------------- 资源:概览全部区(独立取数,失败仅重试本区) ----------------
    * T023 迁移:取数状态机已收口到 shared/query(useAppQuery;signal 透传、
@@ -244,34 +222,10 @@ export function LivePage(): ReactNode {
 
   return (
     <div className="flex min-w-0 flex-col gap-8">
-      <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h1 className="text-xl font-semibold text-foreground">直播</h1>
-        <p className="text-xs text-muted">
-          {serverNowIso !== null
-            ? `时间按家庭时区显示 · 每 30 秒自动更新`
-            : '正在加载家庭时区…'}
-        </p>
-      </header>
-
-      {/* 搜索(q 写 URL;详情返回或登录取消后恢复) */}
-      <div className="flex min-w-0 flex-wrap items-center gap-3">
-        <TextField
-          className="min-w-0"
-          value={qParam}
-          onChange={(value) => {
-            setQuery(value);
-          }}
-          aria-label="搜索频道"
-        >
-          <Label>搜索频道</Label>
-          <Input placeholder="按频道名称搜索" />
-        </TextField>
-        {qParam !== '' ? (
-          <Button size="sm" variant="ghost" onPress={() => setQuery('')}>
-            清除搜索
-          </Button>
-        ) : null}
-      </div>
+      {/* 页面标题保留 h1 语义(读屏/文档大纲/测试锚),按产品要求不呈现可见标题与
+          时区说明行;频道搜索框已移除——`?q=` 仍作为深链过滤参数被读取(下方 query
+          对象继续透传),恢复搜索 UI 时接回 updateParams 即可。 */}
+      <h1 className="sr-only">直播</h1>
 
       {guestNotice !== null ? (
         <div role="status">
