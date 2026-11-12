@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
 import { parseDate } from '@internationalized/date';
 import type { ExperienceProgrammeDto } from '@hmp/shared';
-import { Alert, Button, Drawer, ListBox, Select, Separator, Skeleton } from '@heroui/react';
+import { Alert, Button, Drawer, ListBox, Select, Skeleton } from '@heroui/react';
 import { ChevronsLeft, ChevronsRight, Clock, SlidersHorizontal } from 'lucide-react';
 import { RetryableAlert } from '../../shared/ui';
 import { useGuideWindow } from './useGuideWindow';
@@ -389,24 +389,25 @@ export function GuidePage(): ReactNode {
       {/* 顶部控制区(产品要求:日期条与工具条合成一个整体,不再分成两块卡片):
           第一行 = 日期胶囊条,第二行 = 回到现在 / 显示与筛选 / ±2h;同一圆角容器,
           行间用分隔线区分层级。页面标题保留 h1 语义但不呈现可见文案。 */}
-      <header className="flex flex-col gap-2 rounded-xl border border-border/70 bg-surface px-3 py-2 shadow-xs">
+      {/* 顶部控制区(单行):左侧日期胶囊条,右侧动作(回到现在 / 显示与筛选 / ±2h)。
+          窄窗自动换行(flex-wrap);页面标题保留 h1 语义但不呈现可见文案。 */}
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border/70 bg-surface px-3 py-2 shadow-xs">
         <h1 className="sr-only">节目单</h1>
-        {data !== null ? (
-          <GuideDateTabs
-            allowedDates={data.allowedDates}
-            timezone={timezone}
-            selected={url.date ?? undefined}
-            onSelect={selectDate}
-          />
-        ) : (
-          <span className="text-sm text-muted" role="status">
-            正在加载日期…
-          </span>
-        )}
-        {/* 分隔线:日期(浏览上下文)与工具(动作)同卡不同层 */}
-        <Separator className="opacity-60" />
-        {/* 工具栏(同容器第二行):回到现在 + 显示与筛选 + 墙视图 ±2h */}
-        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
+        <div className="min-w-0 flex-1">
+          {data !== null ? (
+            <GuideDateTabs
+              allowedDates={data.allowedDates}
+              timezone={timezone}
+              selected={url.date ?? undefined}
+              onSelect={selectDate}
+            />
+          ) : (
+            <span className="text-sm text-muted" role="status">
+              正在加载日期…
+            </span>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-x-1.5">
 
       {/* 409:日期已更新提示(回今天;旧窗口响应已丢弃) */}
       {expiredNotice ? (
@@ -454,7 +455,7 @@ export function GuidePage(): ReactNode {
           <SlidersHorizontal aria-hidden="true" className="size-4" />
         </Button>
         {url.view === 'wall' ? (
-          <div className="ml-auto flex items-center gap-0.5">
+          <div className="flex items-center gap-0.5">
             <Button size="sm" variant="ghost" isIconOnly onPress={() => scrollTimeline(-240)} aria-label="向左滚动2小时">
               <ChevronsLeft aria-hidden="true" className="size-4" />
             </Button>
