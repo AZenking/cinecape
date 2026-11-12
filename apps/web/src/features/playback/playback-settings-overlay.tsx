@@ -14,6 +14,7 @@
  */
 import type { ReactNode } from 'react';
 import { Button } from '@heroui/react';
+import { Settings } from 'lucide-react';
 import { DELIVERY_LABEL, type PlaybackTrackSelectionApi } from './use-playback-track-selection';
 
 export interface PlaybackSettingsOverlayProps {
@@ -38,20 +39,21 @@ export function PlaybackSettingsOverlay({ settings, delivery }: PlaybackSettings
       <Button
         size="sm"
         variant="ghost"
+        isIconOnly
         aria-label="播放设置"
         aria-expanded={open}
         aria-haspopup="dialog"
-        className="absolute end-3 top-14 z-10"
+        className="text-white"
         onPress={toggle}
       >
-        播放设置
+        <Settings className="size-4" aria-hidden="true" />
       </Button>
       {open ? (
         <div
           role="dialog"
           aria-label="播放设置"
           data-testid="playback-settings"
-          className="absolute end-3 top-28 z-20 flex w-72 flex-col gap-3 rounded-lg border border-border bg-surface p-3 shadow-lg"
+          className="absolute bottom-full end-0 z-30 mb-2 flex w-72 flex-col gap-3 rounded-lg border border-border bg-surface p-3 shadow-lg"
         >
           <p className="text-sm font-medium text-foreground">播放设置</p>
           {/* 音轨(当前值控制;探测未完成为空,不虚构可选轨) */}

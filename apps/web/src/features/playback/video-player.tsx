@@ -36,6 +36,9 @@ export interface VideoPlayerProps {
   readonly onFatalError: () => void;
   /** 010 I4(T049):seek 能力不满足(none)时隐藏可用拖动入口;缺省/未知能力保持开启 */
   readonly controlsEnabled?: boolean;
+  /** 是否启用引擎(native/video.js)自带控制条。自绘 HeroUI 控制栏时传 false,
+   *  底层仍保留媒体元素语义(timeupdate/currentTime/paused 同原生) */
+  readonly nativeControls?: boolean;
   /** 010 T065:自动播放策略拒绝(NotAllowedError)回调 —— PlayerView 据此呈现
    *  awaitingGesture 面(ui.md §3;拒绝期零伪造 started/零 playing 观测由泵保证) */
   readonly onPlayGestureRequired?: () => void;
@@ -44,8 +47,10 @@ export interface VideoPlayerProps {
   readonly onManualPlayReady?: (play: (() => void) | null) => void;
 }
 
-/** 引擎初始化选项(fill 模式铺满容器;控制条由引擎提供) */
-const ENGINE_OPTIONS = { controls: true, preload: 'auto', fill: true } as const;
+/** 引擎初始化选项(fill 模式铺满容器) */
+function engineOptions(nativeControls: boolean): { controls: boolean; preload: 'auto'; fill: true } {
+  return { controls: nativeControls, preload: 'auto', fill: true };
+}
 
 /** 自动播放策略拒绝判定(ui.md §3:NotAllowedError → awaitingGesture,非媒体错误码) */
 function isPlayGestureRejection(error: unknown): boolean {
@@ -58,6 +63,7 @@ export function VideoPlayer({
   mimeType,
   onFatalError,
   controlsEnabled = true,
+  nativeControls = true,
   onPlayGestureRequired,
   onManualPlayReady,
 }: VideoPlayerProps): ReactNode {
@@ -74,6 +80,9 @@ export function VideoPlayer({
   gestureRequiredRef.current = onPlayGestureRequired;
   const manualPlayReadyRef = useRef(onManualPlayReady);
   manualPlayReadyRef.current = onManualPlayReady;
+  /** 引擎初始化时的控制条意图(挂载即冻结;后续切换由 1b 效果同步) */
+  const nativeControlsRef = useRef(nativeControls);
+  nativeControlsRef.current = nativeControls;
 
   /** 引擎 play() 统一入口(src 安装自动起播与手势恢复共用;拒绝只回报事实,不重试) */
   const attemptPlay = useCallback((): void => {
@@ -118,7 +127,7 @@ export function VideoPlayer({
     }
     let player: Player;
     try {
-      player = videojs(el, ENGINE_OPTIONS);
+      player = videojs(el, engineOptions(nativeControlsRef.current));
     } catch {
       return; // jsdom 等无媒体实现:保持原生 <video> 兜底
     }
@@ -204,7 +213,8 @@ export function VideoPlayer({
   // 1b. 拖动入口开关(010 I4:能力不满足不显示;引擎控制条与原生 controls 同步;
   // 测试假引擎无 controls API 时跳过,不影响行为断言)
   useEffect(() => {
-    const wanted = controlsEnabled !== false;
+    // 自绘控制栏(nativeControls=false)恒关引擎控件;否则按 seek 能力开关
+    const wanted = nativeControls === false ? false : controlsEnabled !== false;
     const player = playerRef.current;
     if (player !== null) {
       if (typeof player.controls === 'function') {
@@ -220,7 +230,7 @@ export function VideoPlayer({
     if (el !== null) {
       el.controls = wanted;
     }
-  }, [controlsEnabled, videoRef]);
+  }, [controlsEnabled, nativeControls, videoRef]);
 
   // 2. 源安装/换装(src 随票据续期变化;位置保持由 PlayerView 的 restore 回填)
   useEffect(() => {

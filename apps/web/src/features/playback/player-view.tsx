@@ -42,6 +42,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { Button } from '@heroui/react';
+import { ListVideo, Repeat2 } from 'lucide-react';
 import type { Vod } from '@hmp/shared';
 import { isFetchApiError, privateFetch } from '../../shared/fetch';
 import { usePlaybackProgress } from './use-playback-progress';
@@ -51,6 +52,10 @@ import { useOptionalAutoplayNextEnabled } from './vod-autoplay-preference';
 import { useVodTransition } from './use-vod-transition';
 import { VodAutoplayOverlay } from './vod-autoplay-overlay';
 import { VodSourceSwitcher } from './vod-source-switcher';
+import { PlayerControls } from './player-controls';
+import { PlayerLineSwitcher } from '../live/components/PlayerLineSwitcher';
+import { LiveGuidePanel } from '../live/components/LiveGuidePanel';
+import type { StreamLineDto } from '@hmp/shared';
 import { VideoPlayer } from './video-player';
 import { PlaybackSettingsOverlay } from './playback-settings-overlay';
 
@@ -118,6 +123,19 @@ export interface PlayerViewProps {
   readonly resumeReason?: ResumeReason;
   /** 影片逻辑时长秒(可选;null=未知 → 进度不可保存;缺省由状态探针补全) */
   readonly durationSeconds?: number | null;
+  /** 016 T021:直播线路清单(resolve 投影;≥2 条时控制栏呈现换线菜单) */
+  readonly lines?: readonly StreamLineDto[];
+  /** 当前线路(与 lines 同源) */
+  readonly selectedLineId?: string | null;
+  /** 手动换线:仅上报 lineId,由协调器决定是否原地换装 */
+  readonly onSelectLine?: (lineId: string) => void;
+  /** mini 播放器状态与切换(控制栏最小化按钮;宿主负责悬浮/拖动) */
+  readonly minimized?: boolean;
+  readonly onToggleMinimize?: () => void;
+  /** 直播频道切换(节目单面板内点击某频道当前节目) */
+  readonly onZapChannel?: (mediaId: string, title: string) => void;
+  /** 当前播放频道 mediaId(节目单面板标记「当前」用) */
+  readonly currentChannelId?: string | null;
 }
 
 export function PlayerView({
@@ -133,6 +151,13 @@ export function PlayerView({
   seekCapability: seekCapabilityProp,
   resumeReason: resumeReasonProp,
   durationSeconds: durationSecondsProp,
+  lines = [],
+  selectedLineId = null,
+  onSelectLine,
+  minimized = false,
+  onToggleMinimize,
+  onZapChannel,
+  currentChannelId = null,
 }: PlayerViewProps): ReactNode {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   /** 换装(续期)时待恢复的位置(direct 换 src 后回填;VHS 换源续装回填) */
@@ -141,6 +166,8 @@ export function PlayerView({
   const presentationAppliedRef = useRef(false);
   /** 未保存提示(未确认 started 即停止;进度同步失败提示) */
   const [notice, setNotice] = useState<string | null>(null);
+  /** 直播节目单面板(控制栏 icon 呼出;播放器内部覆盖层) */
+  const [guideOpen, setGuideOpen] = useState(false);
 
   // 010 T049:probe 后播放事实面(可选 props 优先 —— 供协调器直传;缺省状态探针补全)
   const [status, setStatus] = useState<SessionStatusSnapshot | null>(null);
@@ -533,6 +560,8 @@ export function PlayerView({
           mediaFailureRef.current?.();
           terminatedRef.current('播放流中断,请重新发起播放。');
         }}
+        // 自绘 HeroUI 控制栏(原生控件关闭;媒体语义不变)
+        nativeControls={false}
         // 010 I4:能力不满足(none)不显示可用拖动入口(未知能力不冒进禁用)
         controlsEnabled={seekCapability !== 'none'}
         // 010 T065:自动播放策略拒绝 → awaitingGesture 面;「点击播放」经注册的引擎 play() 恢复
@@ -546,21 +575,55 @@ export function PlayerView({
           正在直播
         </p>
       ) : null}
-      {/* 换源入口(T074;ui.md §4 播放面内,不退出播放器重搜):抽屉内容见
-          vod-source-switcher,与连播 overlay 并存(开启换源即取消连播倒计时) */}
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label="换源"
-        className="absolute end-3 top-3 z-10"
-        onPress={transition.openDrawer}
+      {/* 控制栏(自绘 HeroUI):基础播放控件 + 右侧业务动作区。
+          换源/播放设置/线路/节目单全部收拢于此(产品要求:不再四角浮动)。 */}
+      <PlayerControls
+        videoRef={videoRef}
+        isLive={durationSeconds === null}
+        canSeek={seekCapability !== 'none'}
+        minimized={minimized}
+        onToggleMinimize={onToggleMinimize}
       >
-        换源
-      </Button>
+        {/* 播放设置(012 T028;FR-023):音轨/字幕/清晰度当前值控制;开关不触
+            媒体元素(播放零中断),浮层内无跳转完整设置页入口 */}
+        <PlaybackSettingsOverlay settings={trackSelection} delivery={delivery} />
+        {/* 换源入口(T074;ui.md §4 播放面内,不退出播放器重搜) */}
+        <Button size="sm" variant="ghost" isIconOnly aria-label="换源" className="text-white" onPress={transition.openDrawer}>
+          <Repeat2 aria-hidden="true" className="size-4" />
+        </Button>
+        {/* OSD 线路切换(016 T021):≥2 条线路才呈现;仅上报 lineId */}
+        {onSelectLine !== undefined ? (
+          <PlayerLineSwitcher lines={lines} selectedLineId={selectedLineId} onSelect={onSelectLine} />
+        ) : null}
+        {/* 直播节目单(切台器):点击在播放器内呼出正在直播列表 */}
+        {durationSeconds === null && onZapChannel !== undefined ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            isIconOnly
+            aria-label="节目单"
+            aria-expanded={guideOpen}
+            className="text-white"
+            onPress={() => {
+              setGuideOpen((value) => !value);
+            }}
+          >
+            <ListVideo aria-hidden="true" className="size-4" />
+          </Button>
+        ) : null}
+      </PlayerControls>
+      {/* 播放器内节目单面板(不拦截视频播放;点击行即切台) */}
+      <LiveGuidePanel
+        open={guideOpen}
+        onClose={() => {
+          setGuideOpen(false);
+        }}
+        currentChannelId={currentChannelId}
+        onZap={(mediaId, title) => {
+          onZapChannel?.(mediaId, title);
+        }}
+      />
       {transition.state.drawerOpen ? <VodSourceSwitcher transition={transition} /> : null}
-      {/* 播放设置浮层(012 T028;FR-023):音轨/字幕/清晰度当前值控制;浮层开关
-          不触媒体元素(播放零中断),浮层内无跳转完整设置页入口 */}
-      <PlaybackSettingsOverlay settings={trackSelection} delivery={delivery} />
       {/* 续播落点面(T049):成功仅按实际落点承认;失败给显式出路,绝不显示成功语义 */}
       {landing === 'applied' && presentationStartSeconds > 0 ? (
         <p role="status" data-testid="resume-applied" className="absolute bottom-28 start-4 rounded bg-black/70 px-2 py-1 text-xs text-white">

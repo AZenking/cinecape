@@ -138,6 +138,9 @@ const PREPARE_BUDGET_MS = 30_000;
  *  客户端媒体故障时刻起算的 UI 镜像(服务端 failed+60s 为权威),过期收口为
  *  「重新播放」普通播放 —— 不自动携带过期 carry/意图,不自动循环尝试来源。 */
 const RECOVER_WINDOW_MS = 60_000;
+/** mini 播放器尺寸(宽 300,总高约 200:16:9 画面 + 控制栏) */
+const MINI_WIDTH_PX = 300;
+const MINI_HEIGHT_PX = 200;
 
 /** 换源恢复窗口相位(T075):idle=无故障;window=60s 内可 recover_switch;expired=过期 */
 type RecoverPhase = 'idle' | 'window' | 'expired';
@@ -381,12 +384,98 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
   }, [abandonSession, closeRecoverWindow, resetLineFailoverTracking]);
 
   /**
+   * mini 播放器(产品要求:播放面可最小化为右下角悬浮窗,支持拖动)。
+   * - 仅影响**外壳**的定位/尺寸,PlayerView 子树结构不变 —— 切换不重挂播放器、
+   *   不中断播放(媒体元素与会话均保持);
+   * - 位置用视口坐标(left/top),拖动时按指针位移更新并 clamp 在视口内;
+   * - 关闭播放或换片时复位为缺省(右下角)。
+   */
+  const [minimized, setMinimized] = useState(false);
+  const [miniPosition, setMiniPosition] = useState<{ x: number; y: number } | null>(null);
+  const miniDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null);
+
+  /** mini 缺省位置:右下角(留 16px 边距);首次最小化时计算 */
+  const ensureMiniPosition = useCallback((): void => {
+    setMiniPosition((current) => {
+      if (current !== null) {
+        return current;
+      }
+      const width = MINI_WIDTH_PX;
+      const height = MINI_HEIGHT_PX;
+      return {
+        x: Math.max(8, window.innerWidth - width - 16),
+        y: Math.max(8, window.innerHeight - height - 16),
+      };
+    });
+  }, []);
+
+  const toggleMinimize = useCallback((): void => {
+    setMinimized((value) => {
+      const next = !value;
+      if (next) {
+        ensureMiniPosition();
+      }
+      return next;
+    });
+  }, [ensureMiniPosition]);
+
+  /** 拖动:指针捕获 + 视口 clamp(仅 mini 态;标题栏兼作拖动手柄) */
+  const handleMiniPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLElement>): void => {
+      if (!minimized) {
+        return;
+      }
+      const current = miniPosition;
+      if (current === null) {
+        return;
+      }
+      miniDragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: current.x,
+        originY: current.y,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [minimized, miniPosition],
+  );
+
+  const handleMiniPointerMove = useCallback((event: React.PointerEvent<HTMLElement>): void => {
+    const drag = miniDragRef.current;
+    if (drag === null || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    const maxX = Math.max(8, window.innerWidth - MINI_WIDTH_PX - 8);
+    const maxY = Math.max(8, window.innerHeight - MINI_HEIGHT_PX - 8);
+    setMiniPosition({
+      x: Math.min(maxX, Math.max(8, drag.originX + (event.clientX - drag.startX))),
+      y: Math.min(maxY, Math.max(8, drag.originY + (event.clientY - drag.startY))),
+    });
+  }, []);
+
+  const handleMiniPointerUp = useCallback((event: React.PointerEvent<HTMLElement>): void => {
+    const drag = miniDragRef.current;
+    if (drag !== null && drag.pointerId === event.pointerId) {
+      miniDragRef.current = null;
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // 指针已释放:忽略
+      }
+    }
+  }, []);
+
+  /**
    * 关闭播放面(用户主动退出):统一收口唯一入口(terminatePlaybackIntent)。
    * playing 相位的 stop 由 PlayerView 卸载时的进度泵承担(携 finalProgress /
    * 未确认时空 stop + 未保存提示),本处不并发空 stop(T104;vod-autoplay B2 钉
    * 播放面即时收口);authorizing/preparing/unavailable 仍走无泵幂等清理。
+   * mini 态一并复位(下次播放回到大窗)。
    */
   const close = useCallback((): void => {
+    setMinimized(false);
+    setMiniPosition(null);
     terminatePlaybackIntent();
   }, [terminatePlaybackIntent]);
 
@@ -620,20 +709,97 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
 
   /** OSD 手动换线(016 T021):以 {…target, lineId} 发起新 resolve(新 session 契约语义);
    *  容灾追踪不清零 —— 从指定线路继续顺位(R4:手动选择后容灾仍可用) */
+  /**
+   * 手动换线(OSD):**原地换装**——不再走 launchPlayback(preparing 会卸载 PlayerView,
+   * 表现为「播放器关闭后重新加载」)。流程:同 intentId 下 resolve 新线路 → prepare
+   * 轮询 → 换票 → 只 patch 会话面(sessionId/URL/线路),相位保持 playing,
+   * PlayerView 不卸载、媒体元素不销毁,仅底层换源续播。
+   * 失败保持原线路继续播放并提示;在途时忽略重复触发。
+   */
+  const lineSwitchInFlightRef = useRef(false);
   const handleManualLineSelect = useCallback(
     (lineId: string): void => {
       const current = stateRef.current.playback;
-      if (current === null || current.phase !== 'playing') {
+      if (current === null || current.phase !== 'playing' || lineSwitchInFlightRef.current) {
         return;
       }
-      launchPlayback({
-        mediaId: current.target.mediaId,
-        title: current.target.title,
-        startMode: current.target.startMode,
-        lineId,
-      });
+      if (lineId === current.selectedLineId) {
+        return;
+      }
+      const intentId = current.intentId;
+      const keepAlive = (): boolean => stateRef.current.playback?.intentId === intentId;
+      const previousSessionId = current.sessionId;
+      lineSwitchInFlightRef.current = true;
+      void (async () => {
+        try {
+          const dto = await privateFetch<PlaybackDto>('/playback/resolve', {
+            method: 'POST',
+            body: { mediaId: current.target.mediaId, startMode: current.target.startMode, lineId },
+          });
+          if (!keepAlive()) {
+            abandonSession(dto.id);
+            return;
+          }
+          // prepare 轮询(与首播同一预算);期间旧线路继续播放,无黑屏
+          const deadline = Date.now() + PREPARE_BUDGET_MS;
+          while (Date.now() < deadline) {
+            await delay(PREPARE_POLL_MS);
+            if (!keepAlive()) {
+              abandonSession(dto.id);
+              return;
+            }
+            let status: PlaybackDto | null = null;
+            try {
+              status = await privateFetch<PlaybackDto>(`/playback/sessions/${encodeURIComponent(dto.id)}`);
+            } catch {
+              continue;
+            }
+            if (status.state === 'ready' || status.state === 'playing') {
+              const ticket = await privateFetch<TicketReply>(`/playback/sessions/${encodeURIComponent(dto.id)}/renew`, {
+                method: 'POST',
+                body: { expectedGeneration: status.generation },
+              });
+              if (!keepAlive()) {
+                abandonSession(dto.id);
+                return;
+              }
+              // 关键:不写 phase —— 保持 playing,PlayerView 原地换源
+              dispatchWithMirror({
+                type: 'playPatch',
+                intentId,
+                patch: {
+                  sessionId: dto.id,
+                  delivery: status.delivery,
+                  playbackGeneration: ticket.generation,
+                  playbackUrl: ticket.playbackUrl,
+                  ticketExpiresAt: ticket.ticketExpiresAt,
+                  presentationStartSeconds: status.presentationStartSeconds,
+                  lines: dto.lines ?? [],
+                  selectedLineId: dto.selectedLineId ?? null,
+                },
+              });
+              // 旧会话卫生清理(幂等 stop;不阻塞新流)
+              if (previousSessionId !== null) {
+                abandonSession(previousSessionId);
+              }
+              return;
+            }
+            if (status.state === 'failed' || status.state === 'ended' || status.state === 'interrupted') {
+              throw new Error('switch_failed');
+            }
+          }
+          throw new Error('switch_timeout');
+        } catch {
+          // 失败:保留原线路继续播放(不降级、不弹不可播面),仅提示
+          if (keepAlive()) {
+            lineFailoverToast.error('换线失败,已保持当前线路继续播放。');
+          }
+        } finally {
+          lineSwitchInFlightRef.current = false;
+        }
+      })();
     },
-    [launchPlayback],
+    [abandonSession, dispatchWithMirror, lineFailoverToast],
   );
 
   /**
@@ -993,21 +1159,47 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
             aria-modal="false"
             aria-label={`播放 ${playback.target.title}`}
             data-testid="playback-surface"
-            className="pointer-events-auto fixed left-1/2 top-1/2 z-50 flex w-[min(94vw,1120px,calc((100vh-12rem)*16/9))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-border bg-black shadow-2xl"
+            data-minimized={minimized ? 'true' : 'false'}
+            onPointerDown={handleMiniPointerDown}
+            onPointerMove={handleMiniPointerMove}
+            onPointerUp={handleMiniPointerUp}
+            onPointerCancel={handleMiniPointerUp}
+            style={minimized && miniPosition !== null ? { left: miniPosition.x, top: miniPosition.y } : undefined}
+            className={
+              minimized
+                ? 'pointer-events-auto fixed z-50 flex w-[300px] flex-col overflow-hidden rounded-lg border border-border bg-black shadow-2xl'
+                : 'pointer-events-auto fixed left-1/2 top-1/2 z-50 flex w-[min(94vw,1120px,calc((100vh-12rem)*16/9))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-border bg-black shadow-2xl'
+            }
           >
-            <header className="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-2">
-              <h2 className="min-w-0 truncate text-base font-medium text-foreground">{playback.target.title}</h2>
+            {/* 头部兼作 mini 拖动手柄(cursor-move 仅提示,不改变交互语义);
+                mini 态隐藏标题与退出以外的高频动作,保留还原/关闭 */}
+            <header
+              className={`flex items-center justify-between gap-4 border-b border-white/10 ${
+                minimized ? 'cursor-move px-2 py-1' : 'px-4 py-2'
+              }`}
+            >
+              <h2 className={`min-w-0 truncate font-medium text-foreground ${minimized ? 'text-xs' : 'text-base'}`}>
+                {playback.target.title}
+              </h2>
               <div className="flex shrink-0 items-center gap-2">
                 {/* OSD 线路切换(T021;ui-experience §3;playing 相位且 lines ≥2 才有换线面,
                     组件内单线路/空清单自行返回 null):手动换线 = 新 resolve/新 session 契约语义 */}
-                {playback.phase === 'playing' ? (
+                {playback.phase === 'playing' && !minimized ? (
                   <PlayerLineSwitcher
                     lines={playback.lines}
                     selectedLineId={playback.selectedLineId}
                     onSelect={handleManualLineSelect}
                   />
                 ) : null}
-                <AutoplayNextToggle />
+                {!minimized ? <AutoplayNextToggle /> : null}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-label={minimized ? '还原播放器' : '最小化播放器'}
+                  onPress={toggleMinimize}
+                >
+                  {minimized ? '还原' : '最小化'}
+                </Button>
                 <Button size="sm" variant="ghost" onPress={close} aria-label="退出播放">
                   退出
                 </Button>
@@ -1026,6 +1218,18 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
                   // recover 窗口/unavailable 既有通道,见 handlePlaybackFatalError 裁决)
                   onMediaFailure={() => handlePlaybackFatalError(null)}
                   onTerminated={handlePlaybackFatalError}
+                  // 016 T021:线路清单与手动换线(控制栏内呈现;原地换装不重建播放器)
+                  lines={playback.lines}
+                  selectedLineId={playback.selectedLineId}
+                  onSelectLine={handleManualLineSelect}
+                  // mini 播放器:外壳尺寸由协调器控制,PlayerView 只提供栏内按钮
+                  minimized={minimized}
+                  onToggleMinimize={toggleMinimize}
+                  // 直播切台(控制栏「节目单」icon → 播放器内列表面板)
+                  currentChannelId={playback.target.mediaId}
+                  onZapChannel={(mediaId, title) => {
+                    play({ mediaId, title });
+                  }}
                   onRenew={(url, expiresAt) => {
                     // 续期换装:URL/到期时间更新(意图面收口;URL 不落任何持久存储)
                     dispatchWithMirror({
