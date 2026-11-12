@@ -812,18 +812,8 @@ export function GuideWall({
               <span className="hmp-tabular-nums text-xs font-medium leading-none text-muted">{tick.label}</span>
             </div>
           ))}
-          {/* 日界标记:当天 24:00 = 次日 00:00,给出可读的日期切换点 */}
-          {nextDay !== null ? (
-            <div
-              className="absolute top-0 bottom-0 flex items-center gap-1.5 pl-2"
-              style={{ left: headSpanPx + spanPx }}
-            >
-              <span aria-hidden="true" className="h-3 w-px shrink-0 bg-foreground/40" />
-              <span className="hmp-tabular-nums text-xs font-semibold leading-none text-foreground/80">
-                {nextDay.date.slice(5).replace('-', '/')}
-              </span>
-            </div>
-          ) : null}
+          {/* 日界不单独画日期:当天 24:00 与次日 00:00 是同一点,叠两个标签会糊成
+              「00/04」;此处只由次日首个整点标签 00:00 承担(产品要求)。 */}
           {/* 连接线:补上胶囊下指三角与节目区 NOW 竖线之间的空隙(头部内 16→32px)。
               仅在 now 落在窗口内(未被贴边钳制)时绘制,避免钳制态给出错误的"当前时刻"位置。 */}
           {hasNowInWindow ? (

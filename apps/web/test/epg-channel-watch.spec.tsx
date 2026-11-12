@@ -191,6 +191,9 @@ describe('T009 · EPG 频道观看按钮经统一播放链路(钉面;现状已�
         .getAllByRole('button', { name: /例牌新闻台,例牌预告节目/ })
         .find((el) => el.getAttribute('data-day') === 'current');
       expect(block).toBeDefined();
+      if (block === undefined) {
+        throw new Error('未找到当天节目块');
+      }
 
       fireEvent.click(block);
       const panel = await screen.findByRole('dialog', { name: /节目详情/ });
