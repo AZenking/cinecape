@@ -396,19 +396,30 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                           minHeight: 18,
                         }}
                       >
-                      <button
-                        type="button"
-                        // T025:详情返回焦点恢复锚(会话内存快照按 key 查块;不进 URL/storage)
-                        data-programme-key={programme.key}
-                        aria-label={`${channel.media.title},${programme.title},${rangeLabel}${isCurrent ? ',正在直播' : ''}`}
-                        title={`${programme.title} ${rangeLabel}`}
-                        onClick={() => {
-                          // 产品统一:所有节目块(含正在直播)都进详情抽屉;
-                          // 「正在直播」只在详情里多一个播放按钮,不再块内直接起播。
-                          onSelectProgramme({ mediaId: channel.media.id, channelTitle: channel.media.title, programme });
-                        }}
-                        className="group/prog flex h-full w-full flex-col text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-                      >
+                      {/* 长节目名:悬浮块任意位置用 Tooltip 展示全名(块内文本仍单行截断)。
+                          触发器直接渲染 <button> 本身,避免 Trigger 默认 div[role=button]
+                          与内部按钮形成嵌套按钮(ARIA 非法 + 查询重复)。 */}
+                      <Tooltip delay={400}>
+                        <Tooltip.Trigger<"button">
+                          render={({ children, ...triggerProps }) => (
+                            <button
+                              {...triggerProps}
+                              type="button"
+                              // T025:详情返回焦点恢复锚(会话内存快照按 key 查块;不进 URL/storage)
+                              data-programme-key={programme.key}
+                              aria-label={`${channel.media.title},${programme.title},${rangeLabel}${isCurrent ? ',正在直播' : ''}`}
+                              title={`${programme.title} ${rangeLabel}`}
+                              onClick={() => {
+                                // 产品统一:所有节目块(含正在直播)都进详情抽屉;
+                                // 「正在直播」只在详情里多一个播放按钮,不再块内直接起播。
+                                onSelectProgramme({ mediaId: channel.media.id, channelTitle: channel.media.title, programme });
+                              }}
+                              className="group/prog flex h-full w-full flex-col text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                            >
+                              {children}
+                            </button>
+                          )}
+                        >
                         {/* 两行内容:标题行(+LIVE 角标)+ `HH:mm – HH:mm` muted 行 */}
                         <span className="relative flex h-full min-w-0 flex-col justify-center gap-0.5 px-2.5">
                           <span className="flex min-w-0 items-center gap-1">
@@ -440,7 +451,9 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                           ) : null}
                         </span>
 
-                      </button>
+                        </Tooltip.Trigger>
+                        <Tooltip.Content>{programme.title}</Tooltip.Content>
+                      </Tooltip>
                       </Card>
                     );
                   })
