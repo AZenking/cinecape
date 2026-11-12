@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import { consumeGuideSessionSnapshot, GUIDE_WALL_SESSION_KEY } from './guide-session-state';
 
@@ -20,6 +20,9 @@ import { consumeGuideSessionSnapshot, GUIDE_WALL_SESSION_KEY } from './guide-ses
  *     align='start':滚到锚点左缘,scrollLeft = anchorX;
  *   **同一窗口身份(key)重复渲染不重定位**——手动浏览期间自动刷新/详情开关面板
  *   一律不拉回(FR-016);切日/回到现在产生新窗口 key 才重新定位;
+ * - 拖拽平移(产品要求):按住空白或节目块拖动即可 2D 平移(鼠标/触控笔),
+ *   触屏保持原生惯性滚动;位移超过 4px 才进入拖拽态,避免误触节目块点击
+ *   (进入拖拽后抑制紧随其后的 click 一次);仅鼠标左键;
  * - 会话快照优先(T025;url-state §1 规则3):首次定位时若有会话内快照
  *   (详情返回/SPA 回访),恢复快照滚动而非缺省定位;刷新(全新文档)无快照,
  *   回缺省定位可接受。
@@ -53,6 +56,18 @@ export function GuideScrollContainer({ ariaLabel, describedById, children, conta
   const containerSelfRef = useRef<HTMLDivElement | null>(null);
   /** 已应用定位的窗口身份(同 key 不重定位 = 自动刷新不拉回) */
   const appliedKeyRef = useRef<string | null>(null);
+  /** 拖拽平移会话(阈值生效后才 dragging=true,并捕获指针) */
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    scrollLeft: number;
+    scrollTop: number;
+    dragging: boolean;
+  } | null>(null);
+  /** 拖拽结束时抑制一次 click(否则松手会误触发节目块/播放按钮) */
+  const suppressClickRef = useRef(false);
+  const [grabbing, setGrabbing] = useState(false);
 
   const setContainer = (el: HTMLDivElement | null): void => {
     containerSelfRef.current = el;
@@ -91,6 +106,73 @@ export function GuideScrollContainer({ ariaLabel, describedById, children, conta
         : autoPosition.anchorX;
   }, [autoPosition]);
 
+  /** 拖拽阈值(px):小于该位移视为点击,不进入拖拽 */
+  const DRAG_THRESHOLD_PX = 4;
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (event.pointerType === 'touch' || event.button !== 0) {
+      return; // 触屏用原生惯性滚动;仅响应左键
+    }
+    const el = containerSelfRef.current;
+    if (el === null) {
+      return;
+    }
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: el.scrollLeft,
+      scrollTop: el.scrollTop,
+      dragging: false,
+    };
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const drag = dragRef.current;
+    if (drag === null || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    const el = containerSelfRef.current;
+    if (el === null) {
+      return;
+    }
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (!drag.dragging) {
+      if (Math.abs(dx) <= DRAG_THRESHOLD_PX && Math.abs(dy) <= DRAG_THRESHOLD_PX) {
+        return; // 仍在点击容差内
+      }
+      drag.dragging = true;
+      setGrabbing(true);
+      try {
+        el.setPointerCapture(event.pointerId);
+      } catch {
+        // 环境不支持指针捕获(jsdom):拖拽仍可用
+      }
+    }
+    // 2D 平移:内容跟随指针反向滚动
+    el.scrollLeft = drag.scrollLeft - dx;
+    el.scrollTop = drag.scrollTop - dy;
+    suppressClickRef.current = true;
+    event.preventDefault();
+  };
+
+  const endDrag = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const drag = dragRef.current;
+    if (drag === null) {
+      return;
+    }
+    if (drag.dragging) {
+      try {
+        containerSelfRef.current?.releasePointerCapture(event.pointerId);
+      } catch {
+        // 忽略:指针已释放
+      }
+    }
+    dragRef.current = null;
+    setGrabbing(false);
+  };
+
   return (
     <div
       ref={setContainer}
@@ -99,9 +181,26 @@ export function GuideScrollContainer({ ariaLabel, describedById, children, conta
       tabIndex={0}
       aria-label={ariaLabel}
       aria-describedby={describedById}
-      // 局部二维滚动:max-h 限高(600 高窗口/200% 缩放收拢为内部滚动),overflow 双轴墙内消化
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onClickCapture={(event) => {
+        if (suppressClickRef.current) {
+          suppressClickRef.current = false;
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
+      // 局部二维滚动:max-h 限高(600 高窗口/200% 缩放收拢为内部滚动),overflow 双轴墙内消化;
+      // 拖拽态显示 grabbing 光标;touch-action 保留原生触摸平移
       className="w-full max-w-full overflow-auto rounded-xl border border-border/70 bg-surface shadow-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-      style={{ maxHeight: 'min(70vh, 640px)' }}
+      style={{
+        maxHeight: 'min(70vh, 640px)',
+        cursor: grabbing ? 'grabbing' : 'grab',
+        touchAction: 'pan-x pan-y',
+        userSelect: grabbing ? 'none' : undefined,
+      }}
     >
       {children}
     </div>
