@@ -347,17 +347,17 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                   {/* 台标:posterRef → 同源 logo 接口;无 ref 时回退首字(仍不展示全名) */}
                   <span
                     aria-hidden="true"
-                    className="relative inline-flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md bg-transparent"
+                    className="relative inline-flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-md bg-transparent"
                   >
                     {channel.media.posterRef !== null ? (
                       <ChannelLogo
                         key={channel.media.posterRef}
                         posterRef={channel.media.posterRef}
                         channelTitle={channel.media.title}
-                        fallbackClassName="text-sm font-black leading-none text-muted"
+                        fallbackClassName="text-lg font-black leading-none text-muted"
                       />
                     ) : (
-                      <span className="text-base font-bold text-muted">{channel.media.title.slice(0, 1).toUpperCase()}</span>
+                      <span className="text-lg font-bold text-muted">{channel.media.title.slice(0, 1).toUpperCase()}</span>
                     )}
                   </span>
                   {/* 右缘渐变阴影:区分频道列与时间轴,并暗示可横向滚动 */}
