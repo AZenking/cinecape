@@ -223,8 +223,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
             </div>
           ))}
           {/* 浮标恒渲染:now 在窗口外(浏览其他日期)时钉在最近边缘,始终提供「回到现在」入口 */}
-          {true ? (
-            <div className="absolute top-0 z-10 flex -translate-x-1/2 flex-col items-center" style={{ left: nowPillX }}>
+          <div className="absolute top-0 z-10 flex -translate-x-1/2 flex-col items-center" style={{ left: nowPillX }}>
               {/* NOW 浮标 = 「回到现在」入口(原工具栏按钮已移除)。滚动/拖拽把 now
                   推出可视区时浮标钉在左/右边缘(左缘不越过频道列),见 nowPillX。 */}
               <button
@@ -246,8 +245,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                 aria-label={`当前时间 ${formatTimeInZone(nowIso, data.timezone)}(${zoneOffsetLabel(nowMs, data.timezone)})`}
                 className="hmp-sr-only"
               />
-            </div>
-          ) : null}
+          </div>
         </div>
       </div>
 
@@ -326,11 +324,6 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                     const isPast = endsAtMs <= nowMs;
                     const rangeLabel = `${formatTimeInZone(programme.startsAt, data.timezone)}–${formatTimeInZone(programme.endsAt, data.timezone)}`;
 
-                    // Planby 标志性特性:为正在直播的节目动态计算进度百分比(ticking now 驱动)
-                    const liveProgressPercent = isCurrent
-                      ? Math.min(100, Math.max(0, ((nowMs - startsAtMs) / (endsAtMs - startsAtMs)) * 100))
-                      : 0;
-
                     return (
                       <Card
                         key={programme.key}
@@ -395,14 +388,6 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                           ) : null}
                         </span>
 
-                        {/* Planby 特色:正在直播节目底部的实时进度条(ticking now 每 15s 推进) */}
-                        {isCurrent ? (
-                          <span
-                            aria-hidden="true"
-                            className="pointer-events-none absolute bottom-0 left-0 h-1 rounded-b-xs bg-accent/80 transition-all"
-                            style={{ width: `${liveProgressPercent}%` }}
-                          />
-                        ) : null}
                       </button>
                       </Card>
                     );

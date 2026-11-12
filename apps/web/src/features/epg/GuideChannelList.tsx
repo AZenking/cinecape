@@ -128,12 +128,7 @@ export function GuideChannelList({ data, selectedKey, onSelectProgramme, onPlayC
               <ul className="flex flex-col gap-1.5">
                 {/* 当前节目特色行(Planby 特色行模式):点击 = 直接起播该频道当前直播 */}
                 {current !== null ? (() => {
-                  const startsAtMs = startsAtMsOf(current);
                   const endsAtMs = endsAtMsOf(current);
-                  const durationMs = endsAtMs - startsAtMs;
-                  const liveProgress = durationMs > 0
-                    ? Math.min(100, Math.max(0, ((nowMs - startsAtMs) / durationMs) * 100))
-                    : 0;
                   const range = formatRangeInZone(current.startsAt, current.endsAt, data.timezone);
                   const live = selectedKey === current.key;
                   return (
@@ -151,12 +146,6 @@ export function GuideChannelList({ data, selectedKey, onSelectProgramme, onPlayC
                             : 'border-accent/70 bg-accent/10 hover:bg-accent/20'
                         }`}
                       >
-                        {/* 底部实时进度条:随 useServerNow tick 推进 */}
-                        <span
-                          aria-hidden="true"
-                          className="pointer-events-none absolute bottom-0 left-0 h-1 rounded-b-lg bg-accent/80"
-                          style={{ width: `${liveProgress}%` }}
-                        />
                         <span className="flex items-center gap-1.5">
                           <span className="hmp-truncate min-w-0 text-sm font-semibold text-foreground" title={current.title}>
                             {current.title}

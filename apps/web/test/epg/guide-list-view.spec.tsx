@@ -76,15 +76,6 @@ function renderList(): { onPlayChannel: ReturnType<typeof vi.fn>; onSelectProgra
   return { onPlayChannel, onSelectProgramme };
 }
 
-/** 从进度条 span 的内联 style 解析 width 百分比数值 */
-function progressWidthPercent(button: HTMLElement): number {
-  const bar = button.querySelector('span[style*="width"]');
-  expect(bar, '当前行应渲染内联进度条').not.toBeNull();
-  const width = (bar as HTMLElement).style.width;
-  expect(width.endsWith('%'), `进度条 width 应为百分比,实际:${width}`).toBe(true);
-  return Number.parseFloat(width);
-}
-
 beforeEach(() => {
   // 清零服务端钟模块级状态:保持未校准 → 组件回落 data.now 快照(确定性)
   resetServerClockForTests();
@@ -95,16 +86,13 @@ afterEach(() => {
 });
 
 describe('GuideChannelList · 当前行(直播语义/进度/剩余文案/点击=直接播放)', () => {
-  it('当前行含「正在直播」aria-label、LIVE 标识、「还剩」剩余文案与有效进度条', () => {
+  it('当前行含「正在直播」aria-label、LIVE 标识、「还剩」剩余文案;按产品要求不再展示进度条', () => {
     renderList();
-    // now=12:05 ∈ [12:00,13:00) → 已播 5/60 ≈ 8.3%
     const currentButton = screen.getByRole('button', { name: /正在直播/ });
     expect(within(currentButton).getByText('LIVE')).toBeInTheDocument();
     expect(currentButton.textContent).toContain('还剩');
-
-    const percent = progressWidthPercent(currentButton);
-    expect(percent).toBeGreaterThan(0);
-    expect(percent).toBeLessThan(100);
+    // 产品评审:正在直播的节目单不再显示进度条(避免画面/列表冗余提示)
+    expect(currentButton.querySelector('span[style*="width"]')).toBeNull();
   });
 
   it('点击当前行按钮 → onPlayChannel(mediaId+title)恰调一次,onSelectProgramme 不被调', async () => {
