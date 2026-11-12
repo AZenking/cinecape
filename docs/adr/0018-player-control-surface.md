@@ -44,6 +44,28 @@
 8. **移除画面内常驻提示**
    删除「正在直播」角标与「进度不可保存」常驻说明；直播状态由控制栏 LIVE 胶囊承载（文字 + 脉冲点，不只靠颜色），进度能力判定仍驱动进度条可用性。
 
+## HeroUI 能力缺口对照（约束 5 要求的偏离记录）
+
+依据 `heroui-react` skill 的组件清单脚本（`scripts/list_components.mjs`，当日返回 73 个组件）与实际文档核对，逐项判定如下。**原则：HeroUI 覆盖的能力一律复用；仅容器/覆盖层/拖动三类布局行为自研。**
+
+| 需要的 UI 能力 | HeroUI 现有能力（3.2.6 实测） | 判定 | 本实现做法 |
+|---|---|---|---|
+| 播放/暂停、设置、音量、全屏、最小化按钮 | `Button`（`isIconOnly` + `variant`/`isDisabled`） | ✅ 覆盖 | 直接使用 |
+| 进度条、音量条 | `Slider`（`value`/`onChange`/`onChangeEnd`/`isDisabled` + `Track/Fill/Thumb`） | ✅ 覆盖 | 直接使用（拖动期本地值、松手写回媒体） |
+| 直播状态标识 | `Chip` / `Badge` | ✅ 覆盖 | LIVE 胶囊 = Chip 语义色 + 文字 |
+| 面板加载态 | `Skeleton` | ✅ 覆盖 | 切台面板加载骨架 |
+| 面板容器视觉 | `Surface` / `Card` | ✅ 覆盖 | 以语义 token 表达（面板为绝对定位覆盖层，未套 Surface 壳） |
+| 设置菜单面板 | `Popover`（portal 弹层，支持非模态） | ⚠️ 可用但未采用 | 现为自绘绝对定位弹层（`bottom-full end-0`），功能/键盘等价；**可迁移项，登记为技术债** |
+| 切台列表行 | `ListBox`（支持 Section/Virtualizer，Item 可含自定义子节点） | ⚠️ 可用但未采用 | 现为原生 `button` + 行内进度条；行内进度与「当前」标记属自定义内容，迁移收益低，登记为可选优化 |
+| 控制栏容器（画面覆盖、自动隐藏、暂停常显） | `Toolbar` 仅为布局分组原语，无播放器覆盖层/自动隐藏语义 | ❌ 无覆盖 | 自研 `PlayerControls` 容器（Button/Slider 仍来自 HeroUI） |
+| 播放器内**非模态**覆盖面板（不 portal、不 aria-hidden 播放器、不拦截播放） | `Sheet`/`Drawer` 带 backdrop 与拖拽关闭（模态覆盖）；`Popover` 为 portal 弹层 | ❌ 无覆盖 | 自研 `LiveGuidePanel`（`role="dialog"` + 绝对定位覆盖，播放器保持可交互） |
+| 可拖动 mini 悬浮窗（指针捕获 + 视口边界约束） | 无悬浮/拖拽原语（`Sheet` 的拖拽仅限关闭手势） | ❌ 无覆盖 | 自研：外壳定位 + `setPointerCapture` + clamp |
+| 视频解码与 HLS 播放 | 无媒体引擎组件 | ❌ 无覆盖（且属引擎层） | 沿用既有 `video.js`（本 ADR 不改引擎选型） |
+
+**自研范围边界**：仅限「覆盖层容器 / 面板定位 / 悬浮拖动」这三类**布局与定位行为**；其中所有可交互元素（按钮、滑块、状态芯片、骨架）均为 HeroUI 组件，样式只用语义 token，图标只用 `lucide-react`。这与约束 5 的例外条款一致，也是本条偏离记录的全部范围。
+
+**版本口径**：skill 文档索引当日为 v3.2.7，仓库实际安装 `@heroui/react`/`@heroui/styles` 3.2.6。按宪章「组件 API 与 token 以安装版本为准」，上表判定以 3.2.6 的类型检查与运行时实测为准；`Slider`/`Button`/`Chip`/`Skeleton` 所用 props 在 3.2.6 均可用（`tsc --noEmit` 与浏览器实测通过）。若后续升级 HeroUI，需按约束 8 走宪章修订记录。
+
 ## Consequences
 
 **正**

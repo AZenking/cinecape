@@ -82,6 +82,10 @@
 - **FR-010**：换流入口 MUST 二选一：直播（`isLive`）仅「线路」（`lines.length ≥ 2`），点播仅「换源」；两者不得同时出现。
 - **FR-011**：控制栏与设置面板 MUST 保持键盘可达（HeroUI/React Aria 焦点语义），面板限高可滚动，长线路名截断且完整名称进 `aria-label`。
 
+### HeroUI 能力缺口（约束 5 偏离记录）
+
+自研范围限于「覆盖层容器 / 面板定位 / 悬浮拖动」三类布局行为；播放/暂停、进度、音量、状态芯片、骨架等可交互元素全部复用 HeroUI 组件。逐项对照表（含可用未采用项与技术债登记）见 [ADR-0018 §HeroUI 能力缺口对照](../adr/0018-player-control-surface.md)。
+
 ### Key Entities
 
 - **播放意图（Playback Intent）**：`PlaybackTarget{mediaId,title,startMode,lineId?,posterRef?}`；`posterRef` 仅本地展示，不进 resolve 请求体。
