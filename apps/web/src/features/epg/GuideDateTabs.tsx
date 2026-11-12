@@ -61,7 +61,7 @@ export function GuideDateTabs({ allowedDates, timezone, selected, disabled = fal
     <div
       role="group"
       aria-label="节目单日期"
-      className="flex min-w-0 flex-nowrap items-stretch gap-1 overflow-x-auto py-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="flex min-w-0 flex-nowrap items-stretch gap-1.5 overflow-x-auto py-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {allowedDates.map((date, index) => {
         const isSelected = selected === date || (selected === undefined && index === 0);
@@ -76,19 +76,19 @@ export function GuideDateTabs({ allowedDates, timezone, selected, disabled = fal
             onPress={() => {
               onSelect(date);
             }}
-            className="h-10 shrink-0 rounded-lg px-2.5"
+            className="h-12 shrink-0 rounded-xl px-3.5"
             aria-label={`${topLabel} ${dateLabel}`}
           >
             <span className="flex flex-col items-center leading-none">
               <span
-                className={`flex items-center gap-1 text-3xs font-medium tracking-wide ${
+                className={`flex items-center gap-1 text-2xs font-semibold tracking-wide ${
                   isSelected ? 'text-accent' : 'text-muted'
                 }`}
               >
-                {index === 0 ? <span aria-hidden="true" className="size-1.5 rounded-full bg-accent" /> : null}
+                {index === 0 ? <span aria-hidden="true" className="size-2 rounded-full bg-accent" /> : null}
                 {topLabel}
               </span>
-              <span className={`mt-0.5 hmp-tabular-nums text-2xs ${isSelected ? 'text-foreground font-semibold' : 'text-foreground/80'}`}>
+              <span className={`mt-1 hmp-tabular-nums text-xs ${isSelected ? 'text-foreground font-semibold' : 'text-foreground/80'}`}>
                 {dateLabel}
               </span>
             </span>
