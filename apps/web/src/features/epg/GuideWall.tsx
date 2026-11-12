@@ -244,6 +244,15 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
               <span>{tick.label}</span>
             </div>
           ))}
+          {/* 连接线:补上胶囊下指三角与节目区 NOW 竖线之间的空隙(头部内 16→32px)。
+              仅在 now 落在窗口内(未被贴边钳制)时绘制,避免钳制态给出错误的"当前时刻"位置。 */}
+          {hasNowInWindow ? (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute top-3 -bottom-px w-[2px] -translate-x-1/2 bg-accent"
+              style={{ left: nowX }}
+            />
+          ) : null}
           {/* 浮标恒渲染:now 在窗口外(浏览其他日期)时钉在最近边缘,始终提供「回到现在」入口 */}
           <div ref={pillRef} className="absolute top-0 z-10 flex -translate-x-1/2 flex-col items-center" style={{ left: nowPillX }}>
               {/* NOW 浮标 = 「回到现在」入口(原工具栏按钮已移除)。滚动/拖拽把 now
