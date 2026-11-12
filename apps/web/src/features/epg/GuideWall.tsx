@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ExperienceProgrammeDto, GuideWindowDto } from '@hmp/shared';
-import { Chip } from '@heroui/react';
-import { Play } from 'lucide-react';
+import { Card, Chip } from '@heroui/react';
 import { useServerNow } from '../../shared/time/use-server-now';
 import {
   PX_PER_MINUTE,
@@ -122,9 +121,11 @@ export interface GuideWallProps {
   readonly onSelectProgramme: (ref: GuideProgrammeRef) => void;
   /** 频道列播放该频道当前直播(US3 统一入口) */
   readonly onPlayChannel: (mediaId: string, channelTitle: string) => void;
+  /** NOW 浮标点击 = 回到现在(原工具栏按钮入口已移除;缺省 no-op 便于直挂测试) */
+  readonly onGoNow?: () => void;
 }
 
-export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, onPlayChannel }: GuideWallProps): ReactNode {
+export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, onPlayChannel, onGoNow = () => undefined }: GuideWallProps): ReactNode {
   const fromMs = Date.parse(data.from);
   const toMs = Date.parse(data.to);
   // 服务端基准钟 ticking(15s;016 spec 基准时间条款);未校准回落响应快照 data.now
@@ -132,6 +133,30 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
   const nowMs = tickingNowMs ?? Date.parse(data.now);
   const spanPx = windowSpanPx(fromMs, toMs);
   const titleRef = useRef<HTMLParagraphElement>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  /** 墙内可视区(用于 NOW 浮标贴边:超出时钉在左右边缘) */
+  const [viewport, setViewport] = useState<{ scrollLeft: number; clientWidth: number }>({
+    scrollLeft: 0,
+    clientWidth: 0,
+  });
+
+  useEffect(() => {
+    const scroller = rootRef.current?.closest('[role="region"]') as HTMLElement | null;
+    if (scroller === null) {
+      return;
+    }
+    const update = (): void => {
+      setViewport({ scrollLeft: scroller.scrollLeft, clientWidth: scroller.clientWidth });
+    };
+    update();
+    scroller.addEventListener('scroll', update, { passive: true });
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    observer?.observe(scroller);
+    return () => {
+      scroller.removeEventListener('scroll', update);
+      observer?.disconnect();
+    };
+  }, []);
 
   const ticks = useMemo(() => hourTicksInWindow(fromMs, toMs, data.timezone), [fromMs, toMs, data.timezone]);
 
@@ -147,8 +172,21 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
   // formatTimeInZone 需要 ISO 字符串:ticking nowMs(UTC 毫秒)转 ISO
   const nowIso = new Date(nowMs).toISOString();
 
+  /**
+   * NOW 浮标 x(时间刻度条坐标系):未测量(jsdom)用真实 nowX;已测量则限制在
+   * 可视区内(左缘让出频道列,两侧留 28px 让胶囊完整可见)——越界即贴边。
+   */
+  const nowPillX = ((): number => {
+    if (viewport.clientWidth <= 0) {
+      return nowX;
+    }
+    const leftEdge = viewport.scrollLeft + 28;
+    const rightEdge = viewport.scrollLeft + viewport.clientWidth - CHANNEL_COL_PX - 28;
+    return Math.min(Math.max(nowX, leftEdge), Math.max(leftEdge, rightEdge));
+  })();
+
   return (
-    <div className="relative select-none" style={{ width: CHANNEL_COL_PX + spanPx }}>
+    <div ref={rootRef} className="relative select-none" style={{ width: CHANNEL_COL_PX + spanPx }}>
       {/* 窗口标题:翻页后的焦点锚(FR-044)与读屏窗口说明。应产品要求不再**可见**
           (日期已由页头日期条承担),降为 hmp-sr-only——id/tabIndex/文案逐字保留,
           焦点定位(toBeFocused)、getAllByText(家庭时区/全天节目单)契约不受影响。 */}
@@ -184,19 +222,30 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
               <span>{tick.label}</span>
             </div>
           ))}
-          {hasNowInWindow ? (
-            <div
-              role="status"
-              aria-label={`当前时间 ${formatTimeInZone(nowIso, data.timezone)}(${zoneOffsetLabel(nowMs, data.timezone)})`}
-              className="pointer-events-none absolute top-0 z-10 flex -translate-x-1/2 flex-col items-center"
-              style={{ left: nowX }}
-            >
-              {/* 指示胶囊:accent 底 + 脉动圆点(ticking now 每 15s 更新时刻) */}
-              <span className="hmp-tabular-nums mt-0.5 flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-3xs font-semibold text-accent-foreground shadow-xs">
+          {/* 浮标恒渲染:now 在窗口外(浏览其他日期)时钉在最近边缘,始终提供「回到现在」入口 */}
+          {true ? (
+            <div className="absolute top-0 z-10 flex -translate-x-1/2 flex-col items-center" style={{ left: nowPillX }}>
+              {/* NOW 浮标 = 「回到现在」入口(原工具栏按钮已移除)。滚动/拖拽把 now
+                  推出可视区时浮标钉在左/右边缘(左缘不越过频道列),见 nowPillX。 */}
+              <button
+                type="button"
+                aria-label="回到现在"
+                title="回到现在"
+                onClick={() => {
+                  onGoNow();
+                }}
+                className="hmp-tabular-nums mt-0.5 flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-3xs font-semibold text-accent-foreground shadow-xs transition-transform hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+              >
                 <span aria-hidden="true" className="size-1.5 animate-pulse rounded-full bg-accent-foreground" />
                 {formatTimeInZone(nowIso, data.timezone)}
-              </span>
+              </button>
               <span aria-hidden="true" className="size-0 border-x-4 border-x-transparent border-t-4 border-t-accent" />
+              {/* 读屏的当前时间语义(role=status 契约保留) */}
+              <span
+                role="status"
+                aria-label={`当前时间 ${formatTimeInZone(nowIso, data.timezone)}(${zoneOffsetLabel(nowMs, data.timezone)})`}
+                className="hmp-sr-only"
+              />
             </div>
           ) : null}
         </div>
@@ -214,9 +263,15 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
 
           return (
             <div key={channel.media.id} className="group/row flex border-b border-border/60 transition-colors last:border-b-0 hover:bg-surface-secondary/20">
-              {/* 频道列:sticky left(ChannelItem:序号 + Logo 身份盒 + 频道名 + 直播按钮) */}
-              <div
-                className="sticky left-0 z-30 flex shrink-0 items-center gap-1.5 border-r border-border bg-surface px-2 transition-colors group-hover/row:bg-surface-secondary/30"
+              {/* 频道列:sticky left;整格即「播放该频道当前直播」按钮(不再单列直播按钮)。
+                  背景与节目区区分,右缘渐变阴影提示可横向滚动 */}
+              <button
+                type="button"
+                aria-label={`播放 ${channel.media.title} 当前直播`}
+                onClick={() => {
+                  onPlayChannel(channel.media.id, channel.media.title);
+                }}
+                className="sticky left-0 z-30 flex shrink-0 items-center gap-1.5 border-r border-border bg-surface-secondary/70 px-2 text-left transition-colors hover:bg-surface-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                 style={{ width: CHANNEL_COL_PX, height: ROW_HEIGHT_PX }}
               >
                 <span
@@ -236,18 +291,12 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                 <span className="hmp-truncate min-w-0 flex-1 text-xs font-medium text-foreground" title={channel.media.title}>
                   {channel.media.title}
                 </span>
-                <button
-                  type="button"
-                  aria-label={`播放 ${channel.media.title} 当前直播`}
-                  className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-2xs font-medium text-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-focus hover:border-accent/70 hover:bg-accent/20"
-                  onClick={() => {
-                    onPlayChannel(channel.media.id, channel.media.title);
-                  }}
-                >
-                  <Play aria-hidden="true" className="size-3 fill-current" />
-                  直播
-                </button>
-              </div>
+                {/* 右缘渐变阴影:区分频道列与时间轴,并暗示可横向滚动 */}
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-y-0 right-0 w-3 translate-x-full bg-gradient-to-r from-background/70 to-transparent"
+                />
+              </button>
 
               {/* 节目轴:相对定位 + 背景刻度网格 + 绝对位置节目块 (Planby Program Grid) */}
               <div className="relative shrink-0" style={{ width: spanPx, height: ROW_HEIGHT_PX }}>
@@ -283,35 +332,16 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                       : 0;
 
                     return (
-                      <button
+                      <Card
                         key={programme.key}
-                        type="button"
-                        // T025:详情返回焦点恢复锚(会话内存快照按 key 查块;不进 URL/storage)
-                        data-programme-key={programme.key}
-                        aria-label={`${channel.media.title},${programme.title},${rangeLabel}${isCurrent ? ',正在直播' : ''}`}
-                        title={`${programme.title} ${rangeLabel}`}
-                        onClick={() => {
-                          // 015 T013(R6、ui-layout §3.2):与 NOW 相交的 current 块 =
-                          // 直播语义,点击直接起播该频道当前直播(onPlayChannel 统一入口,
-                          // 游客先登录、登录前零媒体流请求);upcoming/ended 块保持
-                          // 详情面板路径(FR-024:未来节目禁止直接播放,不伪装可播)。
-                          if (isCurrent) {
-                            onPlayChannel(channel.media.id, channel.media.title);
-                            return;
-                          }
-                          onSelectProgramme({ mediaId: channel.media.id, channelTitle: channel.media.title, programme });
-                        }}
-                        // 卡片化:圆角 + 边框 + 抬升阴影 + 块间留缝(产品评审:节目块应像 Card,
-                        // 而非紧贴的色条);语义仍由 <button> + aria-label 承担,HeroUI Card
-                        // 本身不是可按压组件,直接套用会丢失键盘/读屏语义。
-                        className={`hmp-truncate hmp-tabular-nums group/prog absolute overflow-hidden rounded-lg border text-left shadow-xs transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
+                        className={`hmp-truncate hmp-tabular-nums absolute overflow-hidden p-0 ${
                           selectedKey === programme.key
                             ? 'z-10 border-accent bg-accent/20 text-foreground shadow-md ring-2 ring-accent/40'
                             : isCurrent
-                              ? 'z-[5] border-accent/50 bg-accent/12 text-foreground hover:border-accent/80 hover:bg-accent/20 hover:shadow-md'
+                              ? 'z-[5] border-accent/50 bg-accent/12 text-foreground shadow-xs hover:border-accent/80 hover:bg-accent/20 hover:shadow-md'
                               : isPast
-                                ? 'border-border/40 bg-surface/60 text-muted/70 hover:bg-surface-secondary/60'
-                                : 'border-border/60 bg-surface/90 text-foreground/90 hover:border-foreground/25 hover:bg-surface-secondary hover:shadow-md'
+                                ? 'border-border/40 bg-surface/60 text-muted/70 shadow-none hover:bg-surface-secondary/60'
+                                : 'border-border/60 bg-surface/90 text-foreground/90 shadow-xs hover:border-foreground/25 hover:bg-surface-secondary hover:shadow-md'
                         }`}
                         style={{
                           left: left + 1,
@@ -320,6 +350,19 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                           height: laneHeight - 8,
                           minHeight: 18,
                         }}
+                      >
+                      <button
+                        type="button"
+                        // T025:详情返回焦点恢复锚(会话内存快照按 key 查块;不进 URL/storage)
+                        data-programme-key={programme.key}
+                        aria-label={`${channel.media.title},${programme.title},${rangeLabel}${isCurrent ? ',正在直播' : ''}`}
+                        title={`${programme.title} ${rangeLabel}`}
+                        onClick={() => {
+                          // 产品统一:所有节目块(含正在直播)都进详情抽屉;
+                          // 「正在直播」只在详情里多一个播放按钮,不再块内直接起播。
+                          onSelectProgramme({ mediaId: channel.media.id, channelTitle: channel.media.title, programme });
+                        }}
+                        className="group/prog flex h-full w-full flex-col text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                       >
                         {/* 两行内容:标题行(+LIVE 角标)+ `HH:mm – HH:mm` muted 行 */}
                         <span className="flex h-full min-w-0 flex-col justify-center gap-0.5 px-2.5">
@@ -361,6 +404,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                           />
                         ) : null}
                       </button>
+                      </Card>
                     );
                   })
                 )}

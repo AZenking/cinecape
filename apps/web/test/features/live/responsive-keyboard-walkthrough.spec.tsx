@@ -337,7 +337,8 @@ describe('T024-A · 响应式视口(jsdom 可断言面)', () => {
       el.className.includes('sticky'),
     );
     expect(stickyTop).toBeTruthy();
-    const stickyLeft = Array.from(wall.querySelectorAll('div')).filter(
+    // 频道列已改为整格按钮(sticky left),故连同 button 一起统计
+    const stickyLeft = Array.from(wall.querySelectorAll('div, button')).filter(
       (el) => el.className.includes('sticky') && el.className.includes('left-0'),
     );
     expect(stickyLeft.length).toBeGreaterThanOrEqual(2); // 时间头角标 + 每行频道列

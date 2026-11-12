@@ -1,6 +1,12 @@
 import '@testing-library/jest-dom/vitest';
+import { configure } from '@testing-library/dom';
 import { cleanup } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';
+
+// 并行跑 86 个测试文件时机器会满载,Testing Library 默认 1s 的 waitFor/findBy
+// 上限会偶发超时(表现为随机 1–2 例红、单跑必绿)。放宽等待上限只影响"等多久",
+// 不放松任何断言;真正的行为回归仍会让断言失败。
+configure({ asyncUtilTimeout: 5000 });
 
 // jsdom 未实现 window.matchMedia:HeroUI Toast.Provider(经 useMediaQuery)等
 // 组件需要它。提供最小可用垫片(默认不匹配,可用属性手动触发)。

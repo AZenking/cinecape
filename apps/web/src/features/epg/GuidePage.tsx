@@ -4,7 +4,7 @@ import { useLocation, useSearchParams } from 'react-router';
 import { parseDate } from '@internationalized/date';
 import type { ExperienceProgrammeDto } from '@hmp/shared';
 import { Alert, Button, Drawer, ListBox, Select, Skeleton } from '@heroui/react';
-import { ChevronsLeft, ChevronsRight, Clock, SlidersHorizontal } from 'lucide-react';
+import { SlidersHorizontal } from 'lucide-react';
 import { RetryableAlert } from '../../shared/ui';
 import { useGuideWindow } from './useGuideWindow';
 import { GuideDateTabs } from './GuideDateTabs';
@@ -288,16 +288,6 @@ export function GuidePage(): ReactNode {
     }
   }, [autoPosition, updateParams]);
 
-  /** Planby 时间轴水平滚动辅助 (快速前后跨时段浏览) */
-  const scrollTimeline = useCallback((deltaPx: number): void => {
-    if (scrollRef.current) {
-      if (typeof scrollRef.current.scrollBy === 'function') {
-        scrollRef.current.scrollBy({ left: deltaPx, behavior: 'smooth' });
-      } else {
-        scrollRef.current.scrollLeft += deltaPx;
-      }
-    }
-  }, []);
 
   const changePage = useCallback(
     (delta: 1 | -1): void => {
@@ -439,10 +429,11 @@ export function GuidePage(): ReactNode {
           )}
         </div>
         <div className="flex shrink-0 items-center gap-x-1.5">
-        <Button size="sm" variant="outline" onPress={goNow}>
-          <Clock aria-hidden="true" className="size-3.5" />
-          回到现在
-        </Button>
+          {url.view === 'list' ? (
+            <Button size="sm" variant="outline" onPress={goNow}>
+              回到现在
+            </Button>
+          ) : null}
         <Button
           size="sm"
           variant="ghost"
@@ -455,16 +446,6 @@ export function GuidePage(): ReactNode {
         >
           <SlidersHorizontal aria-hidden="true" className="size-4" />
         </Button>
-        {url.view === 'wall' ? (
-          <div className="flex items-center gap-0.5">
-            <Button size="sm" variant="ghost" isIconOnly onPress={() => scrollTimeline(-240)} aria-label="向左滚动2小时">
-              <ChevronsLeft aria-hidden="true" className="size-4" />
-            </Button>
-            <Button size="sm" variant="ghost" isIconOnly onPress={() => scrollTimeline(240)} aria-label="向右滚动2小时">
-              <ChevronsRight aria-hidden="true" className="size-4" />
-            </Button>
-          </div>
-        ) : null}
         </div>
         </header>
 
@@ -497,6 +478,7 @@ export function GuidePage(): ReactNode {
                   selectedKey={detail?.programme?.key ?? null}
                   onSelectProgramme={onOpenProgramme}
                   onPlayChannel={onPlayChannel}
+                  onGoNow={goNow}
                 />
               ) : (
                 <GuideChannelList

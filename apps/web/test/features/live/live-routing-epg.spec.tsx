@@ -162,15 +162,23 @@ describe('T011 · GuideWall 相交节目块直接起播(T013 分流;R6/ui-layout
     return button;
   }
 
-  it('current 块(与 NOW 相交)点击直接触发 playChannel:onPlayChannel 以 (mediaId, channelTitle) 调用,onSelectProgramme 零调用', () => {
+  it('current 块(与 NOW 相交)点击进入详情(不直接起播):节目详情多一个播放按钮', () => {
+    // 产品统一:所有节目块(含正在直播)都打开详情;播放动作在详情里显式发起
     const { onSelectProgramme, onPlayChannel } = renderWall();
 
     fireEvent.click(wallBlock('正在播出的纪录片'));
 
-    expect(onPlayChannel).toHaveBeenCalledTimes(1);
-    expect(onPlayChannel).toHaveBeenCalledWith(CH_ID, CH_TITLE);
-    expect(onSelectProgramme).not.toHaveBeenCalled();
-    // 零媒体流请求:点击不起播链路的网络面(US3 usePlayAction 才是唯一出海口)
+    expect(onSelectProgramme).toHaveBeenCalledTimes(1);
+    const payload = (onSelectProgramme as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[0] as {
+      mediaId: string;
+      channelTitle: string;
+      programme: { title: string };
+    };
+    expect(payload.mediaId).toBe(CH_ID);
+    expect(payload.channelTitle).toBe(CH_TITLE);
+    expect(payload.programme.title).toBe('正在播出的纪录片');
+    // 块内不再直接起播(零播放网络面)
+    expect(onPlayChannel).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(counter?.counts.playback).toBe(0);
     expect(counter?.counts.personal).toBe(0);
@@ -295,10 +303,12 @@ describe('T011 · GuidePage 宿主接线:current 墙块点击 → 统一登录�
       const block = await screen.findByRole('button', { name: /EPG 墙测试台,正在播出的纪录片/ });
       fireEvent.click(block);
 
-      // 统一登录弹层出现(播放意图经 usePlayAction/ActionCoordinator;至多一层)
+      // 产品统一:current 块先打开详情抽屉(不再直接起播)
+      const detail = await screen.findByRole('dialog', { name: /节目详情/ });
+      expect(detail).toBeVisible();
+      // 详情里「正在直播」提供播放主操作;点击后才进入统一登录链路
+      fireEvent.click(within(detail).getByRole('button', { name: '播放当前频道' }));
       await waitFor(() => expect(screen.getByRole('dialog', { name: '登录' })).toBeVisible());
-      // 详情面板未打开(播放 ≠ 详情)
-      expect(screen.queryByRole('dialog', { name: /节目详情/ })).toBeNull();
       // 登录前零媒体流请求(US3 契约:授权前不请求 /playback/*)
       expect(counter.counts.playback).toBe(0);
       expect(counter.counts.personal).toBe(0);

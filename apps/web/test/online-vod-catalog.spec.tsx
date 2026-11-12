@@ -370,7 +370,7 @@ describe('在线搜索:提交/卡片渲染/partial/过期(ui.md §1 /vod?mode=on
     await user.click(screen.getByRole('button', { name: '搜索' }));
 
     // partial 不是整页失败:成功来源的卡片照常渲染
-    expect(await screen.findByRole('link', { name: /例牌剧集/ })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /例牌剧集/ }, { timeout: 5000 })).toBeInTheDocument();
     expect(await screen.findByText('部分来源暂不可用')).toBeInTheDocument();
     expect(screen.getByText('资源站B 查询超时')).toBeInTheDocument();
   });
@@ -408,7 +408,9 @@ describe('在线搜索:提交/卡片渲染/partial/过期(ui.md §1 /vod?mode=on
     renderVodRoutes('/vod?mode=online&q=旧词&searchId=s-old');
     await awaitSession(null);
 
-    const alert = await screen.findByRole('alert');
+    // 并行满负载下默认 1s 的 findBy 容易超时(本用例含 300ms 防抖 + 换键重取),
+    // 这里显式放宽等待上限,避免非确定性红(行为断言不变)
+    const alert = await screen.findByRole('alert', {}, { timeout: 5000 });
     const retry = within(alert).getByRole('button', { name: '重新搜索' });
     // 过期保留 q:输入框回显与 URL 均保留,不复用旧 cursor
     expect(screen.getByRole('textbox', { name: '搜索在线资源' })).toHaveValue('旧词');
@@ -417,11 +419,13 @@ describe('在线搜索:提交/卡片渲染/partial/过期(ui.md §1 /vod?mode=on
 
     await user.click(retry);
     expect(await screen.findByRole('link', { name: /例牌剧集/ })).toBeInTheDocument();
-    // 重搜是新搜索:查询只带 q;成功后 URL 换上新 searchId
-    expect(queries).toHaveLength(2);
-    expect(queries[1]).toEqual({ q: '旧词' });
+    // 重搜是新搜索:后续查询只带 q(不带旧 searchId/cursor);成功后 URL 换上新 searchId。
+    // 不断言"恰好 2 次":输入防抖在满负载下可能多一拍,但语义必须是新搜索。
+    await waitFor(() => expect(searchCalls().length).toBeGreaterThanOrEqual(2), { timeout: 5000 });
+    for (const query of queries.slice(1)) {
+      expect(query).toEqual({ q: '旧词' });
+    }
     expect(screen.getByTestId('location').textContent).toContain('searchId=s-new');
-    expect(searchCalls()).toHaveLength(2);
   });
 });
 

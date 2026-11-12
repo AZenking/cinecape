@@ -467,9 +467,11 @@ describe('T021 · EPG 入口:游客 current 节目块点击 → 同一全链(R6/
 
       fireEvent.click(block);
 
-      // 统一认证 Modal 拦截;授权前零媒体流请求(详情面板不被打开——播放 ≠ 详情)
-      await waitFor(() => expect(screen.getByRole('dialog')).toBeVisible());
-      expect(screen.queryByRole('dialog', { name: /节目详情/ })).toBeNull();
+      // 产品统一:current 块先开详情抽屉;播放主操作在详情内显式发起
+      const detail = await screen.findByRole('dialog', { name: /节目详情/ });
+      fireEvent.click(within(detail).getByRole('button', { name: '播放当前频道' }));
+      // 统一认证 Modal 拦截;授权前零媒体流请求
+      await waitFor(() => expect(screen.getByRole('dialog', { name: '登录' })).toBeVisible());
       expectNoAuthorizeBeforeAuth();
       expect(counter.counts.playback).toBe(0);
       expect(counter.counts.personal).toBe(0);

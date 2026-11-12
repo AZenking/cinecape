@@ -20,6 +20,10 @@ export default defineConfig({
     // 仅收集前端单测;test/e2e/ 归 Playwright 所有,@playwright/test 的用例文件
     // 不得被 vitest 收集(显式排除,覆盖 *.spec.ts 命名重叠)
     include: ['test/**/*.spec.{ts,tsx}'],
+    // 86 个测试文件并行时,机器满载会让默认 5s/1s 的用例级与 findBy 等待偶发超时
+    // (表现为随机 1–2 例红,单跑必绿)。这里放宽用例与钩子上限,断言本身不放松。
+    testTimeout: 15_000,
+    hookTimeout: 15_000,
     exclude: [...defaultExclude, 'test/e2e/**'],
   },
 });
