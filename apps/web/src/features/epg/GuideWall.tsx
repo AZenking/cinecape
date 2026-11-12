@@ -62,6 +62,8 @@ import {
 /** 频道列宽(px;导出:GuidePage 换算 GuideAutoPosition.anchorX 时加此偏移) */
 export const CHANNEL_COL_PX = 176;
 const ROW_HEIGHT_PX = 72;
+/** 时间头高度(刻度标签 + 短刻度线的视觉带;NOW 胶囊也在此高度内居中偏上) */
+const HEADER_HEIGHT_PX = 36;
 const MAX_LANES = 3;
 
 /** 墙面节目引用(详情面板/播放衔接入参) */
@@ -224,26 +226,51 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
       {/* 时间头:sticky top (Planby Timeline Header 规范):频道列头 + 小时刻度 +
           NOW 胶囊徽章(accent 底 + 脉动圆点,吸附在头部视觉带内;role=status
           元素与 aria 文案契约不变,仅位置/样式对齐参考页) */}
-      <div className="sticky top-0 z-40 flex border-b border-border bg-surface shadow-xs">
+      <div className="sticky top-0 z-40 flex border-b border-border/80 bg-surface-secondary/70 shadow-sm backdrop-blur-sm">
         {/* 左上角频道头:sticky left + sticky top(015 线框全中文:仅中文「频道」) */}
         <div
-          className="sticky left-0 z-10 flex shrink-0 items-center bg-surface px-3 text-xs font-semibold text-muted tracking-wider"
-          style={{ width: CHANNEL_COL_PX, height: 32 }}
+          className="sticky left-0 z-20 flex shrink-0 items-center bg-surface-secondary/80 px-3 text-xs font-semibold text-muted tracking-wider"
+          style={{ width: CHANNEL_COL_PX, height: HEADER_HEIGHT_PX }}
         >
           <span>频道</span>
         </div>
 
         {/* 时间刻度条(相对定位:承载 NOW 胶囊) */}
-        <div className="relative h-8 shrink-0" style={{ width: spanPx }}>
-          {ticks.map((tick) => (
-            <div
-              key={tick.ms}
-              className="hmp-tabular-nums absolute top-0 bottom-0 flex flex-col justify-center pl-2 text-xs font-medium text-muted/90"
-              style={{ left: utcToPx(tick.ms, fromMs) }}
-            >
-              <span>{tick.label}</span>
-            </div>
-          ))}
+        <div className="relative shrink-0" style={{ width: spanPx, height: HEADER_HEIGHT_PX }}>
+          {/* 半小时短刻度:只画短竖线不写标签,给时间轴一个更密的节奏锚点 */}
+          {ticks.map((tick) =>
+            tick.ms + 1_800_000 < toMs ? (
+              <span
+                key={`half-${tick.ms}`}
+                aria-hidden="true"
+                className="pointer-events-none absolute bottom-0 h-2 w-px bg-border/70"
+                style={{ left: utcToPx(tick.ms + 1_800_000, fromMs) }}
+              />
+            ) : null,
+          )}
+          {/* 整点刻度:短竖线 + 标签;包含当前时刻的小时用 accent 刻度线 + 前景色标签强调 */}
+          {ticks.map((tick) => {
+            const isNowHour = nowMs >= tick.ms && nowMs < tick.ms + 3_600_000;
+            return (
+              <div
+                key={tick.ms}
+                className="absolute top-0 bottom-0 flex items-center gap-1.5 pl-2"
+                style={{ left: utcToPx(tick.ms, fromMs) }}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`h-3 w-px shrink-0 ${isNowHour ? 'bg-accent' : 'bg-border'}`}
+                />
+                <span
+                  className={`hmp-tabular-nums text-xs leading-none ${
+                    isNowHour ? 'font-semibold text-foreground' : 'font-medium text-muted'
+                  }`}
+                >
+                  {tick.label}
+                </span>
+              </div>
+            );
+          })}
           {/* 连接线:补上胶囊下指三角与节目区 NOW 竖线之间的空隙(头部内 16→32px)。
               仅在 now 落在窗口内(未被贴边钳制)时绘制,避免钳制态给出错误的"当前时刻"位置。 */}
           {hasNowInWindow ? (
