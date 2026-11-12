@@ -62,6 +62,10 @@ import {
 /** 频道列宽(px;导出:GuidePage 换算 GuideAutoPosition.anchorX 时加此偏移) */
 export const CHANNEL_COL_PX = 176;
 const ROW_HEIGHT_PX = 72;
+/** 次日尾巴段时长(分钟):6 小时 = 2160px,足以把日界拖到视口左缘 */
+const TAIL_MINUTES = 360;
+/** 稳定空数组:memo 行在无尾巴段时不因每次新建 [] 而重渲染 */
+const EMPTY_TAIL_BLOCKS: readonly TailBlock[] = [];
 /** 时间头高度(刻度标签 + 短刻度线的视觉带;NOW 胶囊也在此高度内居中偏上) */
 const HEADER_HEIGHT_PX = 36;
 const MAX_LANES = 3;
@@ -128,11 +132,24 @@ export interface GuideWallProps {
   readonly onPlayChannel: (mediaId: string, channelTitle: string) => void;
   /** NOW 浮标点击 = 回到现在(原工具栏按钮入口已移除;缺省 no-op 便于直挂测试) */
   readonly onGoNow?: () => void;
+  /**
+   * 次日窗口(无级横向拖拽):有值时在当天时间轴右侧追加 TAIL_MINUTES 的「尾巴段」,
+   * 拖到当天 24:00 后可直接看到次日节目;宿主在边界到达视口左缘时提交切日,
+   * 位置换算保证视觉连续(见 GuidePage)。
+   */
+  readonly nextDay?: GuideWindowDto | null;
 }
 
 interface ProgrammeMeta {
   readonly startsAtMs: number;
   readonly endsAtMs: number;
+  readonly rangeLabel: string;
+}
+
+interface TailBlock {
+  readonly programme: ExperienceProgrammeDto;
+  readonly left: number;
+  readonly width: number;
   readonly rangeLabel: string;
 }
 
@@ -146,6 +163,10 @@ interface GuideChannelRowProps {
   readonly spanPx: number;
   readonly ticks: readonly { readonly ms: number; readonly label: string }[];
   readonly programmeMeta: ReadonlyMap<string, ProgrammeMeta>;
+  /** 当天 + 尾巴段的总宽度、尾巴段刻度偏移、该频道的次日节目块 */
+  readonly totalSpanPx: number;
+  readonly tailOffsets: readonly number[];
+  readonly tailBlocks: readonly TailBlock[];
   readonly onSelectProgramme: (ref: GuideProgrammeRef) => void;
   readonly onPlayChannel: (mediaId: string, channelTitle: string) => void;
 }
@@ -167,6 +188,9 @@ const GuideChannelRow = memo(function GuideChannelRow({
   spanPx,
   ticks,
   programmeMeta,
+  totalSpanPx,
+  tailOffsets,
+  tailBlocks,
   onSelectProgramme,
   onPlayChannel,
 }: GuideChannelRowProps): ReactNode {
@@ -175,6 +199,87 @@ const GuideChannelRow = memo(function GuideChannelRow({
   const laneHeight = ROW_HEIGHT_PX / Math.min(laneCount, MAX_LANES);
   // 两行布局(标题 + 时段)仅在单行高泳道放得下;多泳道压缩时回落单行标题
   const showTimeLine = laneHeight >= 34;
+
+  /** 节目块渲染(当天与次日尾巴段共用同一套卡片/语义/交互) */
+  const renderBlock = ({
+    programme,
+    left,
+    width,
+    lane,
+    isCurrent,
+    isPast,
+    rangeLabel,
+  }: {
+    programme: ExperienceProgrammeDto;
+    left: number;
+    width: number;
+    lane: number;
+    isCurrent: boolean;
+    isPast: boolean;
+    rangeLabel: string;
+  }): ReactNode => (
+    <Card
+      key={programme.key}
+      className={`hmp-truncate hmp-tabular-nums absolute overflow-hidden rounded-lg p-0 ${
+        selectedKey === programme.key
+          ? 'z-10 border border-accent bg-accent/20 text-foreground shadow-md ring-2 ring-accent/40'
+          : isCurrent
+            ? 'z-[5] border border-accent/60 bg-accent/20 text-foreground shadow-sm hover:border-accent hover:bg-accent/25'
+            : isPast
+              ? 'border border-border/50 bg-surface-secondary/40 text-muted/70 shadow-none hover:bg-surface-secondary/60'
+              : 'border border-border/70 bg-surface-secondary/65 text-foreground shadow-sm hover:border-foreground/30 hover:bg-surface-secondary hover:shadow-md'
+      }`}
+      style={{
+        left: left + 2,
+        width: Math.max(width - 4, 2),
+        top: (lane % MAX_LANES) * laneHeight + 5,
+        height: laneHeight - 10,
+        minHeight: 18,
+      }}
+    >
+      <Tooltip delay={400}>
+        <Tooltip.Trigger<"button">
+          render={({ children, ...triggerProps }) => (
+            <button
+              {...triggerProps}
+              type="button"
+              data-programme-key={programme.key}
+              aria-label={`${channel.media.title},${programme.title},${rangeLabel}${isCurrent ? ',正在直播' : ''}`}
+              title={`${programme.title} ${rangeLabel}`}
+              onClick={() => {
+                onSelectProgramme({
+                  mediaId: channel.media.id,
+                  channelTitle: channel.media.title,
+                  programme,
+                  posterRef: channel.media.posterRef,
+                });
+              }}
+              className="group/prog flex h-full w-full flex-col text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+            >
+              {children}
+            </button>
+          )}
+        >
+          <span className="relative flex h-full min-w-0 flex-col justify-center gap-0.5 px-2.5">
+            <span className="flex min-w-0 items-center gap-1">
+              <span className="hmp-truncate min-w-0 text-2xs font-medium leading-tight">{programme.title}</span>
+              {isCurrent && showTimeLine ? (
+                <Chip aria-hidden="true" color="success" size="sm" variant="soft" className="h-4 shrink-0 px-1 text-3xs">
+                  LIVE
+                </Chip>
+              ) : null}
+            </span>
+            {showTimeLine ? (
+              <span aria-hidden="true" className="hmp-truncate min-w-0 text-3xs leading-tight text-muted">
+                {rangeLabel}
+              </span>
+            ) : null}
+          </span>
+        </Tooltip.Trigger>
+        <Tooltip.Content>{programme.title}</Tooltip.Content>
+      </Tooltip>
+    </Card>
+  );
 
   return (
     <div
@@ -231,131 +336,67 @@ const GuideChannelRow = memo(function GuideChannelRow({
         </Tooltip.Content>
       </Tooltip>
 
-      {/* 节目轴:相对定位 + 背景刻度网格 + 绝对位置节目块 (Planby Program Grid) */}
-      <div className="relative shrink-0" style={{ width: spanPx, height: ROW_HEIGHT_PX }}>
-        {/* 背景小时对齐参考线 */}
-        {ticks.map((tick) => (
+      {/* 节目轴:当天节目块 + 次日尾巴段(无级横向拖拽);行宽 = 当天 + 尾巴 */}
+      <div className="relative shrink-0" style={{ width: totalSpanPx, height: ROW_HEIGHT_PX }}>
+        {/* 背景小时对齐参考线(延续到尾巴段) */}
+        {[...ticks.map((tick) => utcToPx(tick.ms, fromMs)), ...tailOffsets].map((left, index) => (
           <div
-            key={`grid-${tick.ms}`}
+            key={`grid-${index}`}
             aria-hidden="true"
             className="pointer-events-none absolute top-0 bottom-0"
-            style={{ left: utcToPx(tick.ms, fromMs) }}
+            style={{ left }}
           />
         ))}
 
-        {channel.programmes.length === 0 ? (
-          <div className="absolute inset-y-2 left-2 right-2 flex items-center rounded-md border border-dashed border-border/50 bg-surface-secondary/20 px-3">
+        {channel.programmes.length === 0 && tailBlocks.length === 0 ? (
+          <div className="absolute inset-y-2 left-2 right-2 flex items-center rounded-md border border-dashed border-border/60 px-3">
             <span className="text-xs text-muted">暂无节目</span>
           </div>
         ) : (
-          channel.programmes.map((programme) => {
-            const meta = programmeMeta.get(programme.key);
-            const startsAtMs = meta?.startsAtMs ?? Date.parse(programme.startsAt);
-            const endsAtMs = meta?.endsAtMs ?? Date.parse(programme.endsAt);
-            const left = Math.min(Math.max(utcToPx(startsAtMs, fromMs), 0), spanPx);
-            const right = Math.min(Math.max(utcToPx(endsAtMs, fromMs), 0), spanPx);
-            const width = Math.max(right - left, 2);
-            const lane = lanes.get(programme.key) ?? 0;
-            const isCurrent = currentKey === programme.key;
-            const isPast = endsAtMs <= nowMinuteMs;
-            const rangeLabel = meta?.rangeLabel ?? `${programme.startsAt}–${programme.endsAt}`;
-
-            return (
-              <Card
-                key={programme.key}
-                className={`hmp-truncate hmp-tabular-nums absolute overflow-hidden rounded-lg p-0 ${
-                  selectedKey === programme.key
-                    ? 'z-10 border border-accent bg-accent/20 text-foreground shadow-md ring-2 ring-accent/40'
-                    : isCurrent
-                      ? 'z-[5] border border-accent/60 bg-accent/20 text-foreground shadow-sm hover:border-accent hover:bg-accent/25'
-                      : isPast
-                        // 已结束:默认底色更淡(与卡面区分但仍退后)
-                        ? 'border border-border/50 bg-surface-secondary/40 text-muted/70 shadow-none hover:bg-surface-secondary/60'
-                        // 未开始:统一默认底色(与卡面区分,不再与背景同色)
-                        : 'border border-border/70 bg-surface-secondary/65 text-foreground shadow-sm hover:border-foreground/30 hover:bg-surface-secondary hover:shadow-md'
-                }`}
-                style={{
-                  // 块间留 3px 缝隙(左右)与 6px 上下,节目墙更"一格一格"
-                  left: left + 2,
-                  width: Math.max(width - 4, 2),
-                  top: (lane % MAX_LANES) * laneHeight + 5,
-                  height: laneHeight - 10,
-                  minHeight: 18,
-                }}
-              >
-              {/* 长节目名:悬浮块任意位置用 Tooltip 展示全名(块内文本仍单行截断)。
-                  触发器直接渲染 <button> 本身,避免 Trigger 默认 div[role=button]
-                  与内部按钮形成嵌套按钮(ARIA 非法 + 查询重复)。 */}
-              <Tooltip delay={400}>
-                <Tooltip.Trigger<"button">
-                  render={({ children, ...triggerProps }) => (
-                    <button
-                      {...triggerProps}
-                      type="button"
-                      // T025:详情返回焦点恢复锚(会话内存快照按 key 查块;不进 URL/storage)
-                      data-programme-key={programme.key}
-                      aria-label={`${channel.media.title},${programme.title},${rangeLabel}${isCurrent ? ',正在直播' : ''}`}
-                      title={`${programme.title} ${rangeLabel}`}
-                      onClick={() => {
-                        // 产品统一:所有节目块(含正在直播)都进详情抽屉;
-                        // 「正在直播」只在详情里多一个播放按钮,不再块内直接起播。
-                        onSelectProgramme({
-                    mediaId: channel.media.id,
-                    channelTitle: channel.media.title,
-                    programme,
-                    posterRef: channel.media.posterRef,
-                  });
-                      }}
-                      className="group/prog flex h-full w-full flex-col text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-                    >
-                      {children}
-                    </button>
-                  )}
-                >
-                {/* 两行内容:标题行(+LIVE 角标)+ `HH:mm – HH:mm` muted 行 */}
-                <span className="relative flex h-full min-w-0 flex-col justify-center gap-0.5 px-2.5">
-                  <span className="flex min-w-0 items-center gap-1">
-                    <span className="hmp-truncate min-w-0 text-2xs font-medium leading-tight">
-                      {programme.title}
-                    </span>
-                    {isCurrent && showTimeLine ? (
-                      // 绿色 LIVE 角标(015 T013,R6/ui-layout §3.2):HeroUI Chip
-                      // success 语义 token;文字「LIVE」+ aria「正在直播」承载语义,
-                      // 不以颜色为唯一区分;装饰性节点(可读名由按钮 aria-label 承担)。
-                      <Chip
-                        aria-hidden="true"
-                        color="success"
-                        size="sm"
-                        variant="soft"
-                        className="h-4 shrink-0 px-1 text-3xs"
-                      >
-                        LIVE
-                      </Chip>
-                    ) : null}
-                  </span>
-                  {showTimeLine ? (
-                    <span
-                      aria-hidden="true"
-                      className="hmp-truncate min-w-0 text-3xs leading-tight text-muted"
-                    >
-                      {meta?.rangeLabel ?? ''}
-                    </span>
-                  ) : null}
-                </span>
-
-                </Tooltip.Trigger>
-                <Tooltip.Content>{programme.title}</Tooltip.Content>
-              </Tooltip>
-              </Card>
-            );
-          })
+          <>
+            {channel.programmes.map((programme) => {
+              const meta = programmeMeta.get(programme.key);
+              const startsAtMs = meta?.startsAtMs ?? Date.parse(programme.startsAt);
+              const endsAtMs = meta?.endsAtMs ?? Date.parse(programme.endsAt);
+              const left = Math.min(Math.max(utcToPx(startsAtMs, fromMs), 0), spanPx);
+              const right = Math.min(Math.max(utcToPx(endsAtMs, fromMs), 0), spanPx);
+              return renderBlock({
+                programme,
+                left,
+                width: Math.max(right - left, 2),
+                lane: lanes.get(programme.key) ?? 0,
+                isCurrent: currentKey === programme.key,
+                isPast: endsAtMs <= nowMinuteMs,
+                rangeLabel: meta?.rangeLabel ?? `${programme.startsAt}–${programme.endsAt}`,
+              });
+            })}
+            {tailBlocks.map((block) =>
+              renderBlock({
+                programme: block.programme,
+                left: block.left,
+                width: block.width,
+                lane: 0,
+                isCurrent: false,
+                isPast: false,
+                rangeLabel: block.rangeLabel,
+              }),
+            )}
+          </>
         )}
       </div>
     </div>
   );
 });
 
-export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, onPlayChannel, onGoNow = () => undefined }: GuideWallProps): ReactNode {
+export function GuideWall({
+  data,
+  focusSignal,
+  selectedKey,
+  onSelectProgramme,
+  onPlayChannel,
+  onGoNow = () => undefined,
+  nextDay = null,
+}: GuideWallProps): ReactNode {
   const fromMs = Date.parse(data.from);
   const toMs = Date.parse(data.to);
   // 服务端基准钟 ticking(15s;016 spec 基准时间条款);未校准回落响应快照 data.now
@@ -373,6 +414,17 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
     scrollLeft: 0,
     clientWidth: 0,
   });
+
+  /**
+   * 次日尾巴段:固定 6 小时(足够覆盖一屏)。仅在视口接近日界(距末尾不足一屏)
+   * 时才挂载——避免与当日同名节目在 DOM/可访问名上重复,也省掉常态渲染。
+   */
+  const nearDayEnd =
+    viewport.clientWidth > 0 &&
+    viewport.scrollLeft + viewport.clientWidth >= CHANNEL_COL_PX + spanPx - viewport.clientWidth * 0.75;
+  const tailSpanPx = nextDay === null || !nearDayEnd ? 0 : TAIL_MINUTES * PX_PER_MINUTE;
+  /** 时间轴总宽 = 当天 + 尾巴段 */
+  const totalSpanPx = spanPx + tailSpanPx;
 
   useEffect(() => {
     const scroller = rootRef.current?.closest('[role="region"]') as HTMLElement | null;
@@ -426,6 +478,63 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
     }
     return map;
   }, [data]);
+  /** 次日尾巴段:每小时刻度在总轴上的偏移(0 起算) */
+  const tailOffsets = useMemo(() => {
+    if (nextDay === null || tailSpanPx <= 0) {
+      return [] as number[];
+    }
+    const tailFrom = toMs;
+    const tailTo = toMs + TAIL_MINUTES * 60_000;
+    return hourTicksInWindow(tailFrom, tailTo, nextDay.timezone).map((tick) => spanPx + utcToPx(tick.ms, tailFrom));
+  }, [nextDay, tailSpanPx, toMs, spanPx]);
+
+  /** 次日尾巴段整点刻度(标签 + 总轴偏移) */
+  const tailTickItems = useMemo(() => {
+    if (nextDay === null || tailSpanPx <= 0) {
+      return [] as { readonly ms: number; readonly label: string; readonly left: number }[];
+    }
+    return hourTicksInWindow(toMs, toMs + TAIL_MINUTES * 60_000, nextDay.timezone).map((tick) => ({
+      ms: tick.ms,
+      label: tick.label,
+      left: spanPx + utcToPx(tick.ms, toMs),
+    }));
+  }, [nextDay, tailSpanPx, spanPx, toMs]);
+
+  /** 次日尾巴段节目块(按频道 mediaId 归组;位置以总轴坐标计算) */
+  const tailBlocksByChannel = useMemo(() => {
+    const map = new Map<string, TailBlock[]>();
+    if (nextDay === null || tailSpanPx <= 0) {
+      return map;
+    }
+    const tailFrom = toMs;
+    const tailTo = toMs + TAIL_MINUTES * 60_000;
+    for (const channel of nextDay.channels) {
+      const blocks: TailBlock[] = [];
+      for (const programme of channel.programmes) {
+        const startMs = Date.parse(programme.startsAt);
+        const endMs = Date.parse(programme.endsAt);
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= tailFrom || startMs >= tailTo) {
+          continue;
+        }
+        const rawLeft = spanPx + utcToPx(startMs, tailFrom);
+        const rawRight = spanPx + utcToPx(endMs, tailFrom);
+        const left = Math.max(rawLeft, spanPx);
+        const right = Math.min(rawRight, spanPx + tailSpanPx);
+        if (right <= left) {
+          continue;
+        }
+        blocks.push({
+          programme,
+          left,
+          width: Math.max(right - left, 2),
+          rangeLabel: `${formatTimeInZone(programme.startsAt, nextDay.timezone)}–${formatTimeInZone(programme.endsAt, nextDay.timezone)}`,
+        });
+      }
+      map.set(channel.media.id, blocks);
+    }
+    return map;
+  }, [nextDay, tailSpanPx, toMs, spanPx]);
+
   /** 各频道当前节目键(按分钟桶计算,供行组件作 memo 输入) */
   const channelCurrentKeys = useMemo(() => {
     const map = new Map<string, string | null>();
@@ -464,7 +573,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
   })();
 
   return (
-    <div ref={rootRef} className="relative select-none" style={{ width: CHANNEL_COL_PX + spanPx }}>
+    <div ref={rootRef} className="relative select-none" style={{ width: CHANNEL_COL_PX + totalSpanPx }}>
       {/* 窗口标题:翻页后的焦点锚(FR-044)与读屏窗口说明。应产品要求不再**可见**
           (日期已由页头日期条承担),降为 hmp-sr-only——id/tabIndex/文案逐字保留,
           焦点定位(toBeFocused)、getAllByText(家庭时区/全天节目单)契约不受影响。 */}
@@ -490,7 +599,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
         </div>
 
         {/* 时间刻度条(相对定位:承载 NOW 胶囊) */}
-        <div className="relative shrink-0" style={{ width: spanPx, height: HEADER_HEIGHT_PX }}>
+        <div className="relative shrink-0" style={{ width: totalSpanPx, height: HEADER_HEIGHT_PX }}>
           {/* 半小时短刻度:只画短竖线不写标签,给时间轴一个更密的节奏锚点 */}
           {ticks.map((tick) =>
             tick.ms + 1_800_000 < toMs ? (
@@ -525,6 +634,29 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
               </div>
             );
           })}
+          {/* 次日尾巴段刻度(与当天刻度同款;当前小时强调只属于当天) */}
+          {tailTickItems.map((tick) => (
+            <div
+              key={`tail-${tick.ms}`}
+              className="absolute top-0 bottom-0 flex items-center gap-1.5 pl-2"
+              style={{ left: tick.left }}
+            >
+              <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border" />
+              <span className="hmp-tabular-nums text-xs font-medium leading-none text-muted">{tick.label}</span>
+            </div>
+          ))}
+          {/* 日界标记:当天 24:00 = 次日 00:00,给出可读的日期切换点 */}
+          {nextDay !== null ? (
+            <div
+              className="absolute top-0 bottom-0 flex items-center gap-1.5 pl-2"
+              style={{ left: spanPx }}
+            >
+              <span aria-hidden="true" className="h-3 w-px shrink-0 bg-foreground/40" />
+              <span className="hmp-tabular-nums text-xs font-semibold leading-none text-foreground/80">
+                {nextDay.date.slice(5).replace('-', '/')}
+              </span>
+            </div>
+          ) : null}
           {/* 连接线:补上胶囊下指三角与节目区 NOW 竖线之间的空隙(头部内 16→32px)。
               仅在 now 落在窗口内(未被贴边钳制)时绘制,避免钳制态给出错误的"当前时刻"位置。 */}
           {hasNowInWindow ? (
@@ -575,6 +707,9 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
             spanPx={spanPx}
             ticks={ticks}
             programmeMeta={programmeMeta}
+            totalSpanPx={totalSpanPx}
+            tailOffsets={tailOffsets}
+            tailBlocks={tailBlocksByChannel.get(channel.media.id) ?? EMPTY_TAIL_BLOCKS}
             onSelectProgramme={onSelectProgramme}
             onPlayChannel={onPlayChannel}
           />

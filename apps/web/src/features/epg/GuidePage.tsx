@@ -6,7 +6,7 @@ import type { ExperienceProgrammeDto } from '@hmp/shared';
 import { Alert, Button, Drawer, ListBox, Select, Skeleton } from '@heroui/react';
 import { SlidersHorizontal } from 'lucide-react';
 import { RetryableAlert } from '../../shared/ui';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchGuideWindow, useGuideWindow } from './useGuideWindow';
 import { queryKeys } from '../../shared/query/keys';
 import { EPG_QUERY_STALE_TIME_MS } from '../../shared/query/hooks';
@@ -162,6 +162,13 @@ export function GuidePage(): ReactNode {
    * 的像素偏移,新一日数据到达后按同一偏移居中定位,而不是跳回 00:00。
    */
   const pendingDayAnchorPxRef = useRef<number | null>(null);
+  /** 边界接续方向:拖到右端接下一日、拖到左端接上一日(autoPosition 用) */
+  const pendingEdgeRef = useRef<'next' | 'prev' | 'continue' | null>(null);
+  /** 'continue' 模式:切日后应保持的 scrollLeft(视觉连续) */
+  const pendingContinueScrollRef = useRef(0);
+  /** 接续冷却:切换后的回弹滚动不再次触发切换 */
+  const edgeSwitchAtRef = useRef(0);
+  const lastScrollLeftRef = useRef(0);
   const queryClient = useQueryClient();
 
   const resource = useGuideWindow({
@@ -246,6 +253,17 @@ export function GuidePage(): ReactNode {
     const key = `${data.from}|${data.to}`;
     const isToday = data.date === data.allowedDates[0];
     if (!isToday) {
+      // 边界接续:下一日从 00:00 开始(与上一日 24:00 无缝衔接);上一日对齐到 24:00
+      if (pendingEdgeRef.current === 'next') {
+        return { key, anchorX: CHANNEL_COL_PX, align: 'start' as const };
+      }
+      if (pendingEdgeRef.current === 'prev') {
+        return { key, anchorX: CHANNEL_COL_PX + spanPx, align: 'start' as const };
+      }
+      if (pendingEdgeRef.current === 'continue') {
+        // 视觉连续:新一日的 scrollLeft 与拖拽时的位置一一对应(日界已在左缘)
+        return { key, anchorX: Math.max(CHANNEL_COL_PX, pendingContinueScrollRef.current), align: 'start' as const };
+      }
       // 日内锚(切日保持同一时间位置);无挂起锚(首次进入/回到现在后)仍锚窗口起点
       const pending = pendingDayAnchorPxRef.current;
       if (pending !== null) {
@@ -267,14 +285,23 @@ export function GuidePage(): ReactNode {
   }, [data]);
 
   const selectDate = useCallback(
-    (date: string): void => {
+    (date: string, edge: 'next' | 'prev' | 'continue' | null = null, continueScrollLeft = 0): void => {
       setDetail(null);
       setExpiredNotice(false);
-      // 记录当前视口中心相对当日 00:00 的偏移(内容坐标,去掉频道列),供新一日复用
-      const container = scrollRef.current;
-      if (container !== null && container.clientWidth > 0) {
-        const centerContentX = container.scrollLeft + container.clientWidth / 2;
-        pendingDayAnchorPxRef.current = Math.max(0, centerContentX - CHANNEL_COL_PX);
+      if (edge !== null) {
+        // 边界接续:不沿用「时间位置」锚,而是由 autoPosition 对齐到日界
+        pendingDayAnchorPxRef.current = null;
+        pendingEdgeRef.current = edge;
+        pendingContinueScrollRef.current = continueScrollLeft;
+        edgeSwitchAtRef.current = Date.now();
+      } else {
+        pendingEdgeRef.current = null;
+        // 记录当前视口中心相对当日 00:00 的偏移(内容坐标,去掉频道列),供新一日复用
+        const container = scrollRef.current;
+        if (container !== null && container.clientWidth > 0) {
+          const centerContentX = container.scrollLeft + container.clientWidth / 2;
+          pendingDayAnchorPxRef.current = Math.max(0, centerContentX - CHANNEL_COL_PX);
+        }
       }
       updateParams((params) => {
         if (date === (data?.allowedDates[0] ?? '')) {
@@ -289,6 +316,11 @@ export function GuidePage(): ReactNode {
     },
     [data?.allowedDates, updateParams],
   );
+
+  // 边界接续锚只在「目标日数据到达」这一帧有效,随后清空(避免影响后续手动切日)
+  useEffect(() => {
+    pendingEdgeRef.current = null;
+  }, [data?.date]);
 
   /**
    * 预取相邻日期(昨天/明天,按服务端 allowedDates 裁边):切日时新窗口已在缓存里,
@@ -312,6 +344,67 @@ export function GuidePage(): ReactNode {
       });
     }
   }, [data, url.channelPage, url.pageSize, queryClient]);
+
+  /** 当前日与相邻日(按服务端 allowedDates 裁边) */
+  const dayIndex = data === null ? -1 : data.allowedDates.indexOf(data.date);
+  const nextDate = dayIndex >= 0 ? data?.allowedDates[dayIndex + 1] : undefined;
+  const prevDate = dayIndex > 0 ? data?.allowedDates[dayIndex - 1] : undefined;
+
+  /** 次日窗口(尾巴段):与预取同键,通常直接命中缓存 */
+  const nextDayResource = useQuery({
+    queryKey: queryKeys.public.guide({ date: nextDate, page: url.channelPage, pageSize: url.pageSize }),
+    queryFn: ({ signal }) =>
+      fetchGuideWindow({ date: nextDate ?? '', page: url.channelPage, pageSize: url.pageSize }, signal),
+    enabled: nextDate !== undefined && nextDate !== '',
+    staleTime: EPG_QUERY_STALE_TIME_MS,
+  });
+
+  // 连续拖拽跨日:拖到当天末尾自动接上后一天(24:00 == 次日 00:00,视觉连续);
+  // 反向拖到起点接前一天。冷却 600ms,避免接续后的滚动回弹再次触发。
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (container === null) {
+      return;
+    }
+    let raf = 0;
+    const onScroll = (): void => {
+      if (raf !== 0) {
+        return;
+      }
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const el = scrollRef.current;
+        if (el === null || Date.now() - edgeSwitchAtRef.current < 600) {
+          return;
+        }
+        const max = el.scrollWidth - el.clientWidth;
+        if (max <= 0) {
+          return;
+        }
+        const left = el.scrollLeft;
+        const previous = lastScrollLeftRef.current;
+        lastScrollLeftRef.current = left;
+        // 日界(当天 24:00)内容坐标 = 频道列 + 当天宽度;它到达视口左缘时,
+        // 用旧 scrollLeft − 当天宽度 作为新一日的 scrollLeft,视觉完全连续。
+        const dayBoundary = CHANNEL_COL_PX + spanPx;
+        if (nextDate !== undefined && left > previous && left >= dayBoundary) {
+          selectDate(nextDate, 'continue', left - spanPx);
+        } else if (left < previous && left <= 0 && prevDate !== undefined) {
+          selectDate(prevDate, 'prev');
+        }
+      });
+    };
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      container.removeEventListener('scroll', onScroll);
+      if (raf !== 0) {
+        cancelAnimationFrame(raf);
+      }
+    };
+  }, [nextDate, prevDate, selectDate]);
+
+  /** 当天窗口宽度(拖拽接续判定用) */
+  const spanPx = data === null ? 0 : windowSpanPx(Date.parse(data.from), Date.parse(data.to));
 
   const goNow = useCallback((): void => {
     setDetail(null);
@@ -540,6 +633,7 @@ export function GuidePage(): ReactNode {
                   onSelectProgramme={onOpenProgramme}
                   onPlayChannel={onPlayChannel}
                   onGoNow={goNow}
+            nextDay={nextDayResource.data ?? null}
                 />
               ) : (
                 <GuideChannelList
