@@ -585,6 +585,7 @@ export function PlayerView({
           selectedLineId={selectedLineId}
           onSelectLine={onSelectLine}
           onOpenSourceSwitch={transition.openDrawer}
+          isLive={durationSeconds === null}
         />
         {/* 直播节目单(切台器):点击在播放器内呼出正在直播列表 */}
         {durationSeconds === null && onZapChannel !== undefined ? (

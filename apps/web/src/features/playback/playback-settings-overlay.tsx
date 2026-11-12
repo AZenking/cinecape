@@ -27,8 +27,10 @@ export interface PlaybackSettingsOverlayProps {
   readonly selectedLineId?: string | null;
   /** 手动换线(仅上报 lineId;由协调器原地换装) */
   readonly onSelectLine?: (lineId: string) => void;
-  /** 打开换源面板(换源入口收敛到设置内,控制栏不再单列) */
+  /** 打开换源面板(点播换源入口;直播不呈现 —— 直播换流走「线路」) */
   readonly onOpenSourceSwitch?: () => void;
+  /** 是否直播流:决定「换流」只给一个入口(线路 / 换源 二选一,不并列) */
+  readonly isLive?: boolean;
 }
 
 function deliveryLabel(delivery: string | null): string {
@@ -45,6 +47,7 @@ export function PlaybackSettingsOverlay({
   selectedLineId = null,
   onSelectLine,
   onOpenSourceSwitch,
+  isLive = false,
 }: PlaybackSettingsOverlayProps): ReactNode {
   const { open, toggle, close, pending, failure, tracks, activeAudioId, activeSubtitleId, canSwitchAudio } = settings;
   const audioTracks = tracks?.audio ?? [];
@@ -68,7 +71,7 @@ export function PlaybackSettingsOverlay({
           role="dialog"
           aria-label="播放设置"
           data-testid="playback-settings"
-          className="absolute bottom-full end-0 z-30 mb-2 flex w-72 flex-col gap-3 rounded-lg border border-border bg-surface p-3 shadow-lg"
+          className="absolute bottom-full end-0 z-30 mb-2 flex max-h-[min(70vh,420px)] w-72 flex-col gap-3 overflow-y-auto rounded-lg border border-border bg-surface p-3 shadow-lg"
         >
           <p className="text-sm font-medium text-foreground">播放设置</p>
           {/* 音轨(当前值控制;探测未完成为空,不虚构可选轨) */}
@@ -136,8 +139,9 @@ export function PlaybackSettingsOverlay({
             </p>
             <p className="text-xs text-muted">清晰度由服务端按内容与家庭网络自动选择。</p>
           </section>
-          {/* 线路(直播;≥2 条才呈现):控制栏不再单列,统一收敛到设置内 */}
-          {lines.length >= 2 && onSelectLine !== undefined ? (
+          {/* 换流入口只保留一个(产品:两个入口并列不成立)——
+              直播 = 线路切换(≥2 条时),点播 = 换源;两者互斥渲染 */}
+          {isLive && lines.length >= 2 && onSelectLine !== undefined ? (
             <section aria-label="线路" className="flex flex-col gap-1">
               <p className="text-xs text-muted">线路</p>
               {lines.map((line) => {
@@ -148,19 +152,21 @@ export function PlaybackSettingsOverlay({
                     size="sm"
                     variant="ghost"
                     aria-pressed={active}
+                    className="justify-start"
+                    aria-label={`${line.label}${line.sourceTitle !== undefined ? ` · ${line.sourceTitle}` : ''}${active ? '(当前)' : ''}`}
                     onPress={() => {
                       onSelectLine(line.lineId);
                       close();
                     }}
                   >
-                    {`${line.label}${active ? '(当前)' : ''}`}
+                    <span className="hmp-truncate min-w-0">{`${line.label}${active ? '(当前)' : ''}`}</span>
                   </Button>
                 );
               })}
             </section>
           ) : null}
-          {/* 换源(点播):入口从控制栏收敛到设置内 */}
-          {onOpenSourceSwitch !== undefined ? (
+          {/* 换源(仅点播):直播的换流入口是上面的「线路」,不并列 */}
+          {!isLive && onOpenSourceSwitch !== undefined ? (
             <section aria-label="换源" className="flex flex-col gap-1">
               <p className="text-xs text-muted">来源</p>
               <Button
