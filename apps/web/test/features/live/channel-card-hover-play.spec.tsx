@@ -118,6 +118,8 @@ describe('T007 · 频道卡 Hover 一键起播(FR-005;R5 双层交互)', () => {
         mediaId: TILE_ROW.media.id,
         title: '星光影城',
         startMode: 'beginning',
+        // 播放面标题栏「logo + 名称」经由 posterRef(仅本地展示,不进请求体)
+        posterRef: TILE_ROW.media.posterRef,
       });
       // 消灭二级详情阻断:不弹静态面板
       expect(onOpenProgramme).not.toHaveBeenCalled();
