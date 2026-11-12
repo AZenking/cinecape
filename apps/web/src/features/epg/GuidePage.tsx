@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
 import { parseDate } from '@internationalized/date';
 import type { ExperienceProgrammeDto } from '@hmp/shared';
-import { Alert, Button, Drawer, ListBox, Select, Skeleton } from '@heroui/react';
+import { Alert, Button, Drawer, ListBox, Select, Separator, Skeleton } from '@heroui/react';
 import { ChevronsLeft, ChevronsRight, Clock, SlidersHorizontal } from 'lucide-react';
 import { RetryableAlert } from '../../shared/ui';
 import { useGuideWindow } from './useGuideWindow';
@@ -386,9 +386,10 @@ export function GuidePage(): ReactNode {
           同排必然换行并把工具栏撑成两行(实测 90px);并入页头后工具栏恒为单行。
           日期条占满整行宽度(不与标题/时区争宽,390 窄窗下才不会被挤成一条缝),
           内部单行横滑;加载态占位文案与 role 不变。 */}
-      <header className="flex flex-col gap-2">
-        {/* 页面标题保留 h1 语义(文档大纲/读屏/测试锚),按产品要求不呈现可见文案;
-            页头只留日期条 */}
+      {/* 顶部控制区(产品要求:日期条与工具条合成一个整体,不再分成两块卡片):
+          第一行 = 日期胶囊条,第二行 = 回到现在 / 显示与筛选 / ±2h;同一圆角容器,
+          行间用分隔线区分层级。页面标题保留 h1 语义但不呈现可见文案。 */}
+      <header className="flex flex-col gap-2 rounded-xl border border-border/70 bg-surface px-3 py-2 shadow-xs">
         <h1 className="sr-only">节目单</h1>
         {data !== null ? (
           <GuideDateTabs
@@ -402,7 +403,10 @@ export function GuidePage(): ReactNode {
             正在加载日期…
           </span>
         )}
-      </header>
+        {/* 分隔线:日期(浏览上下文)与工具(动作)同卡不同层 */}
+        <Separator className="opacity-60" />
+        {/* 工具栏(同容器第二行):回到现在 + 显示与筛选 + 墙视图 ±2h */}
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
 
       {/* 409:日期已更新提示(回今天;旧窗口响应已丢弃) */}
       {expiredNotice ? (
@@ -433,11 +437,6 @@ export function GuidePage(): ReactNode {
         />
       ) : null}
 
-      {/* 工具栏条(参照 magenta.tv/tv-guide 的暗色横条):仅保留两个高频动作——
-          「回到现在」(参考页Jetzt 跳当下的对应物,恒可见;responsive e2e 钉其不被遮挡)
-          与「显示与筛选」图标按钮(收拢视图/每页频道数/频道分页,右侧抽屉呈现,
-          同参考页筛选抽屉形态);墙视图附 ±2h 平移。flex-wrap 保证窄窗不溢出。 */}
-      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2 rounded-xl border border-border/70 bg-surface px-3 py-2 shadow-xs">
         <Button size="sm" variant="outline" onPress={goNow}>
           <Clock aria-hidden="true" className="size-3.5" />
           回到现在
@@ -464,7 +463,8 @@ export function GuidePage(): ReactNode {
             </Button>
           </div>
         ) : null}
-      </div>
+        </div>
+      </header>
 
       {/* 显示与筛选抽屉(参照参考页右侧筛选抽屉):视图/每页频道数/频道分页收拢于此。
           交互逻辑与既有测试契约(aria-label/可访问名/testid/选项文案)零改动,仅换容器。
