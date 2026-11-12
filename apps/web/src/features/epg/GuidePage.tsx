@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
 import { parseDate } from '@internationalized/date';
@@ -388,9 +388,9 @@ export function GuidePage(): ReactNode {
         // 用旧 scrollLeft − 当天宽度 作为新一日的 scrollLeft,视觉完全连续。
         const dayBoundary = CHANNEL_COL_PX + spanPx;
         if (nextDate !== undefined && left > previous && left >= dayBoundary) {
-          selectDate(nextDate, 'continue', left - spanPx);
+          startTransition(() => selectDate(nextDate, 'continue', left - spanPx));
         } else if (left < previous && left <= 0 && prevDate !== undefined) {
-          selectDate(prevDate, 'prev');
+          startTransition(() => selectDate(prevDate, 'prev'));
         }
       });
     };

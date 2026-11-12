@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, startTransition, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ExperienceProgrammeDto, GuideWindowDto } from '@hmp/shared';
 import { Card, Chip, Tooltip } from '@heroui/react';
@@ -168,6 +168,9 @@ interface GuideChannelRowProps {
   readonly tailBlocks: readonly TailBlock[];
   /** 尾巴段所属日期标签(如 11月13日);无尾巴段为 null */
   readonly tailDateLabel: string | null;
+  /** 横向可见窗口(内容坐标;窗口外节目块不渲染) */
+  readonly visibleFrom: number;
+  readonly visibleTo: number;
   readonly onSelectProgramme: (ref: GuideProgrammeRef) => void;
   readonly onPlayChannel: (mediaId: string, channelTitle: string) => void;
 }
@@ -192,6 +195,8 @@ const GuideChannelRow = memo(function GuideChannelRow({
   tailOffsets,
   tailBlocks,
   tailDateLabel,
+  visibleFrom,
+  visibleTo,
   onSelectProgramme,
   onPlayChannel,
 }: GuideChannelRowProps): ReactNode {
@@ -220,7 +225,46 @@ const GuideChannelRow = memo(function GuideChannelRow({
     isPast: boolean;
     rangeLabel: string;
     isTail?: boolean;
-  }): ReactNode => (
+  }): ReactNode => {
+    // 短标题不会被截断:不挂 Tooltip(减少组件实例),仍保留原生 title 兜底
+    const needsTooltip = programme.title.length > 10;
+    const blockButtonProps = {
+      type: 'button' as const,
+      'data-programme-key': programme.key,
+      'aria-label': `${channel.media.title},${programme.title},${
+        isTail === true && tailDateLabel !== null ? `${tailDateLabel},` : ''
+      }${rangeLabel}${isCurrent ? ',正在直播' : ''}`,
+      title: `${programme.title} ${rangeLabel}`,
+      'data-day': isTail === true ? 'tail' : 'current',
+      onClick: () => {
+        onSelectProgramme({
+          mediaId: channel.media.id,
+          channelTitle: channel.media.title,
+          programme,
+          posterRef: channel.media.posterRef,
+        });
+      },
+      className:
+        'group/prog flex h-full w-full flex-col text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus',
+    };
+    const blockContent = (
+      <span className="relative flex h-full min-w-0 flex-col justify-center gap-0.5 px-2.5">
+        <span className="flex min-w-0 items-center gap-1">
+          <span className="hmp-truncate min-w-0 text-2xs font-medium leading-tight">{programme.title}</span>
+          {isCurrent && showTimeLine ? (
+            <Chip aria-hidden="true" color="success" size="sm" variant="soft" className="h-4 shrink-0 px-1 text-3xs">
+              LIVE
+            </Chip>
+          ) : null}
+        </span>
+        {showTimeLine ? (
+          <span aria-hidden="true" className="hmp-truncate min-w-0 text-3xs leading-tight text-muted">
+            {rangeLabel}
+          </span>
+        ) : null}
+      </span>
+    );
+    const card = (
     <Card
       key={programme.key}
       className={`hmp-truncate hmp-tabular-nums absolute overflow-hidden rounded-lg p-0 ${
@@ -240,50 +284,26 @@ const GuideChannelRow = memo(function GuideChannelRow({
         minHeight: 18,
       }}
     >
-      <Tooltip delay={400}>
-        <Tooltip.Trigger<"button">
-          render={({ children, ...triggerProps }) => (
-            <button
-              {...triggerProps}
-              type="button"
-              data-programme-key={programme.key}
-              aria-label={`${channel.media.title},${programme.title},${isTail === true && tailDateLabel !== null ? `${tailDateLabel},` : ''}${rangeLabel}${isCurrent ? ',正在直播' : ''}`}
-              title={`${programme.title} ${rangeLabel}`}
-              data-day={isTail === true ? 'tail' : 'current'}
-              onClick={() => {
-                onSelectProgramme({
-                  mediaId: channel.media.id,
-                  channelTitle: channel.media.title,
-                  programme,
-                  posterRef: channel.media.posterRef,
-                });
-              }}
-              className="group/prog flex h-full w-full flex-col text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-            >
-              {children}
-            </button>
-          )}
-        >
-          <span className="relative flex h-full min-w-0 flex-col justify-center gap-0.5 px-2.5">
-            <span className="flex min-w-0 items-center gap-1">
-              <span className="hmp-truncate min-w-0 text-2xs font-medium leading-tight">{programme.title}</span>
-              {isCurrent && showTimeLine ? (
-                <Chip aria-hidden="true" color="success" size="sm" variant="soft" className="h-4 shrink-0 px-1 text-3xs">
-                  LIVE
-                </Chip>
-              ) : null}
-            </span>
-            {showTimeLine ? (
-              <span aria-hidden="true" className="hmp-truncate min-w-0 text-3xs leading-tight text-muted">
-                {rangeLabel}
-              </span>
-            ) : null}
-          </span>
-        </Tooltip.Trigger>
-        <Tooltip.Content>{programme.title}</Tooltip.Content>
-      </Tooltip>
+      {needsTooltip ? (
+        <Tooltip delay={400}>
+          <Tooltip.Trigger<"button">
+            render={({ children, ...triggerProps }) => (
+              <button {...triggerProps} {...blockButtonProps}>
+                {children}
+              </button>
+            )}
+          >
+            {blockContent}
+          </Tooltip.Trigger>
+          <Tooltip.Content>{programme.title}</Tooltip.Content>
+        </Tooltip>
+      ) : (
+        <button {...blockButtonProps}>{blockContent}</button>
+      )}
     </Card>
-  );
+    );
+    return card;
+  };
 
   return (
     <div
@@ -365,6 +385,10 @@ const GuideChannelRow = memo(function GuideChannelRow({
               // 跨日节目不在 24:00 处断开:允许延伸到尾巴段(无尾巴段时 totalSpanPx == spanPx)
               const left = Math.min(Math.max(utcToPx(startsAtMs, fromMs), 0), totalSpanPx);
               const right = Math.min(Math.max(utcToPx(endsAtMs, fromMs), 0), totalSpanPx);
+              // 横向窗口化:完全在可视窗口外的块不渲染(大幅降低切日/拖动时的渲染量)
+              if (right < visibleFrom || left > visibleTo) {
+                return null;
+              }
               return renderBlock({
                 programme,
                 left,
@@ -376,16 +400,18 @@ const GuideChannelRow = memo(function GuideChannelRow({
               });
             })}
             {tailBlocks.map((block) =>
-              renderBlock({
+              block.left + block.width < visibleFrom || block.left > visibleTo
+                ? null
+                : renderBlock({
                 programme: block.programme,
                 left: block.left,
                 width: block.width,
                 lane: 0,
                 isCurrent: false,
                 isPast: false,
-                rangeLabel: block.rangeLabel,
-                isTail: true,
-              }),
+                    rangeLabel: block.rangeLabel,
+                    isTail: true,
+                  }),
             )}
           </>
         )}
@@ -416,6 +442,10 @@ export function GuideWall({
   /** 最新 nowX(滚动回调里读,避免闭包过期) */
   const nowXRef = useRef(0);
   /** 墙内可视区(用于 NOW 浮标贴边:超出时钉在左右边缘) */
+  /**
+   * 视口宽度(只用于首次/宽度变化定位浮标)。**不再随每次滚动 setState**:
+   * 滚动帧内只做同步写样式 + 阈值判定,避免每帧重渲染整面墙(拖动卡顿的主因)。
+   */
   const [viewport, setViewport] = useState<{ scrollLeft: number; clientWidth: number }>({
     scrollLeft: 0,
     clientWidth: 0,
@@ -425,9 +455,16 @@ export function GuideWall({
    * 次日尾巴段:固定 6 小时(足够覆盖一屏)。仅在视口接近日界(距末尾不足一屏)
    * 时才挂载——避免与当日同名节目在 DOM/可访问名上重复,也省掉常态渲染。
    */
-  const nearDayEnd =
-    viewport.clientWidth > 0 &&
-    viewport.scrollLeft + viewport.clientWidth >= CHANNEL_COL_PX + spanPx - viewport.clientWidth * 0.75;
+  const [nearDayEnd, setNearDayEnd] = useState(false);
+  /**
+   * 横向渲染窗口起点(内容坐标,含频道列)。滚动超过半屏才推进一次——
+   * 配合行 memo,把「拖动时每帧全量重渲染」变成「每半屏一次局部重渲染」。
+   */
+  const [windowLeft, setWindowLeft] = useState(0);
+  /** 镜像 windowLeft(滚动回调里读,避免闭包过期) */
+  const windowLeftRef = useRef(0);
+  /** 首帧定位(滚到「现在」附近)需要同步建立渲染窗口,否则首屏是空的 */
+  const windowInitRef = useRef(false);
   const tailSpanPx = nextDay === null || !nearDayEnd ? 0 : TAIL_MINUTES * PX_PER_MINUTE;
   /** 时间轴总宽 = 当天 + 尾巴段 */
   const totalSpanPx = spanPx + tailSpanPx;
@@ -450,9 +487,32 @@ export function GuideWall({
       const rightEdge = scroller.scrollLeft + clientWidth - CHANNEL_COL_PX - 34;
       el.style.left = `${Math.min(Math.max(nowXRef.current, leftEdge), Math.max(leftEdge, rightEdge))}px`;
     };
+    const nearRef = { current: false };
     const update = (): void => {
-      setViewport({ scrollLeft: scroller.scrollLeft, clientWidth: scroller.clientWidth });
       syncPill();
+      // 只有宽度变化(挂载/窗口 resize)才需要重渲染
+      const width = scroller.clientWidth;
+      setViewport((prev) => (prev.clientWidth === width ? prev : { scrollLeft: scroller.scrollLeft, clientWidth: width }));
+      // 接近日界才挂载尾巴段:用 transition 让这次「变重」的渲染不阻塞拖动
+      const near =
+        width > 0 &&
+        scroller.scrollLeft + width >= CHANNEL_COL_PX + spanPx - width * 0.75;
+      if (near !== nearRef.current) {
+        nearRef.current = near;
+        startTransition(() => setNearDayEnd(near));
+      }
+      // 渲染窗口:左侧留 2 屏余量、跨过 1 屏才推进(减少拖动过程中的重渲染次数),
+      // 推进用 transition 让 React 可中断,不阻塞手势
+      const nextWindowLeft = Math.max(0, Math.round(scroller.scrollLeft - width * 2));
+      if (!windowInitRef.current) {
+        // 首次测量:同步建立窗口(此时页面还没画节目块,不能等 transition)
+        windowInitRef.current = true;
+        windowLeftRef.current = nextWindowLeft;
+        setWindowLeft(nextWindowLeft);
+      } else if (Math.abs(nextWindowLeft - windowLeftRef.current) >= width) {
+        windowLeftRef.current = nextWindowLeft;
+        startTransition(() => setWindowLeft(nextWindowLeft));
+      }
     };
     update();
     scroller.addEventListener('scroll', update, { passive: true });
@@ -493,6 +553,10 @@ export function GuideWall({
     const tailTo = toMs + TAIL_MINUTES * 60_000;
     return hourTicksInWindow(tailFrom, tailTo, nextDay.timezone).map((tick) => spanPx + utcToPx(tick.ms, tailFrom));
   }, [nextDay, tailSpanPx, toMs, spanPx]);
+
+  /** 横向可见窗口:可视区左缘前一屏 ~ 右缘后两屏(clientWidth 未测量时渲染全部) */
+  const visibleFrom = viewport.clientWidth > 0 ? windowLeft : 0;
+  const visibleTo = viewport.clientWidth > 0 ? windowLeft + viewport.clientWidth * 4 : totalSpanPx;
 
   /** 次日尾巴段整点刻度(标签 + 总轴偏移) */
   const tailTickItems = useMemo(() => {
@@ -725,6 +789,8 @@ export function GuideWall({
             tailDateLabel={
               nextDay === null ? null : `${Number(nextDay.date.slice(5, 7))}月${Number(nextDay.date.slice(8, 10))}日`
             }
+            visibleFrom={visibleFrom}
+            visibleTo={visibleTo}
             onSelectProgramme={onSelectProgramme}
             onPlayChannel={onPlayChannel}
           />

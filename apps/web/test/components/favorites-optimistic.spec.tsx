@@ -15,7 +15,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import type { ReactNode } from 'react';
@@ -277,7 +277,12 @@ describe('T024 · 收藏乐观更新(favorites optimistic)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '取消收藏 夹具频道 001' }));
     await waitFor(() => expect(screen.queryByText('夹具频道 001')).not.toBeInTheDocument());
-    // 乐观移除后按钮仍在(独立控件):翻面态再次点击必须被 isPending 门控拦截
+    // 乐观移除后按钮仍在(独立控件):翻面态再次点击必须被 isPending 门控拦截。
+    // 先让 mutation 的 pending 状态提交一次渲染(满载并行时 fireEvent 同步连点
+    // 会抢在状态提交前,导致偶发重复请求)。
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     fireEvent.click(screen.getByRole('button', { name: '收藏 夹具频道 001' }));
 
     expect(favoriteCalls('DELETE')).toBe(1);
