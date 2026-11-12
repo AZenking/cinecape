@@ -24,6 +24,9 @@ export default defineConfig({
     // (表现为随机 1–2 例红,单跑必绿)。这里放宽用例与钩子上限,断言本身不放松。
     testTimeout: 15_000,
     hookTimeout: 15_000,
+    // 86 个文件并行时 CPU 打满,时间敏感用例(server-clock/VOD 410)偶发红;
+    // 限并发到 4 个 worker 换取确定性(总时长仍在数十秒量级)。
+    maxWorkers: 4,
     exclude: [...defaultExclude, 'test/e2e/**'],
   },
 });

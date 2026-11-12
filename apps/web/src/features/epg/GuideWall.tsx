@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ExperienceProgrammeDto, GuideWindowDto } from '@hmp/shared';
 import { Card, Chip, Tooltip } from '@heroui/react';
@@ -130,6 +130,231 @@ export interface GuideWallProps {
   readonly onGoNow?: () => void;
 }
 
+interface ProgrammeMeta {
+  readonly startsAtMs: number;
+  readonly endsAtMs: number;
+  readonly rangeLabel: string;
+}
+
+interface GuideChannelRowProps {
+  readonly channel: GuideWindowDto['channels'][number];
+  readonly channelIndex: number;
+  readonly currentKey: string | null;
+  readonly nowMinuteMs: number;
+  readonly selectedKey: string | null;
+  readonly fromMs: number;
+  readonly spanPx: number;
+  readonly ticks: readonly { readonly ms: number; readonly label: string }[];
+  readonly programmeMeta: ReadonlyMap<string, ProgrammeMeta>;
+  readonly onSelectProgramme: (ref: GuideProgrammeRef) => void;
+  readonly onPlayChannel: (mediaId: string, channelTitle: string) => void;
+}
+
+/**
+ * 单个频道行(memo):
+ * - 全天窗口下每频道约 30 个节目块,父级 useServerNow 每 15s tick 会整体重渲染;
+ *   本组件以「分钟桶」(nowMinuteMs)+ 预计算时间表(programmeMeta)为输入,
+ *   同一分钟内 tick 不触发重渲染(4 次 tick 只渲染 1 次);
+ * - content-visibility:auto:离屏频道行跳过布局与绘制,纵向滚动更顺。
+ */
+const GuideChannelRow = memo(function GuideChannelRow({
+  channel,
+  channelIndex,
+  currentKey,
+  nowMinuteMs,
+  selectedKey,
+  fromMs,
+  spanPx,
+  ticks,
+  programmeMeta,
+  onSelectProgramme,
+  onPlayChannel,
+}: GuideChannelRowProps): ReactNode {
+  const lanes = useMemo(() => assignLanes(channel.programmes), [channel.programmes]);
+  const laneCount = Math.max(1, ...lanes.values(), 1);
+  const laneHeight = ROW_HEIGHT_PX / Math.min(laneCount, MAX_LANES);
+  // 两行布局(标题 + 时段)仅在单行高泳道放得下;多泳道压缩时回落单行标题
+  const showTimeLine = laneHeight >= 34;
+
+  return (
+    <div
+      key={channel.media.id}
+      className="group/row flex transition-colors [contain-intrinsic-size:auto_72px] [content-visibility:auto] hover:bg-surface-secondary/25"
+    >
+      {/* 频道列:sticky left;整格即「播放该频道当前直播」按钮。
+          产品要求:列内只展示台标(logo 接口),频道名改由 Tooltip 悬浮展示;
+          背景与节目区区分,右缘渐变阴影提示可横向滚动 */}
+      <Tooltip delay={200}>
+        <Tooltip.Trigger
+          className="sticky left-0 z-30 flex shrink-0 items-center justify-center gap-1.5 bg-surface-secondary/70 px-2 transition-colors hover:bg-surface-secondary"
+          style={{ width: CHANNEL_COL_PX, height: ROW_HEIGHT_PX }}
+        >
+        <button
+          type="button"
+          aria-label={`播放 ${channel.media.title} 当前直播`}
+          onClick={() => {
+            onPlayChannel(channel.media.id, channel.media.title);
+          }}
+          className="flex h-full w-full items-center justify-center gap-1.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+        >
+          <span
+            aria-hidden="true"
+            className="hmp-tabular-nums w-3 shrink-0 text-right text-3xs leading-none text-muted/70"
+          >
+            {channelIndex + 1}
+          </span>
+          {/* 台标:posterRef → 同源 logo 接口;无 ref 时回退首字(仍不展示全名) */}
+          <span
+            aria-hidden="true"
+            className="relative inline-flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-md bg-transparent"
+          >
+            {channel.media.posterRef !== null ? (
+              <ChannelLogo
+                key={channel.media.posterRef}
+                posterRef={channel.media.posterRef}
+                channelTitle={channel.media.title}
+                fallbackClassName="text-lg font-black leading-none text-muted"
+              />
+            ) : (
+              <span className="text-lg font-bold text-muted">{channel.media.title.slice(0, 1).toUpperCase()}</span>
+            )}
+          </span>
+          {/* 右缘渐变阴影:区分频道列与时间轴,并暗示可横向滚动 */}
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 right-0 w-3 translate-x-full bg-gradient-to-r from-background/70 to-transparent"
+          />
+        </button>
+        </Tooltip.Trigger>
+        <Tooltip.Content>
+          <p>{channel.media.title}</p>
+        </Tooltip.Content>
+      </Tooltip>
+
+      {/* 节目轴:相对定位 + 背景刻度网格 + 绝对位置节目块 (Planby Program Grid) */}
+      <div className="relative shrink-0" style={{ width: spanPx, height: ROW_HEIGHT_PX }}>
+        {/* 背景小时对齐参考线 */}
+        {ticks.map((tick) => (
+          <div
+            key={`grid-${tick.ms}`}
+            aria-hidden="true"
+            className="pointer-events-none absolute top-0 bottom-0"
+            style={{ left: utcToPx(tick.ms, fromMs) }}
+          />
+        ))}
+
+        {channel.programmes.length === 0 ? (
+          <div className="absolute inset-y-2 left-2 right-2 flex items-center rounded-md border border-dashed border-border/50 bg-surface-secondary/20 px-3">
+            <span className="text-xs text-muted">暂无节目</span>
+          </div>
+        ) : (
+          channel.programmes.map((programme) => {
+            const meta = programmeMeta.get(programme.key);
+            const startsAtMs = meta?.startsAtMs ?? Date.parse(programme.startsAt);
+            const endsAtMs = meta?.endsAtMs ?? Date.parse(programme.endsAt);
+            const left = Math.min(Math.max(utcToPx(startsAtMs, fromMs), 0), spanPx);
+            const right = Math.min(Math.max(utcToPx(endsAtMs, fromMs), 0), spanPx);
+            const width = Math.max(right - left, 2);
+            const lane = lanes.get(programme.key) ?? 0;
+            const isCurrent = currentKey === programme.key;
+            const isPast = endsAtMs <= nowMinuteMs;
+            const rangeLabel = meta?.rangeLabel ?? `${programme.startsAt}–${programme.endsAt}`;
+
+            return (
+              <Card
+                key={programme.key}
+                className={`hmp-truncate hmp-tabular-nums absolute overflow-hidden rounded-lg p-0 ${
+                  selectedKey === programme.key
+                    ? 'z-10 border border-accent bg-accent/20 text-foreground shadow-md ring-2 ring-accent/40'
+                    : isCurrent
+                      ? 'z-[5] border border-accent/60 bg-accent/20 text-foreground shadow-sm hover:border-accent hover:bg-accent/25'
+                      : isPast
+                        // 已结束:默认底色更淡(与卡面区分但仍退后)
+                        ? 'border border-border/50 bg-surface-secondary/40 text-muted/70 shadow-none hover:bg-surface-secondary/60'
+                        // 未开始:统一默认底色(与卡面区分,不再与背景同色)
+                        : 'border border-border/70 bg-surface-secondary/65 text-foreground shadow-sm hover:border-foreground/30 hover:bg-surface-secondary hover:shadow-md'
+                }`}
+                style={{
+                  // 块间留 3px 缝隙(左右)与 6px 上下,节目墙更"一格一格"
+                  left: left + 2,
+                  width: Math.max(width - 4, 2),
+                  top: (lane % MAX_LANES) * laneHeight + 5,
+                  height: laneHeight - 10,
+                  minHeight: 18,
+                }}
+              >
+              {/* 长节目名:悬浮块任意位置用 Tooltip 展示全名(块内文本仍单行截断)。
+                  触发器直接渲染 <button> 本身,避免 Trigger 默认 div[role=button]
+                  与内部按钮形成嵌套按钮(ARIA 非法 + 查询重复)。 */}
+              <Tooltip delay={400}>
+                <Tooltip.Trigger<"button">
+                  render={({ children, ...triggerProps }) => (
+                    <button
+                      {...triggerProps}
+                      type="button"
+                      // T025:详情返回焦点恢复锚(会话内存快照按 key 查块;不进 URL/storage)
+                      data-programme-key={programme.key}
+                      aria-label={`${channel.media.title},${programme.title},${rangeLabel}${isCurrent ? ',正在直播' : ''}`}
+                      title={`${programme.title} ${rangeLabel}`}
+                      onClick={() => {
+                        // 产品统一:所有节目块(含正在直播)都进详情抽屉;
+                        // 「正在直播」只在详情里多一个播放按钮,不再块内直接起播。
+                        onSelectProgramme({
+                    mediaId: channel.media.id,
+                    channelTitle: channel.media.title,
+                    programme,
+                    posterRef: channel.media.posterRef,
+                  });
+                      }}
+                      className="group/prog flex h-full w-full flex-col text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                    >
+                      {children}
+                    </button>
+                  )}
+                >
+                {/* 两行内容:标题行(+LIVE 角标)+ `HH:mm – HH:mm` muted 行 */}
+                <span className="relative flex h-full min-w-0 flex-col justify-center gap-0.5 px-2.5">
+                  <span className="flex min-w-0 items-center gap-1">
+                    <span className="hmp-truncate min-w-0 text-2xs font-medium leading-tight">
+                      {programme.title}
+                    </span>
+                    {isCurrent && showTimeLine ? (
+                      // 绿色 LIVE 角标(015 T013,R6/ui-layout §3.2):HeroUI Chip
+                      // success 语义 token;文字「LIVE」+ aria「正在直播」承载语义,
+                      // 不以颜色为唯一区分;装饰性节点(可读名由按钮 aria-label 承担)。
+                      <Chip
+                        aria-hidden="true"
+                        color="success"
+                        size="sm"
+                        variant="soft"
+                        className="h-4 shrink-0 px-1 text-3xs"
+                      >
+                        LIVE
+                      </Chip>
+                    ) : null}
+                  </span>
+                  {showTimeLine ? (
+                    <span
+                      aria-hidden="true"
+                      className="hmp-truncate min-w-0 text-3xs leading-tight text-muted"
+                    >
+                      {meta?.rangeLabel ?? ''}
+                    </span>
+                  ) : null}
+                </span>
+
+                </Tooltip.Trigger>
+                <Tooltip.Content>{programme.title}</Tooltip.Content>
+              </Tooltip>
+              </Card>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+});
+
 export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, onPlayChannel, onGoNow = () => undefined }: GuideWallProps): ReactNode {
   const fromMs = Date.parse(data.from);
   const toMs = Date.parse(data.to);
@@ -182,6 +407,33 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
   }, []);
 
   const ticks = useMemo(() => hourTicksInWindow(fromMs, toMs, data.timezone), [fromMs, toMs, data.timezone]);
+  /**
+   * 分钟桶:行的 isPast/当前档判定只需分钟级精度,tick(15s)不改变桶值时行组件
+   * 被 memo 跳过重渲染。
+   */
+  const nowMinuteMs = Math.floor(nowMs / 60_000) * 60_000;
+  /** 时间格式与时间戳预计算(每块每次渲染都做 Date.parse + Intl 很贵) */
+  const programmeMeta = useMemo(() => {
+    const map = new Map<string, ProgrammeMeta>();
+    for (const channel of data.channels) {
+      for (const programme of channel.programmes) {
+        map.set(programme.key, {
+          startsAtMs: Date.parse(programme.startsAt),
+          endsAtMs: Date.parse(programme.endsAt),
+          rangeLabel: `${formatTimeInZone(programme.startsAt, data.timezone)}–${formatTimeInZone(programme.endsAt, data.timezone)}`,
+        });
+      }
+    }
+    return map;
+  }, [data]);
+  /** 各频道当前节目键(按分钟桶计算,供行组件作 memo 输入) */
+  const channelCurrentKeys = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const channel of data.channels) {
+      map.set(channel.media.id, pickCurrentProgramme(channel.programmes, nowMinuteMs)?.key ?? null);
+    }
+    return map;
+  }, [data, nowMinuteMs]);
 
   // 翻页后焦点定位到新窗口标题(初始渲染不抢焦点)
   useEffect(() => {
@@ -311,191 +563,22 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
 
       {/* 频道行区:相对定位容器承载纵贯 NOW 竖线(止于头部下缘,不越频道列) */}
       <div className="relative">
-        {data.channels.map((channel, channelIndex) => {
-          const lanes = assignLanes(channel.programmes);
-          const laneCount = Math.max(1, ...lanes.values(), 1);
-          const laneHeight = ROW_HEIGHT_PX / Math.min(laneCount, MAX_LANES);
-          const current = pickCurrentProgramme(channel.programmes, nowMs);
-          // 两行布局(标题 + 时段)仅在单行高泳道放得下;多泳道压缩时回落单行标题
-          const showTimeLine = laneHeight >= 34;
-
-          return (
-            <div
-              key={channel.media.id}
-              className="group/row flex transition-colors hover:bg-surface-secondary/25"
-            >
-              {/* 频道列:sticky left;整格即「播放该频道当前直播」按钮。
-                  产品要求:列内只展示台标(logo 接口),频道名改由 Tooltip 悬浮展示;
-                  背景与节目区区分,右缘渐变阴影提示可横向滚动 */}
-              <Tooltip delay={200}>
-                <Tooltip.Trigger
-                  className="sticky left-0 z-30 flex shrink-0 items-center justify-center gap-1.5 bg-surface-secondary/70 px-2 transition-colors hover:bg-surface-secondary"
-                  style={{ width: CHANNEL_COL_PX, height: ROW_HEIGHT_PX }}
-                >
-                <button
-                  type="button"
-                  aria-label={`播放 ${channel.media.title} 当前直播`}
-                  onClick={() => {
-                    onPlayChannel(channel.media.id, channel.media.title);
-                  }}
-                  className="flex h-full w-full items-center justify-center gap-1.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-                >
-                  <span
-                    aria-hidden="true"
-                    className="hmp-tabular-nums w-3 shrink-0 text-right text-3xs leading-none text-muted/70"
-                  >
-                    {channelIndex + 1}
-                  </span>
-                  {/* 台标:posterRef → 同源 logo 接口;无 ref 时回退首字(仍不展示全名) */}
-                  <span
-                    aria-hidden="true"
-                    className="relative inline-flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-md bg-transparent"
-                  >
-                    {channel.media.posterRef !== null ? (
-                      <ChannelLogo
-                        key={channel.media.posterRef}
-                        posterRef={channel.media.posterRef}
-                        channelTitle={channel.media.title}
-                        fallbackClassName="text-lg font-black leading-none text-muted"
-                      />
-                    ) : (
-                      <span className="text-lg font-bold text-muted">{channel.media.title.slice(0, 1).toUpperCase()}</span>
-                    )}
-                  </span>
-                  {/* 右缘渐变阴影:区分频道列与时间轴,并暗示可横向滚动 */}
-                  <span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-y-0 right-0 w-3 translate-x-full bg-gradient-to-r from-background/70 to-transparent"
-                  />
-                </button>
-                </Tooltip.Trigger>
-                <Tooltip.Content>
-                  <p>{channel.media.title}</p>
-                </Tooltip.Content>
-              </Tooltip>
-
-              {/* 节目轴:相对定位 + 背景刻度网格 + 绝对位置节目块 (Planby Program Grid) */}
-              <div className="relative shrink-0" style={{ width: spanPx, height: ROW_HEIGHT_PX }}>
-                {/* 背景小时对齐参考线 */}
-                {ticks.map((tick) => (
-                  <div
-                    key={`grid-${tick.ms}`}
-                    aria-hidden="true"
-                    className="pointer-events-none absolute top-0 bottom-0"
-                    style={{ left: utcToPx(tick.ms, fromMs) }}
-                  />
-                ))}
-
-                {channel.programmes.length === 0 ? (
-                  <div className="absolute inset-y-2 left-2 right-2 flex items-center rounded-md border border-dashed border-border/50 bg-surface-secondary/20 px-3">
-                    <span className="text-xs text-muted">暂无节目</span>
-                  </div>
-                ) : (
-                  channel.programmes.map((programme) => {
-                    const startsAtMs = Date.parse(programme.startsAt);
-                    const endsAtMs = Date.parse(programme.endsAt);
-                    const left = Math.min(Math.max(utcToPx(startsAtMs, fromMs), 0), spanPx);
-                    const right = Math.min(Math.max(utcToPx(endsAtMs, fromMs), 0), spanPx);
-                    const width = Math.max(right - left, 2);
-                    const lane = lanes.get(programme.key) ?? 0;
-                    const isCurrent = current?.key === programme.key;
-                    const isPast = endsAtMs <= nowMs;
-                    const rangeLabel = `${formatTimeInZone(programme.startsAt, data.timezone)}–${formatTimeInZone(programme.endsAt, data.timezone)}`;
-
-                    return (
-                      <Card
-                        key={programme.key}
-                        className={`hmp-truncate hmp-tabular-nums absolute overflow-hidden rounded-lg p-0 ${
-                          selectedKey === programme.key
-                            ? 'z-10 border border-accent bg-accent/20 text-foreground shadow-md ring-2 ring-accent/40'
-                            : isCurrent
-                              ? 'z-[5] border border-accent/60 bg-accent/20 text-foreground shadow-sm hover:border-accent hover:bg-accent/25'
-                              : isPast
-                                // 已结束:默认底色更淡(与卡面区分但仍退后)
-                                ? 'border border-border/50 bg-surface-secondary/40 text-muted/70 shadow-none hover:bg-surface-secondary/60'
-                                // 未开始:统一默认底色(与卡面区分,不再与背景同色)
-                                : 'border border-border/70 bg-surface-secondary/65 text-foreground shadow-sm hover:border-foreground/30 hover:bg-surface-secondary hover:shadow-md'
-                        }`}
-                        style={{
-                          // 块间留 3px 缝隙(左右)与 6px 上下,节目墙更"一格一格"
-                          left: left + 2,
-                          width: Math.max(width - 4, 2),
-                          top: (lane % MAX_LANES) * laneHeight + 5,
-                          height: laneHeight - 10,
-                          minHeight: 18,
-                        }}
-                      >
-                      {/* 长节目名:悬浮块任意位置用 Tooltip 展示全名(块内文本仍单行截断)。
-                          触发器直接渲染 <button> 本身,避免 Trigger 默认 div[role=button]
-                          与内部按钮形成嵌套按钮(ARIA 非法 + 查询重复)。 */}
-                      <Tooltip delay={400}>
-                        <Tooltip.Trigger<"button">
-                          render={({ children, ...triggerProps }) => (
-                            <button
-                              {...triggerProps}
-                              type="button"
-                              // T025:详情返回焦点恢复锚(会话内存快照按 key 查块;不进 URL/storage)
-                              data-programme-key={programme.key}
-                              aria-label={`${channel.media.title},${programme.title},${rangeLabel}${isCurrent ? ',正在直播' : ''}`}
-                              title={`${programme.title} ${rangeLabel}`}
-                              onClick={() => {
-                                // 产品统一:所有节目块(含正在直播)都进详情抽屉;
-                                // 「正在直播」只在详情里多一个播放按钮,不再块内直接起播。
-                                onSelectProgramme({
-                            mediaId: channel.media.id,
-                            channelTitle: channel.media.title,
-                            programme,
-                            posterRef: channel.media.posterRef,
-                          });
-                              }}
-                              className="group/prog flex h-full w-full flex-col text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-                            >
-                              {children}
-                            </button>
-                          )}
-                        >
-                        {/* 两行内容:标题行(+LIVE 角标)+ `HH:mm – HH:mm` muted 行 */}
-                        <span className="relative flex h-full min-w-0 flex-col justify-center gap-0.5 px-2.5">
-                          <span className="flex min-w-0 items-center gap-1">
-                            <span className="hmp-truncate min-w-0 text-2xs font-medium leading-tight">
-                              {programme.title}
-                            </span>
-                            {isCurrent && showTimeLine ? (
-                              // 绿色 LIVE 角标(015 T013,R6/ui-layout §3.2):HeroUI Chip
-                              // success 语义 token;文字「LIVE」+ aria「正在直播」承载语义,
-                              // 不以颜色为唯一区分;装饰性节点(可读名由按钮 aria-label 承担)。
-                              <Chip
-                                aria-hidden="true"
-                                color="success"
-                                size="sm"
-                                variant="soft"
-                                className="h-4 shrink-0 px-1 text-3xs"
-                              >
-                                LIVE
-                              </Chip>
-                            ) : null}
-                          </span>
-                          {showTimeLine ? (
-                            <span
-                              aria-hidden="true"
-                              className="hmp-truncate min-w-0 text-3xs leading-tight text-muted"
-                            >
-                              {`${formatTimeInZone(programme.startsAt, data.timezone)} – ${formatTimeInZone(programme.endsAt, data.timezone)}`}
-                            </span>
-                          ) : null}
-                        </span>
-
-                        </Tooltip.Trigger>
-                        <Tooltip.Content>{programme.title}</Tooltip.Content>
-                      </Tooltip>
-                      </Card>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          );
-        })}
+        {data.channels.map((channel, channelIndex) => (
+          <GuideChannelRow
+            key={channel.media.id}
+            channel={channel}
+            channelIndex={channelIndex}
+            currentKey={channelCurrentKeys.get(channel.media.id) ?? null}
+            nowMinuteMs={nowMinuteMs}
+            selectedKey={selectedKey}
+            fromMs={fromMs}
+            spanPx={spanPx}
+            ticks={ticks}
+            programmeMeta={programmeMeta}
+            onSelectProgramme={onSelectProgramme}
+            onPlayChannel={onPlayChannel}
+          />
+        ))}
 
         {/* 当前时间指示线 (Planby NOW Line 纵贯指示器;2px accent 竖线,ticking now 驱动;
             可读语义由头部 role=status 胶囊承担,此为纯视觉装饰线) */}

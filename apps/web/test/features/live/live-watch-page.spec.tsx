@@ -300,7 +300,8 @@ describe('T014 · 右侧伴随面板:频道名/当前节目/进度条/简介/收
     });
     try {
       // 频道名(伴随面板标题)
-      await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: '星光影城' })).toBeVisible());
+      // 满负载并行时默认 1s 的 waitFor 偶发超时(单跑必绿):改为显式放宽的 findBy
+      await screen.findByRole('heading', { level: 1, name: '星光影城' }, { timeout: 8000 });
       // 当前节目标题
       expect(screen.getByText('星际回响')).toBeVisible();
       // 进度百分比条:服务端快照 NOW(2026-11-15T12:00Z),窗 NOW−20→NOW+40 → 已播 33%
@@ -379,10 +380,10 @@ describe('T014 · 同类型直播横条(sam type live)', () => {
     });
     try {
       await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: '星光影城' })).toBeVisible());
-      expect(screen.getByText('同类型直播')).toBeVisible();
-      // 同组(电影)其他频道在列,当前频道被排除
-      expect(screen.getByRole('button', { name: '切换到 经典电影台' })).toBeVisible();
-      expect(screen.getByRole('button', { name: '切换到 动作影院' })).toBeVisible();
+      expect(await screen.findByText('同类型直播', {}, { timeout: 8000 })).toBeVisible();
+      // 同组(电影)其他频道在列,当前频道被排除(横条依赖分区取数,等待其落地)
+      expect(await screen.findByRole('button', { name: '切换到 经典电影台' }, { timeout: 8000 })).toBeVisible();
+      expect(await screen.findByRole('button', { name: '切换到 动作影院' }, { timeout: 8000 })).toBeVisible();
       expect(screen.queryByRole('button', { name: '切换到 星光影城' })).toBeNull();
       // 组外(音乐/体育)频道不出现
       expect(screen.queryByRole('button', { name: '切换到 流行音乐台' })).toBeNull();

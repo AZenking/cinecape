@@ -70,6 +70,19 @@
     当前档 `accent/60`);行加斑马底(`even:bg-background/25`)与更强的小时刻度线
     (`border-border/40`);Card 显式 `rounded-lg` 覆盖 Card 默认大圆角。
 
+## 追加决策（2026-11-12 第六轮：渲染性能与切日连续性）
+
+17. **频道行 memo + 分钟桶**:`GuideChannelRow` 以 `nowMinuteMs`(分钟桶)与预计算
+    `programmeMeta` 为输入;`useServerNow` 每 15s tick 时同一分钟内行不重渲染
+    (4 次 tick 只渲染 1 次)。
+18. **时间格式预计算**:每块原本每次渲染都做 `Date.parse`×2 + `Intl.DateTimeFormat`×2,
+    现按 `data` 一次性算好(435 块/次渲染省约 1700 次昂贵调用)。
+19. **content-visibility: auto**:离屏频道行跳过布局与绘制(配 `contain-intrinsic-size`)。
+20. **切日连续性**:切日保持视口中心的时间位置(记录偏移→新日居中),并预取相邻日期
+    (昨天/明天)的分页窗口;配合 `keepPreviousData`,切日不跳回 00:00、不出现加载空白。
+21. **测试并发上限**:`vitest maxWorkers = 4` —— 86 文件并行打满 CPU 会让时间敏感用例
+    (server-clock / VOD 410 / live-watch) 偶发红;限并发换取确定性。
+
 ## Consequences
 
 **正**
