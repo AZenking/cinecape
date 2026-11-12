@@ -256,7 +256,7 @@ export function VideoPlayer({
   }, [src, mimeType, videoRef, attemptPlay]);
 
   return (
-    <div ref={containerRef} data-vjs-player className="h-full w-full bg-black">
+    <div ref={containerRef} data-vjs-player className="h-full w-full bg-background">
       <video
         ref={videoRef}
         data-testid="playback-video"

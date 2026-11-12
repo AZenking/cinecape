@@ -18,7 +18,7 @@ import { PublicNav } from '../shared/ui';
 export function PublicLayout(): ReactNode {
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="border-b border-border bg-black/30">
+      <header className="border-b border-border bg-background/30">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-4">
           <div className="flex items-center gap-6">
             <Link

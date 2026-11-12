@@ -66,6 +66,26 @@
 
 **版本口径**：skill 文档索引当日为 v3.2.7，仓库实际安装 `@heroui/react`/`@heroui/styles` 3.2.6。按宪章「组件 API 与 token 以安装版本为准」，上表判定以 3.2.6 的类型检查与运行时实测为准；`Slider`/`Button`/`Chip`/`Skeleton` 所用 props 在 3.2.6 均可用（`tsc --noEmit` 与浏览器实测通过）。若后续升级 HeroUI，需按约束 8 走宪章修订记录。
 
+## 全仓 UI 合规扫描（2026-11-12，宪章约束 5/8/9）
+
+对 `apps/web/src` 做了一轮机械扫描，结论与处置：
+
+| 检查项 | 扫描结果 | 处置 |
+|---|---|---|
+| 原生 `<select>` / `<datalist>` / `<dialog>` / `<progress>` / `<meter>` / `input[type=date\|time]` | **0 处** | 合规 |
+| `window.alert/confirm/prompt` | **1 处**（`ChannelEditModal` 删除最后一条线路的确认） | **已修复** → HeroUI `AlertDialog`（危险态图标 + 取消/确认删除，`data-testid` 供测试） |
+| `input[type=file]` | 1 处（频道 Logo 上传） | **合规**：隐藏 input 仅作浏览器能力载体，交互面是 HeroUI `Button`，符合约束 5 的「封装原生元素不在禁令内」 |
+| 内联 `<svg>` | **0 处** | 合规（图标全部 `lucide-react`） |
+| 第二套图标库（phosphor/heroicons/tabler/react-icons） | **0 处** | 合规 |
+| 硬编码颜色（hex/rgb/hsl/oklch 字面量） | **0 处** | 合规 |
+| Tailwind 原始调色板类（`bg-black`/`text-white`/`border-white/10` 等） | **37 处**（播放面、控制栏、公共顶栏） | **已修复** → 全部换为语义 token（`bg-background`、`text-foreground`、`text-muted`、`border-border/60`、`bg-foreground/15` 等），运行时实测背景 `oklch(0.12 …)`、前景 `oklch(0.9911 0 0)` |
+| 任意值字号（`text-[10px]`/`text-[11px]`） | **23 处** | **已修复** → 新增项目 token `text-3xs`(10px)/`text-2xs`(11px)（`shared/theme/tokens.css` 的 `@theme`），并在 `DESIGN.md` 登记用途；实测 10px/11px 渲染不变 |
+| 任意值布局宽高（`w-[220px]`/`max-w-[960px]` 等） | **25 处** | **已登记未改造**：均为布局/媒体尺寸，已在 `DESIGN.md`「项目补充设计 token」逐项登记用途；后续如重复出现再收敛为 `@theme` 容器 token |
+| 原生 `<button>` | **12 处**（EPG 节目块/列表行、切台行、候选行、PIN 数字键等复合内容项） | **保留为已记录的自定义组件**：这些是承载复合内容（进度条、绝对定位、多位输入）的"行/块"，HeroUI `Button` 无法在不破坏布局与语义的前提下承载；均使用语义 token、`:focus-visible` 焦点环与完整 `aria-label` |
+| 原生 `<details>`（EPG 已结束折叠） | 1 处 | **保留**：非宪章列举的禁用控件；`<details>/<summary>` 提供无 JS 语义与键盘行为，且被既有测试按 `DETAILS` 结构钉住。若后续统一为 HeroUI `Disclosure`，需同步修订规格 019 与相关测试 |
+
+**结论**：宪章明文禁止的原生交互控件已清零（`window.confirm` 修复后）；颜色与字号已全量 token 化；剩余偏离（原生 `<button>` 复合项 12 处、`<details>` 1 处、布局任意值 25 处）均属「HeroUI 未覆盖 + 已记录原因」的合规例外。
+
 ## Consequences
 
 **正**

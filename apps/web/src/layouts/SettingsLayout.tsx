@@ -62,7 +62,7 @@ function SettingsSubmenu({
       data-testid={`settings-group-${group.key}`}
     >
       <Header className="flex w-full flex-col gap-1 px-3 pb-1.5 pt-2.5">
-        <span className="text-[11px] font-normal leading-4 text-muted">{group.label}</span>
+        <span className="text-2xs font-normal leading-4 text-muted">{group.label}</span>
       </Header>
       {group.modules.map((module) => (
         <ListBox.Item

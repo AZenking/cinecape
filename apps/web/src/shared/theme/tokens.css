@@ -84,3 +84,21 @@
   --hmp-media-poster-placeholder: var(--surface-secondary);
   --hmp-media-scrim: var(--backdrop);
 }
+
+/*
+ * 紧凑元信息字号(项目设计 token;宪章技术约束 8「HeroUI 未提供的设计尺度必须集中定义」)。
+ *
+ * 背景:HerUI/Tailwind 标准字号最小档为 text-xs(12px);EPG 时间轴、播放器控制栏与
+ * 播放面头部等**高密度**区域需要 10/11px 的元信息字号,此前以 `text-[10px]`/
+ * `text-[11px]` 任意值散落在各组件中(违反「禁止任意值类替代 token」)。
+ * 现集中定义为项目 token,业务组件只引用 token:
+ *   - text-3xs = 10px(时间轴刻度、频道序号、徽章)
+ *   - text-2xs = 11px(节目标题/时间行、控制栏标签)
+ * 不得在组件内再写 `text-[10px]` 一类任意值;如需新档位,在此处新增并说明用途。
+ */
+@theme {
+  --text-3xs: 0.625rem;
+  --text-3xs--line-height: calc(0.875rem);
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: calc(0.9375rem);
+}

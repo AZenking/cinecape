@@ -227,7 +227,7 @@ export function PlayerControls({
   return (
     <div
       data-testid="player-controls"
-      className={`absolute inset-x-0 bottom-0 z-20 flex flex-col gap-1 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-3 pb-2 pt-8 transition-opacity duration-200 ${
+      className={`absolute inset-x-0 bottom-0 z-20 flex flex-col gap-1 bg-gradient-to-t from-background/85 via-background/45 to-transparent px-3 pb-2 pt-8 transition-opacity duration-200 ${
         visible ? 'opacity-100' : 'pointer-events-none opacity-0'
       }`}
       onPointerMove={revealControls}
@@ -270,25 +270,25 @@ export function PlayerControls({
         <div className="h-1" aria-hidden="true" />
       )}
 
-      <div className="flex items-center gap-1.5 text-white">
+      <div className="flex items-center gap-1.5 text-foreground">
         <Button
           size="sm"
           variant="ghost"
           isIconOnly
           aria-label={playing ? '暂停' : '播放'}
-          className="text-white data-[hovered=true]:bg-white/15"
+          className="text-foreground data-[hovered=true]:bg-foreground/15"
           onPress={togglePlay}
         >
           {playing ? <Pause className="size-4" aria-hidden="true" /> : <Play className="size-4" aria-hidden="true" />}
         </Button>
 
         {isLive ? (
-          <span className="flex items-center gap-1 rounded-sm bg-danger/90 px-1.5 py-0.5 text-[11px] font-semibold text-danger-foreground">
+          <span className="flex items-center gap-1 rounded-sm bg-danger/90 px-1.5 py-0.5 text-2xs font-semibold text-danger-foreground">
             <span className="size-1.5 rounded-full bg-danger-foreground animate-pulse" aria-hidden="true" />
             直播
           </span>
         ) : (
-          <span className="hmp-tabular-nums text-[11px] text-white/85">
+          <span className="hmp-tabular-nums text-2xs text-foreground/85">
             {formatClock(shownTime)} / {formatClock(progressMax)}
           </span>
         )}
@@ -296,7 +296,7 @@ export function PlayerControls({
         <div className="mx-auto" />
 
         {/* 业务动作区(播放设置/换源/线路/节目单),样式由控制栏统一约束 */}
-        <div className="flex items-center gap-1 [&_button]:text-white">{children}</div>
+        <div className="flex items-center gap-1 [&_button]:text-foreground">{children}</div>
 
         {/* 音量 */}
         <div className="group/vol flex items-center gap-1">
@@ -305,7 +305,7 @@ export function PlayerControls({
             variant="ghost"
             isIconOnly
             aria-label={muted ? '取消静音' : '静音'}
-            className="text-white data-[hovered=true]:bg-white/15"
+            className="text-foreground data-[hovered=true]:bg-foreground/15"
             onPress={toggleMute}
           >
             {muted || volume === 0 ? <VolumeX className="size-4" aria-hidden="true" /> : <Volume2 className="size-4" aria-hidden="true" />}
@@ -334,7 +334,7 @@ export function PlayerControls({
           variant="ghost"
           isIconOnly
           aria-label={isFullscreen ? '退出全屏' : '全屏'}
-          className="text-white data-[hovered=true]:bg-white/15"
+          className="text-foreground data-[hovered=true]:bg-foreground/15"
           onPress={toggleFullscreen}
         >
           {isFullscreen ? <Minimize2 className="size-4" aria-hidden="true" /> : <Maximize className="size-4" aria-hidden="true" />}
@@ -347,7 +347,7 @@ export function PlayerControls({
             variant="ghost"
             isIconOnly
             aria-label={minimized ? '还原播放器' : '最小化播放器'}
-            className="text-white data-[hovered=true]:bg-white/15"
+            className="text-foreground data-[hovered=true]:bg-foreground/15"
             onPress={onToggleMinimize}
           >
             {minimized ? <Maximize className="size-4" aria-hidden="true" /> : <Minimize2 className="size-4" aria-hidden="true" />}

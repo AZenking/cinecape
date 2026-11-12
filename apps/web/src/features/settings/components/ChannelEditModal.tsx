@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Button, Chip, Input, Label, ListBox, Modal, Select, Switch, Tabs, TextField } from '@heroui/react';
+import { AlertDialog, Button, Chip, Input, Label, ListBox, Modal, Select, Switch, Tabs, TextField } from '@heroui/react';
 import { Check, Copy, Plus, Radio, Search, Star, Trash2, Tv, Upload } from 'lucide-react';
 import { useAppToast } from '../../../shared/ui';
 import {
@@ -65,6 +65,8 @@ export function ChannelEditModal({
   const [isSavingStreamId, setIsSavingStreamId] = useState<string | null>(null);
   const [newStreamUrl, setNewStreamUrl] = useState('');
   const [isAddingStream, setIsAddingStream] = useState(false);
+  /** 待确认删除的最后一条线路(null = 无确认面;仅剩 1 条线路时经 AlertDialog 二次确认) */
+  const [pendingDeleteStream, setPendingDeleteStream] = useState<ChannelStreamDto | null>(null);
   const [copiedStreamId, setCopiedStreamId] = useState<string | null>(null);
 
   // EPG 匹配状态
@@ -236,13 +238,18 @@ export function ChannelEditModal({
     }
   };
 
-  // 删除流线路
+  /** 删除流线路:仅剩 1 条线路时属高危(删后频道不可播),经 AlertDialog 二次确认 */
   const handleDeleteStream = async (stream: ChannelStreamDto) => {
     if (channel === null) return;
     if (streams.length <= 1) {
-      const confirmed = window.confirm('该频道仅剩此 1 条线路，删除后该频道将无法正常播放，是否确认删除？');
-      if (!confirmed) return;
+      setPendingDeleteStream(stream);
+      return;
     }
+    await performDeleteStream(stream);
+  };
+
+  const performDeleteStream = async (stream: ChannelStreamDto) => {
+    if (channel === null) return;
     try {
       await settingsApi.deleteStream(channel.id, stream.id);
       toast.success('已删除该线路');
@@ -649,11 +656,11 @@ export function ChannelEditModal({
                                         备用线路
                                       </Chip>
                                     )}
-                                    <Chip size="sm" variant="soft" color="default" className="text-[11px]">
+                                    <Chip size="sm" variant="soft" color="default" className="text-2xs">
                                       {stream.protocol.toUpperCase()}
                                     </Chip>
                                     {stream.sourceName ? (
-                                      <span className="text-[11px] text-muted truncate max-w-[140px]">
+                                      <span className="text-2xs text-muted truncate max-w-[140px]">
                                         源: {stream.sourceName}
                                       </span>
                                     ) : null}
@@ -891,7 +898,7 @@ export function ChannelEditModal({
                                   >
                                     <div className="flex min-w-0 flex-col">
                                       <span className="font-medium truncate">{cand.displayName}</span>
-                                      <span className="text-[11px] text-muted truncate">ID: {cand.xmltvChannelId}</span>
+                                      <span className="text-2xs text-muted truncate">ID: {cand.xmltvChannelId}</span>
                                     </div>
                                     <Button
                                       size="sm"
@@ -945,6 +952,54 @@ export function ChannelEditModal({
           </Modal.Dialog>
         </Modal.Container>
       </Modal.Backdrop>
+
+      {/* 删除最后一条线路的二次确认(替代原生 window.confirm;宪章约束 5 禁原生对话框) */}
+      <AlertDialog.Backdrop
+        isOpen={pendingDeleteStream !== null}
+        onOpenChange={(open: boolean) => {
+          if (!open) {
+            setPendingDeleteStream(null);
+          }
+        }}
+      >
+        <AlertDialog.Container>
+          <AlertDialog.Dialog className="sm:max-w-[420px]" data-testid="channel-stream-delete-confirm">
+            <AlertDialog.Header>
+              <AlertDialog.Icon status="danger" />
+              <AlertDialog.Heading>删除最后一条线路?</AlertDialog.Heading>
+            </AlertDialog.Header>
+            <AlertDialog.Body>
+              <p className="text-sm text-foreground">
+                该频道仅剩此 1 条线路,删除后该频道将无法正常播放。
+              </p>
+              {pendingDeleteStream !== null ? (
+                <p className="mt-2 text-sm text-muted">
+                  待删除:{pendingDeleteStream.sourceName} · {pendingDeleteStream.protocol} · 优先级 {pendingDeleteStream.priority}
+                </p>
+              ) : null}
+            </AlertDialog.Body>
+            <AlertDialog.Footer>
+              <Button variant="tertiary" size="sm" onPress={() => setPendingDeleteStream(null)} data-testid="channel-stream-delete-cancel">
+                取消
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                data-testid="channel-stream-delete-confirm-btn"
+                onPress={() => {
+                  const target = pendingDeleteStream;
+                  setPendingDeleteStream(null);
+                  if (target !== null) {
+                    void performDeleteStream(target);
+                  }
+                }}
+              >
+                确认删除
+              </Button>
+            </AlertDialog.Footer>
+          </AlertDialog.Dialog>
+        </AlertDialog.Container>
+      </AlertDialog.Backdrop>
     </Modal.Root>
   );
 }

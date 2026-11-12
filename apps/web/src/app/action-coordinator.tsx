@@ -1149,8 +1149,8 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
             style={minimized && miniPosition !== null ? { left: miniPosition.x, top: miniPosition.y } : undefined}
             className={
               minimized
-                ? 'pointer-events-auto fixed z-50 flex w-[300px] flex-col overflow-hidden rounded-lg border border-border bg-black shadow-2xl'
-                : 'pointer-events-auto fixed left-1/2 top-1/2 z-50 flex w-[min(94vw,1120px,calc((100vh-12rem)*16/9))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-border bg-black shadow-2xl'
+                ? 'pointer-events-auto fixed z-50 flex w-[300px] flex-col overflow-hidden rounded-lg border border-border bg-background shadow-2xl'
+                : 'pointer-events-auto fixed left-1/2 top-1/2 z-50 flex w-[min(94vw,1120px,calc((100vh-12rem)*16/9))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-border bg-background shadow-2xl'
             }
           >
             {/* 头部兼作 mini 拖动手柄(cursor-move 仅提示,不改变交互语义);
@@ -1159,14 +1159,14 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
                 线路切换、连播开关、最小化已全部收进播放器控制栏(产品要求),
                 头部只保留身份与退出;mini 态标题栏兼作拖动手柄。 */}
             <header
-              className={`flex items-center justify-between gap-4 border-b border-white/10 ${
+              className={`flex items-center justify-between gap-4 border-b border-border/60 ${
                 minimized ? 'cursor-move px-2 py-1' : 'px-3 py-2'
               }`}
             >
               <div className="flex min-w-0 items-center gap-2">
                 <span
                   aria-hidden="true"
-                  className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-sm border border-white/10 bg-white/5 ${
+                  className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-sm border border-border/60 bg-surface-secondary/40 ${
                     minimized ? 'size-6' : 'size-8'
                   }`}
                 >
@@ -1175,10 +1175,10 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
                       key={playback.target.posterRef}
                       posterRef={playback.target.posterRef}
                       channelTitle={playback.target.title}
-                      fallbackClassName="text-[10px] font-black leading-none text-white/70"
+                      fallbackClassName="text-3xs font-black leading-none text-muted"
                     />
                   ) : (
-                    <span className={`font-bold text-white/80 ${minimized ? 'text-[10px]' : 'text-xs'}`}>
+                    <span className={`font-bold text-foreground/80 ${minimized ? 'text-3xs' : 'text-xs'}`}>
                       {playback.target.title.slice(0, 1).toUpperCase()}
                     </span>
                   )}
@@ -1194,7 +1194,7 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
               </div>
             </header>
             {playback.phase === 'playing' && playback.playbackUrl !== null && playback.sessionId !== null ? (
-              <div className="aspect-video w-full bg-black">
+              <div className="aspect-video w-full bg-background">
                 <PlayerView
                   sessionId={playback.sessionId}
                   generation={playback.playbackGeneration ?? 1}
@@ -1229,8 +1229,8 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
                 />
               </div>
             ) : (
-              <div className="relative flex aspect-video w-full flex-col items-center justify-center gap-3 bg-black px-6 text-center">
-                <p role="alert" className="text-sm text-white/80">
+              <div className="relative flex aspect-video w-full flex-col items-center justify-center gap-3 bg-background px-6 text-center">
+                <p role="alert" className="text-sm text-foreground/80">
                   {playback.message ?? '该内容当前不可播放。'}
                 </p>
                 {/* 换源恢复(T075 F1;ui.md §4 媒体故障 60s recover_switch 路径):

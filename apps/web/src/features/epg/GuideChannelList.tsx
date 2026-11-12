@@ -162,7 +162,7 @@ export function GuideChannelList({ data, selectedKey, onSelectProgramme, onPlayC
                             {current.title}
                           </span>
                           {/* LIVE 徽章:文字承载语义,不以颜色为唯一区分 */}
-                          <Chip aria-hidden="true" color="success" size="sm" variant="soft" className="h-4 shrink-0 px-1 text-[10px]">
+                          <Chip aria-hidden="true" color="success" size="sm" variant="soft" className="h-4 shrink-0 px-1 text-3xs">
                             LIVE
                           </Chip>
                         </span>

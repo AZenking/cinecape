@@ -84,23 +84,23 @@ function LiveGuideRow({ row, nowMs, timezone, isCurrent, onZap }: LiveGuideRowPr
               key={row.media.posterRef}
               posterRef={row.media.posterRef}
               channelTitle={channelTitle}
-              fallbackClassName="text-[10px] font-black leading-none text-foreground/30"
+              fallbackClassName="text-3xs font-black leading-none text-foreground/30"
             />
           ) : (
-            <span className="text-[10px] font-bold text-muted">{channelTitle.slice(0, 1).toUpperCase()}</span>
+            <span className="text-3xs font-bold text-muted">{channelTitle.slice(0, 1).toUpperCase()}</span>
           )}
         </span>
         <span className="hmp-truncate min-w-0 flex-1 text-xs font-medium text-foreground" title={channelTitle}>
           {channelTitle}
         </span>
         {isCurrent ? (
-          <span className="shrink-0 rounded-xs bg-accent/20 px-1 text-[10px] font-semibold text-accent">当前</span>
+          <span className="shrink-0 rounded-xs bg-accent/20 px-1 text-3xs font-semibold text-accent">当前</span>
         ) : null}
         {programme !== null ? (
-          <span className="hmp-tabular-nums shrink-0 text-[10px] text-muted">{formatTimeInZone(programme.startsAt, timezone)}</span>
+          <span className="hmp-tabular-nums shrink-0 text-3xs text-muted">{formatTimeInZone(programme.startsAt, timezone)}</span>
         ) : null}
       </span>
-      <span className="hmp-truncate min-w-0 text-[11px] text-muted" title={programme?.title ?? '暂无节目'}>
+      <span className="hmp-truncate min-w-0 text-2xs text-muted" title={programme?.title ?? '暂无节目'}>
         {programme?.title ?? '暂无节目'}
       </span>
       {hasWindow ? (

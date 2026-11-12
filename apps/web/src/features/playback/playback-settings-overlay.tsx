@@ -61,7 +61,7 @@ export function PlaybackSettingsOverlay({
         aria-label="播放设置"
         aria-expanded={open}
         aria-haspopup="dialog"
-        className="text-white"
+        className="text-foreground"
         onPress={toggle}
       >
         <Settings className="size-4" aria-hidden="true" />

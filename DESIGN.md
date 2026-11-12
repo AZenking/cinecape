@@ -154,3 +154,37 @@ Use the scale consistently. Inner media and nested surfaces should have a visibl
 - Design principles: https://heroui.com/docs/react/getting-started/design-principles
 
 When this file and the current package disagree, follow the installed HeroUI version and its theme CSS.
+
+## 项目补充设计 token（HMP）
+
+以下尺度是 HeroUI 默认主题未覆盖、但本项目高密度媒体界面必需的补充项。按宪章技术约束 8，
+集中定义于 `apps/web/src/shared/theme/tokens.css`（`@theme` 块），业务组件只引用 token，
+不得再写任意值类。
+
+### 文本尺度（紧凑元信息）
+
+| Token | 值 | 用途 | 禁止场景 |
+| --- | --- | --- | --- |
+| `text-3xs` | 10px / lh 14px | EPG 时间轴刻度、频道序号、LIVE 徽章、播放面头部小字 | 正文、可点击标签主文字 |
+| `text-2xs` | 11px / lh 15px | 节目块时间行、控制栏时间、设置面板分段标签 | 正文、按钮主标签 |
+
+> 标准档位 `text-xs`(12px) 仍是正文下界；10/11px 仅用于高密度元信息，且必须保证
+> 与所在表面有足够对比度（暗色主题下用 `text-muted`/`text-foreground` 语义 token）。
+
+### 媒体与布局尺寸（常量，非主题色）
+
+这些是布局/媒体尺寸，不是颜色，因此不进入主题 token 表；当前以组件内常量或一次性任意值
+表达，用途固定、不得被复制成"随手编的数值"。新增同类尺寸必须先在此登记用途。
+
+| 尺寸 | 值 | 用途 | 位置 |
+| --- | --- | --- | --- |
+| EPG 频道列宽 | 176px | 节目单墙固定频道列 | `features/epg/GuideWall.tsx` `CHANNEL_COL_PX` |
+| EPG 行高 | 56px | 节目单墙频道行 | 同上 `ROW_HEIGHT_PX` |
+| EPG 像素/分钟 | 2px | 时间轴横向比例（全天 2880px） | `features/epg/guide-time.ts` `PX_PER_MINUTE` |
+| 播放面 mini | 300×200 | 右下角悬浮播放器（宽 300，含控制栏总高约 200） | `app/action-coordinator.tsx` `MINI_WIDTH_PX`/`MINI_HEIGHT_PX` |
+| 播放面最大宽 | `min(94vw, 1120px, (100vh-12rem)*16/9)` | 大窗播放器，保证矮视口不遮挡顶栏 | `app/action-coordinator.tsx` |
+| 设置侧栏宽 | 220px / 256px | 宽/窄两档侧栏面板 | `layouts/SettingsLayout.tsx` |
+| 设置内容最大宽 | 960px / 1216px | 内容列约束 | `layouts/SettingsLayout.tsx` |
+| 设置来源面板宽 | 320px / 880px | 来源列表/编辑面板 | `features/settings/*` |
+| 播放设置面板 | 288px(`w-72`)，限高 `min(70vh,420px)` | 控制栏上浮设置面板 | `playback-settings-overlay.tsx` |
+| 直播切台面板 | 288px(`w-72`)，最大 85% | 播放器内右下覆盖面板 | `features/live/components/LiveGuidePanel.tsx` |

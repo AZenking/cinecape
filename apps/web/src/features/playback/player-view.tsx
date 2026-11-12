@@ -595,7 +595,7 @@ export function PlayerView({
             isIconOnly
             aria-label="节目单"
             aria-expanded={guideOpen}
-            className="text-white"
+            className="text-foreground"
             onPress={() => {
               setGuideOpen((value) => !value);
             }}
@@ -618,18 +618,18 @@ export function PlayerView({
       {transition.state.drawerOpen ? <VodSourceSwitcher transition={transition} /> : null}
       {/* 续播落点面(T049):成功仅按实际落点承认;失败给显式出路,绝不显示成功语义 */}
       {landing === 'applied' && presentationStartSeconds > 0 ? (
-        <p role="status" data-testid="resume-applied" className="absolute bottom-28 start-4 rounded bg-black/70 px-2 py-1 text-xs text-white">
+        <p role="status" data-testid="resume-applied" className="absolute bottom-28 start-4 rounded bg-background/80 px-2 py-1 text-xs text-foreground">
           已续播,已恢复到上次位置。
         </p>
       ) : null}
       {landing === 'failed' ? (
-        <p role="alert" data-testid="resume-failed" className="absolute bottom-28 start-4 rounded bg-black/70 px-2 py-1 text-xs text-white">
+        <p role="alert" data-testid="resume-failed" className="absolute bottom-28 start-4 rounded bg-background/80 px-2 py-1 text-xs text-foreground">
           未能定位到上次播放位置,可从头播放或重新选择。
         </p>
       ) : null}
       {/* probe 后降级面(B4):播放继续 + 具体降级原因,不显示「已续播」成功语义 */}
       {degradedNotice !== null ? (
-        <p role="status" data-testid="resume-degraded" className="absolute bottom-32 start-4 rounded bg-black/70 px-2 py-1 text-xs text-white">
+        <p role="status" data-testid="resume-degraded" className="absolute bottom-32 start-4 rounded bg-background/80 px-2 py-1 text-xs text-foreground">
           {degradedNotice}
         </p>
       ) : null}
@@ -637,12 +637,12 @@ export function PlayerView({
           能力判定 progressUnsavable 仍保留给控制栏/进度逻辑做门禁 */}
       {/* 进度协议状态提示(未保存/同步失败;不遮挡控制条,错误不只靠颜色) */}
       {progress.syncFailed ? (
-        <p role="alert" data-testid="progress-sync-failed" className="absolute bottom-16 start-4 rounded bg-black/70 px-2 py-1 text-xs text-white">
+        <p role="alert" data-testid="progress-sync-failed" className="absolute bottom-16 start-4 rounded bg-background/80 px-2 py-1 text-xs text-foreground">
           进度同步失败,已保留上次成功保存的位置,网络恢复后自动重试。
         </p>
       ) : null}
       {notice !== null ? (
-        <p role="status" data-testid="progress-notice" className="absolute bottom-24 start-4 rounded bg-black/70 px-2 py-1 text-xs text-white">
+        <p role="status" data-testid="progress-notice" className="absolute bottom-24 start-4 rounded bg-background/80 px-2 py-1 text-xs text-foreground">
           {notice}
         </p>
       ) : null}

@@ -620,7 +620,7 @@ export function SettingsEpgPage({ hideHeader }: SettingsEpgPageProps = {}): Reac
                               </span>
                               <span className="text-xs text-muted">手动绑定</span>
                               {channel.epgBinding.status === 'invalid' ? (
-                                <Chip size="sm" variant="soft" color="warning" className="w-fit text-[11px]">
+                                <Chip size="sm" variant="soft" color="warning" className="w-fit text-2xs">
                                   绑定失效，请重新选择节目单
                                 </Chip>
                               ) : null}

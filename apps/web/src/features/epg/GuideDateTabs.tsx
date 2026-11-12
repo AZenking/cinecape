@@ -81,14 +81,14 @@ export function GuideDateTabs({ allowedDates, timezone, selected, disabled = fal
           >
             <span className="flex flex-col items-center leading-none">
               <span
-                className={`flex items-center gap-1 text-[10px] font-medium tracking-wide ${
+                className={`flex items-center gap-1 text-3xs font-medium tracking-wide ${
                   isSelected ? 'text-accent' : 'text-muted'
                 }`}
               >
                 {index === 0 ? <span aria-hidden="true" className="size-1.5 rounded-full bg-accent" /> : null}
                 {topLabel}
               </span>
-              <span className={`mt-0.5 hmp-tabular-nums text-[11px] ${isSelected ? 'text-foreground font-semibold' : 'text-foreground/80'}`}>
+              <span className={`mt-0.5 hmp-tabular-nums text-2xs ${isSelected ? 'text-foreground font-semibold' : 'text-foreground/80'}`}>
                 {dateLabel}
               </span>
             </span>

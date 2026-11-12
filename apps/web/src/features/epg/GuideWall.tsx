@@ -192,7 +192,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
               style={{ left: nowX }}
             >
               {/* 指示胶囊:accent 底 + 脉动圆点(ticking now 每 15s 更新时刻) */}
-              <span className="hmp-tabular-nums mt-0.5 flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-[10px] font-semibold text-accent-foreground shadow-xs">
+              <span className="hmp-tabular-nums mt-0.5 flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-3xs font-semibold text-accent-foreground shadow-xs">
                 <span aria-hidden="true" className="size-1.5 animate-pulse rounded-full bg-accent-foreground" />
                 {formatTimeInZone(nowIso, data.timezone)}
               </span>
@@ -221,7 +221,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
               >
                 <span
                   aria-hidden="true"
-                  className="hmp-tabular-nums w-3 shrink-0 text-right text-[10px] leading-none text-muted/70"
+                  className="hmp-tabular-nums w-3 shrink-0 text-right text-3xs leading-none text-muted/70"
                 >
                   {channelIndex + 1}
                 </span>
@@ -239,7 +239,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                 <button
                   type="button"
                   aria-label={`播放 ${channel.media.title} 当前直播`}
-                  className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-focus hover:border-accent/70 hover:bg-accent/20"
+                  className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-2xs font-medium text-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-focus hover:border-accent/70 hover:bg-accent/20"
                   onClick={() => {
                     onPlayChannel(channel.media.id, channel.media.title);
                   }}
@@ -321,7 +321,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                         {/* 两行内容:标题行(+LIVE 角标)+ `HH:mm – HH:mm` muted 行 */}
                         <span className="flex h-full min-w-0 flex-col justify-center gap-0.5 px-2">
                           <span className="flex min-w-0 items-center gap-1">
-                            <span className="hmp-truncate min-w-0 text-[11px] font-medium leading-tight">
+                            <span className="hmp-truncate min-w-0 text-2xs font-medium leading-tight">
                               {programme.title}
                             </span>
                             {isCurrent && showTimeLine ? (
@@ -333,7 +333,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                                 color="success"
                                 size="sm"
                                 variant="soft"
-                                className="h-4 shrink-0 px-1 text-[10px]"
+                                className="h-4 shrink-0 px-1 text-3xs"
                               >
                                 LIVE
                               </Chip>
@@ -342,7 +342,7 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
                           {showTimeLine ? (
                             <span
                               aria-hidden="true"
-                              className="hmp-truncate min-w-0 text-[10px] leading-tight text-muted"
+                              className="hmp-truncate min-w-0 text-3xs leading-tight text-muted"
                             >
                               {`${formatTimeInZone(programme.startsAt, data.timezone)} – ${formatTimeInZone(programme.endsAt, data.timezone)}`}
                             </span>
