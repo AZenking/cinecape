@@ -279,9 +279,13 @@ export function GuidePage(): ReactNode {
     if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) {
       return undefined;
     }
-    // key 含相邻日段:切日当帧相邻日数据可能未到,宽度不足会把锚点钳制;
-    // 段就绪后 key 变化 → 容器按同一锚点重新定位,落点正确
-    const key = `${data.from}|${data.to}|${prevDayResource.data?.date ?? '-'}|${nextDayResource.data?.date ?? '-'}`;
+    // 仅在「跨日接续」待定位时把相邻日段纳入 key:段数据晚到需要按同一锚点重定位;
+    // 常驻浏览时 key 保持稳定,避免数据加载把用户当前位置拽走(实测会跳回「现在」)
+    const segmentSuffix =
+      pendingEdgeRef.current === 'continue'
+        ? `|${prevDayResource.data?.date ?? '-'}|${nextDayResource.data?.date ?? '-'}`
+        : '';
+    const key = `${data.from}|${data.to}${segmentSuffix}`;
     const isToday = data.date === data.allowedDates[0];
     if (!isToday) {
       // 边界接续:下一日从 00:00 开始(与上一日 24:00 无缝衔接);上一日对齐到 24:00
@@ -397,25 +401,38 @@ export function GuidePage(): ReactNode {
       raf = requestAnimationFrame(() => {
         raf = 0;
         const el = scrollRef.current;
-        // 冷却 1.2s:切日后的定位/回弹滚动不能被误判为再次跨日(否则会连环跳日)
-        if (el === null || Date.now() - edgeSwitchAtRef.current < 1200) {
-          return;
-        }
-        const max = el.scrollWidth - el.clientWidth;
-        if (max <= 0) {
+        if (el === null || spanPx <= 0) {
           return;
         }
         const left = el.scrollLeft;
-        const previous = lastScrollLeftRef.current;
         lastScrollLeftRef.current = left;
-        // 双向日界:当天 00:00 在 dayStartX、24:00 在 dayStartX + 当天宽度。
-        // 越过任一日界时,新一日按「同一时间点」换算 scrollLeft(+/- 当天宽度),
-        // 新旧两帧内容完全对齐,拖动全程无跳变。
+        /**
+         * 越界即提交(不再依赖滚动方向或冷却):
+         * - 落在 24:00 右侧(尾巴段)→ 接次日,锚点 = left − 当天宽;
+         * - 落在 00:00 左侧(头部段)→ 接前一日,锚点 = left + 当天宽;
+         * 锚点夹在 [日首, 日尾) 内,避免定位后再次越界形成连环跳日。
+         */
         const dayEndX = dayStartX + spanPx;
-        if (nextDate !== undefined && left > previous && left >= dayEndX) {
-          startTransition(() => selectDate(nextDate, 'continue', left - spanPx));
-        } else if (prevDate !== undefined && left < previous && left <= dayStartX) {
-          startTransition(() => selectDate(prevDate, 'continue', left + spanPx));
+        const maxScroll = el.scrollWidth - el.clientWidth;
+        const clampAnchor = (value: number): number => Math.min(Math.max(value, dayStartX), dayEndX - 2);
+        /**
+         * 双向接续,两套触发条件:
+         * 1) 段数据已到:越过日界(头/尾段)即提交,落点按同一时间点换算;
+         * 2) 段数据未到(内容宽度不够、滚不到日界):滚到内容尽头/开头即提交,
+         *    否则用户会卡在尽头(实测:尾段未加载时无法跨日)。
+         */
+        const atContentEnd = maxScroll > 0 && left >= maxScroll - 1;
+        const atContentStart = left <= 0;
+        if (nextDate !== undefined && (left >= dayEndX || atContentEnd)) {
+          const anchor = clampAnchor(left - spanPx);
+          if (Math.abs(anchor - left) > 2) {
+            startTransition(() => selectDate(nextDate, 'continue', anchor));
+          }
+        } else if (prevDate !== undefined && (left < dayStartX || atContentStart)) {
+          const anchor = clampAnchor(left + spanPx);
+          if (Math.abs(anchor - left) > 2) {
+            startTransition(() => selectDate(prevDate, 'continue', anchor));
+          }
         }
       });
     };
@@ -658,6 +675,8 @@ export function GuidePage(): ReactNode {
                   onGoNow={goNow}
             nextDay={nextDayResource.data ?? null}
             prevDay={prevDayResource.data ?? null}
+            hasPrevDay={prevDate !== undefined && prevDate !== ''}
+            hasNextDay={nextDate !== undefined && nextDate !== ''}
                 />
               ) : (
                 <GuideChannelList

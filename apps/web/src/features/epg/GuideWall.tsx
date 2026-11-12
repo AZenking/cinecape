@@ -1,4 +1,4 @@
-import { memo, startTransition, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ExperienceProgrammeDto, GuideWindowDto } from '@hmp/shared';
 import { Card, Chip, Tooltip } from '@heroui/react';
@@ -140,6 +140,9 @@ export interface GuideWallProps {
   readonly nextDay?: GuideWindowDto | null;
   /** 前一日窗口(对称的「头部段」):当天 00:00 左侧接上前一日最后 TAIL_MINUTES */
   readonly prevDay?: GuideWindowDto | null;
+  /** 相邻日是否存在于可选日期范围(决定是否预留段宽;数据可稍后到达) */
+  readonly hasPrevDay?: boolean;
+  readonly hasNextDay?: boolean;
 }
 
 interface ProgrammeMeta {
@@ -464,6 +467,8 @@ export function GuideWall({
   onGoNow = () => undefined,
   nextDay = null,
   prevDay = null,
+  hasPrevDay = false,
+  hasNextDay = false,
 }: GuideWallProps): ReactNode {
   const fromMs = Date.parse(data.from);
   const toMs = Date.parse(data.to);
@@ -493,22 +498,19 @@ export function GuideWall({
    * 次日尾巴段:固定 6 小时(足够覆盖一屏)。仅在视口接近日界(距末尾不足一屏)
    * 时才挂载——避免与当日同名节目在 DOM/可访问名上重复,也省掉常态渲染。
    */
-  const [nearDayEnd, setNearDayEnd] = useState(false);
   /**
    * 横向渲染窗口起点(内容坐标,含频道列)。滚动超过半屏才推进一次——
    * 配合行 memo,把「拖动时每帧全量重渲染」变成「每半屏一次局部重渲染」。
    */
   const [windowLeft, setWindowLeft] = useState(0);
-  /** 镜像 windowLeft(滚动回调里读,避免闭包过期) */
-  const windowLeftRef = useRef(0);
   /** 首帧定位(滚到「现在」附近)需要同步建立渲染窗口,否则首屏是空的 */
   const windowInitRef = useRef(false);
-  const tailSpanPx = nextDay === null || !nearDayEnd ? 0 : TAIL_MINUTES * PX_PER_MINUTE;
   /**
-   * 前一日头部段:始终**预留**宽度(prevDay 存在即占位),避免挂载时整体位移造成跳动;
-   * 内容按 nearDayStart 条件渲染(离得远时空着也看不见)。
+   * 头/尾段宽度按「相邻日是否在可选范围内」恒定预留,与数据是否加载无关:
+   * 否则数据到达时整体位移 2160px,会闪出空白区(实测「有时候一片空白」的根因)。
    */
-  const headSpanPx = prevDay === null ? 0 : TAIL_MINUTES * PX_PER_MINUTE;
+  const tailSpanPx = hasNextDay ? TAIL_MINUTES * PX_PER_MINUTE : 0;
+  const headSpanPx = hasPrevDay ? TAIL_MINUTES * PX_PER_MINUTE : 0;
   /** 当天 00:00 在容器坐标中的位置(频道列 + 头部段) */
   const dayStartX = CHANNEL_COL_PX + headSpanPx;
   /** 时间轴总宽 = 当天 + 尾巴段 */
@@ -532,31 +534,23 @@ export function GuideWall({
       const rightEdge = scroller.scrollLeft + clientWidth - CHANNEL_COL_PX - 34;
       el.style.left = `${Math.min(Math.max(headSpanPxRef.current + nowXRef.current, leftEdge), Math.max(leftEdge, rightEdge))}px`;
     };
-    const nearRef = { current: false };
     const update = (): void => {
       syncPill();
       // 只有宽度变化(挂载/窗口 resize)才需要重渲染
       const width = scroller.clientWidth;
       setViewport((prev) => (prev.clientWidth === width ? prev : { scrollLeft: scroller.scrollLeft, clientWidth: width }));
       // 接近日界才挂载尾巴段:用 transition 让这次「变重」的渲染不阻塞拖动
-      const near =
-        width > 0 &&
-        scroller.scrollLeft + width >= dayStartX + spanPx - width * 0.75;
-      if (near !== nearRef.current) {
-        nearRef.current = near;
-        startTransition(() => setNearDayEnd(near));
-      }
       // 渲染窗口:左侧留 2 屏余量、跨过 1 屏才推进(减少拖动过程中的重渲染次数),
       // 推进用 transition 让 React 可中断,不阻塞手势
       const nextWindowLeft = Math.max(0, Math.round(scroller.scrollLeft - width * 2));
       if (!windowInitRef.current) {
-        // 首次测量:同步建立窗口(此时页面还没画节目块,不能等 transition)
+        // 首次测量:同步建立窗口(此时页面还没画节目块)
         windowInitRef.current = true;
-        windowLeftRef.current = nextWindowLeft;
         setWindowLeft(nextWindowLeft);
-      } else if (Math.abs(nextWindowLeft - windowLeftRef.current) >= width) {
-        windowLeftRef.current = nextWindowLeft;
-        startTransition(() => setWindowLeft(nextWindowLeft));
+      } else {
+        // 单一状态源 + 函数式更新:ref 先行/transition 延后会造成 state 滞后,
+        // 窗口停在旧位置 → 整屏空白且不再自愈(实测)。
+        setWindowLeft((prev) => (Math.abs(nextWindowLeft - prev) >= width ? nextWindowLeft : prev));
       }
     };
     update();
@@ -567,7 +561,17 @@ export function GuideWall({
       scroller.removeEventListener('scroll', update);
       observer?.disconnect();
     };
-  }, []);
+  });
+
+  // 日期窗口变化(切日)时按当前 scrollLeft 重建渲染窗口:切日若落在与原来相同的
+  // scrollLeft 上不会产生 scroll 事件,窗口会停留在旧值 → 整屏空白(实测)。
+  useEffect(() => {
+    const scroller = rootRef.current?.closest('[role="region"]') as HTMLElement | null;
+    if (scroller === null || scroller.clientWidth <= 0) {
+      return;
+    }
+    setWindowLeft(Math.max(0, Math.round(scroller.scrollLeft - scroller.clientWidth * 2)));
+  }, [data.from, data.to]);
 
   const ticks = useMemo(() => hourTicksInWindow(fromMs, toMs, data.timezone), [fromMs, toMs, data.timezone]);
   /**
@@ -734,7 +738,9 @@ export function GuideWall({
   })();
 
   return (
-    <div ref={rootRef} className="relative select-none" style={{ width: dayStartX + totalSpanPx }}>
+    <div ref={rootRef} className="relative select-none"
+      style={{ width: dayStartX + totalSpanPx }}
+    >
       {/* 窗口标题:翻页后的焦点锚(FR-044)与读屏窗口说明。应产品要求不再**可见**
           (日期已由页头日期条承担),降为 hmp-sr-only——id/tabIndex/文案逐字保留,
           焦点定位(toBeFocused)、getAllByText(家庭时区/全天节目单)契约不受影响。 */}

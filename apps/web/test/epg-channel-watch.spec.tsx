@@ -181,7 +181,16 @@ describe('T009 · EPG 频道观看按钮经统一播放链路(钉面;现状已�
       await waitFor(() => expect(screen.getByTestId('live-session').textContent).toBe('anonymous:none'));
       // 015 T013:current 块(例牌正播节目)点击已改为直接起播(见 live-routing-epg.spec);
       // 「块点击开面板不播放」契约由 upcoming 块(例牌预告节目)继续钉住
-      const block = await screen.findByRole('button', { name: /例牌新闻台,例牌预告节目/ });
+      // 尾巴段常驻后,次日同名档期也会出现在 DOM(标签带日期);按 data-day 取当天
+      await waitFor(() =>
+        expect(
+          screen.getAllByRole('button', { name: /例牌新闻台,例牌预告节目/ }).length,
+        ).toBeGreaterThan(0),
+      );
+      const block = screen
+        .getAllByRole('button', { name: /例牌新闻台,例牌预告节目/ })
+        .find((el) => el.getAttribute('data-day') === 'current');
+      expect(block).toBeDefined();
 
       fireEvent.click(block);
       const panel = await screen.findByRole('dialog', { name: /节目详情/ });
