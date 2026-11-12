@@ -585,7 +585,9 @@ export function GuideWall({ data, focusSignal, selectedKey, onSelectProgramme, o
         {hasNowInWindow ? (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute top-0 bottom-0 z-20 w-[2px] bg-accent"
+            // -translate-x-1/2:与头部连接线/胶囊一致地「以 nowX 为中心」,
+            // 否则竖线以 left 为左边缘,与连接线差 1px(实测像素错位)
+            className="pointer-events-none absolute top-0 bottom-0 z-20 w-[2px] -translate-x-1/2 bg-accent"
             style={{ left: CHANNEL_COL_PX + nowX }}
           />
         ) : null}
