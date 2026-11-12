@@ -160,13 +160,14 @@ interface GuideChannelRowProps {
   readonly nowMinuteMs: number;
   readonly selectedKey: string | null;
   readonly fromMs: number;
-  readonly spanPx: number;
   readonly ticks: readonly { readonly ms: number; readonly label: string }[];
   readonly programmeMeta: ReadonlyMap<string, ProgrammeMeta>;
   /** 当天 + 尾巴段的总宽度、尾巴段刻度偏移、该频道的次日节目块 */
   readonly totalSpanPx: number;
   readonly tailOffsets: readonly number[];
   readonly tailBlocks: readonly TailBlock[];
+  /** 尾巴段所属日期标签(如 11月13日);无尾巴段为 null */
+  readonly tailDateLabel: string | null;
   readonly onSelectProgramme: (ref: GuideProgrammeRef) => void;
   readonly onPlayChannel: (mediaId: string, channelTitle: string) => void;
 }
@@ -185,12 +186,12 @@ const GuideChannelRow = memo(function GuideChannelRow({
   nowMinuteMs,
   selectedKey,
   fromMs,
-  spanPx,
   ticks,
   programmeMeta,
   totalSpanPx,
   tailOffsets,
   tailBlocks,
+  tailDateLabel,
   onSelectProgramme,
   onPlayChannel,
 }: GuideChannelRowProps): ReactNode {
@@ -209,6 +210,7 @@ const GuideChannelRow = memo(function GuideChannelRow({
     isCurrent,
     isPast,
     rangeLabel,
+    isTail = false,
   }: {
     programme: ExperienceProgrammeDto;
     left: number;
@@ -217,6 +219,7 @@ const GuideChannelRow = memo(function GuideChannelRow({
     isCurrent: boolean;
     isPast: boolean;
     rangeLabel: string;
+    isTail?: boolean;
   }): ReactNode => (
     <Card
       key={programme.key}
@@ -244,8 +247,9 @@ const GuideChannelRow = memo(function GuideChannelRow({
               {...triggerProps}
               type="button"
               data-programme-key={programme.key}
-              aria-label={`${channel.media.title},${programme.title},${rangeLabel}${isCurrent ? ',正在直播' : ''}`}
+              aria-label={`${channel.media.title},${programme.title},${isTail === true && tailDateLabel !== null ? `${tailDateLabel},` : ''}${rangeLabel}${isCurrent ? ',正在直播' : ''}`}
               title={`${programme.title} ${rangeLabel}`}
+              data-day={isTail === true ? 'tail' : 'current'}
               onClick={() => {
                 onSelectProgramme({
                   mediaId: channel.media.id,
@@ -358,8 +362,9 @@ const GuideChannelRow = memo(function GuideChannelRow({
               const meta = programmeMeta.get(programme.key);
               const startsAtMs = meta?.startsAtMs ?? Date.parse(programme.startsAt);
               const endsAtMs = meta?.endsAtMs ?? Date.parse(programme.endsAt);
-              const left = Math.min(Math.max(utcToPx(startsAtMs, fromMs), 0), spanPx);
-              const right = Math.min(Math.max(utcToPx(endsAtMs, fromMs), 0), spanPx);
+              // 跨日节目不在 24:00 处断开:允许延伸到尾巴段(无尾巴段时 totalSpanPx == spanPx)
+              const left = Math.min(Math.max(utcToPx(startsAtMs, fromMs), 0), totalSpanPx);
+              const right = Math.min(Math.max(utcToPx(endsAtMs, fromMs), 0), totalSpanPx);
               return renderBlock({
                 programme,
                 left,
@@ -379,6 +384,7 @@ const GuideChannelRow = memo(function GuideChannelRow({
                 isCurrent: false,
                 isPast: false,
                 rangeLabel: block.rangeLabel,
+                isTail: true,
               }),
             )}
           </>
@@ -513,7 +519,14 @@ export function GuideWall({
       for (const programme of channel.programmes) {
         const startMs = Date.parse(programme.startsAt);
         const endMs = Date.parse(programme.endsAt);
-        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= tailFrom || startMs >= tailTo) {
+        // startMs < tailFrom:该节目在日界前已开播,由当天那一侧整体渲染(不再重复画)
+        if (
+          !Number.isFinite(startMs) ||
+          !Number.isFinite(endMs) ||
+          endMs <= tailFrom ||
+          startMs < tailFrom ||
+          startMs >= tailTo
+        ) {
           continue;
         }
         const rawLeft = spanPx + utcToPx(startMs, tailFrom);
@@ -704,12 +717,14 @@ export function GuideWall({
             nowMinuteMs={nowMinuteMs}
             selectedKey={selectedKey}
             fromMs={fromMs}
-            spanPx={spanPx}
             ticks={ticks}
             programmeMeta={programmeMeta}
             totalSpanPx={totalSpanPx}
             tailOffsets={tailOffsets}
             tailBlocks={tailBlocksByChannel.get(channel.media.id) ?? EMPTY_TAIL_BLOCKS}
+            tailDateLabel={
+              nextDay === null ? null : `${Number(nextDay.date.slice(5, 7))}月${Number(nextDay.date.slice(8, 10))}日`
+            }
             onSelectProgramme={onSelectProgramme}
             onPlayChannel={onPlayChannel}
           />

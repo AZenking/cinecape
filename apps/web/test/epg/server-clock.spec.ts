@@ -64,7 +64,11 @@ describe('server-clock · 首次校准吸附', () => {
     // (断言经 serverNowMs() − Date.now() 间接验证,不依赖具体钟面)
     const observed = serverNowMs();
     expect(observed).not.toBeNull();
-    expect((observed as number) - Date.now()).toBe(SERVER_AHEAD_MS);
+    // serverNowMs() 内部取一次 Date.now(),断言处再取一次:两次调用可能跨毫秒刻度
+    // (满载并行时更明显),因此允许 ±2ms 的读数误差,语义仍是"差值恒等于 offset"。
+    const delta = (observed as number) - Date.now();
+    expect(delta).toBeGreaterThanOrEqual(SERVER_AHEAD_MS - 2);
+    expect(delta).toBeLessThanOrEqual(SERVER_AHEAD_MS + 2);
   });
 
   it('ISO 字符串入口等价:合法 ISO 校准成功,offset 与 ms 入口一致', () => {
