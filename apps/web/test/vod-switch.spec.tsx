@@ -626,6 +626,9 @@ function contractNote(current: string, target: string): string {
 
 /** 打开换源抽屉并等待候选渲染(缺位形态:入口不存在 → 红在入口查询) */
 async function openSwitchDrawer(): Promise<void> {
+  // 换源入口已收敛到「播放设置」面板内(控制栏只保留高频道具):
+  // 先开设置,再点其中的「换源」
+  fireEvent.click(screen.getByRole('button', { name: '播放设置' }));
   await awaitUi(
     () =>
       expect(
@@ -1294,6 +1297,7 @@ describe('010 T069 · E 切档旧响应守卫(→T074/T075)', () => {
     await pumpTimers(50);
     await startPlayback(5);
     // 打开换源(候选请求在途;闸门扣住响应——候选容器是否先渲染不钉,只钉请求已发出)
+    fireEvent.click(screen.getByRole('button', { name: '播放设置' }));
     await awaitUi(() => expect(screen.getByRole('button', { name: '换源' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: '换源' }));
     await awaitUi(() => expect(switchCandidateCalls().length).toBeGreaterThanOrEqual(1));

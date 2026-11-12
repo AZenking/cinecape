@@ -15,12 +15,20 @@
 import type { ReactNode } from 'react';
 import { Button } from '@heroui/react';
 import { Settings } from 'lucide-react';
+import type { StreamLineDto } from '@hmp/shared';
 import { DELIVERY_LABEL, type PlaybackTrackSelectionApi } from './use-playback-track-selection';
 
 export interface PlaybackSettingsOverlayProps {
   readonly settings: PlaybackTrackSelectionApi;
   /** 服务端探测交付模式(当前清晰度只读展示;null=探测未完成) */
   readonly delivery: string | null;
+  /** 直播线路清单(≥2 条时在设置内呈现「线路」选择;单线路不渲染) */
+  readonly lines?: readonly StreamLineDto[];
+  readonly selectedLineId?: string | null;
+  /** 手动换线(仅上报 lineId;由协调器原地换装) */
+  readonly onSelectLine?: (lineId: string) => void;
+  /** 打开换源面板(换源入口收敛到设置内,控制栏不再单列) */
+  readonly onOpenSourceSwitch?: () => void;
 }
 
 function deliveryLabel(delivery: string | null): string {
@@ -30,7 +38,14 @@ function deliveryLabel(delivery: string | null): string {
   return DELIVERY_LABEL[delivery] ?? delivery;
 }
 
-export function PlaybackSettingsOverlay({ settings, delivery }: PlaybackSettingsOverlayProps): ReactNode {
+export function PlaybackSettingsOverlay({
+  settings,
+  delivery,
+  lines = [],
+  selectedLineId = null,
+  onSelectLine,
+  onOpenSourceSwitch,
+}: PlaybackSettingsOverlayProps): ReactNode {
   const { open, toggle, close, pending, failure, tracks, activeAudioId, activeSubtitleId, canSwitchAudio } = settings;
   const audioTracks = tracks?.audio ?? [];
   const subtitleTracks = tracks?.subtitles ?? [];
@@ -121,6 +136,46 @@ export function PlaybackSettingsOverlay({ settings, delivery }: PlaybackSettings
             </p>
             <p className="text-xs text-muted">清晰度由服务端按内容与家庭网络自动选择。</p>
           </section>
+          {/* 线路(直播;≥2 条才呈现):控制栏不再单列,统一收敛到设置内 */}
+          {lines.length >= 2 && onSelectLine !== undefined ? (
+            <section aria-label="线路" className="flex flex-col gap-1">
+              <p className="text-xs text-muted">线路</p>
+              {lines.map((line) => {
+                const active = line.lineId === selectedLineId;
+                return (
+                  <Button
+                    key={line.lineId}
+                    size="sm"
+                    variant="ghost"
+                    aria-pressed={active}
+                    onPress={() => {
+                      onSelectLine(line.lineId);
+                      close();
+                    }}
+                  >
+                    {`${line.label}${active ? '(当前)' : ''}`}
+                  </Button>
+                );
+              })}
+            </section>
+          ) : null}
+          {/* 换源(点播):入口从控制栏收敛到设置内 */}
+          {onOpenSourceSwitch !== undefined ? (
+            <section aria-label="换源" className="flex flex-col gap-1">
+              <p className="text-xs text-muted">来源</p>
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-label="换源"
+                onPress={() => {
+                  onOpenSourceSwitch();
+                  close();
+                }}
+              >
+                换源
+              </Button>
+            </section>
+          ) : null}
           {failure !== null ? (
             <p role="alert" data-testid="playback-settings-failure" className="text-xs text-danger">
               {failure}

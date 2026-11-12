@@ -42,7 +42,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { Button } from '@heroui/react';
-import { ListVideo, Repeat2 } from 'lucide-react';
+import { ListVideo } from 'lucide-react';
 import type { Vod } from '@hmp/shared';
 import { isFetchApiError, privateFetch } from '../../shared/fetch';
 import { usePlaybackProgress } from './use-playback-progress';
@@ -53,7 +53,6 @@ import { useVodTransition } from './use-vod-transition';
 import { VodAutoplayOverlay } from './vod-autoplay-overlay';
 import { VodSourceSwitcher } from './vod-source-switcher';
 import { PlayerControls } from './player-controls';
-import { PlayerLineSwitcher } from '../live/components/PlayerLineSwitcher';
 import { LiveGuidePanel } from '../live/components/LiveGuidePanel';
 import type { StreamLineDto } from '@hmp/shared';
 import { VideoPlayer } from './video-player';
@@ -577,17 +576,16 @@ export function PlayerView({
         minimized={minimized}
         onToggleMinimize={onToggleMinimize}
       >
-        {/* 播放设置(012 T028;FR-023):音轨/字幕/清晰度当前值控制;开关不触
-            媒体元素(播放零中断),浮层内无跳转完整设置页入口 */}
-        <PlaybackSettingsOverlay settings={trackSelection} delivery={delivery} />
-        {/* 换源入口(T074;ui.md §4 播放面内,不退出播放器重搜) */}
-        <Button size="sm" variant="ghost" isIconOnly aria-label="换源" className="text-white" onPress={transition.openDrawer}>
-          <Repeat2 aria-hidden="true" className="size-4" />
-        </Button>
-        {/* OSD 线路切换(016 T021):≥2 条线路才呈现;仅上报 lineId */}
-        {onSelectLine !== undefined ? (
-          <PlayerLineSwitcher lines={lines} selectedLineId={selectedLineId} onSelect={onSelectLine} />
-        ) : null}
+        {/* 播放设置(012 T028;FR-023):音轨/字幕/清晰度 + 线路 + 换源全部收敛于此
+            (产品要求:控制栏只保留高频道具,低频动作进设置);开关不触媒体元素 */}
+        <PlaybackSettingsOverlay
+          settings={trackSelection}
+          delivery={delivery}
+          lines={lines}
+          selectedLineId={selectedLineId}
+          onSelectLine={onSelectLine}
+          onOpenSourceSwitch={transition.openDrawer}
+        />
         {/* 直播节目单(切台器):点击在播放器内呼出正在直播列表 */}
         {durationSeconds === null && onZapChannel !== undefined ? (
           <Button
