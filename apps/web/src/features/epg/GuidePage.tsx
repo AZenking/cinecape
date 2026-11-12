@@ -370,7 +370,8 @@ export function GuidePage(): ReactNode {
       : undefined;
 
   return (
-    <div className="flex min-w-0 flex-col gap-4">
+    // 铺满布局可视高度:根 → 卡片 → 墙体逐层 flex-1/min-h-0,滚动发生在墙内
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
       {/* 页头:标题行(标题 + 时区说明)+ 日期条独占一行。
           参照页把日期放在顶部导航层而非工具栏内——7 日胶囊条约 520px,与工具栏控件
           同排必然换行并把工具栏撑成两行(实测 90px);并入页头后工具栏恒为单行。
@@ -411,7 +412,7 @@ export function GuidePage(): ReactNode {
       ) : null}
 
       {/* 顶部控制区 + 节目墙 = 同一张卡片(产品要求:日期条与时间轴是一个整体) */}
-      <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-surface shadow-xs">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-surface shadow-xs">
         <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border/60 px-3 py-2">
         <h1 className="sr-only">节目单</h1>
         <div className="min-w-0 flex-1">
@@ -450,7 +451,7 @@ export function GuidePage(): ReactNode {
         </header>
 
         {/* 节目墙(同一 GuideWindow 响应);详情为右侧抽屉(portal,不影响排版) */}
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {resource.isLoading ? (
             <div role="status" className="flex flex-col gap-3 py-8">
               <p className="text-center text-sm text-muted">正在加载节目单…</p>
@@ -470,6 +471,7 @@ export function GuidePage(): ReactNode {
               containerRef={scrollRef}
               autoPosition={autoPosition}
               flush
+              fillHeight
             >
               {url.view === 'wall' ? (
                 <GuideWall

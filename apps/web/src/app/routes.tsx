@@ -61,10 +61,8 @@ export function AppRoutes(): ReactNode {
           element={VOD_ENABLED ? <OnlineVodDetailPage /> : <Navigate to="/live" replace />}
         />
         <Route path="/media/:id" element={VOD_ENABLED ? <MediaDetailPage /> : <Navigate to="/live" replace />} />
-        {/* T067(US5):直播首页;T116(US6):/live/guide 挂真实 EPG 节目单页
-            (宽度由布局壳统一铺满,页面内不再单独限宽) */}
+        {/* T067(US5):直播首页(自然高度) */}
         <Route path="/live" element={<LivePage />} />
-        <Route path="/live/guide" element={<GuidePage />} />
         {/* T002(015):/live/channels 分类平铺网格(US3/T019,Screen 2;Screen 1 行尾
             「全部XX频道」直达并携带 ?group= Tab 高亮参数);/live/watch/:channelId
             播放与详情一体化页(US4/T014,Screen 4;ChannelTile 文字区导航目标) */}
@@ -72,6 +70,10 @@ export function AppRoutes(): ReactNode {
         <Route path="/live/watch/:channelId" element={<LiveWatchPage />} />
         {/* 未知路由:可回首页的 404,不重定向(ui.md §1) */}
         <Route path="*" element={<NotFoundPage />} />
+      </Route>
+      {/* 满屏布局变体:节目单(EPG)铺满一屏高度,墙内滚动(普通页仍自然高度) */}
+      <Route element={<PublicLayout fill />}>
+        <Route path="/live/guide" element={<GuidePage />} />
       </Route>
       {/* 设置布局:职责分离,不嵌套 PublicLayout(T086;ui.md §1 /settings/*) */}
       <Route path="/settings" element={<SettingsLayout />}>

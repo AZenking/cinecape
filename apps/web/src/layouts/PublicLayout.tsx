@@ -22,9 +22,17 @@ import { PublicNav } from '../shared/ui';
  * - 阅读型内容各自在页面内约束(`max-w-6xl` 等),而不是让整个壳变窄:
  *   这样「壳宽一致」与「内容易读」不互相牺牲。
  */
-export function PublicLayout(): ReactNode {
+export interface PublicLayoutProps {
+  /**
+   * 满屏变体:根高度锁定为一屏(dvh),内容区在页面内部滚动。
+   * 供需要「铺满可视高度」的数据密集页(节目单)使用;普通阅读页保持自然高度。
+   */
+  readonly fill?: boolean;
+}
+
+export function PublicLayout({ fill = false }: PublicLayoutProps = {}): ReactNode {
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className={fill ? 'flex h-dvh min-h-0 flex-col overflow-hidden' : 'flex min-h-screen flex-col'}>
       <header className="border-b border-border bg-background/30">
         <div className="mx-auto flex h-14 w-full items-center justify-between gap-4 px-4 lg:px-6">
           <div className="flex items-center gap-6">
@@ -42,7 +50,12 @@ export function PublicLayout(): ReactNode {
           <IdentityMenu />
         </div>
       </header>
-      <main className="mx-auto w-full flex-1 px-4 py-6 lg:px-6">
+            {/* min-h-0 + flex:让「需铺满视口」的页面(节目单)能拿到确定高度并内部滚动 */}
+      <main
+        className={`mx-auto flex w-full flex-col px-4 py-6 lg:px-6 ${
+          fill ? 'min-h-0 flex-1 overflow-hidden' : 'flex-1'
+        }`}
+      >
         <Outlet />
       </main>
     </div>

@@ -55,6 +55,11 @@ export interface GuideScrollContainerProps {
    * 墙体不再需要自己的卡片壳,避免双边框。缺省 false = 独立卡片外观。
    */
   readonly flush?: boolean;
+  /**
+   * 铺满宿主高度(节目单页「适配最大高度」):高度 100% + maxHeight 100%,
+   * 由墙内滚动承担内容溢出;缺省 min(70vh,640px) 供独立使用场景。
+   */
+  readonly fillHeight?: boolean;
 }
 
 export function GuideScrollContainer({
@@ -64,6 +69,7 @@ export function GuideScrollContainer({
   containerRef,
   autoPosition,
   flush = false,
+  fillHeight = false,
 }: GuideScrollContainerProps): ReactNode {
   const containerSelfRef = useRef<HTMLDivElement | null>(null);
   /** 已应用定位的窗口身份(同 key 不重定位 = 自动刷新不拉回) */
@@ -207,10 +213,10 @@ export function GuideScrollContainer({
       // 局部二维滚动:max-h 限高(600 高窗口/200% 缩放收拢为内部滚动),overflow 双轴墙内消化;
       // 拖拽态显示 grabbing 光标;touch-action 保留原生触摸平移
       className={`w-full max-w-full overflow-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
-        flush ? 'border-0 bg-transparent' : 'rounded-xl border border-border/70 bg-surface shadow-xs'
-      }`}
+        fillHeight ? 'h-full min-h-0' : ''
+      } ${flush ? 'border-0 bg-transparent' : 'rounded-xl border border-border/70 bg-surface shadow-xs'}`}
       style={{
-        maxHeight: 'min(70vh, 640px)',
+        maxHeight: fillHeight ? '100%' : 'min(70vh, 640px)',
         cursor: grabbing ? 'grabbing' : 'grab',
         touchAction: 'pan-x pan-y',
         userSelect: grabbing ? 'none' : undefined,
