@@ -25,6 +25,7 @@ export function isAccessLostError(error: unknown): boolean {
 
 export type SettingsWriteFailureKind =
   | 'access-lost' // 403 FORBIDDEN / SETTINGS_ACCESS_*:立即隐藏主体/终止轮询
+  | 'busy' // 409 SOURCE_BUSY:同源已有同步任务,等待而非重读现值
   | 'conflict' // 409:提示冲突,重读现值,不静默覆盖
   | 'password' // 403/423 家长验证 REQUIRED/FAILED/LOCKED(非授权丢失码);013/ADR-0017
   // 起仅高危保留流程可达此分支(撤销设备/档案 PIN/主档案转移),常规运维流程
@@ -40,7 +41,8 @@ export function classifySettingsWriteError(error: unknown): SettingsWriteFailure
   }
   if (isFetchApiError(error)) {
     if (error.status === 409) {
-      return 'conflict';
+      // 同源并发同步不是版本问题:提示等待任务结束,别让用户误以为要重试
+      return error.code === 'SOURCE_BUSY' ? 'busy' : 'conflict';
     }
     if (error.status === 404) {
       return 'not-found';

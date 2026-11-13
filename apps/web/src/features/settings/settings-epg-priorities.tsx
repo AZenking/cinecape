@@ -297,6 +297,10 @@ export function SettingsEpgPriorities(): ReactNode {
       access.handleAccessLost();
       return;
     }
+    if (kind === 'busy') {
+      toast.warning('该来源正在同步中,请等待本次任务结束。');
+      return;
+    }
     if (kind === 'conflict') {
       toast.error(conflictMessage);
       return; // 列表回填由 invalidate 驱动
@@ -457,6 +461,9 @@ export function SettingsEpgPriorities(): ReactNode {
               {displayRows.map((row, index) => {
                 const { source, priority } = row;
                 const job = source.lastJobId !== null ? (jobs[source.lastJobId] ?? null) : null;
+                /** 同源活动任务(服务端互斥):同步中禁用入口 */
+                const jobActive =
+                  job !== null && (job.status === 'queued' || job.status === 'running' || job.status === 'awaiting_confirmation');
                 return (
                   <li
                     key={source.id}
@@ -483,7 +490,7 @@ export function SettingsEpgPriorities(): ReactNode {
                           variant="secondary"
                           size="sm"
                           onPress={() => runSync(row)}
-                          isDisabled={!source.enabled}
+                          isDisabled={!source.enabled || jobActive}
                           className="text-foreground"
                           data-testid={`epg-source-sync-${source.id}`}
                         >

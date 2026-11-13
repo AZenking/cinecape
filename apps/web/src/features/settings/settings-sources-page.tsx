@@ -255,6 +255,10 @@ export function SettingsSourcesPage({
       access.handleAccessLost();
       return;
     }
+    if (kind === 'busy') {
+      toast.warning('该来源正在同步中,请等待本次任务结束。');
+      return;
+    }
     if (kind === 'conflict') {
       toast.error(conflictMessage);
       return; // 列表回填由 invalidate 驱动
@@ -405,6 +409,9 @@ export function SettingsSourcesPage({
         <ul className="flex flex-col gap-4" data-testid="source-list">
           {sources.map((source) => {
             const job = source.lastJobId !== null ? (jobs[source.lastJobId] ?? null) : null;
+            /** 同源活动任务(服务端互斥):同步中禁用入口,避免重复点击得到 409 */
+            const jobActive =
+              job !== null && (job.status === 'queued' || job.status === 'running' || job.status === 'awaiting_confirmation');
             const testResult = testResults[source.id] ?? null;
             return (
               <li key={source.id} data-testid={`source-row-${source.id}`}>
@@ -466,7 +473,7 @@ export function SettingsSourcesPage({
                             variant="secondary"
                             size="sm"
                             onPress={() => runImport(source)}
-                            isDisabled={!source.enabled}
+                            isDisabled={!source.enabled || jobActive}
                             className={isIptvScopedView ? 'text-foreground' : undefined}
                             data-testid={`source-import-${source.id}`}
                           >
