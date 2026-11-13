@@ -20,7 +20,7 @@
  *     焦点/链接:--focus、--link、--ring-offset-width
  *     布局:--spacing、--radius、--field-radius、--disabled-opacity、--backdrop 等
  *   本文件只做两件事:
- *   1) 以暗色媒体界面基调覆盖品牌强调色(红色 accent,Netflix 式审美,research D6;
+ *   1) 以暗色媒体界面基调覆盖品牌强调色(香槟金 accent #D8B56A,research D6;
  *      覆盖须在 @heroui/styles 之后导入——见 globals.css 导入顺序);
  *   2) 补充本仓库自定义别名(--hmp-* 前缀),供可访问性基线(./a11y.css)与后续组件使用。
  *
@@ -40,11 +40,12 @@
 }
 
 .dark {
-  /* 品牌强调色:暗色媒体界面的红色 accent(覆盖 heroui 默认蓝);
+  /* 品牌强调色:香槟金 #D8B56A(≈ oklch(0.788 0.1024 85.07)),覆盖 heroui 默认蓝;
      -hover/-soft/-foreground 等派生 token 在 @heroui/styles 中以 var(--accent) 引用,
-     var() 惰性求值,此处覆盖后全部自动跟随,无需逐个重定义。 */
-  --accent: oklch(0.6 0.22 25);
-  --accent-foreground: oklch(0.99 0 0);
+     var() 惰性求值,此处覆盖后全部自动跟随,无需逐个重定义。
+     浅金色底上白字对比不足,accent-foreground 改深墨色(≈近黑)保证可读性。 */
+  --accent: oklch(0.788 0.1024 85.07);
+  --accent-foreground: oklch(0.16 0.012 85);
 
   /* 统一焦点色跟随品牌 accent(ui.md §8「统一焦点色」;heroui 默认亦为 var(--accent)) */
   --focus: var(--accent);
