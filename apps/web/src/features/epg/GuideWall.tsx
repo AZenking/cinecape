@@ -165,7 +165,6 @@ interface TailBlock {
 
 interface GuideChannelRowProps {
   readonly channel: GuideWindowDto['channels'][number];
-  readonly channelIndex: number;
   readonly currentKey: string | null;
   readonly nowMinuteMs: number;
   readonly selectedKey: string | null;
@@ -202,7 +201,6 @@ interface GuideChannelRowProps {
  */
 const GuideChannelRow = memo(function GuideChannelRow({
   channel,
-  channelIndex,
   currentKey,
   nowMinuteMs,
   selectedKey,
@@ -350,12 +348,6 @@ const GuideChannelRow = memo(function GuideChannelRow({
           }}
           className="flex h-full w-full items-center justify-center gap-1.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         >
-          <span
-            aria-hidden="true"
-            className="hmp-tabular-nums w-3 shrink-0 text-right text-3xs leading-none text-muted/70"
-          >
-            {channelIndex + 1}
-          </span>
           {/* 台标:posterRef → 同源 logo 接口;无 ref 时回退首字(仍不展示全名)。
               星标必须放在 overflow-hidden 之外,否则会被台标盒裁掉(实测)。 */}
           <span aria-hidden="true" className="relative inline-flex shrink-0">
@@ -373,14 +365,14 @@ const GuideChannelRow = memo(function GuideChannelRow({
                 </span>
               )}
             </span>
-            {/* 已收藏标记:右上角实心星标(不参与裁切;aria 由整格 aria-label 承担) */}
-            {favorite ? (
-              <>
-                <Star className="absolute -right-2 -top-2 size-4 fill-current text-accent drop-shadow-[0_0_2px_rgba(0,0,0,0.9)]" />
-                <span className="hmp-sr-only">(已收藏)</span>
-              </>
-            ) : null}
           </span>
+          {/* 已收藏标记:台标右侧、与台标垂直居中对齐(产品要求;不叠在台标上) */}
+          {favorite ? (
+            <>
+              <Star aria-hidden="true" className="size-4 shrink-0 fill-current text-accent" />
+              <span className="hmp-sr-only">(已收藏)</span>
+            </>
+          ) : null}
           {/* 右缘渐变阴影:区分频道列与时间轴,并暗示可横向滚动 */}
           <span
             aria-hidden="true"
@@ -870,11 +862,11 @@ export function GuideWall({
 
       {/* 频道行区:相对定位容器承载纵贯 NOW 竖线(止于头部下缘,不越频道列) */}
       <div className="relative">
-        {data.channels.map((channel, channelIndex) => (
+        {data.channels.map((channel) => (
           <GuideChannelRow
             key={channel.media.id}
             channel={channel}
-            channelIndex={channelIndex}
+
             currentKey={channelCurrentKeys.get(channel.media.id) ?? null}
             nowMinuteMs={nowMinuteMs}
             selectedKey={selectedKey}
