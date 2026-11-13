@@ -6,7 +6,8 @@ import { normalizeLogoUrl } from '@contexts/sources/infrastructure/logo-url';
 
 /**
  * XMLTV 流式解析器(T024,research R2/R6):
- * - sax strict(strictEntities)流式解析,拒绝 DOCTYPE/外部实体声明/未知实体/畸形 XML/过深嵌套;
+ * - sax strict(strictEntities)流式解析,允许标准外部 DOCTYPE(不加载 DTD),
+ *   拒绝内部 DTD 子集/实体声明/未知实体/畸形 XML/过深嵌套;
  * - 输入为 gzip 字节流(magic 1f 8b)时自动经 zlib 解压,压缩前后字节独立计数,不递归解压;
  * - XMLTV 时间必须携带时区,统一转 UTC;窗口缺省不过滤,传入窗口时仅保留相交节目(闭区间);
  * - channel id 重复、同频道节目时间重叠 → 该频道标记 conflicted;
@@ -15,7 +16,9 @@ import { normalizeLogoUrl } from '@contexts/sources/infrastructure/logo-url';
  *   仅 http/https,非法一律归 null,绝不抛错 —— FR-010:Logo 数据质量绝不阻塞导入);
  *   多 icon 行业惯例取首个为主图标,首个 icon 即锁定(缺失/非法按无 Logo 处理);
  * - 缺必要字段/非法时间/预算超限 → 整次失败(抛 XMLTVParseFailure,稳定 code),
- *   不截断、不跳过(FR-005);错误信息只含稳定描述,不含原始 XML 片段与 URL(脱敏要求)。
+ *   不截断、不跳过(FR-005);错误信息只含稳定描述,不含原始 XML 片段与 URL(脱敏要求);
+ * - 上游把跨午夜的 stop 写成同日(23:59 → 00:04 且日期相同)时,仅当 +1 天后时长
+ *   ≤ MAX_MIDNIGHT_ROLLOVER_MS 才按次日修正并计数;更长的倒置仍判 TIME_INVALID。
  */
 
 /** 稳定错误码:解析失败原因的唯一标识(导入任务 error_code、HTTP Problem Details 复用)。 */
@@ -88,7 +91,15 @@ export interface XMLTVParseResult {
   channels: XMLTVChannel[];
   programmes: XMLTVProgramme[];
   conflictedChannelIds: Set<string> | string[];
+  /** 上游 stop 同日写法的跨午夜修正条数(仅计数,供执行器告警;不改变节目语义) */
+  midnightRollovers: number;
 }
+
+/**
+ * 跨午夜 stop 同日期修正上限:23:59 → 00:04 这类生成器 bug 通常只跨几十分钟;
+ * 超过 6 小时视为真实数据倒置(而不是午夜回卷),仍按非法时间整次失败。
+ */
+const MAX_MIDNIGHT_ROLLOVER_MS = 6 * 60 * 60 * 1000;
 
 /** 解析选项:窗口两端均可独立缺省;全部缺省 = 不过滤。 */
 export interface XMLTVParseOptions {
@@ -321,6 +332,8 @@ export async function parseXMLTV(
   let depth = 0;
   let sawRoot = false;
   let programmeCount = 0;
+  /** 上游跨午夜 stop 同日写法的修正计数(只计数,不改变其余语义) */
+  let midnightRollovers = 0;
 
   parser.onerror = (error: Error): void => {
     // sax strict 的未知实体错误消息含 entity 字样;其余按畸形 XML 处理。
@@ -330,9 +343,14 @@ export async function parseXMLTV(
       failOnce(FORMAT_INVALID, 'XMLTV 文档不是合法的 XML');
     }
   };
-  parser.ondoctype = (): void => {
-    // 内部子集与外部 SYSTEM/PUBLIC DTD 都会触发;一律拒绝以禁外部实体解析。
-    failOnce(DOCTYPE_DENIED, 'XMLTV 文档不允许包含 DOCTYPE/DTD 声明');
+  parser.ondoctype = (raw?: string): void => {
+    // 行业 XMLTV 普遍声明外部 DTD(`<!DOCTYPE tv SYSTEM "xmltv.dtd"`);sax 不加载
+    // 外部 DTD,strictEntities 也拒绝未声明实体,故外部声明可安全放行。
+    // 内部子集(`[ ... ]`)可声明实体(实体膨胀/XXE),一律拒绝。
+    const doctype = typeof raw === 'string' ? raw : '';
+    if (doctype.includes('[') || /<!ENTITY/i.test(doctype)) {
+      failOnce(DOCTYPE_DENIED, 'XMLTV 文档不允许包含内部 DTD 子集或实体声明');
+    }
   };
   parser.onprocessinginstruction = (pi: SaxProcessingInstruction): void => {
     // `<?xml ...?>` 文档声明同样走 PI 事件,必须放行;其余处理指令按声明类结构拒绝。
@@ -382,11 +400,19 @@ export async function parseXMLTV(
       }
       const startsAtUtc = parseXmltvTime(startRaw, failOnce);
       if (startsAtUtc === null) return;
-      const endsAtUtc = parseXmltvTime(stopRaw, failOnce);
-      if (endsAtUtc === null) return;
+      const parsedEnd = parseXmltvTime(stopRaw, failOnce);
+      if (parsedEnd === null) return;
+      let endsAtUtc = parsedEnd;
       if (endsAtUtc.getTime() <= startsAtUtc.getTime()) {
-        failOnce(TIME_INVALID, 'programme 的 stop 必须严格晚于 start');
-        return;
+        const rolledMs = endsAtUtc.getTime() + 24 * 60 * 60 * 1000;
+        if (rolledMs > startsAtUtc.getTime() && rolledMs - startsAtUtc.getTime() <= MAX_MIDNIGHT_ROLLOVER_MS) {
+          // 跨午夜 stop 被写成同日:修正为次日,计数后继续(不丢节目、不失败整次)
+          endsAtUtc = new Date(rolledMs);
+          midnightRollovers += 1;
+        } else {
+          failOnce(TIME_INVALID, 'programme 的 stop 必须严格晚于 start');
+          return;
+        }
       }
       stack.push({
         kind: 'programme',
@@ -463,11 +489,10 @@ export async function parseXMLTV(
       if (existing === undefined) {
         channelDisplayNames.set(frame.channelId, frame.displayName);
         channels.push({ xmltvChannelId: frame.channelId, displayName: frame.displayName, iconUrl: frame.iconUrl });
-      } else if (existing !== frame.displayName) {
-        // 同一 id 重复声明但展示名不一致:声明存在歧义,整次拒绝。
-        failOnce(DUPLICATE_DECLINED, 'channel id 重复声明且 display-name 不一致,存在歧义');
       } else {
-        // 完全一致的重复声明:按规格标记冲突频道,不失败。
+        // 同一 id 重复声明(完全同名或别名):以首个声明为准并标记冲突频道,
+        // 不整次失败——真实聚合源(如多台标合并)普遍如此;冲突频道不参与自动绑定,
+        // 但节目仍按 channel id 导入,不影响其余频道。
         conflictedChannelIds.add(frame.channelId);
       }
       return;
@@ -650,5 +675,5 @@ export async function parseXMLTV(
     }
   }
 
-  return { channels, programmes, conflictedChannelIds: Array.from(conflictedChannelIds) };
+  return { channels, programmes, conflictedChannelIds: Array.from(conflictedChannelIds), midnightRollovers };
 }

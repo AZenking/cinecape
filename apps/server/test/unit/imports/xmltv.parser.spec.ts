@@ -276,17 +276,17 @@ describe('严格安全(sax strict,research R2)', () => {
     expect(failure.code).toBe(XMLTV_ERROR.DOCTYPE_DENIED);
   });
 
-  it('外部 SYSTEM DTD 拒绝,且错误信息不含 URL 与 XML 片段', async () => {
+  it('标准外部 SYSTEM DTD 允许(sax 不加载外部 DTD,行业 XMLTV 普遍声明)', async () => {
     const xml = [
       '<?xml version="1.0" encoding="UTF-8"?>',
-      '<!DOCTYPE tv SYSTEM "http://evil.example/xxe.dtd">',
+      '<!DOCTYPE tv SYSTEM "xmltv.dtd">',
       '<tv><channel id="cctv1"><display-name>CCTV-1</display-name></channel></tv>',
     ].join('\n');
 
-    const failure = await failureOf(streamOf(xml));
+    const result = await parseXMLTV(streamOf(xml));
 
-    expect(failure.code).toBe(XMLTV_ERROR.DOCTYPE_DENIED);
-    expect(failure.message).not.toMatch(/http|</);
+    expect(result.channels).toHaveLength(1);
+    expect(result.channels[0]?.xmltvChannelId).toBe('cctv1');
   });
 
   it('未声明的自定义实体拒绝', async () => {
@@ -481,6 +481,17 @@ describe('时间语义(必须带合法时区,统一 UTC)', () => {
     expect((await failureOf(streamOf(inverted))).code).toBe(XMLTV_ERROR.TIME_INVALID);
   });
 
+  it('跨午夜 stop 写成同日(23:59 → 00:04)按次日修正并计数,不丢节目', async () => {
+    const xml = buildXmltv([{ id: 'cctv1' }], [
+      { channel: 'cctv1', start: '20260101235900 +0800', stop: '20260101000400 +0800', title: '跨午夜' },
+    ]);
+    const result = await parseXMLTV(streamOf(xml));
+    expect(result.midnightRollovers).toBe(1);
+    expect(result.programmes).toHaveLength(1);
+    const programme = result.programmes[0]!;
+    expect(programme.endsAtUtc.getTime() - programme.startsAtUtc.getTime()).toBe(5 * 60 * 1000);
+  });
+
   it('时间格式非法整次失败(TIME_INVALID)', async () => {
     for (const bad of ['2026-01-01T08:00:00+08:00', '2026010108', '20260101080000 +08']) {
       const xml = buildXmltv([{ id: 'cctv1' }], [
@@ -529,10 +540,14 @@ describe('冲突检测(channel id 重复 / 同频道节目时间重叠)', () => 
     expect(result.conflictedChannelIds as string[]).toContain('cctv1');
   });
 
-  it('channel 结构性重复声明且 display-name 不同 → 拒绝(DUPLICATE_DECLINED)', async () => {
+  it('channel 重复声明且 display-name 不同 → 首声明为准并标记冲突(不整次失败)', async () => {
     const xml = buildXmltv([{ id: 'cctv1', displayName: 'CCTV-1' }, { id: 'cctv1', displayName: '另一个名字' }]);
 
-    expect((await failureOf(streamOf(xml))).code).toBe(XMLTV_ERROR.DUPLICATE_DECLINED);
+    const result = await parseXMLTV(streamOf(xml));
+
+    expect(result.channels).toHaveLength(1);
+    expect(result.channels[0]?.displayName).toBe('CCTV-1');
+    expect(result.conflictedChannelIds as string[]).toContain('cctv1');
   });
 
   it('同频道节目时间重叠 → 该频道 conflicted;首尾相接不算;其他频道不受影响', async () => {

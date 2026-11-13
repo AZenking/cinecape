@@ -435,6 +435,10 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
         windowStartUtc: new Date(nowMs - EPG_WINDOW_PAST_MS),
         windowEndUtc: new Date(nowMs + EPG_WINDOW_FUTURE_MS),
       });
+      if (parsed.midnightRollovers > 0) {
+        // 上游把跨午夜 stop 写成同日:按次日修正后继续导入,仅告警计数(不含原始数据)
+        this.logger.warn(`XMLTV 跨午夜 stop 同日修正 ${parsed.midnightRollovers} 条`);
+      }
       this.captureSnapshot(job, source, 'epg', captured.snapshot(), nowMs);
     } finally {
       await opened.close();
