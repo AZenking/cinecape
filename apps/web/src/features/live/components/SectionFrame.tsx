@@ -6,13 +6,13 @@ import { Alert, Button, Skeleton } from '@heroui/react';
  * - 每区独立四态:加载骨架 / 成功(空列表给空态文案) / 失败可重试(Alert + 重试按钮,
  *   错误不只靠颜色:有文字、有指示图标语义、有显式重试动作) / 正常网格;
  * - 后台刷新失败(已有旧数据)显示「更新失败,显示的是上次内容」横条,不吞内容;
- * - 时区标注与「查看更多」由调用方经 footer/subtitle 传入。
+ * - 副标(频道数/分页说明等)与「查看更多」由调用方经 footer/subtitle 传入。
  */
 
 export interface SectionFrameProps {
   /** 分区标题(如「正在直播」) */
   readonly title: string;
-  /** 副标(时区标注/分页说明等) */
+  /** 副标(频道数/分页说明等;时间说明类文案已于 2026-11-13 移除) */
   readonly subtitle?: string;
   /** 标题行右侧动作(Netflix 式「查看更多」入口;与副标同行右对齐) */
   readonly headerAction?: ReactNode;

@@ -236,7 +236,7 @@ export function ChannelGridPage(): ReactNode {
         <h1 className="text-xl font-semibold text-foreground">Live 频道库</h1>
         <p className="text-xs text-muted">
           {channelsResource.data !== null
-            ? `${String(channelsResource.data.total)} 个频道 · 时间按家庭时区显示`
+            ? `${String(channelsResource.data.total)} 个频道`
             : '正在加载频道库…'}
         </p>
       </header>
@@ -313,11 +313,6 @@ export function ChannelGridPage(): ReactNode {
       {/* 主体(§2.1 线框多列平铺;SectionFrame 四态骨架,失败仅重试本区) */}
       <SectionFrame
         title={activeGroup === ALL_GROUP_KEY ? '全部频道' : `${activeGroupLabel} · 频道`}
-        subtitle={
-          channelsResource.data !== null
-            ? `时间按家庭时区 ${timezone} 显示`
-            : undefined
-        }
         status={channelsResource.status}
         hasStaleContent={channelsResource.data !== null}
         isEmpty={channelsResource.data !== null && items.length === 0}

@@ -4,7 +4,6 @@ import { Button } from '@heroui/react';
 import { ChannelTile } from './ChannelTile';
 import { MediaScroller } from './MediaScroller';
 import { SectionFrame } from './SectionFrame';
-import { formatZoneLabel } from '../live-format';
 import type { LiveResource } from '../hooks/use-live-sections';
 
 /**
@@ -49,7 +48,6 @@ export function CategorySwimlanes({
 }: CategorySwimlanesProps): ReactNode {
   const groups = groupsResource.data;
   const channels = channelsResource.data;
-  const zoneLabel = channels !== null ? formatZoneLabel(channels.timezone, channels.now) : undefined;
   // 分行索引:同组频道的「其他」归属与后端 groupKey 一致(全部频道集合,含无节目频道)
   const items = channels?.items ?? [];
   const byKey = new Map<string, { label: string; rows: typeof items }>();
@@ -113,7 +111,6 @@ export function CategorySwimlanes({
   return (
     <SectionFrame
       title="各分类正在直播"
-      subtitle={zoneLabel !== undefined ? `时间按家庭时区 ${zoneLabel} 显示` : undefined}
       status={groupsResource.status === 'error' || channelsResource.status === 'error' ? 'error' : 'ready'}
       hasStaleContent={channels !== null || groups !== null}
       isEmpty={groups !== null && groups.items.length === 0}

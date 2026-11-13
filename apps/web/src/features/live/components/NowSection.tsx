@@ -4,7 +4,6 @@ import { Button } from '@heroui/react';
 import { ChannelTile } from './ChannelTile';
 import { MediaScroller } from './MediaScroller';
 import { SectionFrame } from './SectionFrame';
-import { formatZoneLabel } from '../live-format';
 import type { LiveResource } from '../hooks/use-live-sections';
 
 /**
@@ -24,12 +23,10 @@ export interface NowSectionProps {
 
 export function NowSection({ resource, onRetry, onViewMore, onOpenProgramme, onRequireAuth }: NowSectionProps): ReactNode {
   const data = resource.data;
-  const zoneLabel = data !== null ? formatZoneLabel(data.timezone, data.now) : undefined;
   const items = data?.items ?? [];
   return (
     <SectionFrame
       title="正在直播"
-      subtitle={zoneLabel !== undefined ? `时间按家庭时区 ${zoneLabel} 显示` : undefined}
       status={resource.status}
       hasStaleContent={data !== null}
       isEmpty={data !== null && items.length === 0}

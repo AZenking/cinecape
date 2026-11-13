@@ -17,7 +17,7 @@ import { createQueryWrapper, createTestQueryClient } from '../../helpers/query-t
  *   (015 Screen 1;各分类行尾提供「全部XX频道」入口,FR-004);
  * - 正在直播行尾入口直达 /live/guide EPG 时间墙(FR-003;行尾文案由 015 T012
  *   任务演进,断言不锁文案);012 聚焦视图被新规格取代;
- * - 时间按服务端返回的家庭时区显示并标注(夹具用 America/New_York,与 jsdom 浏览器时区
+ * - 时间按服务端返回的家庭时区换算(页面不再展示时区标注;夹具用 America/New_York,与 jsdom 浏览器时区
  *   明显不同:同一时刻显示 07:05 而非浏览器本地 20:05 → 证明不依赖浏览器时区);
  * - 无节目频道「暂无节目」占位且保留播放入口;
  * - 即将播放点击仅展示节目时段(频道与起止时间),文案不出现预约/回看/立即播放;
@@ -241,7 +241,7 @@ describe('直播页分区与内容(T061)', () => {
     expect(screen.getAllByRole('button', { name: /查看更多|全部正在直播/ }).length).toBeGreaterThanOrEqual(2);
   });
 
-  it('时间按服务端家庭时区显示并标注,不依赖浏览器时区(07:05 而非本地 20:05)', async () => {
+  it('时间按服务端家庭时区换算且不展示时区标注,不依赖浏览器时区(07:05 而非本地 20:05)', async () => {
     renderLivePage();
     await waitFor(() => {
       // 卡面只展示节目名;时段文本位于此刻直播精选横幅的信息行(与频道名同行,用正则匹配)
@@ -249,8 +249,9 @@ describe('直播页分区与内容(T061)', () => {
     });
     // 同一时刻的浏览器本地(Asia/Shanghai)表示 20:00 不得出现
     expect(document.body.textContent).not.toContain('20:00–20:30');
-    // 时区标注:IANA 名称 + 偏移(EST 11 月为 GMT-5)
-    expect(screen.getAllByText(/America\/New_York · GMT-5/).length).toBeGreaterThan(0);
+    // 时区说明文案已按产品要求移除:页面不再出现「时间按家庭时区 …」/GMT 偏移标注
+    expect(screen.queryByText(/时间按家庭时区/)).toBeNull();
+    expect(document.body.textContent).not.toContain('America/New_York · GMT-5');
   });
 
   it('无节目频道显示「暂无节目」占位且保留播放入口(不能把无节目当无频道)', async () => {
