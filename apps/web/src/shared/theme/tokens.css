@@ -40,12 +40,15 @@
 }
 
 .dark {
-  /* 品牌强调色:香槟金 #D8B56A(≈ oklch(0.788 0.1024 85.07)),覆盖 heroui 默认蓝;
+  /* 主题配色(2026-11-13 产品指定):
+     明亮黄 #F5D547 强调 + 炭黑 #151515 画布 + 柔白 #F5F5F0 正文 + 深黑 #191919 按钮文字。
      -hover/-soft/-foreground 等派生 token 在 @heroui/styles 中以 var(--accent) 引用,
      var() 惰性求值,此处覆盖后全部自动跟随,无需逐个重定义。
-     浅金色底上白字对比不足,accent-foreground 改深墨色(≈近黑)保证可读性。 */
-  --accent: oklch(0.788 0.1024 85.07);
-  --accent-foreground: oklch(0.16 0.012 85);
+     对比度:黄/炭黑 12.6:1、柔白/炭黑 16.7:1、深黑/黄 12.1:1(均远超 AA)。 */
+  --accent: oklch(0.8759 0.1575 96.07); /* #F5D547 */
+  --accent-foreground: oklch(0.2134 0 89.88); /* #191919 */
+  --background: oklch(0.1957 0 89.88); /* #151515 */
+  --foreground: oklch(0.9688 0.0066 106.52); /* #F5F5F0 */
 
   /* 统一焦点色跟随品牌 accent(ui.md §8「统一焦点色」;heroui 默认亦为 var(--accent)) */
   --focus: var(--accent);

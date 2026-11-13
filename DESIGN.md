@@ -44,7 +44,7 @@ Use semantic HeroUI tokens and Tailwind utilities in product code. Raw values ar
 
 | Role | Tailwind utilities | CSS variables | Light | Dark | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| Canvas | `bg-background text-foreground` | `--background`, `--foreground` | `oklch(0.9702 0 0)`, `oklch(0.2103 0.0059 285.89)` | `oklch(12% 0.005 285.823)`, `oklch(0.9911 0 0)` | Page background and primary content |
+| Canvas | `bg-background text-foreground` | `--background`, `--foreground` | `oklch(0.9702 0 0)`, `oklch(0.2103 0.0059 285.89)` | `#151515` = `oklch(0.1957 0 89.88)`, `#F5F5F0` = `oklch(0.9688 0.0066 106.52)` | Page background and primary content |
 | Surface | `bg-surface text-surface-foreground` | `--surface`, `--surface-foreground` | white, foreground | `oklch(0.2103 0.0059 285.89)`, foreground | Cards and non-floating containers |
 | Secondary surface | `bg-surface-secondary` | `--surface-secondary` | `oklch(0.9524 0.0013 286.37)` | `oklch(0.257 0.0037 286.14)` | Nested or lower-emphasis regions |
 | Tertiary surface | `bg-surface-tertiary` | `--surface-tertiary` | `oklch(0.9373 0.0013 286.37)` | `oklch(0.2721 0.0024 247.91)` | Stronger surface separation |
@@ -52,7 +52,7 @@ Use semantic HeroUI tokens and Tailwind utilities in product code. Raw values ar
 | Backdrop | `bg-backdrop` | `--backdrop` | black at 50% | black at 60% | Content dimming behind overlays |
 | Muted content | `text-muted` | `--muted` | `oklch(0.5517 0.0138 285.94)` | `oklch(70.5% 0.015 286.067)` | Supporting text and secondary icons |
 | Neutral action | `bg-default text-default-foreground` | `--default`, `--default-foreground` | `oklch(94% 0.001 286.375)`, eclipse | `oklch(27.4% 0.006 286.033)`, snow | Neutral controls and selected states |
-| Accent | `bg-accent text-accent-foreground` | `--accent`, `--accent-foreground` | `#D8B56A` = `oklch(0.788 0.1024 85.07)`, `oklch(0.16 0.012 85)` | same as light | Primary actions, focus, and emphasis (香槟金品牌色) |
+| Accent | `bg-accent text-accent-foreground` | `--accent`, `--accent-foreground` | `#F5D547` = `oklch(0.8759 0.1575 96.07)`, `#191919` = `oklch(0.2134 0 89.88)` | same as light | Primary actions, focus, and emphasis (明亮黄品牌色) |
 | Success | `bg-success text-success-foreground` | `--success`, `--success-foreground` | `oklch(0.7329 0.1935 150.81)`, eclipse | same as light | Positive outcomes and completed states |
 | Warning | `bg-warning text-warning-foreground` | `--warning`, `--warning-foreground` | `oklch(0.7819 0.1585 72.33)`, eclipse | `oklch(0.8203 0.1388 76.34)`, eclipse | Caution and attention |
 | Danger | `bg-danger text-danger-foreground` | `--danger`, `--danger-foreground` | `oklch(0.6532 0.2328 25.74)`, snow | `oklch(0.594 0.1967 24.63)`, snow | Errors and destructive actions |
