@@ -40,6 +40,8 @@ interface ProgrammeDetailPanelProps {
   readonly programme: {
     readonly title: string;
     readonly description: string | null;
+    /** 020:节目海报不透明引用;null/缺省=无海报 */
+    readonly posterRef?: string | null;
     /** ISO 起始时刻(现状 DTO 的 startsAt,共享面板归一命名) */
     readonly start: string;
     /** ISO 结束时刻(现状 DTO 的 endsAt) */
@@ -255,5 +257,14 @@ describe('T003 · 共享节目详情面板 ProgrammeDetailPanel(ui.md §2;T005 �
     expect(screen.getByRole('dialog')).toBeVisible();
     expect(screen.getByText('城市夜线(更新)')).toBeVisible(); // 内容已更新
     await waitFor(() => expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true)); // 焦点仍在面板内
+  });
+
+  it('020:有节目海报时渲染 2:3 海报（不替代频道回退层）', () => {
+    const ref = '0123456789abcdef0123456789abcdef';
+    renderPanel(panelProps({
+      programme: { ...NOW_PROGRAMME, posterRef: ref },
+    }));
+    const poster = screen.getByRole('img', { name: '城市夜线 海报' });
+    expect(poster.getAttribute('src')).toBe(`/api/public/media/programme-posters/${ref}`);
   });
 });

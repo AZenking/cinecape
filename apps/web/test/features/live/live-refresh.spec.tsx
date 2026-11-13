@@ -39,7 +39,7 @@ const NOW_BASE: ChannelPageDto = {
       media: { id: 'ch-1', type: 'channel', title: '新闻频道', description: null, posterRef: null, contentLevel: null, availability: 'available' },
       groupKey: 'grp-news',
       groupLabel: '新闻',
-      current: { key: 'pg-a', title: '旧节目', description: null, startsAt: '2026-11-04T12:00:00.000Z', endsAt: '2026-11-04T12:30:00.000Z' },
+      current: { key: 'pg-a', title: '旧节目', description: null, posterRef: null, startsAt: '2026-11-04T12:00:00.000Z', endsAt: '2026-11-04T12:30:00.000Z' },
       next: null,
     },
   ],
@@ -56,7 +56,7 @@ const NOW_UPDATED: ChannelPageDto = {
   items: [
     {
       ...NOW_BASE.items[0]!,
-      current: { key: 'pg-b', title: '新节目', description: null, startsAt: '2026-11-04T12:30:00.000Z', endsAt: '2026-11-04T13:00:00.000Z' },
+      current: { key: 'pg-b', title: '新节目', description: null, posterRef: null, startsAt: '2026-11-04T12:30:00.000Z', endsAt: '2026-11-04T13:00:00.000Z' },
     },
   ],
 };

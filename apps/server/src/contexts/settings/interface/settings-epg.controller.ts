@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
-import { and, asc, count, eq, sql } from 'drizzle-orm';
+import { and, asc, count, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   ProblemCode,
@@ -16,7 +16,7 @@ import { SameOriginGuard } from '@platform/http-common/same-origin/same-origin.g
 import { SessionGuard } from '@platform/http-common/session.guard';
 import { SettingsGuard } from '@contexts/settings/infrastructure/settings.guard';
 import { StrictBodyPipe, StrictQueryPipe } from '@platform/http-common/strict-input/strict-pipes';
-import { catalogState, epgChannel, mediaItem, mediaSource } from '@platform/database/schema';
+import { catalogState, epgChannel, mediaItem, mediaSource, sourceArchive } from '@platform/database/schema';
 import { getDb, parseBody } from '@contexts/identity-access';
 // 016 US4 T024:保存后「全量级联匹配刷新」复用 sources 域既有刷新执行器(只读 import
 // 发布令牌,不得自建第二套刷新机制;007-T022a 同款发布面裸导入)
@@ -258,7 +258,11 @@ function listEpgPriorityView(householdId: string, includeDisabled = false): EpgS
       epgChannel,
       and(eq(epgChannel.householdId, mediaSource.householdId), eq(epgChannel.sourceId, mediaSource.id)),
     )
-    .where(and(eq(mediaSource.householdId, householdId), eq(mediaSource.kind, 'epg'), includeDisabled ? undefined : eq(mediaSource.enabled, 1)))
+    .leftJoin(
+      sourceArchive,
+      and(eq(sourceArchive.householdId, mediaSource.householdId), eq(sourceArchive.sourceId, mediaSource.id)),
+    )
+    .where(and(eq(mediaSource.householdId, householdId), eq(mediaSource.kind, 'epg'), isNull(sourceArchive.sourceId), includeDisabled ? undefined : eq(mediaSource.enabled, 1)))
     .groupBy(mediaSource.id)
     .orderBy(asc(mediaSource.priority), asc(mediaSource.createdAt), asc(mediaSource.id))
     .all();
@@ -286,11 +290,15 @@ function saveEpgPriorities(
   return getDb().transaction((tx) => {
     for (const entry of entries) {
       const source = tx
-        .select({ id: mediaSource.id, kind: mediaSource.kind })
+        .select({ id: mediaSource.id, kind: mediaSource.kind, archivedId: sourceArchive.sourceId })
         .from(mediaSource)
+        .leftJoin(
+          sourceArchive,
+          and(eq(sourceArchive.householdId, mediaSource.householdId), eq(sourceArchive.sourceId, mediaSource.id)),
+        )
         .where(and(eq(mediaSource.id, entry.sourceId), eq(mediaSource.householdId, householdId)))
         .get();
-      if (source === undefined || source.kind !== 'epg') {
+      if (source === undefined || source.kind !== 'epg' || source.archivedId !== null) {
         throw new DomainError(404, ProblemCode.NOT_FOUND);
       }
       tx
@@ -310,7 +318,11 @@ function saveEpgPriorities(
     const refreshTargets = tx
       .select({ sourceId: mediaSource.id, version: mediaSource.version })
       .from(mediaSource)
-      .where(and(eq(mediaSource.householdId, householdId), eq(mediaSource.kind, 'epg'), eq(mediaSource.enabled, 1)))
+      .leftJoin(
+        sourceArchive,
+        and(eq(sourceArchive.householdId, mediaSource.householdId), eq(sourceArchive.sourceId, mediaSource.id)),
+      )
+      .where(and(eq(mediaSource.householdId, householdId), eq(mediaSource.kind, 'epg'), isNull(sourceArchive.sourceId), eq(mediaSource.enabled, 1)))
       .all();
     return { updatedCount: entries.length, refreshTargets };
   });

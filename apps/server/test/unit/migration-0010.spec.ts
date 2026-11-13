@@ -37,10 +37,19 @@ const ALL_MIGRATIONS = [
   '0008_profile_preferences',
   '0009_channel_logos',
   '0010_multi_source_priority',
+  '0011_channel_visibility',
+  '0012_programme_posters',
+  '0013_source_governance',
 ];
 
 /** 0010 前的既有清单(旧库升级路径:0001~0009 已应用、0010 待补) */
-const PRE_0010_MIGRATIONS = ALL_MIGRATIONS.filter((name) => name !== '0010_multi_source_priority');
+const PRE_0010_MIGRATIONS = ALL_MIGRATIONS.filter(
+  (name) =>
+    name !== '0010_multi_source_priority' &&
+    name !== '0011_channel_visibility' &&
+    name !== '0012_programme_posters' &&
+    name !== '0013_source_governance',
+);
 
 const T0 = '2026-11-09T00:00:00.000Z';
 
@@ -207,7 +216,7 @@ describe('0010_multi_source_priority · 既有行默认兜底(②)', () => {
     insertMediaSource('src-old-epg', 'hh-old', 'epg');
     expect(priorityColumn()).toBeUndefined(); // 前置:旧库确无该列
 
-    runMigrationCommand('up'); // 门禁判定「恰缺尾段 0010」→ 只补 0010
+    runMigrationCommand('up'); // 门禁判定「未应用尾段」→ 补齐 0010~0013
 
     expect(appliedMigrations()).toEqual(ALL_MIGRATIONS);
     const column = priorityColumn();
@@ -271,7 +280,11 @@ describe('0010_multi_source_priority · down/up 循环与 drill(⑤/⑥)', () =>
   it('up→down→up:down 删索引与列(其余对象不动,uv 保持 2),再 up 全量恢复且默认 100', () => {
     buildFreshRig();
 
-    runMigrationCommand('down'); // 回滚最后一个 = 0010
+    // 0013/0012/0011/0010 依次回滚,直到 0010 从栈顶移除
+    runMigrationCommand('down');
+    runMigrationCommand('down');
+    runMigrationCommand('down');
+    runMigrationCommand('down');
     expect(userVersion()).toBe(2);
     expect(columnsOf('media_source').map((column) => column.name)).not.toContain('priority');
     expect(priorityIndex()).toBeUndefined();

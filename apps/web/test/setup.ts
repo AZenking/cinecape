@@ -38,16 +38,20 @@ if (typeof globalThis.ResizeObserver !== 'function') {
 
 // Node 26+ 实验性 Storage 缺少 --localstorage-file 时为 undefined，修补 jsdom window.localStorage/sessionStorage
 if (typeof window !== 'undefined') {
-  if (!window.localStorage && (window as any)._localStorage) {
+  const storageCarrier = window as Window & {
+    _localStorage?: Storage;
+    _sessionStorage?: Storage;
+  };
+  if (!window.localStorage && storageCarrier._localStorage) {
     Object.defineProperty(window, 'localStorage', {
-      value: (window as any)._localStorage,
+      value: storageCarrier._localStorage,
       configurable: true,
       writable: true,
     });
   }
-  if (!window.sessionStorage && (window as any)._sessionStorage) {
+  if (!window.sessionStorage && storageCarrier._sessionStorage) {
     Object.defineProperty(window, 'sessionStorage', {
-      value: (window as any)._sessionStorage,
+      value: storageCarrier._sessionStorage,
       configurable: true,
       writable: true,
     });

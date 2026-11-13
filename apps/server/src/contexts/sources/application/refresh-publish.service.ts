@@ -15,6 +15,7 @@ import { parseStoredList } from '@contexts/policy';
 // 消费,同 epg/domain/binding-core.ts 先例)。核心经 liveTvStore/policyStore seam 以同一
 // SQLite 连接读取,发布事务内的未提交写入对核心可见(better-sqlite3 连接级事务)。
 import { loadChannelAssociationCore } from '@contexts/live-tv';
+import { posterMatchKeyOf, type ProgrammePosterRef } from '@contexts/epg';
 import type { XMLTVChannel, XMLTVProgramme } from '@contexts/sources/infrastructure/xmltv.parser';
 // 008-T009(ADR-0015 D1):数据访问经仓储端口 seam,发布事务经 withSqlTransaction 表达
 // (原生 SQL 逐字迁移至 infrastructure/sources-store.drizzle.ts,行为零变化)
@@ -114,6 +115,8 @@ export interface EpgPublishParams {
   programmes: readonly XMLTVProgramme[];
   conflictedChannelIds: readonly string[];
   nowMs: number;
+  /** 020:发布前本地缓存命中的 ({ rawTitle → { matchKey, ref } })；缺省时只算 key、ref=NULL */
+  posterByTitle?: ReadonlyMap<string, ProgrammePosterRef>;
 }
 
 export type PublishOutcome = 'succeeded' | 'stale';
@@ -657,6 +660,9 @@ export class RefreshPublishService {
           continue; // 完全相同节目去重
         }
         seenSlots.add(slot);
+        const poster = params.posterByTitle?.get(programme.title);
+        const posterMatchKey = poster?.matchKey ?? posterMatchKeyOf(programme.title);
+        const posterRef = poster?.ref ?? null;
         storedProgrammes += db.insertEpgProgrammeIfAbsent(
           randomUUID(),
           params.householdId,
@@ -666,6 +672,8 @@ export class RefreshPublishService {
           programme.description,
           startsAt,
           endsAt,
+          posterMatchKey,
+          posterRef,
         );
       }
 

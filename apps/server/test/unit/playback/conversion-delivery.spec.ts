@@ -133,7 +133,7 @@ function migrationSql(name: string): string {
 function applyAuthoritativeMigrations(): void {
   Database.db.exec('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY NOT NULL, applied_at TEXT NOT NULL)');
   // 010 收敛:rig 迁移清单补到 0010(016:media_source.priority 列为 drizzle schema 插入形态所必需)(playback 查询面已含 0007 列,如 playback_session.cleanup_requested)
-  for (const name of ['0001_init', '0002_profile_policy', '0003_media_catalog', '0004_manual_epg_binding', '0005_playback', '0006_pc_experience', '0007_online_vod', '0008_profile_preferences', '0009_channel_logos', '0010_multi_source_priority']) {
+  for (const name of ['0001_init', '0002_profile_policy', '0003_media_catalog', '0004_manual_epg_binding', '0005_playback', '0006_pc_experience', '0007_online_vod', '0008_profile_preferences', '0009_channel_logos', '0010_multi_source_priority', '0011_channel_visibility', '0012_programme_posters', '0013_source_governance']) {
     Database.db.transaction(() => {
       Database.db.exec(migrationSql(name));
       Database.db.prepare('INSERT INTO _migrations (name, applied_at) VALUES (?, ?)').run(name, new Date().toISOString());

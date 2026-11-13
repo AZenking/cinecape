@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { ProblemCode } from '@hmp/shared';
 import { DomainError, createDomainError } from '@platform/http-common/domain-error';
 import { getConfig } from '@platform/config/env';
@@ -31,7 +31,9 @@ import { M3UParseFailure, parseM3U } from '@contexts/sources/infrastructure/m3u.
 import { NasScanFailure, scanNasRoot } from '@contexts/sources/infrastructure/nas-scanner';
 import { XMLTVParseFailure, parseXMLTV, type XMLTVParseResult } from '@contexts/sources/infrastructure/xmltv.parser';
 import { RemoteReadFailure, openRemoteSource } from '@contexts/sources/infrastructure/safe-http-reader';
+import { captureStream, saveImportSnapshot } from '@contexts/sources/infrastructure/import-snapshot';
 import { RefreshPublishService, isPolicyCorruptionError } from '@contexts/sources/application/refresh-publish.service';
+import { EPG_PROGRAMME_POSTER_PORT, type IEpgProgrammePosterService, type ProgrammePosterRef } from '@contexts/epg';
 
 /** 任务状态(随仓储端口迁移;再导出维持本模块既有发布面) */
 export type { RefreshJobStatus };
@@ -196,11 +198,19 @@ function errorCodeOf(error: unknown): string {
 @Injectable()
 export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IRefreshExecutorService {
   private readonly publish: RefreshPublishService;
+  private readonly logger = new Logger(RefreshExecutorService.name);
   /** 串行执行器守卫:同一时刻至多一个任务在处理(research R5 全局单执行器) */
   private working = false;
   private stopped = false;
 
-  constructor(publish?: RefreshPublishService) {
+  constructor(
+    @Optional()
+    @Inject(RefreshPublishService)
+    publish?: RefreshPublishService,
+    @Optional()
+    @Inject(EPG_PROGRAMME_POSTER_PORT)
+    private readonly programmePoster?: IEpgProgrammePosterService,
+  ) {
     this.publish = publish ?? new RefreshPublishService();
   }
 
@@ -351,7 +361,9 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
       const remoteUrl = source.remote_url ?? '';
       const opened = await openRemoteSource(remoteUrl, { allowedTargets: getConfig().LAN_ALLOWED_TARGETS });
       try {
-        const parsed = await parseM3U(opened.stream);
+        const captured = captureStream(opened.stream, IMPORT_BUDGETS.M3U_MAX_BYTES);
+        const parsed = await parseM3U(captured.stream);
+        this.captureSnapshot(job, source, 'iptv', captured.snapshot(), nowMs);
         const result = store.stageEntries({
           householdId: job.household_id,
           refreshId: job.id,
@@ -418,10 +430,12 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
     const opened = await openRemoteSource(remoteUrl, { allowedTargets: getConfig().LAN_ALLOWED_TARGETS });
     let parsed: XMLTVParseResult;
     try {
-      parsed = await parseXMLTV(opened.stream, {
+      const captured = captureStream(opened.stream, IMPORT_BUDGETS.XMLTV_MAX_TRANSFER_BYTES);
+      parsed = await parseXMLTV(captured.stream, {
         windowStartUtc: new Date(nowMs - EPG_WINDOW_PAST_MS),
         windowEndUtc: new Date(nowMs + EPG_WINDOW_FUTURE_MS),
       });
+      this.captureSnapshot(job, source, 'epg', captured.snapshot(), nowMs);
     } finally {
       await opened.close();
     }
@@ -441,6 +455,20 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
       })),
     ]);
     this.recordStagedMeta(job, digest, parsed.programmes.length);
+    const titles = [...new Set(parsed.programmes.map((programme) => programme.title))];
+    // 020:发布前只读本地缓存恢复有效 ref（零网络）；失败不阻塞 EPG 发布。
+    let posterByTitle: ReadonlyMap<string, ProgrammePosterRef> = new Map();
+    if (this.programmePoster !== undefined) {
+      try {
+        posterByTitle = this.programmePoster.resolveCachedRefs({
+          householdId: job.household_id,
+          titles,
+          nowMs,
+        });
+      } catch (error) {
+        this.logger.warn(`节目海报缓存预读失败，按无海报发布: ${error instanceof Error ? error.name : 'unknown'}`);
+      }
+    }
     const outcome = this.publish.publishEpgWindow({
       householdId: job.household_id,
       sourceId: job.source_id,
@@ -453,8 +481,47 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
       programmes: parsed.programmes,
       conflictedChannelIds: Array.from(parsed.conflictedChannelIds),
       nowMs,
+      posterByTitle,
     });
-    void outcome; // stale/succeeded 均已在事务内落库
+    if (outcome === 'succeeded' && this.programmePoster !== undefined) {
+      try {
+        await this.programmePoster.enrichAfterEpgPublish({
+          householdId: job.household_id,
+          titles,
+          nowMs: Date.now(),
+        });
+      } catch (error) {
+        // 补全失败不影响已成功的刷新状态；下次刷新/CLI 会重试。
+        this.logger.warn(`节目海报补全失败（刷新已成功）: ${error instanceof Error ? error.name : 'unknown'}`);
+      }
+    }
+  }
+
+  /** 原始快照旁路写入:失败只告警,不影响刷新成功语义(FR-005)。 */
+  private captureSnapshot(
+    job: SourceRefreshRow,
+    source: MediaSourceRow,
+    kind: 'iptv' | 'epg',
+    raw: Buffer | null,
+    nowMs: number,
+  ): void {
+    if (raw === null || raw.length === 0) {
+      return;
+    }
+    try {
+      saveImportSnapshot({
+        householdId: job.household_id,
+        sourceId: job.source_id,
+        refreshId: job.id,
+        kind,
+        raw,
+        capturedAtIso: new Date(nowMs).toISOString(),
+      });
+    } catch (error) {
+      this.logger.warn(
+        `原始导入快照写入失败(刷新继续,kinds=${source.kind}): ${error instanceof Error ? error.name : 'unknown'}`,
+      );
+    }
   }
 
   /** 暂存完成元数据落库(非状态迁移,不加 version;发布重验 snapshot_digest 用) */

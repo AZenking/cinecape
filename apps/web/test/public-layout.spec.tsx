@@ -138,3 +138,15 @@ describe('PublicLayout 导航壳(T020)', () => {
     expect(screen.queryByTestId('personal-area')).not.toBeInTheDocument();
   });
 });
+
+describe('PublicLayout · 020 TMDB 署名', () => {
+  it('公共页面常驻 TMDB logo + 免责声明 + 条款链接', () => {
+    renderLayoutAt('/');
+    expect(screen.getByAltText('TMDB')).toBeInTheDocument();
+    expect(screen.getByText(/本应用使用 TMDB 与 TMDB API/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'themoviedb.org' })).toHaveAttribute(
+      'href',
+      'https://www.themoviedb.org/',
+    );
+  });
+});

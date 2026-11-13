@@ -47,6 +47,9 @@ const ALL_MIGRATIONS = [
   '0008_profile_preferences',
   '0009_channel_logos',
   '0010_multi_source_priority',
+  '0011_channel_visibility',
+  '0012_programme_posters',
+  '0013_source_governance',
 ] as const;
 
 // 0007 与 0006 同属数据代际 2:旧代际清单为代际 2 尾段均 down 后的 0001~0005(0009/0010 同属尾段)
@@ -55,7 +58,10 @@ const LEGACY_MIGRATIONS = ALL_MIGRATIONS.filter(
     name !== '0006_pc_experience' &&
     name !== '0007_online_vod' &&
     name !== '0009_channel_logos' &&
-    name !== '0010_multi_source_priority',
+    name !== '0010_multi_source_priority' &&
+    name !== '0011_channel_visibility' &&
+    name !== '0012_programme_posters' &&
+    name !== '0013_source_governance',
 );
 
 const T0 = '2026-10-26T00:00:00.000Z';

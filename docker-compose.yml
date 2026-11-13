@@ -41,6 +41,11 @@ services:
       PLAYBACK_CONVERSION_CONCURRENCY: '1'
       PLAYBACK_SOFTWARE_THREADS: '2'
       PLAYBACK_TICKET_TTL_SECONDS: '300'
+      # 020 TMDB 节目海报(可选;留空 = 关闭网络查询,节目单仍可用):
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
+      TMDB_READ_ACCESS_TOKEN: ${TMDB_READ_ACCESS_TOKEN:-}
+      TMDB_LANGUAGE: ${TMDB_LANGUAGE:-zh-CN}
+      TMDB_REGION: ${TMDB_REGION:-CN}
     volumes:
       # 私有可写数据卷(唯一持久可写面):SQLite + 迁移备份 + 转换私有缓存
       - hmp-data:/data

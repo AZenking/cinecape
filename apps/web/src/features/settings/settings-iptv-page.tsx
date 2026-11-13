@@ -22,6 +22,7 @@ import { Button, Tabs } from '@heroui/react';
 import { SettingsSourcesPage } from './settings-sources-page';
 import { SettingsEpgPage } from './settings-epg-page';
 import { SettingsEpgPriorities } from './settings-epg-priorities';
+import { SettingsDataGovernance } from './settings-data-governance';
 import { SettingsPageHeader } from './shared/settings-page-header';
 import { CreateSourceModal, type SettingsSourceDto, type SettingsSourceKind } from './components/CreateSourceModal';
 import { useUnsavedGuard } from './shared/unsaved-guard';
@@ -32,7 +33,7 @@ import { privateFetch } from '../../shared/fetch';
 import type { RefreshDto } from './shared/settings-api';
 
 /** 标签键(同时是 URL ?tab= 的合法取值) */
-const IPTV_TAB_KEYS = ['iptv', 'epg', 'matching'] as const;
+const IPTV_TAB_KEYS = ['iptv', 'epg', 'matching', 'governance'] as const;
 type IptvTabKey = (typeof IPTV_TAB_KEYS)[number];
 
 const DEFAULT_TAB: IptvTabKey = 'iptv';
@@ -92,6 +93,8 @@ export function SettingsIptvPage(): ReactNode {
       ? '管理 IPTV 直播播放列表(M3U)来源与同步任务'
       : activeTab === 'epg'
       ? '管理 EPG 节目单来源(XMLTV)、同步任务与匹配优先级'
+      : activeTab === 'governance'
+      ? '清理过期节目、失效线路、原始快照与归档来源'
       : '维护频道资产、聚合线路与节目单绑定的前台呈现';
 
   return (
@@ -99,7 +102,7 @@ export function SettingsIptvPage(): ReactNode {
       <SettingsPageHeader
         description={tabDescription}
         actions={
-          activeTab !== 'matching' ? (
+          activeTab === 'iptv' || activeTab === 'epg' ? (
             <Button
               variant="primary"
               size="sm"
@@ -164,6 +167,10 @@ export function SettingsIptvPage(): ReactNode {
               频道管理
               <Tabs.Indicator />
             </Tabs.Tab>
+            <Tabs.Tab id="governance" className="whitespace-nowrap">
+              数据治理
+              <Tabs.Indicator />
+            </Tabs.Tab>
           </Tabs.List>
         </Tabs.ListContainer>
 
@@ -179,6 +186,9 @@ export function SettingsIptvPage(): ReactNode {
         </Tabs.Panel>
         <Tabs.Panel id="matching" className="flex flex-1 flex-col">
           <SettingsEpgPage hideHeader />
+        </Tabs.Panel>
+        <Tabs.Panel id="governance" className="flex flex-1 flex-col">
+          <SettingsDataGovernance />
         </Tabs.Panel>
       </Tabs>
 

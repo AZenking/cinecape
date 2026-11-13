@@ -12,7 +12,7 @@
  * （008 实施修正：句柄归属平台层，infrastructure→platform 为 R1c 合法边，
  * 且不经任何发布面——避免测试 setup 预加载 identity-access 面破坏 vi.mock）。
  */
-import { and, eq, gt, inArray, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import {
   device,
   deviceSession,
@@ -22,6 +22,7 @@ import {
   mediaItem,
   mediaSource,
   profile,
+  programmePoster,
   sourceEntry,
 } from '@platform/database/schema';
 import { getDb, type Db } from '@platform/database/drizzle';
@@ -32,8 +33,39 @@ import type {
   GuideProgrammeWindowRow,
   HouseholdMediaCandidateRow,
   ManualBindingRawRow,
+  ProgrammeMatchKeyCandidateRow,
+  ProgrammePosterRow,
   ProgrammeProjectionRow,
+  ProgrammeRekeyRow,
 } from '@contexts/epg/application/epg-store.port';
+
+/** 020:programme_poster 行 → 应用层投影(列名 camelCase) */
+function toProgrammePosterRow(raw: typeof programmePoster.$inferSelect): ProgrammePosterRow {
+  return {
+    householdId: raw.householdId,
+    matchKey: raw.matchKey,
+    ref: raw.ref,
+    state: raw.state as ProgrammePosterRow['state'],
+    tmdbId: raw.tmdbId,
+    mediaType: raw.mediaType as ProgrammePosterRow['mediaType'],
+    title: raw.title,
+    originalTitle: raw.originalTitle,
+    posterPath: raw.posterPath,
+    releaseDate: raw.releaseDate,
+    voteAverage: raw.voteAverage,
+    popularity: raw.popularity,
+    matchScore: raw.matchScore,
+    yearHint: raw.yearHint,
+    attempts: raw.attempts,
+    lastAttemptAt: raw.lastAttemptAt,
+    expiresAt: raw.expiresAt,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+  };
+}
+
+/** 020:分块大小(避免 SQLite 绑定参数过多) */
+const POSTER_KEY_CHUNK = 500;
 
 /** 句柄来源：固定句柄（测试 rig / 事务内 tx）或惰性 getDb()（生产，单例重开安全） */
 type HandleSource = Db | (() => Db);
@@ -74,6 +106,72 @@ class DrizzleEpgTxStore implements EpgTxStore {
       INSERT INTO catalog_state (household_id, revision) VALUES (${householdId}, 2)
       ON CONFLICT(household_id) DO UPDATE SET revision = revision + 1
     `);
+  }
+
+  upsertProgrammePoster(row: ProgrammePosterRow): void {
+    this.db().run(sql`
+      INSERT INTO programme_poster (
+        household_id, match_key, ref, state, tmdb_id, media_type, title, original_title,
+        poster_path, release_date, vote_average, popularity, match_score, year_hint,
+        attempts, last_attempt_at, expires_at, created_at, updated_at
+      ) VALUES (
+        ${row.householdId}, ${row.matchKey}, ${row.ref}, ${row.state}, ${row.tmdbId}, ${row.mediaType},
+        ${row.title}, ${row.originalTitle}, ${row.posterPath}, ${row.releaseDate}, ${row.voteAverage},
+        ${row.popularity}, ${row.matchScore}, ${row.yearHint}, ${row.attempts}, ${row.lastAttemptAt},
+        ${row.expiresAt}, ${row.createdAt}, ${row.updatedAt}
+      )
+      ON CONFLICT(household_id, match_key) DO UPDATE SET
+        ref = excluded.ref,
+        state = excluded.state,
+        tmdb_id = excluded.tmdb_id,
+        media_type = excluded.media_type,
+        title = excluded.title,
+        original_title = excluded.original_title,
+        poster_path = excluded.poster_path,
+        release_date = excluded.release_date,
+        vote_average = excluded.vote_average,
+        popularity = excluded.popularity,
+        match_score = excluded.match_score,
+        year_hint = excluded.year_hint,
+        attempts = excluded.attempts,
+        last_attempt_at = excluded.last_attempt_at,
+        expires_at = excluded.expires_at,
+        updated_at = excluded.updated_at
+    `);
+  }
+
+  updateProgrammePosterRefs(
+    householdId: string,
+    entries: ReadonlyArray<{ matchKey: string; ref: string | null }>,
+  ): void {
+    for (const entry of entries) {
+      this.db().run(sql`
+        UPDATE epg_programme
+        SET poster_ref = ${entry.ref}
+        WHERE household_id = ${householdId} AND poster_match_key = ${entry.matchKey}
+      `);
+    }
+  }
+
+  updateProgrammeMatchKeys(
+    householdId: string,
+    entries: ReadonlyArray<{ id: string; matchKey: string | null }>,
+  ): void {
+    for (const entry of entries) {
+      this.db().run(sql`
+        UPDATE epg_programme
+        SET poster_match_key = ${entry.matchKey}, poster_ref = NULL
+        WHERE household_id = ${householdId} AND id = ${entry.id}
+      `);
+    }
+  }
+
+  deleteExpiredProgrammePosterRows(householdId: string, cutoffIso: string): number {
+    const result = this.db().run(sql`
+      DELETE FROM programme_poster
+      WHERE household_id = ${householdId} AND expires_at < ${cutoffIso}
+    `);
+    return Number(result.changes);
   }
 }
 
@@ -167,6 +265,7 @@ class DrizzleEpgStore extends DrizzleEpgTxStore implements EpgStore {
       .select({
         title: epgProgramme.title,
         description: epgProgramme.description,
+        posterRef: epgProgramme.posterRef,
         startsAt: epgProgramme.startsAt,
         endsAt: epgProgramme.endsAt,
       })
@@ -280,6 +379,77 @@ class DrizzleEpgStore extends DrizzleEpgTxStore implements EpgStore {
       .all();
   }
 
+  /* —— 020 programme-poster.service（缓存读取/回填） —— */
+
+  listProgrammePosterRows(householdId: string, matchKeys: readonly string[]): ProgrammePosterRow[] {
+    if (matchKeys.length === 0) {
+      return [];
+    }
+    const unique = [...new Set(matchKeys)];
+    const rows: ProgrammePosterRow[] = [];
+    for (let offset = 0; offset < unique.length; offset += POSTER_KEY_CHUNK) {
+      const chunk = unique.slice(offset, offset + POSTER_KEY_CHUNK);
+      rows.push(
+        ...this.db()
+          .select()
+          .from(programmePoster)
+          .where(and(eq(programmePoster.householdId, householdId), inArray(programmePoster.matchKey, chunk)))
+          .all()
+          .map(toProgrammePosterRow),
+      );
+    }
+    return rows;
+  }
+
+  findProgrammePosterByRef(householdId: string, ref: string): ProgrammePosterRow | undefined {
+    const row = this.db()
+      .select()
+      .from(programmePoster)
+      .where(and(eq(programmePoster.householdId, householdId), eq(programmePoster.ref, ref)))
+      .limit(1)
+      .get();
+    return row === undefined ? undefined : toProgrammePosterRow(row);
+  }
+
+  listProgrammeRowsForRekey(
+    householdId: string,
+    afterId: string | null,
+    limit: number,
+  ): ProgrammeRekeyRow[] {
+    return this.db()
+      .select({ id: epgProgramme.id, title: epgProgramme.title, posterMatchKey: epgProgramme.posterMatchKey })
+      .from(epgProgramme)
+      .where(
+        and(
+          eq(epgProgramme.householdId, householdId),
+          afterId === null ? undefined : gt(epgProgramme.id, afterId),
+        ),
+      )
+      .orderBy(epgProgramme.id)
+      .limit(limit)
+      .all();
+  }
+
+  listProgrammeMatchKeyCandidateRows(
+    householdId: string,
+    afterId: string | null,
+    limit: number,
+  ): ProgrammeMatchKeyCandidateRow[] {
+    return this.db()
+      .select({ id: epgProgramme.id, title: epgProgramme.title })
+      .from(epgProgramme)
+      .where(
+        and(
+          eq(epgProgramme.householdId, householdId),
+          isNull(epgProgramme.posterMatchKey),
+          afterId === null ? undefined : gt(epgProgramme.id, afterId),
+        ),
+      )
+      .orderBy(epgProgramme.id)
+      .limit(limit)
+      .all();
+  }
+
   /* —— guide-window.service —— */
 
   listProgrammeWindowRows(
@@ -298,6 +468,7 @@ class DrizzleEpgStore extends DrizzleEpgTxStore implements EpgStore {
         xmltv_channel_id: epgProgramme.xmltvChannelId,
         title: epgProgramme.title,
         description: epgProgramme.description,
+        poster_ref: epgProgramme.posterRef,
         starts_at: epgProgramme.startsAt,
         ends_at: epgProgramme.endsAt,
       })

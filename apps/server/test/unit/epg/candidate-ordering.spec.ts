@@ -21,7 +21,7 @@ function bootstrap(): { householdId: string; epgSourceId: string } {
   const root = path.join(process.cwd(), 'src/platform/database/migrations');
   // 016 收敛:rig 迁移清单补到 0010(schema.ts 查询面已含 0010 列,如 media_source.priority;
   // 0008~0010 均为代际 2 尾段增量表/列,对本用例候选排序断言面零影响)
-  for (const name of ['0001_init', '0002_profile_policy', '0003_media_catalog', '0004_manual_epg_binding', '0005_playback', '0006_pc_experience', '0007_online_vod', '0008_profile_preferences', '0009_channel_logos', '0010_multi_source_priority']) {
+  for (const name of ['0001_init', '0002_profile_policy', '0003_media_catalog', '0004_manual_epg_binding', '0005_playback', '0006_pc_experience', '0007_online_vod', '0008_profile_preferences', '0009_channel_logos', '0010_multi_source_priority', '0011_channel_visibility', '0012_programme_posters', '0013_source_governance']) {
     Database.db.transaction(() => {
       Database.db.exec(fs.readFileSync(path.join(root, name, 'up.sql'), 'utf8'));
       Database.db.prepare('INSERT INTO _migrations (name, applied_at) VALUES (?, ?)').run(name, new Date().toISOString());

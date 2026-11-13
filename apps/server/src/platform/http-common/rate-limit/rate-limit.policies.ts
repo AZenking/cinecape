@@ -36,6 +36,9 @@ export const RATE_LIMIT_POLICIES = {
    *  10/min/DeviceSession」):独立控制桶,按 DeviceSession 计数;T071 vod-switch.controller
    *  POST /vod/switch-probes 挂载(候选清单不占本桶,沿用 progress 控制桶) */
   vodProbe: { scope: 'deviceSession', limitPerMinute: 10 },
+  /** 020 节目海报图片代理:独立 IP 桶,避免节目单多图占用 public 120/min;
+   *  仅在 GET /public/media/programme-posters/:posterRef 挂载 */
+  mediaImage: { scope: 'ip', limitPerMinute: 600 },
 } as const satisfies Record<string, RateLimitPolicy>;
 
 export type RateLimitPolicyName = keyof typeof RATE_LIMIT_POLICIES;

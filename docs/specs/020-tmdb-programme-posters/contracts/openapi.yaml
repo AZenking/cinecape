@@ -1,0 +1,109 @@
+openapi: 3.1.0
+info:
+  title: Cinecape — TMDB Programme Posters
+  version: 020.0.0
+  description: >
+    020 增补契约：节目海报不透明引用代理。Programme.posterRef 字段增补见
+    003-media-catalog 与 005-pc-browsing-flow 的 openapi.yaml（本文件不重复定义）。
+servers:
+  - url: /api
+paths:
+  /public/media/programme-posters/{posterRef}:
+    get:
+      operationId: getPublicProgrammePoster
+      summary: 节目海报同源代理（image/* 字节流）
+      description: >
+        公开只读；posterRef 为 32 位小写 hex 不透明引用。服务端按 (household_id, ref)
+        查 programme_poster，仅 matched 且未过期才读取 TMDB 图片基址；伪造/跨家庭/过期/
+        非 matched 404 同形；上游失败 502，超预算 504。字节不落盘；
+        Cache-Control: public, max-age=86400；独立 mediaImage 限频桶 600/min/IP。
+      parameters:
+        - name: posterRef
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{32}$'
+      responses:
+        '200':
+          description: 图片字节
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: public, max-age=86400
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: 未知 query/body 字段
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 格式非法/未签发/跨家庭/过期/非 matched/未初始化
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: mediaImage 限频
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '502':
+          description: PROGRAMME_POSTER_UPSTREAM_FAILED
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '504':
+          description: PROGRAMME_POSTER_UPSTREAM_TIMEOUT
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+components:
+  schemas:
+    Problem:
+      type: object
+      additionalProperties: false
+      description: 既有 ProblemJsonFilter 错误信封；脱敏，不含上游地址/TMDB ID/Key。
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+          enum:
+            - NOT_FOUND
+            - VALIDATION_FAILED
+            - PROGRAMME_POSTER_UPSTREAM_FAILED
+            - PROGRAMME_POSTER_UPSTREAM_TIMEOUT
+            - INTERNAL
+        detail:
+          type: string
+      required:
+        - type
+        - title
+        - status
+        - code

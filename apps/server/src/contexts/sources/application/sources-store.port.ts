@@ -209,6 +209,12 @@ export interface SourcesTxStore {
   insertMediaSource(values: NewMediaSource): void;
   /** 部分更新（.set(patch)；version/updatedAt 由调用方计算，保持迁移前语义） */
   updateOwnedMediaSource(sourceId: string, householdId: string, patch: Record<string, string | number | null>): void;
+  /** 021:归档注册表读取（有行=已归档） */
+  findSourceArchive(sourceId: string, householdId: string): { archivedAt: string } | undefined;
+  /** 021:写入归档注册表（有则覆盖） */
+  insertSourceArchive(values: { householdId: string; sourceId: string; archivedAt: string; archivedBy: string | null }): void;
+  /** 021:删除归档注册表行（恢复） */
+  deleteSourceArchive(sourceId: string, householdId: string): void;
   /** 旧 awaiting_confirmation 快照标 stale（version+1；逐字迁移自 updateSource 事务） */
   markAwaitingSnapshotsStale(householdId: string, sourceId: string): void;
   /** catalog_state.revision +1（onConflictDoUpdate 补建语义，逐字迁移自 bumpCatalogRevision） */
@@ -438,7 +444,11 @@ export interface RefreshTxStore {
     description: string | null,
     startsAtIso: string,
     endsAtIso: string,
+    posterMatchKey: string | null,
+    posterRef: string | null,
   ): number;
+  /** 020:0012 迁移能力守卫（缺列的部分迁移库走旧 SQL，不崩溃） */
+  epgProgrammeHasPosterColumns(): boolean;
   mediaSourceHasEpgGenerationColumn(): boolean;
   bumpMediaSourceEpgGeneration(sourceId: string, householdId: string): void;
 }
@@ -450,6 +460,8 @@ export interface SourcesStore extends RefreshTxStore {
   // （常规运维免当次密码,会话有效性由 SessionGuard 逐请求承担）。
   findMediaSourceById(sourceId: string): MediaSource | undefined;
   findOwnedMediaSource(sourceId: string, householdId: string): MediaSource | undefined;
+  /** 021:来源是否已归档（常规管理/刷新准入/优先级投影共用） */
+  isSourceArchived(sourceId: string, householdId: string): boolean;
   /** GET /sources 分页读（count 与 page 查询同一 where；total 缺行补 0） */
   listMediaSourcePage(
     householdId: string,

@@ -3,6 +3,7 @@ import type { ExperienceProgrammeDto, GuideWindowDto } from '@hmp/shared';
 import { Chip } from '@heroui/react';
 import { Star } from 'lucide-react';
 import { ChannelLogo } from '../live/components/channel-logo';
+import { ProgrammePoster } from '../shared-programme/programme-poster';
 import { formatRangeInZone, formatTimeInZone } from './guide-time';
 import { pickCurrentProgramme } from './GuideWall';
 import { useServerNow } from '../../shared/time/use-server-now';
@@ -175,18 +176,31 @@ export function GuideChannelList({
                           className="pointer-events-none absolute bottom-0 left-0 h-1 rounded-b-lg bg-accent"
                           style={{ width: `${liveProgress}%` }}
                         />
-                        <span className="flex items-center gap-1.5">
-                          <span className="hmp-truncate min-w-0 text-sm font-semibold text-foreground" title={current.title}>
-                            {current.title}
+                        <span className="flex items-center gap-2">
+                          {current.posterRef != null ? (
+                            <span className="relative hidden h-12 shrink-0 overflow-hidden rounded sm:block aspect-[2/3]">
+                              <ProgrammePoster
+                                posterRef={current.posterRef}
+                                title={current.title}
+                                className="h-full w-full object-cover"
+                              />
+                            </span>
+                          ) : null}
+                          <span className="min-w-0 flex flex-col">
+                            <span className="flex items-center gap-1.5">
+                              <span className="hmp-truncate min-w-0 text-sm font-semibold text-foreground" title={current.title}>
+                                {current.title}
+                              </span>
+                              {/* LIVE 徽章:文字承载语义,不以颜色为唯一区分 */}
+                              <Chip aria-hidden="true" color="success" size="sm" variant="soft" className="h-4 shrink-0 px-1 text-3xs">
+                                LIVE
+                              </Chip>
+                            </span>
+                            <span className="mt-0.5 flex items-center gap-2 text-xs text-muted">
+                              <span>{range}</span>
+                              <span className="text-accent">{remainingLabel(endsAtMs, nowMs)}</span>
+                            </span>
                           </span>
-                          {/* LIVE 徽章:文字承载语义,不以颜色为唯一区分 */}
-                          <Chip aria-hidden="true" color="success" size="sm" variant="soft" className="h-4 shrink-0 px-1 text-3xs">
-                            LIVE
-                          </Chip>
-                        </span>
-                        <span className="mt-0.5 flex items-center gap-2 text-xs text-muted">
-                          <span>{range}</span>
-                          <span className="text-accent">{remainingLabel(endsAtMs, nowMs)}</span>
                         </span>
                       </button>
                     </li>
@@ -215,6 +229,15 @@ export function GuideChannelList({
                             : 'border-border/60 bg-surface-secondary/40 text-muted hover:border-foreground/30 hover:bg-surface-secondary/70 hover:text-foreground'
                         }`}
                       >
+                        {programme.posterRef != null ? (
+                          <span className="relative hidden h-9 shrink-0 overflow-hidden rounded sm:block aspect-[2/3]">
+                            <ProgrammePoster
+                              posterRef={programme.posterRef}
+                              title={programme.title}
+                              className="h-full w-full object-cover"
+                            />
+                          </span>
+                        ) : null}
                         <span className="shrink-0 font-medium text-foreground">{startLabel}</span>
                         <span className="hmp-truncate min-w-0 font-medium" title={programme.title}>
                           {programme.title}
@@ -252,6 +275,15 @@ export function GuideChannelList({
                                     : 'text-muted hover:bg-surface-secondary hover:text-foreground'
                                 }`}
                               >
+                                {programme.posterRef != null ? (
+                                  <span className="relative hidden h-8 shrink-0 overflow-hidden rounded sm:block aspect-[2/3]">
+                                    <ProgrammePoster
+                                      posterRef={programme.posterRef}
+                                      title={programme.title}
+                                      className="h-full w-full object-cover"
+                                    />
+                                  </span>
+                                ) : null}
                                 <span className="shrink-0">{range}</span>
                                 <span className="hmp-truncate min-w-0 font-medium" title={programme.title}>
                                   {programme.title}

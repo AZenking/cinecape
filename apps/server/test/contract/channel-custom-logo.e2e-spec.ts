@@ -139,7 +139,7 @@ describe('018 US3 逻辑频道自定义台标 Logo 与防刷新覆盖契约测�
       ]),
     });
 
-    const { app, cookie, householdId } = await setupCustomLogoApp();
+    const { app, cookie } = await setupCustomLogoApp();
 
     // 1) 创建 IPTV 来源并刷新导入
     const createdSource = await request(app.getHttpServer())

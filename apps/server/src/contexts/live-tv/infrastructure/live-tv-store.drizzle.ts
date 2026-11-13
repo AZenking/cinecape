@@ -31,6 +31,7 @@ function programmeRowOf(raw: {
   xmltv_channel_id: string;
   title: string;
   description: string | null;
+  poster_ref: string | null;
   starts_at: string;
   ends_at: string;
 }): ProgrammeRow {
@@ -40,6 +41,7 @@ function programmeRowOf(raw: {
     xmltvChannelId: raw.xmltv_channel_id,
     title: raw.title,
     description: raw.description,
+    posterRef: raw.poster_ref,
     startsAt: raw.starts_at,
     endsAt: raw.ends_at,
   };
@@ -149,6 +151,7 @@ class DrizzleLiveTvStore implements LiveTvStore {
         xmltv_channel_id: epgProgramme.xmltvChannelId,
         title: epgProgramme.title,
         description: epgProgramme.description,
+        poster_ref: epgProgramme.posterRef,
         starts_at: epgProgramme.startsAt,
         ends_at: epgProgramme.endsAt,
       })
@@ -177,6 +180,7 @@ class DrizzleLiveTvStore implements LiveTvStore {
         xmltv_channel_id: epgProgramme.xmltvChannelId,
         title: epgProgramme.title,
         description: epgProgramme.description,
+        poster_ref: epgProgramme.posterRef,
         starts_at: epgProgramme.startsAt,
         ends_at: epgProgramme.endsAt,
       })

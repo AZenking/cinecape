@@ -17,7 +17,7 @@ import type { ExperienceProgrammeDto } from '@hmp/shared';
 /** 直播节目窗口输入(内部读取形态;key 已是公共不透明标识) */
 export type LiveProgrammeInput = Pick<
   ExperienceProgrammeDto,
-  'key' | 'title' | 'description' | 'startsAt' | 'endsAt'
+  'key' | 'title' | 'description' | 'posterRef' | 'startsAt' | 'endsAt'
 >;
 
 export interface LiveProgrammeWindows {
@@ -30,6 +30,7 @@ function toDto(input: LiveProgrammeInput): ExperienceProgrammeDto {
     key: input.key,
     title: input.title,
     description: input.description,
+    posterRef: input.posterRef,
     startsAt: input.startsAt,
     endsAt: input.endsAt,
   };

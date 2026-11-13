@@ -846,6 +846,7 @@ export function GuidePage(): ReactNode {
               : {
                   title: detail.programme?.title ?? '',
                   description: detail.programme?.description ?? null,
+                  posterRef: detail.programme?.posterRef ?? null,
                   start: detail.programme?.startsAt ?? '',
                   end: detail.programme?.endsAt ?? '',
                 }

@@ -421,6 +421,16 @@ export const DOMAIN_PROBLEM_REGISTRY = {
     title: 'Vod Detail Too Large',
     detail: '详情或预览超出体积或条目预算,整次失败',
   },
+  PROGRAMME_POSTER_UPSTREAM_FAILED: {
+    status: 502,
+    title: 'Programme Poster Upstream Failed',
+    detail: '节目海报读取失败,请稍后重试',
+  },
+  PROGRAMME_POSTER_UPSTREAM_TIMEOUT: {
+    status: 504,
+    title: 'Programme Poster Upstream Timeout',
+    detail: '节目海报读取超出预算时限',
+  },
 } as const satisfies Partial<Record<PcProblemCode, DomainProblemSpec>>;
 
 /** 注册表覆盖的错误码(003 catalog 契约码 + 004 播放稳定码 + 005 §7 新增码;可据此获得 status 免重复硬编码的构造) */

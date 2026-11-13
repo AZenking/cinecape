@@ -51,6 +51,7 @@ export function NextSection({ resource, onRetry, onViewMore, onOpenProgramme, on
                 row={row}
                 slot="upcoming"
                 nowIso={data?.now ?? null}
+                timezone={data?.timezone}
                 onOpenProgramme={onOpenProgramme}
                 onRequireAuth={onRequireAuth}
               />

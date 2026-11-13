@@ -65,6 +65,27 @@ export function PublicLayout({ fill = false }: PublicLayoutProps = {}): ReactNod
       >
         <Outlet />
       </main>
+      {/* 020 TMDB 署名（API Terms §3）：全公共页面常驻；fill 页面 footer 不参与内部滚动 */}
+      <footer className="shrink-0 border-t border-border/40 bg-transparent px-3 py-1.5">
+        <div className="mx-auto flex w-full flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 text-2xs text-muted/75">
+          <img
+            src="/brand/tmdb.svg"
+            alt="TMDB"
+            loading="lazy"
+            decoding="async"
+            className="h-2.5 w-auto opacity-60"
+          />
+          <span className="leading-tight">本应用使用 TMDB 与 TMDB API，但未获 TMDB 认可、认证或批准。</span>
+          <a
+            href="https://www.themoviedb.org/"
+            target="_blank"
+            rel="noreferrer"
+            className="rounded underline decoration-border/60 underline-offset-2 hover:text-foreground/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          >
+            themoviedb.org
+          </a>
+        </div>
+      </footer>
     </div>
   );
 }

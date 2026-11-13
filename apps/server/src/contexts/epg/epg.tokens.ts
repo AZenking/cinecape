@@ -17,3 +17,11 @@
 export const EPG_STORE = Symbol('EPG_STORE');
 export const EPG_MANUAL_BINDING_PORT = Symbol('EPG_MANUAL_BINDING_PORT');
 export const EPG_SERVICE_PORT = Symbol('EPG_SERVICE_PORT');
+
+/* —— 020 TMDB 节目海报 —— */
+/** 补全/缓存恢复服务（sources 刷新执行器 + CLI 消费） */
+export const EPG_PROGRAMME_POSTER_PORT = Symbol('EPG_PROGRAMME_POSTER_PORT');
+/** 公共海报代理服务（PublicProgrammePosterController 消费） */
+export const EPG_PROGRAMME_POSTER_PROXY_PORT = Symbol('EPG_PROGRAMME_POSTER_PROXY_PORT');
+/** TMDB 客户端（仅 EPG 模块内部装配） */
+export const TMDB_CLIENT_PORT = Symbol('TMDB_CLIENT_PORT');

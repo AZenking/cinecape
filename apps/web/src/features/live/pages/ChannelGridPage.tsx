@@ -336,6 +336,7 @@ export function ChannelGridPage(): ReactNode {
                 row={row}
                 slot="current"
                 nowIso={channelsResource.data?.now ?? null}
+                timezone={timezone}
                 onOpenProgramme={setSlotDialog}
                 onRequireAuth={requireAuth}
               />
@@ -384,6 +385,7 @@ export function ChannelGridPage(): ReactNode {
             : {
                 title: slotDialog.programme.title,
                 description: slotDialog.programme.description,
+                posterRef: slotDialog.programme.posterRef,
                 start: slotDialog.programme.startsAt,
                 end: slotDialog.programme.endsAt,
               }

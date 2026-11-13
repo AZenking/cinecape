@@ -37,13 +37,17 @@ import { useAppMutation, useAppQuery } from '../../shared/query/hooks';
 import { queryKeys } from '../../shared/query/keys';
 import { formatApiError } from '../../shared/query/error';
 import { isFetchApiError, privateFetch } from '../../shared/fetch';
+import { formatDateTimeInZone } from '../../shared/time/format-datetime';
 import { classifySettingsWriteError, useSettingsPolling } from './shared/access-expiry';
+import { useHouseholdTimezone } from './shared/use-household-timezone';
 import { fetchAllSettingsSources, type RefreshDto, type SourcePageDto } from './shared/settings-api';
 import { useUnsavedGuard } from './shared/unsaved-guard';
 import { useSettingsAccess } from './settings-access-provider';
 import { useSettingsPageMeta } from './settings-modules';
 import { SettingsPageHeader } from './shared/settings-page-header';
 import { CreateSourceModal, type SettingsSourceDto, type SettingsSourceKind } from './components/CreateSourceModal';
+import { ArchiveSourceButton } from './components/archive-source-button';
+import { SourceRawViewerButton } from './components/source-raw-viewer-button';
 
 /** 来源类型(菜单拆分用:IPTV 管理/NAS/点播 各显示自己的子集) */
 export type { SettingsSourceKind };
@@ -113,6 +117,8 @@ export function SettingsSourcesPage({
   const access = useSettingsAccess();
   const { title } = useSettingsPageMeta();
   const toast = useAppToast();
+  /** 「上次导入」按家庭时区展示(服务端 lastSuccessAt 为 UTC ISO) */
+  const timezone = useHouseholdTimezone();
   // IPTV 专属视图(IPTV 管理页嵌入,单类型 iptv):kind 徽标冗余隐藏、手动导入改称
   // 立即同步;NAS/点播与全量视图保持原词汇(混合类型下徽标仍有信息量)
   const isIptvScopedView = kinds !== undefined && kinds.length > 0 && kinds.every((kind) => kind === 'iptv' || kind === 'epg');
@@ -438,13 +444,13 @@ export function SettingsSourcesPage({
                           <span>·</span>
                           <span>
                             {source.lastSuccessAt !== null
-                              ? `上次导入 ${source.lastSuccessAt.slice(0, 16).replace('T', ' ')}`
+                              ? `上次导入 ${formatDateTimeInZone(source.lastSuccessAt, timezone)}`
                               : '尚无成功导入'}
                           </span>
                         </div>
                       </div>
 
-                      <div className="flex shrink-0 items-center gap-2.5">
+                      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                         {source.kind === 'vod' ? (
                           <Button
                             variant="secondary"
@@ -475,6 +481,21 @@ export function SettingsSourcesPage({
                           >
                             查看内容
                           </Link>
+                        ) : null}
+                        {source.kind === 'iptv' || source.kind === 'epg' ? (
+                          <SourceRawViewerButton
+                            sourceId={source.id}
+                            sourceName={source.name}
+                            sourceKind={source.kind}
+                          />
+                        ) : null}
+                        {source.kind === 'iptv' || source.kind === 'epg' ? (
+                          <ArchiveSourceButton
+                            sourceId={source.id}
+                            sourceName={source.name}
+                            sourceVersion={source.version}
+                            sourceKind={source.kind}
+                          />
                         ) : null}
                         <div className="ml-1 flex items-center">
                           {/* 启停状态经开关旁文字标签表达(可读;不用整卡透明度弱化) */}

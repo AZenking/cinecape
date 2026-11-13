@@ -16,9 +16,11 @@ import { useAppMutation, useAppQuery } from '../../shared/query/hooks';
 import { queryKeys } from '../../shared/query/keys';
 import { formatApiError } from '../../shared/query/error';
 import { privateFetch } from '../../shared/fetch';
+import { formatDateTimeInZone } from '../../shared/time/format-datetime';
 import { classifySettingsWriteError } from './shared/access-expiry';
 import type { DeviceDto } from './shared/settings-api';
 import { PasswordConfirmModal } from './shared/password-confirm-modal';
+import { useHouseholdTimezone } from './shared/use-household-timezone';
 import { useSettingsAccess } from './settings-access-provider';
 import { useSettingsPageMeta } from './settings-modules';
 import { SettingsPageHeader } from './shared/settings-page-header';
@@ -38,6 +40,8 @@ export function SettingsDevicesPage(): ReactNode {
   const access = useSettingsAccess();
   const { title } = useSettingsPageMeta();
   const toast = useAppToast();
+  /** 设备时间戳按家庭时区展示(服务端返回 UTC ISO) */
+  const timezone = useHouseholdTimezone();
   const [revokeTarget, setRevokeTarget] = useState<DeviceDto | null>(null);
   const [recordsPage, setRecordsPage] = useState<{ device: DeviceDto; items: PlaybackRecordItem[] } | null>(null);
 
@@ -135,10 +139,10 @@ export function SettingsDevicesPage(): ReactNode {
                       </div>
                       <div className="text-xs text-muted">
                         {isRevoked ? (
-                          <span className="text-danger">已于 {device.revokedAt!.slice(0, 19).replace('T', ' ')} 撤销</span>
+                          <span className="text-danger">已于 {formatDateTimeInZone(device.revokedAt!, timezone, { seconds: true })} 撤销</span>
                         ) : (
                           <>
-                            最近活跃:{device.lastSeenAt !== null ? device.lastSeenAt.slice(0, 19).replace('T', ' ') : '未知'}
+                            最近活跃:{device.lastSeenAt !== null ? formatDateTimeInZone(device.lastSeenAt, timezone, { seconds: true }) : '未知'}
                           </>
                         )}
                       </div>
@@ -230,8 +234,8 @@ export function SettingsDevicesPage(): ReactNode {
                     </Chip>
                     <span className="text-foreground">
                       {item.kind === 'session'
-                        ? `${item.state ?? '未知状态'} · ${(item.createdAt ?? '').slice(0, 19).replace('T', ' ')}`
-                        : `${item.stableCode ?? 'UNKNOWN'} · ${(item.occurredAt ?? '').slice(0, 19).replace('T', ' ')}`}
+                        ? `${item.state ?? '未知状态'} · ${formatDateTimeInZone(item.createdAt ?? '', timezone, { seconds: true })}`
+                        : `${item.stableCode ?? 'UNKNOWN'} · ${formatDateTimeInZone(item.occurredAt ?? '', timezone, { seconds: true })}`}
                     </span>
                   </li>
                 ))}

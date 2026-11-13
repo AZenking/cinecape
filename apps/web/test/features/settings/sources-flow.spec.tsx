@@ -249,3 +249,54 @@ describe('T123 · 来源创建→导入→确认流程(FR-037)', () => {
     expect(screen.queryByLabelText('主账号密码(当次验证)')).toBeNull();
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* 021-source-governance:删除(归档)与原始数据查看入口                    */
+/* ------------------------------------------------------------------ */
+
+describe('021 · 来源归档按钮与原始数据查看器', () => {
+  function renderPage(): void {
+    appQueryClient.clear();
+    render(
+      <MemoryRouter initialEntries={['/settings/sources']}>
+        <QueryClientProvider client={appQueryClient}>
+          <SettingsAccessProvider>
+            <Routes>
+              <Route path="/settings/sources" element={<Page />} />
+            </Routes>
+          </SettingsAccessProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  it('点击删除弹出归档确认;确认后 POST archive 携带 expectedVersion', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByTestId('source-list')).toBeVisible());
+
+    await user.click(screen.getByTestId('source-delete-s-1'));
+    expect(await screen.findByText('删除「直播源」？')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '归档来源' }));
+
+    await waitFor(() =>
+      expect(calls('POST', '/api/settings/sources/s-1/archive')).toHaveLength(1),
+    );
+    const archiveCall = vi
+      .mocked(fetch)
+      .mock.calls.find(([input]) => String(input).includes('/sources/s-1/archive'));
+    expect(JSON.parse(String(archiveCall?.[1]?.body))).toEqual({ expectedVersion: 1 });
+  });
+
+  it('点击原始数据打开查看器;无快照时给出同步提示', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByTestId('source-list')).toBeVisible());
+
+    await user.click(screen.getByTestId('source-raw-open-s-1'));
+    expect(await screen.findByText('原始导入数据 · 直播源')).toBeVisible();
+    expect(
+      await screen.findByText(/暂无原始快照。执行一次「立即同步」成功后/),
+    ).toBeVisible();
+  });
+});

@@ -11,5 +11,5 @@
       "@platform/*": ["src/platform/*"]
     }
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "scripts"]
 }

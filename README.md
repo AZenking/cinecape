@@ -7,6 +7,8 @@
 - 阶段：阶段 1～4 已完成（见下方证据档案）；阶段 5「PC 公开浏览与观看操作流程全面调整」（[规格 005](docs/specs/005-pc-browsing-flow/spec.md)）**实现完成**（2026-10-27：八个用户故事 US1~US8 全部交付，server 1362 用例 / web 100 用例 / e2e 46 用例全绿，见 [005 evidence.md](docs/specs/005-pc-browsing-flow/evidence.md)）；最终 Verified 门禁待 T137～T144 多层证据（真实四浏览器矩阵与 SC-002 真人验收须人工执行——实现完成 ≠ 验收完成）
 - 005 交互变更：游客免登录浏览全部可用内容元数据（公开浏览与播放授权分离，ADR-0010）；初始化不再自动登录；主 Profile + 独立 15 分钟设置 PIN 授权（ADR-0011）；收藏/历史/跨设备续播按 Profile 隔离（ADR-0012）；管理入口统一迁入 `/api/settings/*`
 - 领域模型：V1.1 Frozen
+- 020 TMDB 节目海报：实现完成（可选；功能自动化门禁通过，真实 TMDB 运行时证据待补，见 [020 evidence](docs/specs/020-tmdb-programme-posters/evidence.md)）
+- 021 来源归档与数据治理：IPTV/EPG 来源软删除（归档/恢复/永久清理）、过期节目/失效线路/原始快照/同步任务清理、M3U/XMLTV 原文预览与下载（[规格](docs/specs/021-source-governance/spec.md)、[ADR-0022](docs/adr/0022-source-governance.md)）
 - 实现状态：身份闭环可用（初始化向导 / 登录 / Profile 选择与切换含 PIN / 设备管理 / 会话生命周期）；内容策略可用（等级 / 未评级 / 名单 / 频道白名单 + 家长验证）；媒体目录与来源可用（IPTV/EPG、NAS 导入、手动 EPG 匹配）；播放解析与受控播放可用（统一授权网关 `POST /playback/resolve`、direct/remux/audio/video 四路径交付、转封装与按需转码、字幕/音轨、家长设备记录）
 - 证据档案：[`docs/specs/001-scaffold-identity-foundation/evidence.md`](docs/specs/001-scaffold-identity-foundation/evidence.md)（65 测试 + 真实进程/浏览器 + 迁移恢复 + ARM64/AMD64 容器）；[`docs/specs/002-profile-policy/evidence.md`](docs/specs/002-profile-policy/evidence.md)（109 用例 + 升级/回滚/恢复演练 + 容器内策略链路）；[`docs/specs/003-media-catalog/evidence.md`](docs/specs/003-media-catalog/evidence.md)（456 用例 + runtime 205 断言 + 真实浏览器 + 双架构容器 + 迁移演练）；[`docs/specs/004-playback-resolver/evidence.md`](docs/specs/004-playback-resolver/evidence.md)（961 用例 + runtime 445 断言 + 迁移/恢复演练 + FR/SC 终验核对；浏览器/硬件/镜像缺口如实保留）
 - 最高治理依据： [项目宪章](.specify/memory/constitution.md)（1.2.0，含 005/代际2 限定交付例外）
@@ -113,9 +115,41 @@ pnpm test:runtime # 独立临时数据库：真实 HTTP、重启、备份读取�
 | 组件 | 版本 / 来源 | 许可 | 用途 |
 | --- | --- | --- | --- |
 | hls.js | 1.7.3（`apps/web` 锁定完整构建，禁用 light 版——音轨/字幕依赖完整版） | Apache-2.0 | 浏览器 HLS 播放（MSE），Safari 另走原生 HLS |
+| TMDB API（可选外部服务） | v3 `search/multi` / v4 Read Access Token；调用方自备 Key | [TMDB API Terms of Use](https://www.themoviedb.org/api-terms-of-use)（缓存 ≤6 个月、署名、默认非商业） | 节目单海报元数据匹配（可选；未配置 Key 时完全关闭） |
 | FFmpeg / ffprobe | 部署镜像 Debian bookworm `5.1.x`（当前 5.1.9，随 security 更新浮动；单一 `ffmpeg` 包同供两个可执行）；本机开发任意 ≥5 版本 | GPL 组件启用构建（`--enable-gpl`，含 libx264/libx265；各链接库按各自许可，libx264 为 GPL-2.0+） | 服务端媒体探测、转封装与按需转码（仅子进程调用） |
 
 许可汇总：hls.js 为 Apache-2.0；FFmpeg 为发行版 GPL 组件启用构建。应用仅在服务器端以子进程调用 FFmpeg、不分发其本体，无整体传染义务；**再分发镜像时需按各组件许可逐项审查**。完整许可与版本记录见 [`docs/specs/004-playback-resolver/research.md`](docs/specs/004-playback-resolver/research.md)「依赖版本锁定（T004）」节。注意：本机开发 FFmpeg（参考环境 8.1.1）的性能结论不得外推到镜像 5.1.9。
+
+
+## 来源归档与数据治理
+
+「IPTV 管理 → 数据治理」提供来源与导入数据的保留治理：
+
+- **删除 = 归档**：直播源/节目单源删除后立即停用并从列表隐藏，已导入数据保留；治理页可恢复，或按保留期永久清理。
+- **原始快照**：每次成功同步 M3U/XMLTV 后保存一份 gzip 原文；来源行「原始数据」可查看 256 KiB 预览并下载完整原文。
+- **清理项**：已结束 EPG 节目、失效频道线路、历史原始快照（每源保留最新一份）、过期同步任务、归档来源；全部先 dry-run 预览再执行，真实清理写审计行。
+- **保留期**：默认 30 天，可选 7/30/90/180 天。
+
+## TMDB 节目海报（可选）
+
+节目单可为电影/剧集节目匹配 TMDB 海报。该能力默认关闭，不影响不配置 Key 的部署。
+
+```dotenv
+# apps/server/.env（或 Docker 环境）
+TMDB_API_KEY=你的_v3_key
+# 或 v4 Read Access Token（优先）
+# TMDB_READ_ACCESS_TOKEN=你的_v4_token
+# TMDB_LANGUAGE=zh-CN
+# TMDB_REGION=CN
+```
+
+- **最小调用**：每个归一化标题只调用一次 `GET /search/multi`，不调用详情/图片/季集接口；读取节目单/直播/详情不触发 TMDB API。
+- **缓存**：结果写入本地 SQLite `programme_poster`；已匹配 180 天（TMDB 条款上限 6 个月）、未匹配 30 天、失败 60 分钟。串行 1 并发、最小间隔 150ms、单次最多 300 次、总预算 90s；401/429/5xx 熔断/退避。
+- **回填**：首次导入未覆盖的标题可运行 `pnpm --filter @hmp/server tmdb:backfill -- --limit=500`（`--dry-run` 只统计）。
+- **隐私**：启用后节目标题会发送给 TMDB；不发送账号/Profile/设备/播放地址。留空 Key 即完全关闭网络查询。
+- **署名**：公共页面底部展示 TMDB logo 与「未获 TMDB 认可、认证或批准」声明。
+- **商业使用**：TMDB API 默认仅允许非商业用途；商业部署需另行取得 TMDB 书面授权。
+- 设计/验收：[`docs/specs/020-tmdb-programme-posters/spec.md`](docs/specs/020-tmdb-programme-posters/spec.md)、[`docs/adr/0021-tmdb-programme-posters.md`](docs/adr/0021-tmdb-programme-posters.md)。
 
 ## 迁移与恢复
 

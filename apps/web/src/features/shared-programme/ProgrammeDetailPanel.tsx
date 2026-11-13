@@ -3,6 +3,7 @@ import { Button, Drawer, ProgressBar } from '@heroui/react';
 import { Play, Star } from 'lucide-react';
 import { formatRangeInZone, formatTimeInZone } from '../live/live-format';
 import { useServerNow } from '../../shared/time/use-server-now';
+import { ProgrammePoster } from './programme-poster';
 
 /**
  * 共享节目详情面板(012 T005;FR-013、contracts/ui.md §2):
@@ -39,6 +40,8 @@ export interface ProgrammeDetailChannel {
 export interface ProgrammeDetailProgramme {
   readonly title: string;
   readonly description: string | null;
+  /** 020 增补:节目海报不透明引用;null/缺省=无海报,回退频道身份区 */
+  readonly posterRef?: string | null;
   /** ISO 起始时刻(现状 DTO startsAt 的归一命名,宿主映射) */
   readonly start: string;
   /** ISO 结束时刻(现状 DTO endsAt) */
@@ -129,29 +132,72 @@ export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNod
             </div>
           </Drawer.Header>
           <Drawer.Body className="flex flex-col gap-4">
-              {/* 海报区:16:9 容器;有 posterRef 时走同源媒体接口(object-contain,
-                  logo 与海报都不会被裁切),无则渐变底 + 频道首字 */}
-              <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-border/60 bg-surface-secondary/60">
-                {channel.posterRef !== undefined && channel.posterRef !== null ? (
-                  <img
-                    src={`/api/public/media/logos/${encodeURIComponent(channel.posterRef)}`}
-                    alt=""
-                    aria-hidden="true"
-                    className="absolute inset-0 h-full w-full object-contain p-6"
-                  />
-                ) : channel.logo !== undefined && channel.logo !== null ? (
-                  <img
-                    src={channel.logo}
-                    alt={`${channel.name} 频道标识`}
-                    className="absolute inset-0 h-full w-full object-contain p-6"
-                  />
-                ) : (
-                  <span className="absolute inset-0 flex items-center justify-center text-3xl font-black text-muted/40">
-                    {channel.name.slice(0, 1).toUpperCase()}
-                  </span>
-                )}
-              </div>
+              {/* 020:有节目海报时用 2:3 海报 + 右侧标题/简介；无海报时保持既有 16:9 频道身份区。
+                  海报加载失败时 ProgrammePoster 返回 null，下层频道 Logo/首字自然露出。 */}
+              {programme !== null && programme.posterRef !== undefined && programme.posterRef !== null ? (
+                <div className="flex items-start gap-4">
+                  <div className="relative aspect-[2/3] w-28 shrink-0 overflow-hidden rounded-lg border border-border/60 bg-surface-secondary/60">
+                    {channel.posterRef !== undefined && channel.posterRef !== null ? (
+                      <img
+                        src={`/api/public/media/logos/${encodeURIComponent(channel.posterRef)}`}
+                        alt=""
+                        aria-hidden="true"
+                        className="absolute inset-0 h-full w-full object-contain p-2"
+                      />
+                    ) : channel.logo !== undefined && channel.logo !== null ? (
+                      <img
+                        src={channel.logo}
+                        alt={`${channel.name} 频道标识`}
+                        className="absolute inset-0 h-full w-full object-contain p-2"
+                      />
+                    ) : (
+                      <span className="absolute inset-0 flex items-center justify-center text-3xl font-black text-muted/40">
+                        {channel.name.slice(0, 1).toUpperCase()}
+                      </span>
+                    )}
+                    <ProgrammePoster
+                      posterRef={programme.posterRef}
+                      title={programme.title}
+                      decorative={false}
+                      className="absolute inset-0 h-full w-full object-cover"
+                    />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-2">
+                    <h3 className="text-base font-semibold text-foreground">{programme.title}</h3>
+                    {programme.description !== null && programme.description !== '' ? (
+                      <p className="text-sm text-muted">{programme.description}</p>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-border/60 bg-surface-secondary/60">
+                  {channel.posterRef !== undefined && channel.posterRef !== null ? (
+                    <img
+                      src={`/api/public/media/logos/${encodeURIComponent(channel.posterRef)}`}
+                      alt=""
+                      aria-hidden="true"
+                      className="absolute inset-0 h-full w-full object-contain p-6"
+                    />
+                  ) : channel.logo !== undefined && channel.logo !== null ? (
+                    <img
+                      src={channel.logo}
+                      alt={`${channel.name} 频道标识`}
+                      className="absolute inset-0 h-full w-full object-contain p-6"
+                    />
+                  ) : (
+                    <span className="absolute inset-0 flex items-center justify-center text-3xl font-black text-muted/40">
+                      {channel.name.slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+              )}
 
+              {programme !== null &&
+              (programme.posterRef === undefined || programme.posterRef === null) &&
+              programme.description !== null &&
+              programme.description !== '' ? (
+                <p className="text-sm text-muted">{programme.description}</p>
+              ) : null}
               <div className="flex items-center gap-2">
                 {channel.logo !== undefined && channel.logo !== null ? (
                   <img
@@ -162,9 +208,6 @@ export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNod
                 ) : null}
                 <span className="text-sm font-medium text-foreground">{channel.name}</span>
               </div>
-              {programme !== null && programme.description !== null && programme.description !== '' ? (
-                <p className="text-sm text-muted">{programme.description}</p>
-              ) : null}
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
                 {programme !== null ? (
                   <>

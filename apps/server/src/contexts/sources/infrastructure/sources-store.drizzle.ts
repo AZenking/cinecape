@@ -24,7 +24,7 @@ import type { TransactionBinding } from '@platform/database/unit-of-work';
 // 端口形状仍经 sources-store.port.ts 结构镜像类型消费(ChannelLogoParticipant,
 // 编译期赋值强制一致)。
 import { createMediaCatalogTxParticipants } from '@contexts/media-catalog';
-import { catalogState, mediaSource, sourceRefresh, vodSourceConfig } from '@platform/database/schema';
+import { catalogState, mediaSource, sourceArchive, sourceRefresh, vodSourceConfig } from '@platform/database/schema';
 import {
   clearStagedEntries as clearStagedRows,
   loadStagedEntries as loadStagedRows,
@@ -113,6 +113,37 @@ class DrizzleSourcesTxStore implements SourcesTxStore {
       .update(mediaSource)
       .set(patch)
       .where(and(eq(mediaSource.id, sourceId), eq(mediaSource.householdId, householdId)))
+      .run();
+  }
+
+  findSourceArchive(sourceId: string, householdId: string): { archivedAt: string } | undefined {
+    return this.db()
+      .select({ archivedAt: sourceArchive.archivedAt })
+      .from(sourceArchive)
+      .where(and(eq(sourceArchive.householdId, householdId), eq(sourceArchive.sourceId, sourceId)))
+      .get();
+  }
+
+  insertSourceArchive(values: {
+    householdId: string;
+    sourceId: string;
+    archivedAt: string;
+    archivedBy: string | null;
+  }): void {
+    this.db()
+      .insert(sourceArchive)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [sourceArchive.householdId, sourceArchive.sourceId],
+        set: { archivedAt: values.archivedAt, archivedBy: values.archivedBy },
+      })
+      .run();
+  }
+
+  deleteSourceArchive(sourceId: string, householdId: string): void {
+    this.db()
+      .delete(sourceArchive)
+      .where(and(eq(sourceArchive.householdId, householdId), eq(sourceArchive.sourceId, sourceId)))
       .run();
   }
 
@@ -408,12 +439,37 @@ class DrizzleRefreshTxStore implements RefreshTxStore {
     createdAtIso: string,
     updatedAtIso: string,
   ): void {
-    const initialVisible = type === 'channel' ? 0 : 1;
+    // 018 A-002:默认新导入频道保持可见(visible=1);隐藏由管理员工作台显式操作。
+    const initialVisible = 1;
+    if (this.mediaItemHasVisibleColumn()) {
+      this.raw()
+        .prepare(
+          "INSERT INTO media_item (id, household_id, type, title, description, poster_ref, content_level, title_overridden, type_overridden, visible, version, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, NULL, NULL, 0, 0, ?, 1, ?, ?)",
+        )
+        .run(mediaId, householdId, type, title, initialVisible, createdAtIso, updatedAtIso);
+      return;
+    }
+    // 018 前部分迁移库:无 visible 列,走旧列集,避免 0001~0003 测试/升级中断库崩溃
     this.raw()
       .prepare(
-        "INSERT INTO media_item (id, household_id, type, title, description, poster_ref, content_level, title_overridden, type_overridden, visible, version, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, NULL, NULL, 0, 0, ?, 1, ?, ?)",
+        "INSERT INTO media_item (id, household_id, type, title, description, poster_ref, content_level, title_overridden, type_overridden, version, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, NULL, NULL, 0, 0, 1, ?, ?)",
       )
-      .run(mediaId, householdId, type, title, initialVisible, createdAtIso, updatedAtIso);
+      .run(mediaId, householdId, type, title, createdAtIso, updatedAtIso);
+  }
+
+  /** 020 顺带补齐 018 能力守卫：partial migration(无 0011)时 insert 不崩溃 */
+  private visibleColumnAvailable: boolean | null = null;
+
+  private mediaItemHasVisibleColumn(): boolean {
+    if (this.visibleColumnAvailable === null) {
+      const row = this.raw()
+        .prepare(
+          "SELECT COUNT(*) AS n FROM pragma_table_info('media_item') WHERE name = 'visible'",
+        )
+        .get() as { n: number };
+      this.visibleColumnAvailable = row.n === 1;
+    }
+    return this.visibleColumnAvailable;
   }
 
   findMediaItemPresentation(
@@ -741,13 +797,47 @@ class DrizzleRefreshTxStore implements RefreshTxStore {
     description: string | null,
     startsAtIso: string,
     endsAtIso: string,
+    posterMatchKey: string | null,
+    posterRef: string | null,
   ): number {
-    const result = this.raw()
-      .prepare(
-        'INSERT OR IGNORE INTO epg_programme (id, household_id, source_id, xmltv_channel_id, title, description, starts_at, ends_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      )
-      .run(programmeId, householdId, sourceId, xmltvChannelId, title, description, startsAtIso, endsAtIso);
+    const result = this.epgProgrammeHasPosterColumns()
+      ? this.raw()
+          .prepare(
+            'INSERT OR IGNORE INTO epg_programme (id, household_id, source_id, xmltv_channel_id, title, description, starts_at, ends_at, poster_match_key, poster_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          )
+          .run(
+            programmeId,
+            householdId,
+            sourceId,
+            xmltvChannelId,
+            title,
+            description,
+            startsAtIso,
+            endsAtIso,
+            posterMatchKey,
+            posterRef,
+          )
+      : this.raw()
+          .prepare(
+            'INSERT OR IGNORE INTO epg_programme (id, household_id, source_id, xmltv_channel_id, title, description, starts_at, ends_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          )
+          .run(programmeId, householdId, sourceId, xmltvChannelId, title, description, startsAtIso, endsAtIso);
     return Number(result.changes);
+  }
+
+  /** 020:0012 能力守卫缓存（同实例内 PRAGMA 只查一次；部分迁移库安全降级） */
+  private posterColumnsAvailable: boolean | null = null;
+
+  epgProgrammeHasPosterColumns(): boolean {
+    if (this.posterColumnsAvailable === null) {
+      const row = this.raw()
+        .prepare(
+          "SELECT COUNT(*) AS n FROM pragma_table_info('epg_programme') WHERE name IN ('poster_match_key', 'poster_ref')",
+        )
+        .get() as { n: number };
+      this.posterColumnsAvailable = row.n === 2;
+    }
+    return this.posterColumnsAvailable;
   }
 
   mediaSourceHasEpgGenerationColumn(): boolean {
@@ -798,8 +888,22 @@ class DrizzleSourcesStore extends DrizzleRefreshTxStore implements SourcesStore 
       .get();
   }
 
+  isSourceArchived(sourceId: string, householdId: string): boolean {
+    return (
+      this.db()
+        .select({ sourceId: sourceArchive.sourceId })
+        .from(sourceArchive)
+        .where(and(eq(sourceArchive.householdId, householdId), eq(sourceArchive.sourceId, sourceId)))
+        .get() !== undefined
+    );
+  }
+
   listMediaSourcePage(householdId: string, page: number, pageSize: number): { rows: MediaSource[]; total: number } {
-    const where = eq(mediaSource.householdId, householdId);
+    // 021:归档来源从常规管理列表隐藏(治理页另经 overview 读取)
+    const where = and(
+      eq(mediaSource.householdId, householdId),
+      sql`NOT EXISTS (SELECT 1 FROM source_archive sa WHERE sa.household_id = ${householdId} AND sa.source_id = ${mediaSource.id})`,
+    );
     const total = this.db().select({ value: count() }).from(mediaSource).where(where).get()?.value ?? 0;
     const rows = this.db()
       .select()

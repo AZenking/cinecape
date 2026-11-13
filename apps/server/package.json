@@ -15,7 +15,8 @@
     "migration:drill": "tsx src/platform/database/migrate.ts drill",
     "audit:boundaries": "depcruise src --config .dependency-cruiser.cjs",
     "audit:orphans": "knip",
-    "audit:purity": "node scripts/audit-purity.mjs"
+    "audit:purity": "node scripts/audit-purity.mjs",
+    "tmdb:backfill": "tsx scripts/tmdb-backfill.ts"
   },
   "dependencies": {
     "@hmp/shared": "workspace:*",

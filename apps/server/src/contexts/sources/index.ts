@@ -9,14 +9,17 @@ export { REFRESH_EXECUTOR_PORT, SOURCES_SERVICE_PORT } from './sources.tokens';
 
 // —— 应用服务纯函数(T020 grep 实测跨上下文消费清单)——
 export {
+  archiveSource,
   confirmSourceRefresh,
   createSource,
   createVodSourceConfigurationPort,
   discardSourceRefresh,
+  getSource,
   getSourceRefresh,
   listSourceRoots,
   listSources,
   requestSourceRefresh,
+  restoreSource,
   testSource,
   updateSource,
   type CreateSourceInput,
@@ -35,6 +38,15 @@ export type { SupportedMediaExtension } from './infrastructure/nas-scanner';
 // 016 T018/T019(US3 多线路):线路公开标签的单一事实源 —— 播放解析(resolve 线路投影)
 // 与导入派生共用同一「线路 N [差异段|来源名]」形态;纯函数零 IO,经发布面合法跨上下文。
 export { buildLineLabel } from './infrastructure/m3u.parser';
+// 021:原始导入快照读取面(settings 治理/查看器消费;写入在刷新执行器内部)
+export {
+  decodeSnapshotFull,
+  decodeSnapshotPrefix,
+  findImportSnapshot,
+  listImportSnapshots,
+  SNAPSHOT_PREVIEW_BYTES,
+  type ImportSnapshotMeta,
+} from './infrastructure/import-snapshot';
 
 // T022a 补面：Nest 装配入口（settings.module `imports:` 消费；contracts 允许经
 // 「Nest module 的 exports 提供者」装配；属装配面而非 application/infrastructure 实现类）

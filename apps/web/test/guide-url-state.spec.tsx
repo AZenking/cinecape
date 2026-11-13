@@ -80,7 +80,7 @@ const TO_ISO = '2026-11-05T05:00:00.000Z'; // 真实日界终点(24:00 EST)
 const ALLOWED_DATES = ['2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07', '2026-11-08', '2026-11-09', '2026-11-10'];
 
 function programme(key: string, title: string, startsAt: string, endsAt: string) {
-  return { key, title, description: null, startsAt, endsAt };
+  return { key, title, description: null, posterRef: null, startsAt, endsAt };
 }
 
 function channelOf(id: string, title: string, programmes: ReturnType<typeof programme>[]) {

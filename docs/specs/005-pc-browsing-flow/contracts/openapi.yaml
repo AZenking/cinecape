@@ -10450,6 +10450,11 @@ components:
           type:
             - string
             - 'null'
+        posterRef:
+          type:
+            - string
+            - 'null'
+          description: 020 增补：节目海报不透明引用（32 位小写 hex）；null=无海报。不携带 TMDB ID/上游 URL。
         startsAt:
           type: string
           format: date-time
@@ -10459,6 +10464,7 @@ components:
       required:
         - title
         - description
+        - posterRef
         - startsAt
         - endsAt
     B003Programmes:
@@ -11529,6 +11535,11 @@ components:
           type:
             - string
             - 'null'
+        posterRef:
+          type:
+            - string
+            - 'null'
+          description: 020 增补：节目海报不透明引用（32 位小写 hex）；null=无海报。不携带 TMDB ID/上游 URL。
         startsAt:
           type: string
           format: date-time
@@ -11539,6 +11550,7 @@ components:
         - key
         - title
         - description
+        - posterRef
         - startsAt
         - endsAt
     Programmes:

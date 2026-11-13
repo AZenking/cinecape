@@ -83,6 +83,9 @@ function installFetch(): void {
       if (path === '/api/settings/access') {
         return jsonResponse({ unlocked: true, expiresAt: new Date(Date.now() + 15 * 60_000).toISOString() });
       }
+      if (path === '/api/settings/household' && method === 'GET') {
+        return jsonResponse({ name: '家', language: 'zh-CN', timezone: 'Asia/Shanghai', version: 1, mainProfileVersion: 1 });
+      }
       if (path === '/api/settings/devices' && method === 'GET') {
         devicesGetCalls += 1;
         return await devicesReply();
@@ -192,7 +195,7 @@ describe('T025 · settings-devices 三态行为(settings 域数据层回归)', (
     await waitFor(() => {
       // 撤销标注渲染为「已于 {revokedAt} 撤销」:以服务端新真值的时间戳断言回填
       const revised = screen.getByTestId('device-list');
-      expect(revised.textContent).toContain('已于 2026-01-06 09:30:00 撤销');
+      expect(revised.textContent).toContain('已于 2026-01-06 17:30:00 撤销');
     });
     // 失效对账:设备列表被重取(初始 1 次 + 撤销后 1 次)
     await waitFor(() => expect(devicesGetCalls).toBe(2));

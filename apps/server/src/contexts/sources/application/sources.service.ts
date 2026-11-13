@@ -192,6 +192,12 @@ export function listSources(context: SessionContext, query: ListSourcesQuery): S
   return { items: page.rows.map(toSourceDto), total: page.total, page: query.page, pageSize: query.pageSize };
 }
 
+/** GET 单来源(治理/快照查看器归属校验;归档来源也返回,供治理页恢复/清理)。 */
+export function getSource(context: SessionContext, sourceId: string): SourceDto | undefined {
+  const row = sourcesStore().findOwnedMediaSource(sourceId, context.session.householdId);
+  return row === undefined ? undefined : toSourceDto(row);
+}
+
 /** GET /source-roots:NAS 根选择列表(owner);label 即 rootKey,不含绝对路径 */
 export function listSourceRoots(): RootDto[] {
   return Object.entries(getConfig().MEDIA_ROOTS)
@@ -315,7 +321,8 @@ export async function updateSource(
   const householdId = context.session.householdId;
 
   const existing = sourcesStore().findOwnedMediaSource(sourceId, householdId);
-  if (existing === undefined) {
+  if (existing === undefined || sourcesStore().isSourceArchived(sourceId, householdId)) {
+    // 021:归档来源对常规管理不可见(恢复走 restoreSource)
     throw notFound();
   }
 
@@ -356,7 +363,7 @@ export async function updateSource(
 
   return sourcesStore().withTransaction((tx) => {
     const row = tx.findOwnedMediaSource(sourceId, householdId);
-    if (row === undefined) {
+    if (row === undefined || tx.findSourceArchive(sourceId, householdId) !== undefined) {
       throw notFound();
     }
     if (row.version !== input.expectedVersion) {
@@ -394,6 +401,74 @@ export async function updateSource(
       throw new Error('来源更新后读取失败');
     }
     return toSourceDto(fresh);
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* 来源归档/恢复(021-source-governance)                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 归档来源(产品语义「删除」):停用、从常规列表隐藏、保留已导入数据。
+ * - 活跃刷新任务存在时 409 SOURCE_BUSY(避免归档与执行器竞态);
+ * - CAS expectedVersion;同事务 version+1、catalog revision+1、待确认快照标 stale。
+ */
+export function archiveSource(
+  sourceId: string,
+  context: SessionContext,
+  expectedVersion: number,
+): void {
+  const householdId = context.session.householdId;
+  const nowIso = new Date().toISOString();
+  const store = sourcesStore();
+  store.withTransaction((tx) => {
+    const row = tx.findOwnedMediaSource(sourceId, householdId);
+    if (row === undefined || tx.findSourceArchive(sourceId, householdId) !== undefined) {
+      throw notFound();
+    }
+    if (row.version !== expectedVersion) {
+      throw createDomainError('SOURCE_VERSION_CONFLICT');
+    }
+    if (store.hasActiveRefreshJob(householdId, sourceId)) {
+      throw createDomainError('SOURCE_BUSY');
+    }
+    tx.updateOwnedMediaSource(sourceId, householdId, {
+      enabled: 0,
+      version: row.version + 1,
+      updatedAt: nowIso,
+    });
+    tx.insertSourceArchive({
+      householdId,
+      sourceId,
+      archivedAt: nowIso,
+      archivedBy: context.session.accountId,
+    });
+    tx.markAwaitingSnapshotsStale(householdId, sourceId);
+    tx.bumpCatalogRevision(householdId);
+  });
+}
+
+/** 恢复归档来源:archived_at 清空,保持停用(不自动同步);CAS expectedVersion。 */
+export function restoreSource(
+  sourceId: string,
+  context: SessionContext,
+  expectedVersion: number,
+): void {
+  const householdId = context.session.householdId;
+  const nowIso = new Date().toISOString();
+  sourcesStore().withTransaction((tx) => {
+    const row = tx.findOwnedMediaSource(sourceId, householdId);
+    if (row === undefined || tx.findSourceArchive(sourceId, householdId) === undefined) {
+      throw notFound();
+    }
+    if (row.version !== expectedVersion) {
+      throw createDomainError('SOURCE_VERSION_CONFLICT');
+    }
+    tx.deleteSourceArchive(sourceId, householdId);
+    tx.updateOwnedMediaSource(sourceId, householdId, {
+      version: row.version + 1,
+      updatedAt: nowIso,
+    });
   });
 }
 

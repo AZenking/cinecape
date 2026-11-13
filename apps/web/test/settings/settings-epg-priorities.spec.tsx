@@ -94,6 +94,9 @@ function installFetchMock(): void {
         body = JSON.parse(init.body) as Record<string, unknown>;
       }
       fetchCalls.push({ method, path, body });
+      if (path === '/api/settings/household' && method === 'GET') {
+        return jsonResponse({ name: '家', language: 'zh-CN', timezone: 'Asia/Shanghai', version: 1, mainProfileVersion: 1 });
+      }
       if (path === '/api/settings/sources' && method === 'GET') {
         if (getSourcesProblem !== null) {
           return problem(getSourcesProblem);
@@ -263,7 +266,7 @@ describe('018 · EPG 来源合并看板(来源清单 × 优先级合一)', () =>
     expect(rowA).toHaveTextContent('epg.example/xmltv.xml');
     // 真实计数仅在优先级投影提供时呈现(不臆造)
     expect(rowA).toHaveTextContent('180 个频道');
-    expect(rowA).toHaveTextContent('上次成功同步 2026-11-09 08:00:00');
+    expect(rowA).toHaveTextContent('上次成功同步 2026-11-09 16:00:00');
     expect(rowA).toHaveTextContent('已启用');
 
     // 停用源:不缺行,无优先级投影 → 不呈现臆造的频道数/同步时间

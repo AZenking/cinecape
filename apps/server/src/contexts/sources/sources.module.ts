@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { EpgModule } from '@contexts/epg';
 import { RefreshExecutorService } from '@contexts/sources/application/refresh-executor.service';
 import { RefreshPublishService } from '@contexts/sources/application/refresh-publish.service';
 import {
@@ -41,6 +42,7 @@ import type { ISourcesService } from '@contexts/sources/sources.ports';
  * 不经 HTTP 暴露,不导出。
  */
 @Module({
+  imports: [EpgModule],
   controllers: [],
   providers: [
     {

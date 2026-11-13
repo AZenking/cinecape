@@ -492,6 +492,7 @@ export function loadLiveChannelWindows(
         key: programmeKeyOf(row.id),
         title: row.title,
         description: row.description,
+        posterRef: row.posterRef,
         startsAt: row.startsAt,
         endsAt: row.endsAt,
       })),

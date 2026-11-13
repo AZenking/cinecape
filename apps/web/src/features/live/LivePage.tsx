@@ -307,6 +307,7 @@ export function LivePage(): ReactNode {
             : {
                 title: slotDialog.programme.title,
                 description: slotDialog.programme.description,
+                posterRef: slotDialog.programme.posterRef,
                 start: slotDialog.programme.startsAt,
                 end: slotDialog.programme.endsAt,
               }

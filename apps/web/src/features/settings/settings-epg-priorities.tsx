@@ -28,11 +28,15 @@ import { useAppMutation, useAppQuery } from '../../shared/query/hooks';
 import { queryKeys } from '../../shared/query/keys';
 import { formatApiError } from '../../shared/query/error';
 import { privateFetch } from '../../shared/fetch';
+import { formatDateTimeInZone } from '../../shared/time/format-datetime';
 import { classifySettingsWriteError, useSettingsPolling } from './shared/access-expiry';
+import { useHouseholdTimezone } from './shared/use-household-timezone';
 import { useUnsavedGuard } from './shared/unsaved-guard';
 import { useSettingsAccess } from './settings-access-provider';
 import { fetchAllSettingsSources, type RefreshDto, type SourceDto, type SourcePageDto } from './shared/settings-api';
 import type { EpgSourcePriorityDto } from '@hmp/shared';
+import { ArchiveSourceButton } from './components/archive-source-button';
+import { SourceRawViewerButton } from './components/source-raw-viewer-button';
 
 /** 契约 016 §3.1:GET 响应(sources 按 priority ASC;仅启用源) */
 interface EpgSourcePriorityPageDto {
@@ -82,14 +86,11 @@ function draftPrioritiesPayload(rows: MergedEpgSourceRow[]): Array<{ sourceId: s
   return rows.map((row, index) => ({ sourceId: row.source.id, priority: index + 1 }));
 }
 
-/** 时间呈现跟随页面既有惯例(ISO 截取;null → 未同步) */
-function formatSyncTime(lastSyncAt: string): string {
-  return lastSyncAt.slice(0, 19).replace('T', ' ');
-}
-
+/** 时间呈现跟随家庭时区(服务端 lastSuccessAt 为 UTC ISO;未知时区时占位) */
 export function SettingsEpgPriorities(): ReactNode {
   const access = useSettingsAccess();
   const toast = useAppToast();
+  const timezone = useHouseholdTimezone();
   /** 本地草稿序(sourceId 有序数组;null = 无草稿,展示服务端真值) */
   const [draftOrder, setDraftOrder] = useState<string[] | null>(null);
   /** 保存成功的行内反馈(role=status;有新草稿动作时让位清除) */
@@ -473,7 +474,7 @@ export function SettingsEpgPriorities(): ReactNode {
                         <span className="text-xs text-muted">
                           {priority !== null ? `${priority.channelCount} 个频道` : '频道数量暂不可用'}
                           {source.lastSuccessAt !== null
-                            ? ` · 上次成功同步 ${formatSyncTime(source.lastSuccessAt)}`
+                            ? ` · 上次成功同步 ${formatDateTimeInZone(source.lastSuccessAt, timezone, { seconds: true })}`
                             : ' · 尚无成功导入'}
                         </span>
                       </div>
@@ -502,6 +503,17 @@ export function SettingsEpgPriorities(): ReactNode {
                             </span>
                           </Switch.Content>
                         </Switch>
+                        <SourceRawViewerButton
+                          sourceId={source.id}
+                          sourceName={source.name}
+                          sourceKind="epg"
+                        />
+                        <ArchiveSourceButton
+                          sourceId={source.id}
+                          sourceName={source.name}
+                          sourceVersion={source.version}
+                          sourceKind="epg"
+                        />
                         <Button
                           variant="ghost"
                           size="sm"

@@ -7,6 +7,7 @@ import { readCatalogRevision } from '@contexts/epg/infrastructure/catalog-revisi
 import { loadChannelAssociations, type ChannelMetaRow } from '@contexts/epg/domain/binding-core';
 import { programmeKeyOf } from '@contexts/epg/domain/programme-key.mapper';
 import { epgStore, type GuideProgrammeWindowRow } from '@contexts/epg/application/epg-store.port';
+import { toIso } from '@platform/time/dayjs';
 
 /**
  * 公共 guide 窗口查询服务(T113/T115;data-model.md §8 逐字、contracts/api.md §2、research R8):
@@ -58,6 +59,7 @@ function toProgrammeDto(row: GuideProgrammeWindowRow): ExperienceProgrammeDto {
     key: programmeKeyOf(row.id),
     title: row.title,
     description: row.description,
+    posterRef: row.poster_ref,
     startsAt: row.starts_at,
     endsAt: row.ends_at,
   };
@@ -104,7 +106,7 @@ export function loadGuideWindow(householdId: string, request: GuideWindowRequest
   }
   const { date, allowedDates, window } = resolved;
   const fromIso = new Date(window.fromMs).toISOString();
-  const toIso = new Date(window.toMs).toISOString();
+  const toIsoValue = toIso(window.toMs);
 
   // 2) 频道全集:可用频道(含无节目频道),名称+稳定标识排序后分页(关联核心 6 次集合查询)
   const core = loadChannelAssociations(householdId);
@@ -129,7 +131,7 @@ export function loadGuideWindow(householdId: string, request: GuideWindowRequest
   const pairKeys = [...new Set(pairByMedia.values())];
   if (pairKeys.length > 0) {
     // 交叠条件 + LIMIT 2001 探测经仓储端口(008-T007 逐字迁移,不静默截断)
-    const rows = epgStore().listProgrammeWindowRows(householdId, fromIso, toIso, pairKeys, GUIDE_MAX_PROGRAMMES + 1);
+    const rows = epgStore().listProgrammeWindowRows(householdId, fromIso, toIsoValue, pairKeys, GUIDE_MAX_PROGRAMMES + 1);
     if (rows.length > GUIDE_MAX_PROGRAMMES) {
       // 超限 422:不静默截断(data-model §8;建议减少每页频道数)
       throw new DomainError(422, 'GUIDE_WINDOW_TOO_LARGE');
@@ -160,10 +162,10 @@ export function loadGuideWindow(householdId: string, request: GuideWindowRequest
   const response: GuideWindowDto = {
     date,
     timezone,
-    now: new Date(nowMs).toISOString(),
+    now: toIso(nowMs),
     allowedDates: [...allowedDates],
     from: fromIso,
-    to: toIso,
+    to: toIsoValue,
     page,
     pageSize,
     totalChannels,

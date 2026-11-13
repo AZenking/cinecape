@@ -57,6 +57,8 @@ const ROLLBACKABLE_TAIL_MIGRATIONS: readonly string[] = Object.freeze([
   '0009_channel_logos',
   '0010_multi_source_priority',
   '0011_channel_visibility',
+  '0012_programme_posters',
+  '0013_source_governance',
 ]);
 
 /** 代际 1 完整记录(0006 down 后的 _migrations 形态;与迁移目录 0001~0005 一致) */

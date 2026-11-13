@@ -66,6 +66,7 @@ export interface ProgrammeRow {
   xmltvChannelId: string;
   title: string;
   description: string | null;
+  posterRef: string | null;
   startsAt: string;
   endsAt: string;
 }

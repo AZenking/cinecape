@@ -98,6 +98,7 @@ export function CategorySwimlanes({
                   row={row}
                   slot="current"
                   nowIso={channels?.now ?? null}
+                  timezone={channels?.timezone}
                   onOpenProgramme={onOpenProgramme}
                   onRequireAuth={onRequireAuth}
                 />

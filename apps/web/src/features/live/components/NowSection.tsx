@@ -56,6 +56,7 @@ export function NowSection({ resource, onRetry, onViewMore, onOpenProgramme, onR
                 row={row}
                 slot="current"
                 nowIso={data?.now ?? null}
+                timezone={data?.timezone}
                 onOpenProgramme={onOpenProgramme}
                 onRequireAuth={onRequireAuth}
               />

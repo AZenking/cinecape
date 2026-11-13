@@ -43,6 +43,7 @@ function guideProgramme(key: string, title: string) {
     key,
     title,
     description: null,
+    posterRef: null,
     startsAt: '2026-11-04T11:00:00.000Z',
     endsAt: '2026-11-04T12:30:00.000Z',
   };

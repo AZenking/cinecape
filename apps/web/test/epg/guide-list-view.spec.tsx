@@ -27,7 +27,7 @@ const NOW_ISO = '2026-11-04T12:05:00.000Z'; // 07:05 EST(固定快照,当前节�
 
 /** 节目项(与 GuideWindowDto.channels[].programmes[] 投影一致) */
 function programme(key: string, title: string, startsAt: string, endsAt: string) {
-  return { key, title, description: null, startsAt, endsAt };
+  return { key, title, description: null, posterRef: null, startsAt, endsAt };
 }
 
 /** 频道项(posterRef=null → 不渲染 Logo 身份盒,聚焦行交互断言) */
@@ -150,5 +150,28 @@ describe('GuideChannelList · 播放门禁(onPlayChannel 仅当前行)', () => {
     await user.click(screen.getByRole('button', { name: /深夜电影/ }));
     await user.click(screen.getByRole('button', { name: /已结束节目/ }));
     expect(onPlayChannel).not.toHaveBeenCalled();
+  });
+});
+
+describe('GuideChannelList · 020 节目海报', () => {
+  it('当前节目有 posterRef → 行内渲染同源代理 2:3 缩略图', () => {
+    const posterRef = '0123456789abcdef0123456789abcdef';
+    const data: GuideWindowDto = {
+      ...DATA,
+      channels: [
+        {
+          ...DATA.channels[0]!,
+          programmes: DATA.channels[0]!.programmes.map((programme) =>
+            programme.key === 'pg-current' ? { ...programme, posterRef } : programme,
+          ),
+        },
+      ],
+    };
+    const { container } = render(
+      <GuideChannelList data={data} selectedKey={null} onPlayChannel={vi.fn()} onSelectProgramme={vi.fn()} />,
+    );
+    const img = container.querySelector(`img[src*="/api/public/media/programme-posters/${posterRef}"]`);
+    expect(img).not.toBeNull();
+    expect(img?.getAttribute('loading')).toBe('lazy');
   });
 });

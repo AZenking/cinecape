@@ -44,6 +44,7 @@ function programme(
     key,
     title: `节目 ${key}`,
     description: null,
+    posterRef: null,
     startsAt: iso(startMs),
     endsAt: iso(endMs),
     ...overrides,

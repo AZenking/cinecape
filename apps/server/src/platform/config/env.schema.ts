@@ -340,6 +340,78 @@ export const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  /* ---------------------------------------------------------------- */
+  /* 020 TMDB 节目海报(可选;空 Key/Token = 关闭网络查询)                */
+  /* ---------------------------------------------------------------- */
+  /** v3 API Key;与 TMDB_READ_ACCESS_TOKEN 至少一个非空才启用网络查询 */
+  TMDB_API_KEY: z.string().trim().default(''),
+  /** v4 Read Access Token;优先于 v3 API Key */
+  TMDB_READ_ACCESS_TOKEN: z.string().trim().default(''),
+  /** 检索语言(BCP-47 简化形态,如 zh-CN/zh-TW/en-US) */
+  TMDB_LANGUAGE: z
+    .string()
+    .trim()
+    .default('zh-CN')
+    .refine((raw) => /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/.test(raw), '必须为合法语言标签(如 zh-CN)'),
+  /** 检索地区(ISO 3166-1 alpha-2) */
+  TMDB_REGION: z
+    .string()
+    .trim()
+    .default('CN')
+    .transform((raw) => raw.toUpperCase())
+    .refine((raw) => /^[A-Z]{2}$/.test(raw), '必须为两位地区码(如 CN)'),
+  /** API 基址(允许本地代理;禁止 userinfo/query/fragment;生产建议 https) */
+  TMDB_API_BASE_URL: z
+    .string()
+    .trim()
+    .default('https://api.themoviedb.org/3')
+    .refine((raw) => {
+      try {
+        const url = new URL(raw);
+        return (
+          (url.protocol === 'http:' || url.protocol === 'https:') &&
+          url.hostname !== '' &&
+          url.username === '' &&
+          url.password === '' &&
+          url.search === '' &&
+          url.hash === ''
+        );
+      } catch {
+        return false;
+      }
+    }, '必须为合法 http(s) URL,且不含 userinfo/query/fragment'),
+  /** 图片基址(只存 poster_path,代理时拼接;生产建议 https) */
+  TMDB_IMAGE_BASE_URL: z
+    .string()
+    .trim()
+    .default('https://image.tmdb.org/t/p/w342')
+    .refine((raw) => {
+      try {
+        const url = new URL(raw);
+        return (
+          (url.protocol === 'http:' || url.protocol === 'https:') &&
+          url.hostname !== '' &&
+          url.username === '' &&
+          url.password === '' &&
+          url.search === '' &&
+          url.hash === ''
+        );
+      } catch {
+        return false;
+      }
+    }, '必须为合法 http(s) URL,且不含 userinfo/query/fragment'),
+  /** 单次刷新/回填最多网络检索数;0 = 只读缓存 */
+  TMDB_MAX_LOOKUPS_PER_RUN: z.coerce.number().int().min(0).max(1000).default(300),
+  /** 两次网络检索最小间隔(ms);0~5000 */
+  TMDB_LOOKUP_INTERVAL_MS: z.coerce.number().int().min(0).max(5000).default(150),
+  /** 单次补全总时长预算(ms);1000~600000 */
+  TMDB_RUN_BUDGET_MS: z.coerce.number().int().min(1000).max(600000).default(90000),
+  /** matched 缓存 TTL(天);TMDB 条款要求 ≤6 个月,硬上限 180 */
+  TMDB_MATCHED_TTL_DAYS: z.coerce.number().int().min(1).max(180).default(180),
+  /** no_match 负缓存 TTL(天) */
+  TMDB_NEGATIVE_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+  /** failed 短 TTL(分钟) */
+  TMDB_FAILURE_TTL_MINUTES: z.coerce.number().int().min(1).max(1440).default(60),
 });
 
 export type Env = z.infer<typeof envSchema>;

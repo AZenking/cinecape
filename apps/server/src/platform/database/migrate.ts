@@ -86,6 +86,12 @@ const EXPECTED_TABLES = [
   'profile_preferences',
   // 0009_channel_logos(014):频道 Logo 胜者注册表
   'channel_logo',
+  // 0012_programme_posters(020):TMDB 节目海报缓存
+  'programme_poster',
+  // 0013_source_governance(021):归档注册表 + 原始导入快照 + 清理审计
+  'source_archive',
+  'source_import_snapshot',
+  'governance_cleanup_run',
   '_migrations',
 ] as const;
 
@@ -133,6 +139,30 @@ const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   source_entry: ['group_title', 'logo_url'],
   // 0009_channel_logos(014):EPG 频道图标原始地址与胜者注册表(014 data-model §1/§2)
   epg_channel: ['icon_url'],
+  // 0012_programme_posters(020):节目海报缓存键/引用列(020 data-model §2)
+  epg_programme: ['poster_match_key', 'poster_ref'],
+  // 0013_source_governance(021):归档时间/原始快照/清理审计
+  source_import_snapshot: [
+    'household_id',
+    'source_id',
+    'refresh_id',
+    'kind',
+    'content_encoding',
+    'content',
+    'byte_size',
+    'sha256',
+    'captured_at',
+  ],
+  governance_cleanup_run: [
+    'household_id',
+    'actor_account_id',
+    'target',
+    'dry_run',
+    'deleted_count',
+    'bytes_freed',
+    'detail_json',
+    'created_at',
+  ],
   channel_logo: [
     'household_id',
     'media_id',
@@ -142,6 +172,28 @@ const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
     'source_id',
     'revision',
     'revoked_at',
+    'created_at',
+    'updated_at',
+  ],
+  // 0012_programme_posters(020):TMDB 标题级匹配缓存(020 data-model §1)
+  programme_poster: [
+    'household_id',
+    'match_key',
+    'ref',
+    'state',
+    'tmdb_id',
+    'media_type',
+    'title',
+    'original_title',
+    'poster_path',
+    'release_date',
+    'vote_average',
+    'popularity',
+    'match_score',
+    'year_hint',
+    'attempts',
+    'last_attempt_at',
+    'expires_at',
     'created_at',
     'updated_at',
   ],

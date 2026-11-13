@@ -37,6 +37,7 @@ import { drizzleLiveTvStore } from '@contexts/live-tv/infrastructure/live-tv-sto
 
 const CST = 'Asia/Shanghai';
 const NOW = Date.parse('2026-11-04T12:05:00.000Z'); // 20:05 CST,家庭今天 = 2026-11-04
+const POSTER_REF = '0123456789abcdef0123456789abcdef';
 /** A 组共用窗口:17:35~23:35 CST(恰 6 小时,全部落在 11-04 CST 日内) */
 const WIN_FROM = Date.parse('2026-11-04T09:35:00.000Z');
 const WIN_TO = Date.parse('2026-11-04T15:35:00.000Z');
@@ -143,12 +144,23 @@ function seedProgramme(input: {
   id: string;
   title: string;
   description?: string | null;
+  posterRef?: string | null;
   startsAt: string;
   endsAt: string;
 }): void {
   Database.db.prepare(
-    'INSERT INTO epg_programme (id, household_id, source_id, xmltv_channel_id, title, description, starts_at, ends_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(input.id, input.householdId, input.sourceId, input.xmltvId, input.title, input.description ?? null, input.startsAt, input.endsAt);
+    'INSERT INTO epg_programme (id, household_id, source_id, xmltv_channel_id, title, description, poster_ref, starts_at, ends_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(
+    input.id,
+    input.householdId,
+    input.sourceId,
+    input.xmltvId,
+    input.title,
+    input.description ?? null,
+    input.posterRef ?? null,
+    input.startsAt,
+    input.endsAt,
+  );
 }
 
 function iso(ms: number): string {
@@ -177,7 +189,7 @@ describe('guide-window-query:交叠条件与窗口语义(T107)', () => {
     // 恰好结束于 from → 不交叠(ends_at > from 为假)
     seedProgramme({ householdId: hh, sourceId: src, xmltvId: 'xmltv-a', id: 'p-ends-at-from', title: '恰好结束于窗口起点', startsAt: iso(WIN_FROM - 60 * 60_000), endsAt: iso(WIN_FROM) });
     // 起点早于 from、终点在窗内 → 交叠纳入,且响应保留完整 UTC 起止
-    seedProgramme({ householdId: hh, sourceId: src, xmltvId: 'xmltv-a', id: 'p-overlap-before', title: '跨窗起点节目', startsAt: iso(WIN_FROM - 30 * 60_000), endsAt: iso(WIN_FROM + 30 * 60_000) });
+    seedProgramme({ householdId: hh, sourceId: src, xmltvId: 'xmltv-a', id: 'p-overlap-before', title: '跨窗起点节目', posterRef: POSTER_REF, startsAt: iso(WIN_FROM - 30 * 60_000), endsAt: iso(WIN_FROM + 30 * 60_000) });
     // 恰好起于 to → 不交叠(starts_at < to 为假)
     seedProgramme({ householdId: hh, sourceId: src, xmltvId: 'xmltv-a', id: 'p-starts-at-to', title: '恰好起于窗口终点', startsAt: iso(WIN_TO), endsAt: iso(WIN_TO + 30 * 60_000) });
     // 同起点并列两行(交叠纳入;当前判定见独立 describe)
@@ -195,6 +207,9 @@ describe('guide-window-query:交叠条件与窗口语义(T107)', () => {
     const overlap = programmes.find((p) => p.key === programmeKeyOf('p-overlap-before'));
     expect(overlap?.startsAt).toBe(iso(WIN_FROM - 30 * 60_000));
     expect(overlap?.endsAt).toBe(iso(WIN_FROM + 30 * 60_000));
+    // 020:节目海报引用透传；无海报节目为 null
+    expect(overlap?.posterRef).toBe(POSTER_REF);
+    expect(programmes.find((p) => p.key === programmeKeyOf('p-same-1'))?.posterRef).toBeNull();
     // 每频道节目按 (startsAt, key) 升序
     expect(ids).toEqual(
       [...programmes]
@@ -318,8 +333,8 @@ describe('guide-window-query:当前判定 start<=now<end、重叠取最近起点
   it('无覆盖行 → current 为 null(空档不误取相邻节目)', () => {
     const gap = pickGuideCurrent(
       [
-        { key: programmeKeyOf('before'), title: '前档', description: null, startsAt: iso(NOW - 60 * 60_000), endsAt: iso(NOW - 10 * 60_000) },
-        { key: programmeKeyOf('after'), title: '后档', description: null, startsAt: iso(NOW + 10 * 60_000), endsAt: iso(NOW + 60 * 60_000) },
+        { key: programmeKeyOf('before'), title: '前档', description: null, posterRef: null, startsAt: iso(NOW - 60 * 60_000), endsAt: iso(NOW - 10 * 60_000) },
+        { key: programmeKeyOf('after'), title: '后档', description: null, posterRef: null, startsAt: iso(NOW + 10 * 60_000), endsAt: iso(NOW + 60 * 60_000) },
       ],
       NOW,
     );

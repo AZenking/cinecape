@@ -41,6 +41,7 @@ const DATA: GuideWindowDto = {
           key: 'pg-1',
           title: '早间新闻',
           description: null,
+          posterRef: null,
           startsAt: '2026-11-12T01:00:00.000Z',
           endsAt: '2026-11-12T02:00:00.000Z',
         },
@@ -102,5 +103,33 @@ describe('GuideWall · 频道列只展示台标 + Tooltip 名称', () => {
     const { onPlayChannel } = renderWall();
     fireEvent.click(screen.getByRole('button', { name: '播放 例牌新闻台 当前直播' }));
     expect(onPlayChannel).toHaveBeenCalledWith('ch-1', '例牌新闻台');
+  });
+});
+describe('GuideWall · 020 节目海报', () => {
+  it('宽节目块且有 posterRef → 渲染 2:3 缩略图；窄块/无 ref 不渲染', () => {
+    const posterRef = '0123456789abcdef0123456789abcdef';
+    const data: GuideWindowDto = {
+      ...DATA,
+      channels: [
+        {
+          ...DATA.channels[0]!,
+          programmes: [{ ...DATA.channels[0]!.programmes[0]!, posterRef }],
+        },
+      ],
+    };
+    const { container } = render(
+      <GuideWall
+        data={data}
+        focusSignal={0}
+        selectedKey={null}
+        onSelectProgramme={vi.fn()}
+        onPlayChannel={vi.fn()}
+      />,
+    );
+    const img = container.querySelector(
+      `[data-programme-key="pg-1"] img[src*="/api/public/media/programme-posters/${posterRef}"]`,
+    );
+    expect(img).not.toBeNull();
+    expect(img?.getAttribute('loading')).toBe('lazy');
   });
 });

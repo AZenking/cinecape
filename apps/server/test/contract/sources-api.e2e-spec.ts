@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ProblemCode } from '@hmp/shared';
 import type { INestApplication } from '@nestjs/common';
 import { Database } from '@platform/database/database';
+import { saveImportSnapshot } from '@contexts/sources/infrastructure/import-snapshot';
 import {
   INITIALIZE_BODY,
   cleanupRigs,
@@ -284,7 +285,7 @@ describe('T018 来源管理(契约 e2e)', () => {
     Database.db.prepare("UPDATE account SET role = 'admin'").run();
 
     const list = await getSources(s);
-    expect(list.status).toBe(200);
+    expect(list.status, JSON.stringify(list.body)).toBe(200);
 
     const created = await postSource(s, createBody());
     expect(created.status).toBe(201);
@@ -636,7 +637,7 @@ describe('T018 来源管理(契约 e2e)', () => {
       expectedVersion: 1,
       name: '过期写入',
     });
-    expect(stale.status).toBe(409);
+    expect(stale.status, JSON.stringify(stale.body)).toBe(409);
     expectProblemContentType(stale);
     expect(stale.body.code).toBe(ProblemCode.SOURCE_VERSION_CONFLICT);
     expect(sourceRowOf(sourceId)).toMatchObject({ name: 'v2', version: 2 });
@@ -827,5 +828,204 @@ describe('T018 来源管理(契约 e2e)', () => {
     const emptyRes = await getSourceRoots(noRoots);
     expect(emptyRes.status).toBe(200);
     expect(emptyRes.body).toEqual([]);
+  });
+});
+
+
+/* ------------------------------------------------------------------ */
+/* 021-source-governance:归档/恢复/快照/治理清理                        */
+/* ------------------------------------------------------------------ */
+
+function archiveSource(s: SourcesRig, sourceId: string, expectedVersion: number): Promise<request.Response> {
+  return request(s.app.getHttpServer())
+    .post(`/api/settings/sources/${sourceId}/archive`)
+    .set('Cookie', s.cookie)
+    .send({ expectedVersion })
+    .then((r) => r);
+}
+
+function restoreSource(s: SourcesRig, sourceId: string, expectedVersion: number): Promise<request.Response> {
+  return request(s.app.getHttpServer())
+    .post(`/api/settings/sources/${sourceId}/restore`)
+    .set('Cookie', s.cookie)
+    .send({ expectedVersion })
+    .then((r) => r);
+}
+
+function purgeSource(s: SourcesRig, sourceId: string, expectedVersion: number): Promise<request.Response> {
+  return request(s.app.getHttpServer())
+    .post(`/api/settings/governance/archived-sources/${sourceId}/purge`)
+    .set('Cookie', s.cookie)
+    .send({ expectedVersion })
+    .then((r) => r);
+}
+
+function cleanup(s: SourcesRig, body: Record<string, unknown>): Promise<request.Response> {
+  return request(s.app.getHttpServer())
+    .post('/api/settings/governance/cleanup')
+    .set('Cookie', s.cookie)
+    .send(body)
+    .then((r) => r);
+}
+
+describe('021 · 来源归档/恢复/永久清理', () => {
+  it('归档后列表隐藏、恢复保持停用、再次归档后永久清理删除来源', async () => {
+    const s = await bootstrap();
+    const created = await createSource(s, { name: '待归档源' });
+    const sourceId = created.body.id as string;
+    expect(created.body.version).toBe(1);
+
+    const archived = await archiveSource(s, sourceId, 1);
+    expect(archived.status).toBe(204);
+    const afterArchive = await getSources(s);
+    expect(afterArchive.status).toBe(200);
+    expect(afterArchive.body.items.map((item: { id: string }) => item.id)).not.toContain(sourceId);
+    const row = Database.db
+      .prepare(
+        `SELECT sa.archived_at AS archivedAt, ms.enabled, ms.version
+           FROM media_source ms
+           JOIN source_archive sa ON sa.household_id = ms.household_id AND sa.source_id = ms.id
+          WHERE ms.id = ?`,
+      )
+      .get(sourceId) as { archivedAt: string; enabled: number; version: number };
+    expect(row.archivedAt).not.toBeNull();
+    expect(row.enabled).toBe(0);
+    expect(row.version).toBe(2);
+
+    const restored = await restoreSource(s, sourceId, 2);
+    expect(restored.status).toBe(204);
+    const afterRestore = await getSources(s);
+    expect(afterRestore.body.items.map((item: { id: string }) => item.id)).toContain(sourceId);
+    expect(
+      (afterRestore.body.items as Array<{ id: string; enabled: boolean }>).find((item) => item.id === sourceId)?.enabled,
+    ).toBe(false);
+
+    // 恢复后版本=3;再次归档 → 版本=4;永久清理(归档态)
+    expect((await archiveSource(s, sourceId, 3)).status).toBe(204);
+    // 终态刷新行 + media_source.last_job_id 复合外键:清理必须先解引用再删任务
+    Database.db
+      .prepare(
+        `INSERT INTO source_refresh
+          (id, household_id, source_id, initiator_account_id, initiator_session_id, operation_key, status, version, source_version, baseline_revision, created_at)
+         VALUES ('r-old', ?, ?, ?, ?, 'op-old', 'succeeded', 2, 1, 1, '2026-01-01T00:00:00.000Z')`,
+      )
+      .run(s.householdId, sourceId, s.accountId, s.sessionId);
+    Database.db.prepare('UPDATE media_source SET last_job_id = ? WHERE id = ?').run('r-old', sourceId);
+    const purged = await purgeSource(s, sourceId, 4);
+    expect(purged.status, JSON.stringify(purged.body)).toBe(200);
+    expect(purged.body).toEqual({ deleted: 1, bytesFreed: 0 });
+    expect(Database.db.prepare('SELECT 1 FROM media_source WHERE id = ?').get(sourceId)).toBeUndefined();
+  });
+
+  it('陈旧版本/活跃任务/跨家庭边界', async () => {
+    const s = await bootstrap();
+    const created = await createSource(s);
+    const sourceId = created.body.id as string;
+
+    const stale = await archiveSource(s, sourceId, 99);
+    expect(stale.status).toBe(409);
+    expect(stale.body.code).toBe(ProblemCode.SOURCE_VERSION_CONFLICT);
+
+    Database.db
+      .prepare(
+        `INSERT INTO source_refresh
+          (id, household_id, source_id, initiator_account_id, initiator_session_id, operation_key, status, version, source_version, baseline_revision, created_at)
+         VALUES ('r1', ?, ?, ?, ?, 'op-1', 'queued', 1, 1, 1, '2026-11-13T00:00:00.000Z')`,
+      )
+      .run(s.householdId, sourceId, s.accountId, s.sessionId);
+    const busy = await archiveSource(s, sourceId, 1);
+    expect(busy.status).toBe(409);
+    expect(busy.body.code).toBe('SOURCE_BUSY');
+    Database.db.prepare('DELETE FROM source_refresh WHERE id = ?').run('r1');
+
+    const miss = await archiveSource(s, randomUUID(), 1);
+    expect(miss.status).toBe(404);
+  });
+});
+
+describe('021 · 原始导入快照查看/下载', () => {
+  it('列表/预览/下载返回解密原文,且不泄漏上游地址', async () => {
+    const s = await bootstrap();
+    const created = await createSource(s, { name: '快照源' });
+    const sourceId = created.body.id as string;
+    const capturedAt = '2026-11-13T08:00:00.000Z';
+    const snapshotId = saveImportSnapshot({
+      householdId: s.householdId,
+      sourceId,
+      refreshId: 'refresh-1',
+      kind: 'iptv',
+      raw: Buffer.from('#EXTM3U\n#EXTINF:-1,CCTV-1\nhttp://upstream.example.com/a.m3u8\n', 'utf8'),
+      capturedAtIso: capturedAt,
+    });
+
+    const list = await request(s.app.getHttpServer())
+      .get(`/api/settings/sources/${sourceId}/snapshots`)
+      .set('Cookie', s.cookie);
+    expect(list.status).toBe(200);
+    expect(list.body.items).toHaveLength(1);
+    expect(list.body.items[0].id).toBe(snapshotId);
+    expect(JSON.stringify(list.body)).not.toContain('upstream.example.com');
+
+    const preview = await request(s.app.getHttpServer())
+      .get(`/api/settings/sources/${sourceId}/snapshots/${snapshotId}/preview`)
+      .set('Cookie', s.cookie);
+    expect(preview.status).toBe(200);
+    expect(preview.body.previewText).toContain('#EXTM3U');
+    expect(preview.body.truncated).toBe(false);
+
+    const download = await request(s.app.getHttpServer())
+      .get(`/api/settings/sources/${sourceId}/snapshots/${snapshotId}/download`)
+      .set('Cookie', s.cookie);
+    expect(download.status).toBe(200);
+    expect(download.headers['content-type']).toContain('text/plain');
+    expect(download.text).toContain('http://upstream.example.com/a.m3u8');
+
+    const missing = await request(s.app.getHttpServer())
+      .get(`/api/settings/sources/${sourceId}/snapshots/${randomUUID()}/preview`)
+      .set('Cookie', s.cookie);
+    expect(missing.status).toBe(404);
+  });
+});
+
+describe('021 · 数据治理概览与清理', () => {
+  it('dry-run 不写库;真实清理删除过期节目并写审计', async () => {
+    const s = await bootstrap();
+    const epg = await createSource(s, {
+      kind: 'epg',
+      name: '过期节目源',
+      remoteUrl: 'http://epg.example.com/guide.xml',
+    });
+    const sourceId = epg.body.id as string;
+    Database.db
+      .prepare('INSERT INTO epg_channel (household_id, source_id, xmltv_channel_id, display_name) VALUES (?, ?, ?, ?)')
+      .run(s.householdId, sourceId, 'c1', '频道一');
+    Database.db
+      .prepare(
+        `INSERT INTO epg_programme (id, household_id, source_id, xmltv_channel_id, title, starts_at, ends_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run('p-old', s.householdId, sourceId, 'c1', '老节目', '2020-01-01T00:00:00.000Z', '2020-01-01T01:00:00.000Z');
+
+    const overview = await request(s.app.getHttpServer())
+      .get('/api/settings/governance/overview')
+      .set('Cookie', s.cookie);
+    expect(overview.status).toBe(200);
+    expect(overview.body.counts.expiredProgrammes).toBe(1);
+
+    const dry = await cleanup(s, { target: 'expired-programmes', retentionDays: 30, dryRun: true });
+    expect(dry.status).toBe(200);
+    expect(dry.body).toMatchObject({ target: 'expired-programmes', dryRun: true, deleted: 1 });
+    expect(Database.db.prepare('SELECT 1 FROM epg_programme WHERE id = ?').get('p-old')).toBeDefined();
+
+    const real = await cleanup(s, { target: 'expired-programmes', retentionDays: 30, dryRun: false });
+    expect(real.status).toBe(200);
+    expect(real.body.deleted).toBe(1);
+    expect(Database.db.prepare('SELECT 1 FROM epg_programme WHERE id = ?').get('p-old')).toBeUndefined();
+    expect(
+      (Database.db.prepare('SELECT COUNT(*) AS n FROM governance_cleanup_run').get() as { n: number }).n,
+    ).toBe(1);
+
+    const bad = await cleanup(s, { target: 'nope', retentionDays: 30, dryRun: true });
+    expect(bad.status).toBe(400);
   });
 });

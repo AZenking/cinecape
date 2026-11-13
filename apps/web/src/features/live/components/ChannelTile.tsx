@@ -8,7 +8,8 @@ import { PlayButton, usePlayAction } from '../../playback/use-play-action';
 import { useSession } from '../../../app/session-provider';
 import { FavoriteStarButton } from '../../favorites/favorite-star-button';
 import { useCurrentProgramme } from '../hooks/use-current-programme';
-import { ChannelIdentityBadge } from './channel-identity-badge';
+import { ChannelLogo } from './channel-logo';
+import { formatRangeInZone, formatTimeInZone } from '../live-format';
 
 /**
  * 直播频道瓦片卡(Netflix 式 16:9 瓦片;T069/T070/T071 演进,FR-021/023/024、ui.md §5/§8):
@@ -18,8 +19,9 @@ import { ChannelIdentityBadge } from './channel-identity-badge';
  * - 瓦片承载状态:左上「正在直播/即将播放/暂无排期」标注(红点 + 文字,状态不只靠
  *   颜色),与卡面承载档位对齐(upcoming 卡恒标「即将播放」,详见 statusBadge);
  *   current 档正在直播时底板底部附当前节目进度线(红色 = 直播/时间线语义,见 §2 视觉约定);
- * - 信息区只展示一个节目名(档位由分区决定:正在直播类分区=当前节目,
- *   即将播放分区=下一档节目);频道身份保留在 article 可读名与播放/收藏按钮语义中;
+ * - 信息区(2026-11-13 呈现修订):第一行频道名 + 家庭时区时段,第二行节目名
+ *   (最多两行);档位由分区决定(正在直播类分区=当前节目,即将播放分区=下一档
+ *   节目)。频道身份不再只依赖可读名,横向扫读即可确认「台 + 节目 + 时间」;
  * - 无节目频道显示「暂无节目」明确占位,占位可点开详情面板(共享面板 none 态,
  *   保留频道身份 +「暂无节目单」,012 T018);播放入口保留(可用性不由 EPG 决定,FR-023);
  * - 双层交互(015 T004;research.md R5、contracts/ui-layout.md §1.2 第 3 条):
@@ -39,10 +41,10 @@ import { ChannelIdentityBadge } from './channel-identity-badge';
  * - 悬停/键盘聚焦(cards focus-within)轻微抬升;动效仅悬停反馈,尊重 reduced-motion
  *   (全局基线见 shared/theme/a11y.css);
  * - 长节目名 .hmp-truncate 截断,HeroUI Tooltip 提供完整可读名称。
- * - 频道身份角标(014 T018;实施期呈现修订 2026-11-08 维护者指令,ui.md §1 修订记录):
- *   右上角 ChannelIdentityBadge —— posterRef 非空 → Logo(加载中/失败回退频道名 chip),
- *   posterRef null → 频道名 chip;长名截断 + HeroUI Tooltip 全名。大首字主视觉取消,
- *   角标与左上状态签/底部进度线/右下操作入口互不重叠(channel-identity-badge.tsx)。
+ * - 频道身份主视觉(2026-11-13 修订;原 014 右上角 ChannelIdentityBadge 退场):
+ *   台标移到 16:9 底板中央,posterRef 非空 → ChannelLogo(加载中/失败回退首字),
+ *   posterRef null → 频道名文本;中央主视觉与左上状态签/底部进度线/右下操作入口
+ *   互不重叠。悬停 ▶ 浮于中央时台标作为底图仍可辨(channel-logo.tsx)。
  * - 当前节目进度微条(016 T010;contracts/ui-experience.md §1/§2):015 的红色
  *   快照进度线升级为 HeroUI v3 ProgressBar(size="sm" color="accent",
  *   aria-label「节目播放进度」,严禁原生 <progress>),值经 useCurrentProgramme
@@ -81,6 +83,11 @@ export interface ChannelTileProps {
    * 承担(LiveHeroPlayer 大屏消费)。
    */
   readonly nowIso: string | null;
+  /**
+   * 家庭时区(分区响应携带):信息区展示该节目时段/开播时刻。
+   * 缺省(单元测试直接挂载/无时区数据)时不渲染时间标签,只保留频道名与节目名。
+   */
+  readonly timezone?: string;
   /** 节目时段详情回调(即将播放/当前节目共用;打开频道/节目信息) */
   readonly onOpenProgramme: OpenProgrammeHandler;
   /** 游客收藏:进入登录选档提示(收藏属 US4;播放不经此,走共享 PlayButton) */
@@ -115,7 +122,7 @@ export function progressOf(startsAt: string, endsAt: string, nowIso: string | nu
   return Math.min(1, Math.max(0, (now - start) / (end - start)));
 }
 
-export function ChannelTile({ row, slot = 'current', onOpenProgramme, onRequireAuth }: ChannelTileProps): ReactNode {
+export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme, onRequireAuth }: ChannelTileProps): ReactNode {
   const channelTitle = row.media.title;
   // 路由导航(015 T004):current 档文字信息区 → /live/watch/:channelId
   const navigate = useNavigate();
@@ -132,6 +139,16 @@ export function ChannelTile({ row, slot = 'current', onOpenProgramme, onRequireA
   const hasNext = row.next !== null;
   /** 本卡承载的节目(档位决定:current=智能时钟当前节目,upcoming=下一档;双缺时走「暂无节目单」占位) */
   const slotProgramme: ExperienceProgrammeDto | null = slot === 'upcoming' ? row.next : liveCurrent;
+  /**
+   * 信息区时段标签(家庭时区):current 档 = 起止区间,upcoming 档 = 开播时刻。
+   * 无时区数据/无节目时省略,不臆造本地时间(与 Hero/分区时间语义一致)。
+   */
+  const timeLabel =
+    slotProgramme === null || timezone === undefined
+      ? null
+      : slot === 'upcoming'
+        ? `${formatTimeInZone(slotProgramme.startsAt, timezone)} 开始`
+        : formatRangeInZone(slotProgramme.startsAt, slotProgramme.endsAt, timezone);
   const hash = hashOf(row.media.id);
   const plateAngle = 100 + (hash % 140);
   const glowOnRight = hash % 2 === 1;
@@ -172,16 +189,32 @@ export function ChannelTile({ row, slot = 'current', onOpenProgramme, onRequireA
             glowOnRight ? '-right-8' : '-left-8'
           }`}
         />
-        {/* 频道身份角标(014 实施期呈现修订 2026-11-08,维护者指令,ui.md §1 修订记录):
-            右上角 Logo 或频道名(长名截断 + HeroUI Tooltip 全名),取代原「底板大首字」
-            主视觉;加载中/失败名称不缺位(无裂图/无空白)。定位与左上状态签对称,
-            与进度线/右下播放收藏三区互不重叠;名称 chip 可 hover(Tooltip 需要)。 */}
-        <ChannelIdentityBadge
-          key={row.media.posterRef ?? 'no-logo'}
-          posterRef={row.media.posterRef}
-          channelTitle={channelTitle}
-          className="absolute right-2 top-2"
-        />
+        {/* 频道身份主视觉(2026-11-13 修订):原右上角小角标 + 大面积空渐变底板被
+            反馈为「中间空着、台标又太小」。现将台标移到 16:9 底板中央作为唯一主视觉
+            (ChannelLogo 自带加载中/失败首字回退);无台标频道显示频道名。状态签/进度线/
+            右下播放收藏仍分居三角,互不重叠;悬停 ▶ 浮于中央,台标作为底图仍可辨。 */}
+        <div
+          data-testid="tile-logo"
+          className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 pb-10 pt-6"
+        >
+          {row.media.posterRef !== null ? (
+            <div className="relative h-12 w-32 max-w-full sm:h-16 sm:w-40 lg:h-20 lg:w-48">
+              <ChannelLogo
+                key={row.media.posterRef}
+                posterRef={row.media.posterRef}
+                channelTitle={channelTitle}
+                fallbackClassName="text-xl font-semibold text-muted"
+              />
+            </div>
+          ) : (
+            <span
+              data-testid="tile-logo-fallback"
+              className="line-clamp-2 max-w-full text-center text-sm font-semibold text-muted"
+            >
+              {channelTitle}
+            </span>
+          )}
+        </div>
 
         {/* 状态标注:红点 + 文字(状态不只靠颜色);上左角,随档位对齐(见 statusBadge)。
             无节目频道状态签用「暂无排期」而非「暂无节目单」:信息区已有「暂无节目单」
@@ -278,7 +311,10 @@ export function ChannelTile({ row, slot = 'current', onOpenProgramme, onRequireA
         ) : null}
       </div>
 
-      {/* 信息区:仅节目名(档位见 slot);长名截断 + Tooltip 完整名;
+      {/* 信息区(2026-11-13 呈现修订):第一行频道身份 + 时段,第二行节目名。
+          原卡面只有一行节目名,频道身份仅靠右上角台标角标,扫读时难以确认「哪个台」;
+          现将频道名/时段显性放入信息区,节目名放宽到两行(line-clamp-2),卡片横向
+          扫读时「台 + 节目 + 时间」一眼可得。长名截断 + Tooltip 完整名;
           点击节目名按档位分流(015 T004;ui-layout.md §1.2 第 3 条):
           current 档 → 导航 /live/watch/:channelId 观看详情页;
           upcoming 档 → 打开共享详情面板(节目时段信息,FR-024)。
@@ -288,13 +324,19 @@ export function ChannelTile({ row, slot = 'current', onOpenProgramme, onRequireA
           样式只用对齐/宽度/字重覆盖(DESIGN.md:用既有变体,不重造按钮);
           尺寸/内边距/悬停/焦点环走 ghost sm 变体原生状态。 */}
       <div className="min-w-0 p-3">
+        <div className="mb-1 flex min-w-0 items-baseline justify-between gap-2">
+          <span className="hmp-truncate text-xs font-medium text-foreground/80">{channelTitle}</span>
+          {timeLabel !== null ? (
+            <span className="hmp-tabular-nums shrink-0 text-xs text-muted">{timeLabel}</span>
+          ) : null}
+        </div>
         {slotProgramme !== null ? (
           <h3 className="min-w-0">
             <Tooltip>
               <Button
                 variant="ghost"
                 size="sm"
-                className="w-full min-w-0 justify-start font-semibold"
+                className="h-auto min-h-8 w-full min-w-0 justify-start whitespace-normal px-0 py-0.5 text-left text-sm font-semibold leading-snug"
                 onPress={() => {
                   if (slot === 'upcoming') {
                     // 即将播放档:节目名仍是「查看详情」控件——打开节目时段详情面板
@@ -312,7 +354,7 @@ export function ChannelTile({ row, slot = 'current', onOpenProgramme, onRequireA
                    void navigate(`/live/watch/${row.media.id}`);
                 }}
               >
-                <span className="hmp-truncate min-w-0">{slotProgramme.title}</span>
+                <span className="line-clamp-2">{slotProgramme.title}</span>
               </Button>
               <Tooltip.Content>{slotProgramme.title}</Tooltip.Content>
             </Tooltip>

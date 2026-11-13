@@ -29,7 +29,7 @@ export const loadChannelAssociations = loadChannelAssociationCore;
  * 无覆盖行为 null(空档不误取相邻节目)。
  */
 export function pickGuideCurrent(
-  rows: readonly (Pick<ExperienceProgrammeDto, 'key' | 'title' | 'description' | 'startsAt' | 'endsAt'>)[],
+  rows: readonly (Pick<ExperienceProgrammeDto, 'key' | 'title' | 'description' | 'posterRef' | 'startsAt' | 'endsAt'>)[],
   nowMs: number,
 ): ExperienceProgrammeDto | null {
   return pickCurrentNext(rows, nowMs).current;

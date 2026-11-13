@@ -18,6 +18,8 @@ import { Tooltip } from '@heroui/react';
  * 结构与定位:
  * - 角标定位由宿主经 className 传入(ChannelTile:`absolute right-2 top-2`;
  *   NowHero:`absolute right-4 top-4 md:right-6 md:top-6`,与其左上状态签对称);
+ * - 尺幅由 size 传入:sm(缺省,紧凑瓦片)/ md(卡片主视觉,台标盒与 img 放大
+ *   一档,便于识别频道台标);
  *   状态签(左上)/进度线(底边)/播放收藏(右下)三区互不重叠。
  * - img `alt=""` + aria-hidden + loading="lazy" + decoding="async"(装饰图层,
  *   可读频道名由卡片信息区承担);名称 chip 可 hover(Tooltip 需要,不设 pointer-events-none)。
@@ -44,13 +46,20 @@ export interface ChannelIdentityBadgeProps {
   readonly channelTitle: string;
   /** 角标定位 class(宿主传入;组件内不再叠加 position 类,避免冲突) */
   readonly className?: string;
+  /**
+   * 角标尺寸:`sm`(缺省,信息密集的横滑瓦片)/ `md`(卡片主视觉放大台标)。
+   * 仅改变衬底盒与 img 的尺幅,回退链/可读名/加载相位完全一致。
+   */
+  readonly size?: 'sm' | 'md';
 }
 
 export function ChannelIdentityBadge({
   posterRef,
   channelTitle,
   className,
+  size = 'sm',
 }: ChannelIdentityBadgeProps): ReactNode {
+  const large = size === 'md';
   const [phase, setPhase] = useState<BadgePhase>(() => ({ ref: posterRef, phase: 'loading' }));
   if (posterRef !== phase.ref) {
     // 渲染期派生重置(React 官方认可的 props→state 调整模式):ref 变化回到 loading,
@@ -66,7 +75,9 @@ export function ChannelIdentityBadge({
       <Tooltip.Trigger>
         <span
           data-testid="identity-name"
-          className="inline-flex max-w-[10rem] cursor-default items-center rounded-sm bg-background/75 px-1.5 py-0.5 text-xs leading-4 text-foreground backdrop-blur-sm"
+          className={`inline-flex cursor-default items-center rounded-sm bg-background/75 px-1.5 py-0.5 text-xs leading-4 text-foreground backdrop-blur-sm ${
+            large ? 'max-w-[9rem]' : 'max-w-[10rem]'
+          }`}
         >
           <span className="hmp-truncate">{channelTitle}</span>
         </span>
@@ -79,7 +90,9 @@ export function ChannelIdentityBadge({
   const logoChip = (
     <span
       data-testid="identity-logo"
-      className="inline-flex h-6 max-w-[8rem] items-center rounded-sm bg-background/75 px-1 backdrop-blur-sm"
+      className={`inline-flex items-center rounded-sm bg-background/75 backdrop-blur-sm ${
+        large ? 'h-9 max-w-[10rem] px-1.5' : 'h-6 max-w-[8rem] px-1'
+      }`}
     >
       <img
         src={`/api/public/media/logos/${encodeURIComponent(posterRef ?? '')}`}
@@ -87,7 +100,7 @@ export function ChannelIdentityBadge({
         aria-hidden="true"
         loading="lazy"
         decoding="async"
-        className="max-h-5 w-auto max-w-[7rem] object-contain"
+        className={`w-auto object-contain ${large ? 'max-h-8 max-w-[9rem]' : 'max-h-5 max-w-[7rem]'}`}
         onLoad={() => {
           setPhase({ ref: posterRef, phase: 'loaded' });
         }}

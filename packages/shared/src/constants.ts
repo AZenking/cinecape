@@ -91,6 +91,14 @@ export const ProblemCode = {
   MEDIA_LOGO_REVOKED: 'MEDIA_LOGO_REVOKED',
   MEDIA_LOGO_UPSTREAM_FAILED: 'MEDIA_LOGO_UPSTREAM_FAILED',
   MEDIA_LOGO_UPSTREAM_TIMEOUT: 'MEDIA_LOGO_UPSTREAM_TIMEOUT',
+  /**
+   * 020 节目海报(contracts/api.md §2;命名沿 MEDIA_LOGO_* 惯例):
+   * 502 PROGRAMME_POSTER_UPSTREAM_FAILED(上游读取失败/非图片/非 identity);
+   * 504 PROGRAMME_POSTER_UPSTREAM_TIMEOUT(超预算时限)。
+   * 404(未签发/伪造/跨家庭/过期/非 matched)复用既有 NOT_FOUND,不重复登记。
+   */
+  PROGRAMME_POSTER_UPSTREAM_FAILED: 'PROGRAMME_POSTER_UPSTREAM_FAILED',
+  PROGRAMME_POSTER_UPSTREAM_TIMEOUT: 'PROGRAMME_POSTER_UPSTREAM_TIMEOUT',
 } as const;
 export type ProblemCode = (typeof ProblemCode)[keyof typeof ProblemCode];
 

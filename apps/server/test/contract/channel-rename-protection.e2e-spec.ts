@@ -107,7 +107,7 @@ describe('018 US2 逻辑频道重命名与防刷新覆盖契约测试', () => {
       ]),
     });
 
-    const { app, cookie, householdId } = await setupRenameApp();
+    const { app, cookie } = await setupRenameApp();
 
     // 1) 创建 IPTV 来源并指向受控 M3U
     const createdSource = await request(app.getHttpServer())

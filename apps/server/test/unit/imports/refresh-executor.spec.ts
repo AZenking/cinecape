@@ -7,6 +7,7 @@ import { Database } from '@platform/database/database';
 import { setEnvOverride } from '@platform/config/env';
 import { loadEnv } from '@platform/config/env.schema';
 import { IMPORT_BUDGETS } from '@platform/config/import-budgets';
+import { decodeSnapshotPrefix } from '@contexts/sources/infrastructure/import-snapshot';
 import { DomainError } from '@platform/http-common/domain-error';
 import {
   RefreshExecutorService,
@@ -64,7 +65,13 @@ function migrationSql(name: string): string {
 
 function bootstrapRig(
   extraEnv: Record<string, string> = {},
-  migrations: string[] = ['0001_init', '0002_profile_policy', '0003_media_catalog'],
+  migrations: string[] = [
+    '0001_init',
+    '0002_profile_policy',
+    '0003_media_catalog',
+    '0012_programme_posters',
+    '0013_source_governance',
+  ],
 ): void {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hmp-refresh-exec-'));
   const dbFilename = `${randomUUID()}.hmp.db`;
@@ -481,6 +488,14 @@ describe('runQueuedOnce:IPTV 发布(research R5 发布事务)', () => {
       expect(source.last_success_at).not.toBeNull();
       expect(source.last_job_id).toBe(first.id);
       expect(catalogRevision(household.householdId)).toBe(2);
+
+      // 021:成功读取后保存原始 M3U 快照(旁路,不改变发布结果)
+      const snapshot = Database.db
+        .prepare('SELECT kind, content, byte_size AS byteSize FROM source_import_snapshot WHERE household_id = ? AND source_id = ?')
+        .get(household.householdId, sourceId) as { kind: string; content: Buffer; byteSize: number } | undefined;
+      expect(snapshot?.kind).toBe('iptv');
+      expect(snapshot?.byteSize).toBeGreaterThan(0);
+      expect((await decodeSnapshotPrefix(snapshot!.content)).text).toContain('#EXTM3U');
     } finally {
       await scene.server.close();
     }
@@ -1025,6 +1040,10 @@ describe('runQueuedOnce:EPG 窗口发布', () => {
         Record<string, unknown>
       >;
       expect(programmes).toHaveLength(2);
+      // 020:发布事务写入归一化键；无缓存命中时 ref 为 NULL（通用标题「新闻」不参与匹配）
+      const posterKeys = programmes.map((row) => row.poster_match_key);
+      expect(posterKeys).toEqual([null, null]);
+      expect(programmes.every((row) => row.poster_ref === null)).toBe(true);
       expect(catalogRevision(household.householdId)).toBe(2);
 
       // 重复发布同内容:窗口替换,programmes 仍 2 条(无重复堆积)
@@ -1044,6 +1063,58 @@ describe('runQueuedOnce:EPG 窗口发布', () => {
       expect(
         (Database.db.prepare('SELECT COUNT(*) AS n FROM epg_programme WHERE household_id = ?').get(household.householdId) as { n: number }).n,
       ).toBe(2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('020:发布前缓存命中 → 节目行直接写入 poster_ref（避免刷新后海报丢失窗口）', async () => {
+    bootstrapRig();
+    const household = seedHousehold();
+    const server = await createControlledMediaServer();
+    try {
+      const hourMs = 3_600_000;
+      const base = Date.now() + hourMs;
+      server.setRoute('/guide.xml', {
+        kind: 'xmltv',
+        content: buildXmltv(
+          [{ id: 'cctv-1', displayName: '央视一套' }],
+          [{ channel: 'cctv-1', start: xmltvStamp(base), stop: xmltvStamp(base + hourMs), title: '生万物' }],
+        ),
+      });
+      const sourceId = seedSource(household.householdId, 'epg', { remoteUrl: `${server.baseUrl}/guide.xml` });
+      const posterRef = '0123456789abcdef0123456789abcdef';
+      const fakePoster = {
+        resolveCachedRefs: () => new Map([['生万物', { matchKey: '生万物', ref: posterRef }]]),
+        enrichAfterEpgPublish: async () => ({
+          titles: 0,
+          cacheHits: 0,
+          lookups: 0,
+          matched: 0,
+          noMatch: 0,
+          failed: 0,
+          skipped: 0,
+          durationMs: 0,
+        }),
+        backfillMatchKeys: () => 0,
+        rekeyProgrammeMatchKeys: () => 0,
+      };
+      const executor = new RefreshExecutorService(new RefreshPublishService(), fakePoster);
+      executor.requestRefresh({
+        householdId: household.householdId,
+        accountId: household.accountId,
+        sessionId: household.sessionId,
+        sourceId,
+        expectedVersion: 1,
+        operationKey: 'op-epg-poster-cache',
+        ownerPasswordVerified: true,
+      });
+      expect((await executor.runQueuedOnce())?.status).toBe('succeeded');
+      const row = Database.db
+        .prepare('SELECT poster_match_key, poster_ref FROM epg_programme WHERE household_id = ? AND title = ?')
+        .get(household.householdId, '生万物') as { poster_match_key: string; poster_ref: string };
+      expect(row.poster_match_key).toBe('生万物');
+      expect(row.poster_ref).toBe(posterRef);
     } finally {
       await server.close();
     }

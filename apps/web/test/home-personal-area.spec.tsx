@@ -172,7 +172,7 @@ describe('T094 · 首页个人区隔离', () => {
             {
               media: { id: 'ch-1', type: 'channel', title: '夹具频道 001', description: null, posterRef: null, contentLevel: 0, availability: 'available' },
               createdAt: '2026-10-26T01:00:00.000Z',
-              current: { key: 'pg-1', title: '正在直播节目', description: null, startsAt: '2026-10-26T00:30:00.000Z', endsAt: '2026-10-26T01:30:00.000Z' },
+              current: { key: 'pg-1', title: '正在直播节目', description: null, posterRef: null, startsAt: '2026-10-26T00:30:00.000Z', endsAt: '2026-10-26T01:30:00.000Z' },
               next: null,
             },
           ],

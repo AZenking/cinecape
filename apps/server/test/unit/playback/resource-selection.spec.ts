@@ -158,6 +158,9 @@ async function bootstrapResolverRig(prefix: string, options: { nasEnabled?: bool
     '0008_profile_preferences',
     '0009_channel_logos',
     '0010_multi_source_priority',
+    '0011_channel_visibility',
+    '0012_programme_posters',
+    '0013_source_governance',
   ]) {
     Database.db.transaction(() => {
       Database.db.exec(migrationSql(name));

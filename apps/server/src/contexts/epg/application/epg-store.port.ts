@@ -40,6 +40,8 @@ export interface HouseholdMediaCandidateRow {
 export interface ProgrammeProjectionRow {
   title: string;
   description: string | null;
+  /** 020 增补:海报不透明引用;null=无海报 */
+  posterRef: string | null;
   startsAt: string;
   endsAt: string;
 }
@@ -51,6 +53,7 @@ export interface GuideProgrammeWindowRow {
   xmltv_channel_id: string;
   title: string;
   description: string | null;
+  poster_ref: string | null;
   starts_at: string;
   ends_at: string;
 }
@@ -62,6 +65,42 @@ export interface ManualBindingRawRow {
   xmltv_channel_id: string | null;
   version: number;
   updated_at: string;
+}
+
+/** 020:TMDB 标题级匹配缓存行(programme_poster 投影;蛇形不出现于应用层) */
+export interface ProgrammePosterRow {
+  householdId: string;
+  matchKey: string;
+  ref: string | null;
+  state: 'matched' | 'no_match' | 'failed';
+  tmdbId: number | null;
+  mediaType: 'movie' | 'tv' | null;
+  title: string | null;
+  originalTitle: string | null;
+  posterPath: string | null;
+  releaseDate: string | null;
+  voteAverage: number | null;
+  popularity: number | null;
+  matchScore: number | null;
+  yearHint: number | null;
+  attempts: number;
+  lastAttemptAt: string | null;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 020:节目行待补 match_key 的最小投影 */
+export interface ProgrammeMatchKeyCandidateRow {
+  id: string;
+  title: string;
+}
+
+/** 020:全量重算 match_key 的行投影（norm 规则升级后使用） */
+export interface ProgrammeRekeyRow {
+  id: string;
+  title: string;
+  posterMatchKey: string | null;
 }
 
 /** 事务作用域内的绑定写入（saveBinding/unbindBinding 的事务块形态） */
@@ -77,6 +116,22 @@ export interface EpgTxStore {
   ): void;
   /** catalog_state.revision+1（US6 T114 唯一写入实现自 catalog-revision.service 平移；SQL 逐字，须在调用方事务内执行） */
   incrementCatalogRevision(householdId: string): void;
+
+  /* —— 020 节目海报缓存写入（补全服务事务块） —— */
+  /** 标题级缓存 upsert（同 match_key 覆盖；attempts/created_at 由调用方维护） */
+  upsertProgrammePoster(row: ProgrammePosterRow): void;
+  /** 按 (household_id, poster_match_key) 批量更新节目行 ref；null=清除 */
+  updateProgrammePosterRefs(
+    householdId: string,
+    entries: ReadonlyArray<{ matchKey: string; ref: string | null }>,
+  ): void;
+  /** 分批补齐旧行 poster_match_key（CLI 回填事务块） */
+  updateProgrammeMatchKeys(
+    householdId: string,
+    entries: ReadonlyArray<{ id: string; matchKey: string | null }>,
+  ): void;
+  /** 集合 GC：删除 expires_at < cutoff 的缓存行；返回删除数 */
+  deleteExpiredProgrammePosterRows(householdId: string, cutoffIso: string): number;
 }
 
 /** epg 上下文仓储端口（读路径 + 事务入口） */
@@ -111,6 +166,16 @@ export interface EpgStore extends EpgTxStore {
   listNonConflictedChannelRows(householdId: string, sourceId: string): Array<{ xmltvChannelId: string; displayName: string }>;
   listLiveChannelIdRows(householdId: string, sourceId: string, nowIso: string): Array<{ xmltvChannelId: string }>;
   listProgrammeRowsForChannels(householdId: string, sourceId: string, xmltvChannelIds: readonly string[]): EpgProgrammeRow[];
+
+  /* —— 020 programme-poster.service（缓存读取/回填）—— */
+  /** 分块读取缓存行（每批 ≤500；调用方负责过期/状态判定） */
+  listProgrammePosterRows(householdId: string, matchKeys: readonly string[]): ProgrammePosterRow[];
+  /** 代理按 (household_id, ref) 单查 */
+  findProgrammePosterByRef(householdId: string, ref: string): ProgrammePosterRow | undefined;
+  /** 旧行 poster_match_key 为 NULL 的候选（CLI 回填用；limit 有界） */
+  listProgrammeMatchKeyCandidateRows(householdId: string, afterId: string | null, limit: number): ProgrammeMatchKeyCandidateRow[];
+  /** 全量重算 match_key 的行（--rekey；按 id 游标分页） */
+  listProgrammeRowsForRekey(householdId: string, afterId: string | null, limit: number): ProgrammeRekeyRow[];
 
   /* —— guide-window.service（整页一次批量节目窗口）—— */
   listProgrammeWindowRows(

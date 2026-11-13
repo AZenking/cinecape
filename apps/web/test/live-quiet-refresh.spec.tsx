@@ -130,7 +130,6 @@ describe('T015 · 安静刷新:焦点不变、筛选不重置(FR-014)', () => {
 
     // 搜索框已从直播首页移除:改以「正在直播」行尾入口作为焦点锚验证安静刷新
     // (FR-014 的实质是后台刷新不抢焦点、不重置浏览态,与具体控件无关)
-    const user = userEvent.setup();
     const anchor = within(nowRegion).getAllByRole('button', {
       name: /查看更多|全部正在直播/,
     })[0] as HTMLElement;

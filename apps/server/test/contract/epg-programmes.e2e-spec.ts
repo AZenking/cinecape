@@ -287,12 +287,14 @@ describe('T040 频道节目指南契约(GET /media/{mediaId}/programmes)', () =>
     expect(res.body.current).toEqual({
       title: '晚间新闻',
       description: '时事综述',
+      posterRef: null,
       startsAt: new Date(currentStart).toISOString(),
       endsAt: new Date(currentEnd).toISOString(),
     });
     expect(res.body.next).toEqual({
       title: '午夜档案',
       description: null,
+      posterRef: null,
       startsAt: new Date(nextStart).toISOString(),
       endsAt: new Date(nextEnd).toISOString(),
     });
@@ -303,7 +305,7 @@ describe('T040 频道节目指南契约(GET /media/{mediaId}/programmes)', () =>
         expect(Number.isNaN(Date.parse(programme[key]))).toBe(false);
       }
     }
-    expect(Object.keys(res.body.current).sort()).toEqual(['description', 'endsAt', 'startsAt', 'title']);
+    expect(Object.keys(res.body.current).sort()).toEqual(['description', 'endsAt', 'posterRef', 'startsAt', 'title']);
   });
 
   it('窗口边界:startsAt=now 即当前(起点含);endsAt=now 已结束(终点不含);仅剩过期节目 → unavailable', async () => {

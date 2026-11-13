@@ -58,6 +58,30 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   source_entry: ['group_title', 'logo_url'],
   // 0009_channel_logos(014):EPG 频道图标原始地址与胜者注册表(014 data-model §1/§2)
   epg_channel: ['icon_url'],
+  // 0012_programme_posters(020):节目海报缓存键/引用列(020 data-model §2)
+  epg_programme: ['poster_match_key', 'poster_ref'],
+  // 0012_programme_posters(020):TMDB 标题级匹配缓存(020 data-model §1)
+  programme_poster: [
+    'household_id',
+    'match_key',
+    'ref',
+    'state',
+    'tmdb_id',
+    'media_type',
+    'title',
+    'original_title',
+    'poster_path',
+    'release_date',
+    'vote_average',
+    'popularity',
+    'match_score',
+    'year_hint',
+    'attempts',
+    'last_attempt_at',
+    'expires_at',
+    'created_at',
+    'updated_at',
+  ],
   channel_logo: [
     'household_id',
     'media_id',
@@ -69,6 +93,29 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
     'revoked_at',
     'created_at',
     'updated_at',
+  ],
+  // 0013_source_governance(021):归档注册表 + 原始导入快照 + 清理审计
+  source_archive: ['household_id', 'source_id', 'archived_at'],
+  source_import_snapshot: [
+    'household_id',
+    'source_id',
+    'refresh_id',
+    'kind',
+    'content_encoding',
+    'content',
+    'byte_size',
+    'sha256',
+    'captured_at',
+  ],
+  governance_cleanup_run: [
+    'household_id',
+    'actor_account_id',
+    'target',
+    'dry_run',
+    'deleted_count',
+    'bytes_freed',
+    'detail_json',
+    'created_at',
   ],
   // 0006_pc_experience(T006):五张新表关键列(对照 005 data-model §3~§7)
   settings_access_grant: [
@@ -427,6 +474,8 @@ export class Database {
         'profile_preferences',
         // 014 频道 Logo(0009):胜者注册表
         'channel_logo',
+        // 020 节目海报(0012):TMDB 标题级匹配缓存
+        'programme_poster',
       ]) {
         if (!conn.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)) return false;
       }

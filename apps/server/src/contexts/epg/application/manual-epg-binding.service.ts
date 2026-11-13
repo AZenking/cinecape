@@ -284,8 +284,16 @@ interface CandidateRow {
   displayName: string;
 }
 
-function toProgrammeDto(row: Pick<EpgProgrammeRow, 'title' | 'description' | 'startsAt' | 'endsAt'>): ProgrammeDto {
-  return { title: row.title, description: row.description, startsAt: row.startsAt, endsAt: row.endsAt };
+function toProgrammeDto(
+  row: Pick<EpgProgrammeRow, 'title' | 'description' | 'posterRef' | 'startsAt' | 'endsAt'>,
+): ProgrammeDto {
+  return {
+    title: row.title,
+    description: row.description,
+    posterRef: row.posterRef,
+    startsAt: row.startsAt,
+    endsAt: row.endsAt,
+  };
 }
 
 /** 窗口判定与 epg.service 同语义:current 起点 含/终点 不含,next 为未来最早一条(与 current 互斥) */

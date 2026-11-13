@@ -5,6 +5,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
+  ProblemCode,
   type CandidatePageDto,
   type MediaDto,
   type RefreshDto,
@@ -14,6 +15,7 @@ import {
 } from '@hmp/shared';
 import { CurrentSession } from '@platform/http-common/current-session.decorator';
 import type { SessionContext } from '@platform/http-common/current-session.decorator';
+import { DomainError } from '@platform/http-common/domain-error';
 import { SameOriginGuard } from '@platform/http-common/same-origin/same-origin.guard';
 import { SessionGuard } from '@platform/http-common/session.guard';
 import { SettingsGuard } from '@contexts/settings/infrastructure/settings.guard';
@@ -23,14 +25,21 @@ import { env } from '@platform/config/env';
 // 007-T022a:跨上下文消费统一改经发布面 index.ts(裸导入),实现文件零改动
 import {
   REFRESH_EXECUTOR_PORT,
+  archiveSource,
   confirmSourceRefresh,
   createSource,
   discardSourceRefresh,
+  getSource,
   getSourceRefresh,
+  decodeSnapshotFull,
+  decodeSnapshotPrefix,
+  findImportSnapshot,
   isParsableRemoteUrl,
+  listImportSnapshots,
   listSourceRoots,
   listSources,
   requestSourceRefresh,
+  restoreSource,
   testSource,
   updateSource,
   type IRefreshExecutorService,
@@ -147,6 +156,10 @@ const patchSourceRequestSchema = z.strictObject({
   remoteUrl: remoteUrlSyntaxSchema.optional(),
   privateAccessApproved: z.boolean().optional(),
   epgSourceId: z.union([z.string().uuid(), z.null()]).optional(),
+});
+
+const versionActionSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
 });
 
 const listSourcesQuerySchema = z.strictObject({
@@ -268,6 +281,32 @@ export class SettingsSourcesController {
    * 探测实现 = 组合根绑定的平台 SafeUpstream(有界读取,许可=LAN_ALLOWED_TARGETS);
    * 成功响应 Content-Type 沿 problem+json 形态(010 契约 e2e 断言面)。
    */
+  /** 021:归档来源(产品语义「删除」;软删除,数据保留,可在治理页恢复/清理)。 */
+  @Post('sources/:sourceId/archive')
+  @HttpCode(204)
+  @UseGuards(SameOriginGuard, SessionGuard, SettingsGuard)
+  archive(
+    @Param('sourceId') sourceId: string,
+    @Body(new StrictBodyPipe(versionActionSchema)) body: unknown,
+    @CurrentSession() context: SessionContext,
+  ): void {
+    const input = parseBody(versionActionSchema, body);
+    archiveSource(sourceId, context, input.expectedVersion);
+  }
+
+  /** 021:恢复归档来源(恢复后保持停用,需管理员手动启用)。 */
+  @Post('sources/:sourceId/restore')
+  @HttpCode(204)
+  @UseGuards(SameOriginGuard, SessionGuard, SettingsGuard)
+  restore(
+    @Param('sourceId') sourceId: string,
+    @Body(new StrictBodyPipe(versionActionSchema)) body: unknown,
+    @CurrentSession() context: SessionContext,
+  ): void {
+    const input = parseBody(versionActionSchema, body);
+    restoreSource(sourceId, context, input.expectedVersion);
+  }
+
   @Post('sources/:sourceId/test')
   @HttpCode(200)
   @UseGuards(SameOriginGuard, SessionGuard, SettingsGuard)
@@ -337,6 +376,81 @@ export class SettingsSourcesController {
   ): Promise<RefreshDto> {
     return discardSourceRefresh(this.refreshExecutor, context, refreshId, parseBody(jobActionSchema, body));
   }
+
+  /* ---------------- 021:原始导入快照(查看/下载) ---------------- */
+
+  /** GET /settings/sources/:sourceId/snapshots:最近 20 条快照元数据(不含原文)。 */
+  @Get('sources/:sourceId/snapshots')
+  @UseGuards(SessionGuard, SettingsGuard)
+  listSnapshots(
+    @Param('sourceId') sourceId: string,
+    @CurrentSession() context: SessionContext,
+  ): { items: ReturnType<typeof listImportSnapshots> } {
+    if (getSource(context, sourceId) === undefined) {
+      throw new DomainError(404, ProblemCode.NOT_FOUND);
+    }
+    return { items: listImportSnapshots(context.session.householdId, sourceId) };
+  }
+
+  /** GET /settings/sources/:sourceId/snapshots/:snapshotId/preview:前 256 KiB 解码文本。 */
+  @Get('sources/:sourceId/snapshots/:snapshotId/preview')
+  @UseGuards(SessionGuard, SettingsGuard)
+  async previewSnapshot(
+    @Param('sourceId') sourceId: string,
+    @Param('snapshotId') snapshotId: string,
+    @CurrentSession() context: SessionContext,
+  ): Promise<{
+    id: string;
+    kind: string;
+    capturedAt: string;
+    byteSize: number;
+    previewText: string;
+    truncated: boolean;
+  }> {
+    if (getSource(context, sourceId) === undefined) {
+      throw new DomainError(404, ProblemCode.NOT_FOUND);
+    }
+    const snapshot = findImportSnapshot(context.session.householdId, sourceId, snapshotId);
+    if (snapshot === undefined) {
+      throw new DomainError(404, ProblemCode.NOT_FOUND);
+    }
+    const preview = await decodeSnapshotPrefix(snapshot.content);
+    return {
+      id: snapshot.id,
+      kind: snapshot.kind,
+      capturedAt: snapshot.capturedAt,
+      byteSize: snapshot.byteSize,
+      previewText: preview.text,
+      truncated: preview.truncated,
+    };
+  }
+
+  /** GET /settings/sources/:sourceId/snapshots/:snapshotId/download:完整解码原文。 */
+  @Get('sources/:sourceId/snapshots/:snapshotId/download')
+  @UseGuards(SessionGuard, SettingsGuard)
+  downloadSnapshot(
+    @Param('sourceId') sourceId: string,
+    @Param('snapshotId') snapshotId: string,
+    @CurrentSession() context: SessionContext,
+    @Res() res: Response,
+  ): void {
+    const source = getSource(context, sourceId);
+    if (source === undefined) {
+      throw new DomainError(404, ProblemCode.NOT_FOUND);
+    }
+    const snapshot = findImportSnapshot(context.session.householdId, sourceId, snapshotId);
+    if (snapshot === undefined) {
+      throw new DomainError(404, ProblemCode.NOT_FOUND);
+    }
+    const decoded = decodeSnapshotFull(snapshot.content);
+    const extension = snapshot.kind === 'epg' ? 'xml' : 'm3u';
+    const safeName = source.name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 60) || 'source';
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}-${snapshot.capturedAt.slice(0, 19).replace(/[:T]/g, '')}.${extension}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(decoded);
+  }
+
 }
 
 /**

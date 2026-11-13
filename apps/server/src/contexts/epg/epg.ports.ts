@@ -24,3 +24,14 @@ export interface IEpgManualBindingService {
 export interface IEpgService {
   getMediaProgrammes(context: SessionContext, mediaId: string): ProgrammesDto;
 }
+
+/** 020 TMDB 节目海报补全/缓存恢复发布面（消费方：sources 刷新执行器、CLI） */
+export type { ProgrammePosterService as IEpgProgrammePosterService } from './application/programme-poster.service';
+
+/** 020 公共海报代理发布面（消费方：PublicProgrammePosterController） */
+export interface IEpgProgrammePosterProxyService {
+  fetch(command: {
+    readonly householdId: string;
+    readonly posterRef: string;
+  }): Promise<{ readonly contentType: string; readonly bytes: Buffer }>;
+}

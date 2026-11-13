@@ -160,3 +160,30 @@ describe('导入技术预算常量(T010;数值唯一权威:research.md R2/R3)', 
     );
   });
 });
+
+describe('020 TMDB 配置', () => {
+  it('默认关闭、默认节流与 TTL 上限', () => {
+    const env = parseEnv({});
+    expect(env.TMDB_API_KEY).toBe('');
+    expect(env.TMDB_READ_ACCESS_TOKEN).toBe('');
+    expect(env.TMDB_LANGUAGE).toBe('zh-CN');
+    expect(env.TMDB_REGION).toBe('CN');
+    expect(env.TMDB_MAX_LOOKUPS_PER_RUN).toBe(300);
+    expect(env.TMDB_LOOKUP_INTERVAL_MS).toBe(150);
+    expect(env.TMDB_RUN_BUDGET_MS).toBe(90000);
+    expect(env.TMDB_MATCHED_TTL_DAYS).toBe(180);
+    expect(env.TMDB_NEGATIVE_TTL_DAYS).toBe(30);
+    expect(env.TMDB_FAILURE_TTL_MINUTES).toBe(60);
+  });
+
+  it('TTL 硬上限 180 天；间隔/上限/地区/基址非法拒绝', () => {
+    expect(() => parseEnv({ TMDB_MATCHED_TTL_DAYS: '181' })).toThrow(/环境配置校验失败/);
+    expect(() => parseEnv({ TMDB_LOOKUP_INTERVAL_MS: '5001' })).toThrow(/环境配置校验失败/);
+    expect(() => parseEnv({ TMDB_MAX_LOOKUPS_PER_RUN: '1001' })).toThrow(/环境配置校验失败/);
+    expect(() => parseEnv({ TMDB_REGION: 'CHN' })).toThrow(/环境配置校验失败/);
+    expect(() => parseEnv({ TMDB_API_BASE_URL: 'https://user:pass@example.com/3' })).toThrow(
+      /环境配置校验失败/,
+    );
+    expect(() => parseEnv({ TMDB_IMAGE_BASE_URL: 'ftp://example.com' })).toThrow(/环境配置校验失败/);
+  });
+});

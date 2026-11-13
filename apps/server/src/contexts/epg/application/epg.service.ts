@@ -175,6 +175,7 @@ function toProgrammeDto(row: ProgrammeProjectionRow): ProgrammeDto {
   return {
     title: row.title,
     description: row.description,
+    posterRef: row.posterRef,
     startsAt: row.startsAt,
     endsAt: row.endsAt,
   };

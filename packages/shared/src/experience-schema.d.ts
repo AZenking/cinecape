@@ -1465,6 +1465,8 @@ export interface components {
         B003Programme: {
             title: string;
             description: string | null;
+            /** @description 020 增补：节目海报不透明引用（32 位小写 hex）；null=无海报。不携带 TMDB ID/上游 URL。 */
+            posterRef: string | null;
             /** Format: date-time */
             startsAt: string;
             /** Format: date-time */
@@ -1897,6 +1899,8 @@ export interface components {
             key: string;
             title: string;
             description: string | null;
+            /** @description 020 增补：节目海报不透明引用（32 位小写 hex）；null=无海报。不携带 TMDB ID/上游 URL。 */
+            posterRef: string | null;
             /** Format: date-time */
             startsAt: string;
             /** Format: date-time */

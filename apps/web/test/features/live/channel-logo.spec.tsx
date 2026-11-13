@@ -18,14 +18,16 @@ import { LIVE_SESSION_STATES, renderLiveWorld } from '../../helpers/live-world';
  *
  * 契约:docs/specs/014-channel-logos/contracts/ui.md §1(修订记录)与 §4;
  * spec.md US1/US2 验收 + evidence 修订注记。
- * - ChannelIdentityBadge(卡片右上角身份角标,取代底板大首字):posterRef 非空 →
+ * - ChannelIdentityBadge(身份角标,现用于 LiveHeroPlayer 右上角):posterRef 非空 →
  *   加载中/失败名称 chip(截断 + HeroUI Tooltip 全名)、onLoad → Logo 衬底盒淡入
  *   (名称退场,互斥观感)、onError → 卸载 img 名称恢复(无裂图/无空白/无错误文案);
- *   posterRef null → 恒名称 chip。定位由宿主传入(ChannelTile right-2 top-2、
- *   NowHero right-4 top-4 md:right-6 md:top-6,与左上状态签对称)。
+ *   posterRef null → 恒名称 chip。定位由宿主传入(LiveHeroPlayer right-4 top-4
+ *   md:right-6 md:top-6,与左上状态签对称)。
+ * - ChannelTile(2026-11-13 修订):台标从右上角角标移到 16:9 底板中央作主视觉,
+ *   复用 ChannelLogo 的首字回退;无 posterRef 时中央显示频道名,不再渲染角标。
  * - ChannelLogo(小尺寸身份盒:GuideChannelList/personal-area)保留首字回退,原契约不变。
- * - 接入:角标与左上状态签/进度线/播放收藏互不重叠;加载中播放/收藏/详情可交互(§4-4);
- *   GuideWall/GuideScrollContainer 时间轴 img=0(SC-006 范围守护,§4-6)。
+ * - 接入:中央台标与左上状态签/进度线/播放收藏互不重叠;加载中播放/收藏/详情可交互
+ *   (§4-4);GuideWall/GuideScrollContainer 时间轴 img=0(SC-006 范围守护,§4-6)。
  *
  * jsdom 不加载图片资源:加载中/成功/失败相位经 fireEvent.load/error 显式驱动,
  * 行为确定可复现。tile/hero 经 renderLiveWorld(PlayButton 需统一协调器上下文)。
@@ -180,8 +182,8 @@ describe('实施期修订 · ChannelIdentityBadge 卡片右上角身份角标(ui
   });
 });
 
-describe('T018/T019(修订) · 接入:角标在右上角、与状态签/操作互不重叠;大首字取消', () => {
-  it('ChannelTile:posterRef 非空 → 加载中名称 chip 在右上角(right-2 top-2),onLoad 后 Logo 顶替;状态签仍在左上,播放入口不受影响', () => {
+describe('T018/T019(2026-11-13 修订) · 接入:台标移到 16:9 底板中央作主视觉;与状态签/操作互不重叠;大首字取消', () => {
+  it('ChannelTile:posterRef 非空 → 中央 tile-logo 承载 ChannelLogo;加载中首字回退,onLoad 后 Logo 顶替;状态签仍在左上,播放入口不受影响', () => {
     const view = renderInLiveWorld(
       <ChannelTile
         row={channelRowWithPoster(LOGO_REF)}
@@ -191,16 +193,16 @@ describe('T018/T019(修订) · 接入:角标在右上角、与状态签/操作�
       />,
     );
     try {
-      // 加载中:名称 chip 可见,角标根锚在右上(宿主传入定位 class)
-      const name = screen.getByTestId('identity-name');
-      expect(name).toBeVisible();
-      const anchor = name.closest('[data-testid="identity-badge"]');
-      expect(anchor?.className).toContain('right-2');
-      expect(anchor?.className).toContain('top-2');
-      // onLoad:Logo 顶替名称
-      fireEvent.load(view.container.querySelector('img') as HTMLImageElement);
-      expect(screen.getByTestId('identity-logo')).toBeVisible();
-      expect(screen.queryByTestId('identity-name')).toBeNull();
+      // 原右上角角标退场,中央主视觉就位
+      expect(screen.getByTestId('tile-logo')).toBeVisible();
+      expect(screen.queryByTestId('identity-badge')).toBeNull();
+      const img = view.container.querySelector('img') as HTMLImageElement;
+      expect(img.getAttribute('src')).toBe(`/api/public/media/logos/${LOGO_REF}`);
+      // 加载中:首字回退可见、img 等待
+      expect(img.className).toContain('opacity-0');
+      fireEvent.load(img);
+      // onLoad:Logo 淡入
+      expect(img.className).toContain('opacity-100');
       // 大首字取消:底板不存在超大首字层(结构断言:无 text-6xl 档元素;
       // 信息区合法文本含首字属正常,不按 textContent 判断)
       const hugeFirstChar = Array.from(view.container.querySelectorAll('span')).filter((el) =>
@@ -215,7 +217,7 @@ describe('T018/T019(修订) · 接入:角标在右上角、与状态签/操作�
     }
   });
 
-  it('ChannelTile:posterRef=null → 名称 chip 呈现频道名,无 img,大首字取消', () => {
+  it('ChannelTile:posterRef=null → 中央显示频道名,无 img,大首字取消', () => {
     const view = renderInLiveWorld(
       <ChannelTile
         row={channelRowWithPoster(null)}
@@ -226,7 +228,7 @@ describe('T018/T019(修订) · 接入:角标在右上角、与状态签/操作�
     );
     try {
       expect(view.container.querySelector('img')).toBeNull();
-      expect(screen.getByTestId('identity-name').textContent).toBe(CHANNEL_TITLE);
+      expect(screen.getByTestId('tile-logo-fallback').textContent).toBe(CHANNEL_TITLE);
     } finally {
       view.restore();
     }
@@ -314,6 +316,7 @@ function guideWindowFixture(): GuideWindowDto {
     key,
     title,
     description: null,
+    posterRef: null,
     startsAt,
     endsAt,
   });
@@ -339,7 +342,7 @@ function guideWindowFixture(): GuideWindowDto {
 }
 
 describe('T022 · 回退链不变量:host 级失败恢复、加载中可交互、SC-006 范围守护(ui.md §4-3/4/6)', () => {
-  it('ChannelTile onError:img 卸载、右上角名称 chip 恢复、无裂图痕迹,播放/收藏入口仍在(ui.md §4-3 host 级)', () => {
+  it('ChannelTile onError:img 卸载、中央首字回退接替、无裂图痕迹,播放/收藏入口仍在(ui.md §4-3 host 级)', () => {
     const view = renderInLiveWorld(
       <ChannelTile
         row={channelRowWithPoster(LOGO_REF)}
@@ -351,7 +354,8 @@ describe('T022 · 回退链不变量:host 级失败恢复、加载中可交互�
     try {
       fireEvent.error(view.container.querySelector('img') as HTMLImageElement);
       expect(view.container.querySelector('img')).toBeNull();
-      expect(screen.getByTestId('identity-name')).toBeVisible();
+      // ChannelLogo 首字回退接替(台标中央主视觉不空白)
+      expect(screen.getByTestId('tile-logo').textContent).toContain(CHANNEL_TITLE.slice(0, 1));
       // 无错误文案/占位框
       expect(view.container.textContent).not.toContain('加载失败');
       expect(screen.getByRole('button', { name: `播放 ${CHANNEL_TITLE} 当前直播` })).toBeEnabled();

@@ -1,5 +1,6 @@
 import { desc, sql } from 'drizzle-orm';
 import {
+  blob,
   check,
   foreignKey,
   index,
@@ -633,20 +634,86 @@ export const epgProgramme = sqliteTable(
     xmltvChannelId: text('xmltv_channel_id').notNull(),
     title: text('title').notNull(),
     description: text('description'),
+    // 020 增补:标题归一化键(缓存主键)与不透明海报引用;通用栏目/无匹配为 NULL
+    posterMatchKey: text('poster_match_key'),
+    posterRef: text('poster_ref'),
     startsAt: text('starts_at').notNull(),
     endsAt: text('ends_at').notNull(),
   },
   (t) => [
     uniqueIndex('epg_programme_household_id_id_key').on(t.householdId, t.id),
     uniqueIndex('epg_programme_slot_key').on(t.householdId, t.sourceId, t.xmltvChannelId, t.startsAt, t.endsAt),
+    index('epg_programme_household_match_key_idx').on(t.householdId, t.posterMatchKey),
     check('epg_programme_title_check', sql`length(${t.title}) BETWEEN 1 AND 255`),
     check('epg_programme_description_check', sql`${t.description} IS NULL OR length(${t.description}) <= 4096`),
+    check(
+      'epg_programme_poster_match_key_check',
+      sql`${t.posterMatchKey} IS NULL OR length(${t.posterMatchKey}) BETWEEN 1 AND 255`,
+    ),
+    check(
+      'epg_programme_poster_ref_check',
+      sql`${t.posterRef} IS NULL OR (length(${t.posterRef}) = 32 AND ${t.posterRef} NOT GLOB '*[^0-9a-f]*')`,
+    ),
     check('epg_programme_window_check', sql`${t.endsAt} > ${t.startsAt}`),
     foreignKey({
       name: 'epg_programme_channel_composite_fk',
       columns: [t.householdId, t.sourceId, t.xmltvChannelId],
       foreignColumns: [epgChannel.householdId, epgChannel.sourceId, epgChannel.xmltvChannelId],
     }),
+  ],
+);
+
+/**
+ * 020 增补(TMDB 节目海报):标题级匹配缓存,每家庭每归一化标题一行。
+ * 列/约束对照 migrations/0012_programme_posters/up.sql 与 data-model.md §1。
+ * matched 行持有 32 位 hex 不透明 ref 与 poster_path;no_match/failed 为负缓存。
+ * 不 FK 到 epg_programme:缓存跨 EPG 刷新保留,节目行会被窗口替换删除重建。
+ */
+export const programmePoster = sqliteTable(
+  'programme_poster',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    matchKey: text('match_key').notNull(),
+    ref: text('ref'),
+    state: text('state').notNull(),
+    tmdbId: integer('tmdb_id'),
+    mediaType: text('media_type'),
+    title: text('title'),
+    originalTitle: text('original_title'),
+    posterPath: text('poster_path'),
+    releaseDate: text('release_date'),
+    voteAverage: real('vote_average'),
+    popularity: real('popularity'),
+    matchScore: real('match_score'),
+    yearHint: integer('year_hint'),
+    attempts: integer('attempts').notNull().default(0),
+    lastAttemptAt: text('last_attempt_at'),
+    expiresAt: text('expires_at').notNull(),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ name: 'programme_poster_pk', columns: [t.householdId, t.matchKey] }),
+    uniqueIndex('programme_poster_household_id_ref_key').on(t.householdId, t.ref),
+    index('programme_poster_expiry_idx').on(t.householdId, t.expiresAt),
+    check('programme_poster_state_check', sql`${t.state} IN ('matched', 'no_match', 'failed')`),
+    check('programme_poster_match_key_check', sql`length(${t.matchKey}) BETWEEN 1 AND 255`),
+    check(
+      'programme_poster_ref_check',
+      sql`${t.ref} IS NULL OR (length(${t.ref}) = 32 AND ${t.ref} NOT GLOB '*[^0-9a-f]*')`,
+    ),
+    check(
+      'programme_poster_state_fields_check',
+      sql`(${t.state} = 'matched' AND ${t.ref} IS NOT NULL AND ${t.tmdbId} IS NOT NULL AND ${t.mediaType} IN ('movie', 'tv') AND ${t.posterPath} IS NOT NULL) OR (${t.state} <> 'matched' AND ${t.ref} IS NULL AND ${t.tmdbId} IS NULL AND ${t.posterPath} IS NULL)`,
+    ),
+    check(
+      'programme_poster_poster_path_check',
+      sql`${t.posterPath} IS NULL OR (${t.posterPath} LIKE '/%' AND ${t.posterPath} NOT LIKE '//%' AND length(${t.posterPath}) <= 512)`,
+    ),
+    check('programme_poster_year_hint_check', sql`${t.yearHint} IS NULL OR ${t.yearHint} BETWEEN 1900 AND 2100`),
+    check('programme_poster_attempts_check', sql`${t.attempts} >= 0`),
   ],
 );
 
@@ -730,6 +797,7 @@ export type SourceEntry = typeof sourceEntry.$inferSelect;
 export type PlaybackSource = typeof playbackSource.$inferSelect;
 export type EpgChannel = typeof epgChannel.$inferSelect;
 export type EpgProgramme = typeof epgProgramme.$inferSelect;
+export type ProgrammePoster = typeof programmePoster.$inferSelect;
 export type RefreshStageEntry = typeof refreshStageEntry.$inferSelect;
 /** 0004 增补查询层类型(读取) */
 export type ManualEpgBinding = typeof manualEpgBinding.$inferSelect;
@@ -743,6 +811,7 @@ export type NewSourceEntry = typeof sourceEntry.$inferInsert;
 export type NewPlaybackSource = typeof playbackSource.$inferInsert;
 export type NewEpgChannel = typeof epgChannel.$inferInsert;
 export type NewEpgProgramme = typeof epgProgramme.$inferInsert;
+export type NewProgrammePoster = typeof programmePoster.$inferInsert;
 export type NewRefreshStageEntry = typeof refreshStageEntry.$inferInsert;
 /** 0004 增补写入新行时的必填类型 */
 export type NewManualEpgBinding = typeof manualEpgBinding.$inferInsert;
@@ -2381,3 +2450,108 @@ export const channelLogo = sqliteTable(
 
 export type ChannelLogoRow = typeof channelLogo.$inferSelect;
 export type NewChannelLogo = typeof channelLogo.$inferInsert;
+
+
+/**
+ * 来源归档注册表(021-source-governance):有行=已归档;无行=active。
+ * 独立表避免给 media_source 加列;FK 保证归档行不会先于来源消失。
+ */
+export const sourceArchive = sqliteTable(
+  'source_archive',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    sourceId: text('source_id').notNull(),
+    archivedAt: text('archived_at').notNull(),
+    archivedBy: text('archived_by'),
+  },
+  (t) => [
+    primaryKey({ name: 'source_archive_pk', columns: [t.householdId, t.sourceId] }),
+    index('idx_source_archive_household').on(t.householdId, t.archivedAt),
+    foreignKey({
+      name: 'source_archive_source_fk',
+      columns: [t.householdId, t.sourceId],
+      foreignColumns: [mediaSource.householdId, mediaSource.id],
+    }),
+  ],
+);
+
+export type SourceArchiveRow = typeof sourceArchive.$inferSelect;
+export type NewSourceArchive = typeof sourceArchive.$inferInsert;
+
+/**
+ * 原始导入快照(021-source-governance,data-model §2):每个成功读取的 IPTV/EPG 来源
+ * 保存一份 gzip 原文,供治理页预览/下载。content 统一 gzip;byte_size/sha256 针对原始
+ * 传输字节;refresh_id 不设外键(清理过期任务不被历史快照阻塞)。
+ */
+export const sourceImportSnapshot = sqliteTable(
+  'source_import_snapshot',
+  {
+    id: text('id').primaryKey(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    sourceId: text('source_id').notNull(),
+    refreshId: text('refresh_id'),
+    kind: text('kind').notNull(),
+    contentEncoding: text('content_encoding').notNull().default('gzip'),
+    content: blob('content', { mode: 'buffer' }).notNull(),
+    byteSize: integer('byte_size').notNull(),
+    sha256: text('sha256').notNull(),
+    capturedAt: text('captured_at').notNull(),
+  },
+  (t) => [
+    index('idx_source_import_snapshot_source').on(t.householdId, t.sourceId, desc(t.capturedAt)),
+    index('idx_source_import_snapshot_captured').on(t.householdId, t.capturedAt),
+    check('source_import_snapshot_kind_check', sql`${t.kind} IN ('iptv', 'epg')`),
+    check('source_import_snapshot_encoding_check', sql`${t.contentEncoding} = 'gzip'`),
+    check('source_import_snapshot_byte_size_check', sql`${t.byteSize} >= 0`),
+    check(
+      'source_import_snapshot_sha256_check',
+      sql`length(${t.sha256}) = 64 AND ${t.sha256} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    foreignKey({
+      name: 'source_import_snapshot_source_fk',
+      columns: [t.householdId, t.sourceId],
+      foreignColumns: [mediaSource.householdId, mediaSource.id],
+    }),
+  ],
+);
+
+export type SourceImportSnapshotRow = typeof sourceImportSnapshot.$inferSelect;
+export type NewSourceImportSnapshot = typeof sourceImportSnapshot.$inferInsert;
+
+/**
+ * 清理审计(021-source-governance):每次真实清理一行;dry-run 不落库。
+ */
+export const governanceCleanupRun = sqliteTable(
+  'governance_cleanup_run',
+  {
+    id: text('id').primaryKey(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id),
+    actorAccountId: text('actor_account_id').notNull(),
+    target: text('target').notNull(),
+    dryRun: integer('dry_run').notNull().default(0),
+    deletedCount: integer('deleted_count').notNull().default(0),
+    bytesFreed: integer('bytes_freed').notNull().default(0),
+    detailJson: text('detail_json'),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    index('idx_governance_cleanup_run_household').on(t.householdId, desc(t.createdAt)),
+    check(
+      'governance_cleanup_run_target_check',
+      sql`${t.target} IN ('expired-programmes', 'stale-entries', 'snapshots', 'refresh-jobs', 'archived-sources')`,
+    ),
+    check('governance_cleanup_run_dry_run_check', sql`${t.dryRun} IN (0, 1)`),
+    check('governance_cleanup_run_deleted_check', sql`${t.deletedCount} >= 0`),
+    check('governance_cleanup_run_bytes_check', sql`${t.bytesFreed} >= 0`),
+    check('governance_cleanup_run_detail_check', sql`${t.detailJson} IS NULL OR json_valid(${t.detailJson})`),
+  ],
+);
+
+export type GovernanceCleanupRunRow = typeof governanceCleanupRun.$inferSelect;
+export type NewGovernanceCleanupRun = typeof governanceCleanupRun.$inferInsert;

@@ -77,7 +77,7 @@ const NEXT_START = '2026-11-04T12:30:00.000Z';
 const NEXT_END = '2026-11-04T13:00:00.000Z';
 
 function programme(key: string, title: string, startsAt: string, endsAt: string): ExperienceProgrammeDto {
-  return { key, title, description: null, startsAt, endsAt };
+  return { key, title, description: null, posterRef: null, startsAt, endsAt };
 }
 
 function channelRow(input: {

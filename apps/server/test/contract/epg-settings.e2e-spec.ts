@@ -428,12 +428,14 @@ describe('T041/T043 EPG 设置与真实刷新链路(契约 e2e)', () => {
       current: {
         title: '午间新闻',
         description: null,
+        posterRef: null,
         startsAt: new Date(now - 30 * MIN_MS).toISOString(),
         endsAt: new Date(now + 30 * MIN_MS).toISOString(),
       },
       next: {
         title: '体育世界',
         description: null,
+        posterRef: null,
         startsAt: new Date(now + 30 * MIN_MS).toISOString(),
         endsAt: new Date(now + 90 * MIN_MS).toISOString(),
       },

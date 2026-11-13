@@ -32,9 +32,16 @@ const ALL_MIGRATIONS = [
   '0009_channel_logos',
   '0010_multi_source_priority',
   '0011_channel_visibility',
+  '0012_programme_posters',
+  '0013_source_governance',
 ];
 
-const PRE_0011_MIGRATIONS = ALL_MIGRATIONS.filter((name) => name !== '0011_channel_visibility');
+const PRE_0011_MIGRATIONS = ALL_MIGRATIONS.filter(
+  (name) =>
+    name !== '0011_channel_visibility' &&
+    name !== '0012_programme_posters' &&
+    name !== '0013_source_governance',
+);
 
 const T0 = '2026-11-09T00:00:00.000Z';
 
@@ -201,6 +208,8 @@ describe('0011_channel_visibility 迁移与回滚验证', () => {
     expect(visibleColumn()).toBeDefined();
 
     // down 回滚 0011
+    runMigrationCommand('down');
+    runMigrationCommand('down');
     runMigrationCommand('down');
     expect(appliedMigrations()).not.toContain('0011_channel_visibility');
     expect(visibleColumn()).toBeUndefined();

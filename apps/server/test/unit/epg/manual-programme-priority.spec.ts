@@ -55,7 +55,7 @@ function bootstrapRig(): void {
   Database.db.exec('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY NOT NULL, applied_at TEXT NOT NULL)');
   // 016 收敛:rig 迁移清单补到 0010(epg store 查询 media_source 已含 0010 列 priority;
   // 0008~0010 均为代际 2 尾段增量表/列,对本用例手动绑定优先级断言面零影响)
-  for (const name of ['0001_init', '0002_profile_policy', '0003_media_catalog', '0004_manual_epg_binding', '0005_playback', '0006_pc_experience', '0007_online_vod', '0008_profile_preferences', '0009_channel_logos', '0010_multi_source_priority']) {
+  for (const name of ['0001_init', '0002_profile_policy', '0003_media_catalog', '0004_manual_epg_binding', '0005_playback', '0006_pc_experience', '0007_online_vod', '0008_profile_preferences', '0009_channel_logos', '0010_multi_source_priority', '0011_channel_visibility', '0012_programme_posters', '0013_source_governance']) {
     Database.db.transaction(() => {
       Database.db.exec(migrationSql(name));
       Database.db.prepare('INSERT INTO _migrations (name, applied_at) VALUES (?, ?)').run(name, new Date().toISOString());

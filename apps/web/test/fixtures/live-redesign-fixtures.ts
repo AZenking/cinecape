@@ -130,6 +130,7 @@ export function buildProgramme(
     key: seed.key ?? `${channelId ?? 'lr-channel'}:${slot}`,
     title: seed.title,
     description: seed.description ?? null,
+    posterRef: null,
     startsAt: minutesFromNow(seed.startsAtMinutes ?? -20),
     endsAt: minutesFromNow(seed.endsAtMinutes ?? 40),
   };

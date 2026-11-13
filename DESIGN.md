@@ -44,7 +44,7 @@ Use semantic HeroUI tokens and Tailwind utilities in product code. Raw values ar
 
 | Role | Tailwind utilities | CSS variables | Light | Dark | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| Canvas | `bg-background text-foreground` | `--background`, `--foreground` | `oklch(0.9702 0 0)`, `oklch(0.2103 0.0059 285.89)` | `#141318` = `oklch(0.1902 0.0101 294.59)`, `#F3F1F7` = `oklch(0.9614 0.0082 301.36)` | Page background and primary content (石墨黑 + 柔白) |
+| Canvas | `bg-background text-foreground` | `--background`, `--foreground` | `oklch(0.9702 0 0)`, `oklch(0.2103 0.0059 285.89)` | `oklch(12% 0.005 285.823)`, `oklch(0.9911 0 0)` | Page background and primary content |
 | Surface | `bg-surface text-surface-foreground` | `--surface`, `--surface-foreground` | white, foreground | `oklch(0.2103 0.0059 285.89)`, foreground | Cards and non-floating containers |
 | Secondary surface | `bg-surface-secondary` | `--surface-secondary` | `oklch(0.9524 0.0013 286.37)` | `oklch(0.257 0.0037 286.14)` | Nested or lower-emphasis regions |
 | Tertiary surface | `bg-surface-tertiary` | `--surface-tertiary` | `oklch(0.9373 0.0013 286.37)` | `oklch(0.2721 0.0024 247.91)` | Stronger surface separation |
@@ -52,7 +52,7 @@ Use semantic HeroUI tokens and Tailwind utilities in product code. Raw values ar
 | Backdrop | `bg-backdrop` | `--backdrop` | black at 50% | black at 60% | Content dimming behind overlays |
 | Muted content | `text-muted` | `--muted` | `oklch(0.5517 0.0138 285.94)` | `oklch(70.5% 0.015 286.067)` | Supporting text and secondary icons |
 | Neutral action | `bg-default text-default-foreground` | `--default`, `--default-foreground` | `oklch(94% 0.001 286.375)`, eclipse | `oklch(27.4% 0.006 286.033)`, snow | Neutral controls and selected states |
-| Accent | `bg-accent text-accent-foreground` | `--accent`, `--accent-foreground` | `#8B7AE6` = `oklch(0.6438 0.1573 288.40)`, `#141318` | same as light | Primary actions, focus, and emphasis (鸢尾紫;悬停 `#A99AF2`) |
+| Accent | `bg-accent text-accent-foreground` | `--accent`, `--accent-foreground` | `oklch(0.6204 0.195 253.83)`, snow | same as light | Primary actions, focus, and emphasis |
 | Success | `bg-success text-success-foreground` | `--success`, `--success-foreground` | `oklch(0.7329 0.1935 150.81)`, eclipse | same as light | Positive outcomes and completed states |
 | Warning | `bg-warning text-warning-foreground` | `--warning`, `--warning-foreground` | `oklch(0.7819 0.1585 72.33)`, eclipse | `oklch(0.8203 0.1388 76.34)`, eclipse | Caution and attention |
 | Danger | `bg-danger text-danger-foreground` | `--danger`, `--danger-foreground` | `oklch(0.6532 0.2328 25.74)`, snow | `oklch(0.594 0.1967 24.63)`, snow | Errors and destructive actions |
@@ -154,37 +154,3 @@ Use the scale consistently. Inner media and nested surfaces should have a visibl
 - Design principles: https://heroui.com/docs/react/getting-started/design-principles
 
 When this file and the current package disagree, follow the installed HeroUI version and its theme CSS.
-
-## 项目补充设计 token（HMP）
-
-以下尺度是 HeroUI 默认主题未覆盖、但本项目高密度媒体界面必需的补充项。按宪章技术约束 8，
-集中定义于 `apps/web/src/shared/theme/tokens.css`（`@theme` 块），业务组件只引用 token，
-不得再写任意值类。
-
-### 文本尺度（紧凑元信息）
-
-| Token | 值 | 用途 | 禁止场景 |
-| --- | --- | --- | --- |
-| `text-3xs` | 10px / lh 14px | EPG 时间轴刻度、频道序号、LIVE 徽章、播放面头部小字 | 正文、可点击标签主文字 |
-| `text-2xs` | 11px / lh 15px | 节目块时间行、控制栏时间、设置面板分段标签 | 正文、按钮主标签 |
-
-> 标准档位 `text-xs`(12px) 仍是正文下界；10/11px 仅用于高密度元信息，且必须保证
-> 与所在表面有足够对比度（暗色主题下用 `text-muted`/`text-foreground` 语义 token）。
-
-### 媒体与布局尺寸（常量，非主题色）
-
-这些是布局/媒体尺寸，不是颜色，因此不进入主题 token 表；当前以组件内常量或一次性任意值
-表达，用途固定、不得被复制成"随手编的数值"。新增同类尺寸必须先在此登记用途。
-
-| 尺寸 | 值 | 用途 | 位置 |
-| --- | --- | --- | --- |
-| EPG 频道列宽 | 176px | 节目单墙固定频道列 | `features/epg/GuideWall.tsx` `CHANNEL_COL_PX` |
-| EPG 行高 | 56px | 节目单墙频道行 | 同上 `ROW_HEIGHT_PX` |
-| EPG 像素/分钟 | 2px | 时间轴横向比例（全天 2880px） | `features/epg/guide-time.ts` `PX_PER_MINUTE` |
-| 播放面 mini | 300×200 | 右下角悬浮播放器（宽 300，含控制栏总高约 200） | `app/action-coordinator.tsx` `MINI_WIDTH_PX`/`MINI_HEIGHT_PX` |
-| 播放面最大宽 | `min(94vw, 1120px, (100vh-12rem)*16/9)` | 大窗播放器，保证矮视口不遮挡顶栏 | `app/action-coordinator.tsx` |
-| 设置侧栏宽 | 220px / 256px | 宽/窄两档侧栏面板 | `layouts/SettingsLayout.tsx` |
-| 设置内容最大宽 | 960px / 1216px | 内容列约束 | `layouts/SettingsLayout.tsx` |
-| 设置来源面板宽 | 320px / 880px | 来源列表/编辑面板 | `features/settings/*` |
-| 播放设置面板 | 288px(`w-72`)，限高 `min(70vh,420px)` | 控制栏上浮设置面板 | `playback-settings-overlay.tsx` |
-| 直播切台面板 | 288px(`w-72`)，最大 85% | 播放器内右下覆盖面板 | `features/live/components/LiveGuidePanel.tsx` |
