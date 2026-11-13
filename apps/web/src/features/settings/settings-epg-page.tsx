@@ -149,7 +149,9 @@ export function SettingsEpgPage({ hideHeader }: SettingsEpgPageProps = {}): Reac
   }, [sourcesQuery.isError, sourcesQuery.error, access]);
 
   const sources = sourcesQuery.data?.items ?? null;
-  const epgSources = (sources ?? []).filter((source) => source.kind === 'epg');
+  // 编辑频道的目标来源只列启用中的 EPG 源:停用源没有可查询的候选(服务端 422
+  // EPG_SOURCE_NOT_READY),列出来只会让用户选中后得到空列表/报错。
+  const epgSources = (sources ?? []).filter((source) => source.kind === 'epg' && source.enabled);
 
   /** 变更失败分流 */
   const handleMutationFailure = (cause: unknown, conflictMessage?: string): void => {
