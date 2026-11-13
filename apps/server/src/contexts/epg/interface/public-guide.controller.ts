@@ -8,6 +8,7 @@ import { RateLimit } from '@platform/http-common/rate-limit/rate-limit.decorator
 import { RateLimitGuard } from '@platform/http-common/rate-limit/rate-limit.guard';
 import { StrictQueryPipe } from '@platform/http-common/strict-input/strict-pipes';
 import { PublicContextService } from '@platform/http-common/public-context/public-context.service';
+import { toIso } from '@platform/time/dayjs';
 import { liveNowMs } from '@contexts/live-tv';
 import { allowedGuideDates, guideDateString, guideDayWindowMs, todayCalendarDateOf } from '@contexts/epg/domain/guide-calendar';
 import { GuideProblemError } from '@contexts/epg/domain/guide-problems';
@@ -52,7 +53,7 @@ function uninitializedGuideWindow(query: z.infer<typeof guideQuerySchema>, nowMs
   return {
     date: guideDateString(today),
     timezone,
-    now: new Date(nowMs).toISOString(),
+    now: toIso(nowMs),
     allowedDates: allowedGuideDates(nowMs, timezone),
     from: new Date(window.fromMs).toISOString(),
     to: new Date(window.toMs).toISOString(),

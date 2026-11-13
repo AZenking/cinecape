@@ -234,6 +234,9 @@ module.exports = {
 					// 门禁拒绝——depcruise 模块粒度无法区分 import type，双轨分工
 					// 见 ADR-0015 D3；database.ts/migrate.ts 等其余落点全禁）。
 					"^src/platform/(?:http-common|config)/",
+					// ADR-0023：platform/time 为无 IO、无状态的时间工具（dayjs 统一配置与
+					// toIso/nowMs），application 组装响应时间戳需要它；仍禁 domain 使用。
+					"^src/platform/time/",
 					"^src/platform/database/(?:schema|drizzle)\\.ts$",
 					// 裁决修正②(c)收窄（008-T014）：node 内建维持放行；
 					// 框架包放行剔除 drizzle-orm/better-sqlite3（APP_ALLOWED_*）。

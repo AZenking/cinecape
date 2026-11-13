@@ -16,6 +16,7 @@ import { RateLimitGuard } from '@platform/http-common/rate-limit/rate-limit.guar
 import { StrictQueryPipe } from '@platform/http-common/strict-input/strict-pipes';
 import { PublicContextService } from '@platform/http-common/public-context/public-context.service';
 import { Database } from '@platform/database/database';
+import { toIso } from '@platform/time/dayjs';
 import { readCatalogRevision } from '@contexts/epg';
 import { liveNowMs } from '@contexts/live-tv/domain/live-clock';
 import { groupKeyOf, OTHER_GROUP_LABEL } from '@contexts/live-tv/domain/live-grouping';
@@ -161,7 +162,7 @@ function readSnapshot(householdId: string | null, nowMs: number): LiveSnapshot {
     // catalog_state.revision 读取点平移至 catalog-revision.service(US6 T114;行缺失=1 规则不变)
     catalogRevision = readCatalogRevision(householdId);
   }
-  return { now: new Date(nowMs).toISOString(), timezone, catalogRevision };
+  return { now: toIso(nowMs), timezone, catalogRevision };
 }
 
 function toPublicMedia(row: {
@@ -288,7 +289,7 @@ export class LivePublicController {
     const nowMs = query.now ?? liveNowMs();
     const scope = this.publicContext.requireScope();
     if (!scope.initialized) {
-      return { now: new Date(nowMs).toISOString(), programmes: {} };
+      return { now: toIso(nowMs), programmes: {} };
     }
     const mediaIds = parseNowPlayingMediaIds(query.mediaIds);
     const projections = loadLiveChannelWindows(
@@ -300,7 +301,7 @@ export class LivePublicController {
     for (const projection of projections) {
       programmes[projection.mediaId] = toCurrentNextProjection(projection, nowMs);
     }
-    return { now: new Date(nowMs).toISOString(), programmes };
+    return { now: toIso(nowMs), programmes };
   }
 
   /**

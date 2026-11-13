@@ -25,6 +25,7 @@
     "@nestjs/platform-express": "^12",
     "argon2": "^0.44",
     "better-sqlite3": "^13.0.3",
+    "dayjs": "^1.11.23",
     "drizzle-orm": "^0.44",
     "reflect-metadata": "^0.2",
     "rxjs": "^7",
