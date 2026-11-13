@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { ExperienceProgrammeDto, GuideWindowDto } from '@hmp/shared';
 import { Chip } from '@heroui/react';
+import { Star } from 'lucide-react';
 import { ChannelLogo } from '../live/components/channel-logo';
 import { formatRangeInZone, formatTimeInZone } from './guide-time';
 import { pickCurrentProgramme } from './GuideWall';
@@ -38,7 +39,12 @@ export interface GuideChannelListProps {
   readonly onSelectProgramme: (ref: { mediaId: string; channelTitle: string; programme: ExperienceProgrammeDto }) => void;
   /** 点击当前节目(直播语义)直接起播该频道当前直播(015 §3.2.2 统一入口) */
   readonly onPlayChannel: (mediaId: string, channelTitle: string) => void;
+  /** 已收藏频道 id 集合(列表视图频道名旁打星标) */
+  readonly favoriteIds?: ReadonlySet<string>;
 }
+
+/** 稳定空集合 */
+const EMPTY_FAVORITE_IDS: ReadonlySet<string> = new Set<string>();
 
 /** 剩余时间文案:≥1 分钟「还剩 X 分钟」;不足 1 分钟「还剩 X 秒」;非正数回落「即将结束」 */
 function remainingLabel(endsAtMs: number, nowMs: number): string {
@@ -74,7 +80,13 @@ function durationLabel(programme: ExperienceProgrammeDto): string {
   return `时长 ${Math.ceil((endMs - startMs) / 60_000)} 分钟`;
 }
 
-export function GuideChannelList({ data, selectedKey, onSelectProgramme, onPlayChannel }: GuideChannelListProps): ReactNode {
+export function GuideChannelList({
+  data,
+  selectedKey,
+  onSelectProgramme,
+  onPlayChannel,
+  favoriteIds = EMPTY_FAVORITE_IDS,
+}: GuideChannelListProps): ReactNode {
   // 服务端基准钟:组件内单一时间来源(ticking,默认 15s 推进);未校准回落响应快照 now
   const { nowMs: tickingNowMs } = useServerNow();
   const nowMs = tickingNowMs ?? Date.parse(data.now);
@@ -114,6 +126,12 @@ export function GuideChannelList({ data, selectedKey, onSelectProgramme, onPlayC
               <span className="hmp-truncate font-semibold" title={channel.media.title}>
                 {channel.media.title}
               </span>
+              {favoriteIds.has(channel.media.id) ? (
+                <span className="flex shrink-0 items-center gap-1 text-xs font-normal text-accent">
+                  <Star aria-hidden="true" className="size-3.5 fill-current" />
+                  已收藏
+                </span>
+              ) : null}
               {current !== null ? (
                 <span className="flex items-center gap-1.5 text-xs font-normal text-accent">
                   <span className="size-1.5 rounded-full bg-accent animate-pulse" />

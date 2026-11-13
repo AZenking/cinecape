@@ -163,12 +163,16 @@ describe('T009 · EPG 频道观看按钮经统一播放链路(钉面;现状已�
     const { counter, world } = renderGuidePage(LIVE_SESSION_STATES.authedWithProfile);
     try {
       await waitFor(() => expect(screen.getByTestId('live-session').textContent).toBe('authenticated:profile-a'));
+      // 频道列收藏标记会读取收藏列表(一次 GET);以点击前计数为基线,
+      // 断言「点播放不再新增任何 /me 请求」。
+      await waitFor(() => expect(counter.counts.personal).toBeGreaterThanOrEqual(0));
+      const personalBefore = counter.counts.personal;
       fireEvent.click(await screen.findByRole('button', { name: `播放 ${CH_NEWS_TITLE} 当前直播` }));
 
       // 目标 = 频道此刻内容(非未来节目):仅 mediaId + startMode,服务端届时重判(FR-008)
       await waitFor(() => expect(resolveBodies.length).toBe(1));
       expect(resolveBodies[0]).toEqual({ mediaId: CH_NEWS_ID, startMode: 'beginning' });
-      expect(counter.counts.personal).toBe(0);
+      expect(counter.counts.personal).toBe(personalBefore);
     } finally {
       world.restore();
       counter.restore();

@@ -19,7 +19,7 @@ import { consumeGuideSessionSnapshot, GUIDE_WALL_SESSION_KEY, saveGuideSessionSn
 import { usePlayAction } from '../playback/use-play-action';
 import { useSession } from '../../app/session-provider';
 import { useAuthAction } from '../../app/action-coordinator';
-import { useFavoriteState, useFavoriteToggleMutation } from '../favorites/use-favorites';
+import { useFavoriteChannelIds, useFavoriteState, useFavoriteToggleMutation } from '../favorites/use-favorites';
 import { queryKeys } from '../../shared/query/keys';
 import { useAppToast } from '../../shared/ui/toast';
 import { ProgrammeDetailPanel, type ProgrammeStatus } from '../shared-programme/ProgrammeDetailPanel';
@@ -185,6 +185,8 @@ export function GuidePage(): ReactNode {
   const activeProfileId = session.session?.activeProfile?.id ?? null;
   // 收藏态按需取:仅在已选档且打开详情时请求(/me 请求不为浏览页平白增加)
   const detailFavorited = useFavoriteState(activeProfileId, detail?.mediaId ?? null, detail !== null);
+  /** 频道列收藏标记(已选档取一次收藏列表;与其他收藏视图共享缓存) */
+  const favoriteIds = useFavoriteChannelIds(activeProfileId);
   const toast = useAppToast();
   const favoriteToggle = useFavoriteToggleMutation(activeProfileId, {
     id: detail?.mediaId ?? '',
@@ -677,6 +679,7 @@ export function GuidePage(): ReactNode {
                   onSelectProgramme={onOpenProgramme}
                   onPlayChannel={onPlayChannel}
                   onGoNow={goNow}
+            favoriteIds={favoriteIds}
             nextDay={nextDayResource.data ?? null}
             prevDay={prevDayResource.data ?? null}
             hasPrevDay={prevDate !== undefined && prevDate !== ''}
@@ -688,6 +691,7 @@ export function GuidePage(): ReactNode {
                   selectedKey={detail?.programme?.key ?? null}
                   onSelectProgramme={onOpenProgramme}
                   onPlayChannel={onPlayChannel}
+                  favoriteIds={favoriteIds}
                 />
               )}
             </GuideScrollContainer>

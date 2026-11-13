@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { Star } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { ExperienceProgrammeDto, GuideWindowDto } from '@hmp/shared';
 import { Card, Chip, Tooltip } from '@heroui/react';
@@ -66,6 +67,8 @@ const ROW_HEIGHT_PX = 72;
 const TAIL_MINUTES = 360;
 /** 稳定空数组:memo 行在无尾巴段时不因每次新建 [] 而重渲染 */
 const EMPTY_TAIL_BLOCKS: readonly TailBlock[] = [];
+/** 稳定空集合:未登录/无收藏时不因每次新建 Set 触发重渲染 */
+const EMPTY_FAVORITE_IDS: ReadonlySet<string> = new Set<string>();
 /** 时间头高度(刻度标签 + 短刻度线的视觉带;NOW 胶囊也在此高度内居中偏上) */
 const HEADER_HEIGHT_PX = 36;
 const MAX_LANES = 3;
@@ -140,6 +143,8 @@ export interface GuideWallProps {
   readonly nextDay?: GuideWindowDto | null;
   /** 前一日窗口(对称的「头部段」):当天 00:00 左侧接上前一日最后 TAIL_MINUTES */
   readonly prevDay?: GuideWindowDto | null;
+  /** 已收藏频道 id 集合(频道列表打标用) */
+  readonly favoriteIds?: ReadonlySet<string>;
   /** 相邻日是否存在于可选日期范围(决定是否预留段宽;数据可稍后到达) */
   readonly hasPrevDay?: boolean;
   readonly hasNextDay?: boolean;
@@ -182,6 +187,8 @@ interface GuideChannelRowProps {
   /** 前一日头部段节目块 + 其日期标签 */
   readonly headBlocks: readonly TailBlock[];
   readonly headDateLabel: string | null;
+  /** 该频道是否已收藏(频道列打标) */
+  readonly favorite: boolean;
   readonly onSelectProgramme: (ref: GuideProgrammeRef) => void;
   readonly onPlayChannel: (mediaId: string, channelTitle: string) => void;
 }
@@ -212,6 +219,7 @@ const GuideChannelRow = memo(function GuideChannelRow({
   timelineWidth,
   headBlocks,
   headDateLabel,
+  favorite,
   onSelectProgramme,
   onPlayChannel,
 }: GuideChannelRowProps): ReactNode {
@@ -363,6 +371,16 @@ const GuideChannelRow = memo(function GuideChannelRow({
             ) : (
               <span className="text-lg font-bold text-muted">{channel.media.title.slice(0, 1).toUpperCase()}</span>
             )}
+            {/* 已收藏频道标记:星标角标(aria 由整格 aria-label 与 sr-only 文本承担) */}
+            {favorite ? (
+              <>
+                <Star
+                  aria-hidden="true"
+                  className="absolute -right-1 -top-1 size-3.5 fill-current text-accent drop-shadow"
+                />
+                <span className="hmp-sr-only">(已收藏)</span>
+              </>
+            ) : null}
           </span>
           {/* 右缘渐变阴影:区分频道列与时间轴,并暗示可横向滚动 */}
           <span
@@ -467,6 +485,7 @@ export function GuideWall({
   onGoNow = () => undefined,
   nextDay = null,
   prevDay = null,
+  favoriteIds = EMPTY_FAVORITE_IDS,
   hasPrevDay = false,
   hasNextDay = false,
 }: GuideWallProps): ReactNode {
@@ -877,6 +896,7 @@ export function GuideWall({
             headDateLabel={
               prevDay === null ? null : `${Number(prevDay.date.slice(5, 7))}月${Number(prevDay.date.slice(8, 10))}日`
             }
+            favorite={favoriteIds.has(channel.media.id)}
             onSelectProgramme={onSelectProgramme}
             onPlayChannel={onPlayChannel}
           />

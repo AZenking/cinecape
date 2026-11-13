@@ -89,6 +89,20 @@ export function useFavoriteChannelsQuery(
 }
 
 /**
+ * 已收藏频道 id 集合(频道列表标记用):已选档时取一次收藏列表(与其他收藏视图
+ * 共享同一 query key,变更后自动对账);未选档/游客为空集合、零请求。
+ */
+export function useFavoriteChannelIds(profileId: string | null): ReadonlySet<string> {
+  const query = useAppQuery<FavoriteChannelPage>({
+    domain: 'profile',
+    queryKey: queryKeys.profile(profileId ?? '').favorites(),
+    queryFn: ({ signal }) => fetchFavoriteChannels({ limit: 50, signal }),
+    enabled: profileId !== null,
+  });
+  return new Set((query.data?.items ?? []).map((item) => item.media.id));
+}
+
+/**
  * 单个媒体的收藏态(详情面板用):仅在 `enabled` 为真(面板打开)且已选档时取数,
  * 避免浏览页平白增加 /me 请求;与收藏列表共享同一 query key,变更后自动对账。
  */
