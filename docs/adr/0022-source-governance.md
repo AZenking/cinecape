@@ -28,6 +28,22 @@
 4. **治理审计**：真实清理写 `governance_cleanup_run`；dry-run 不落库。
 5. **保留期**：默认 30 天，UI 可选 7/30/90/180；服务端校验 1..3650。
 
+## 追加决策(2026-11-13:永久清理的外键语义)
+
+真实库清理曾以 `FOREIGN KEY constraint failed` 失败:历史 `playback_session` 以
+`NO ACTION` 引用 `playback_source`,直接删线路不合法。明确如下:
+
+1. **历史会话保留、线路解绑**:终态会话(`ended`/`failed`/`interrupted`)清理时把
+   `playback_session.playback_source_id` 置 NULL,观看记录保留,仅丢失「当时用的哪条线路」;
+2. **活动会话拒绝清理**:`preparing`/`ready`/`playing`/`paused` 期间解绑会违反会话
+   CHECK(可播状态必须有源),返回 409 `SOURCE_BUSY`,等播放结束再重试;
+3. **输入绑定丢弃**:`playback_input_binding` 是播放准备期临时状态,按线路/来源删除;
+4. **EPG/频道解绑**:`media_source.epg_source_id` 指向被清理来源的频道先置 NULL,
+   保留频道本身;
+5. **VOD 来源暂不物理清理**:仍有 `vod_title` 关联时返回 409 `SOURCE_BUSY` 并给出
+   明确 detail,避免只删一半留下孤儿媒资(级联清理媒体库另立需求);
+6. 同一套解绑逻辑复用于「失效频道线路」清理,避免同类外键失败。
+
 ## 后果
 
 - 删除可恢复，代价是归档行与数据保留占用空间；由治理页显式释放。

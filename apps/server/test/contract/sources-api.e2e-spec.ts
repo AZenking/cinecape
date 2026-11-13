@@ -911,10 +911,53 @@ describe('021 · 来源归档/恢复/永久清理', () => {
       )
       .run(s.householdId, sourceId, s.accountId, s.sessionId);
     Database.db.prepare('UPDATE media_source SET last_job_id = ? WHERE id = ?').run('r-old', sourceId);
+
+    // 真实库回归:历史播放会话以 NO ACTION 引用 playback_source,直接删线路会
+    // `FOREIGN KEY constraint failed`;清理必须先解绑会话(保留观看记录)。
+    const sealedAt = '2026-11-13T08:00:00.000Z';
+    const owner = Database.db
+      .prepare('SELECT p.id AS profileId, d.id AS deviceId, ds.id AS deviceSessionId FROM profile p, device d, device_session ds WHERE p.household_id = ? LIMIT 1')
+      .get(s.householdId) as { profileId: string; deviceId: string; deviceSessionId: string };
+    const mediaId = randomUUID();
+    Database.db
+      .prepare(
+        `INSERT INTO media_item (id, household_id, type, title, version, created_at, updated_at)
+         VALUES (?, ?, 'channel', '清理频道', 1, ?, ?)`,
+      )
+      .run(mediaId, s.householdId, sealedAt, sealedAt);
+    Database.db
+      .prepare(
+        `INSERT INTO source_entry
+          (id, household_id, source_id, identity_kind, identity_digest, first_seen_at, last_seen_at)
+         VALUES ('se-purge', ?, ?, 'url', ?, ?, ?)`,
+      )
+      .run(s.householdId, sourceId, 'a'.repeat(64), sealedAt, sealedAt);
+    Database.db
+      .prepare(
+        `INSERT INTO playback_source
+          (id, household_id, source_id, source_entry_id, media_item_id, protocol, location, created_at, updated_at)
+         VALUES ('ps-purge', ?, ?, 'se-purge', ?, 'hls', 'http://upstream.example.com/live.m3u8', ?, ?)`,
+      )
+      .run(s.householdId, sourceId, mediaId, sealedAt, sealedAt);
+    Database.db
+      .prepare(
+        `INSERT INTO playback_session
+          (id, household_id, device_session_id, device_id, profile_id, media_id, playback_source_id,
+           state, generation, version, position_seconds, created_at, ended_at, last_heartbeat_at)
+         VALUES ('sess-purge', ?, ?, ?, ?, ?, 'ps-purge', 'ended', 1, 1, 0, ?, ?, ?)`,
+      )
+      .run(s.householdId, owner.deviceSessionId, owner.deviceId, owner.profileId, mediaId, sealedAt, sealedAt, sealedAt);
+
     const purged = await purgeSource(s, sourceId, 4);
     expect(purged.status, JSON.stringify(purged.body)).toBe(200);
     expect(purged.body).toEqual({ deleted: 1, bytesFreed: 0 });
     expect(Database.db.prepare('SELECT 1 FROM media_source WHERE id = ?').get(sourceId)).toBeUndefined();
+    // 历史会话保留但已解绑线路(解绑后不再指向被清理的播放资源)
+    expect(
+      (Database.db.prepare('SELECT playback_source_id AS source FROM playback_session WHERE id = ?').get('sess-purge') as {
+        source: string | null;
+      }).source,
+    ).toBeNull();
   });
 
   it('陈旧版本/活跃任务/跨家庭边界', async () => {

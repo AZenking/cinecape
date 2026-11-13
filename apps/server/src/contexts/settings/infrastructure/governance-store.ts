@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { ProblemCode } from '@hmp/shared';
 import { Database } from '@platform/database/database';
+import { DomainError } from '@platform/http-common/domain-error';
 
 /**
  * 数据治理查询/清理(021-source-governance,contracts/api.md §3)。
@@ -127,6 +129,47 @@ export function readGovernanceOverview(householdId: string, retentionDays = DEFA
   };
 }
 
+
+/**
+ * 解绑 playback_session / 删除 playback_input_binding 对指定线路的引用。
+ *
+ * playback_source 被 playback_session、playback_input_binding 以 NO ACTION 引用,
+ * 直接 DELETE 会 `FOREIGN KEY constraint failed`(真实库:看完的历史会话仍指向线路)。
+ * - 活动会话(preparing/ready/playing/paused)不允许解绑 —— 会话 CHECK 要求
+ *   可播状态必须同时有源与交付模式;此时以 409 SOURCE_BUSY 拒绝,等播放结束再清理;
+ * - 历史/终态会话解绑后保留观看记录,仅丢失「当时用的哪条线路」;
+ * - 输入绑定是播放准备期的临时状态,直接删除。
+ *
+ * @param lineIdsSql 选出待删除 playback_source.id 的子查询(须以 household_id 为首参)
+ * @param params 子查询参数(不含外层 household_id)
+ */
+function detachPlaybackReferences(
+  db: typeof Database.db,
+  householdId: string,
+  lineIdsSql: string,
+  params: readonly unknown[],
+): void {
+  const activeSessions = count(
+    db,
+    `SELECT COUNT(*) AS n FROM playback_session
+      WHERE household_id = ? AND state IN ('preparing','ready','playing','paused')
+        AND playback_source_id IN (${lineIdsSql})`,
+    householdId,
+    ...params,
+  );
+  if (activeSessions > 0) {
+    throw new DomainError(409, ProblemCode.SOURCE_BUSY, '该来源仍有进行中的播放会话,请结束后再清理。');
+  }
+  db.prepare(
+    `UPDATE playback_session SET playback_source_id = NULL
+      WHERE household_id = ? AND playback_source_id IN (${lineIdsSql})`,
+  ).run(householdId, ...params);
+  db.prepare(
+    `DELETE FROM playback_input_binding
+      WHERE household_id = ? AND playback_source_id IN (${lineIdsSql})`,
+  ).run(householdId, ...params);
+}
+
 /** 单来源永久清理(内部;调用方负责事务与归属)。 */
 function purgeSourceRows(db: typeof Database.db, householdId: string, sourceId: string): number {
   const snapshotBytes =
@@ -134,10 +177,25 @@ function purgeSourceRows(db: typeof Database.db, householdId: string, sourceId: 
       .prepare('SELECT COALESCE(SUM(byte_size), 0) AS bytes FROM source_import_snapshot WHERE household_id = ? AND source_id = ?')
       .get(householdId, sourceId) as { bytes: number } | undefined)?.bytes ?? 0;
   db.prepare('DELETE FROM source_import_snapshot WHERE household_id = ? AND source_id = ?').run(householdId, sourceId);
+  // VOD 标题以 media_source(source_id) 外键引用来源:永久清理当前不级联删除媒体库,
+  // 明确拒绝而不是落到 500,避免留下孤儿媒资。
+  if (count(db, 'SELECT COUNT(*) AS n FROM vod_title WHERE household_id = ? AND source_id = ?', householdId, sourceId) > 0) {
+    throw new DomainError(409, ProblemCode.SOURCE_BUSY, '该来源仍关联点播标题,暂不支持永久清理。');
+  }
   // 解除 media_source.last_job_id / source_entry.last_seen_job_id 对 refresh 行的复合外键,
-  // 再按「播放资源 → 来源条目 → 暂存 → 刷新任务」顺序删除。
+  // 解除播放会话/输入绑定对线路的引用,再按「播放资源 → 来源条目 → 暂存 → 刷新任务」顺序删除。
   db.prepare('UPDATE media_source SET last_job_id = NULL WHERE household_id = ? AND id = ?').run(householdId, sourceId);
   db.prepare('UPDATE source_entry SET last_seen_job_id = NULL WHERE household_id = ? AND source_id = ?').run(householdId, sourceId);
+  detachPlaybackReferences(
+    db,
+    householdId,
+    'SELECT id FROM playback_source WHERE household_id = ? AND source_id = ?',
+    [householdId, sourceId],
+  );
+  // playback_input_binding 同时以 source_id 引用 media_source(可能尚未绑定线路)。
+  db.prepare('DELETE FROM playback_input_binding WHERE household_id = ? AND source_id = ?').run(householdId, sourceId);
+  // EPG 源可能被频道来源以 media_source.epg_source_id 引用:解绑保留频道,再删源。
+  db.prepare('UPDATE media_source SET epg_source_id = NULL WHERE household_id = ? AND epg_source_id = ?').run(householdId, sourceId);
   db.prepare('DELETE FROM playback_source WHERE household_id = ? AND source_id = ?').run(householdId, sourceId);
   db.prepare('DELETE FROM source_entry WHERE household_id = ? AND source_id = ?').run(householdId, sourceId);
   db.prepare(
@@ -229,6 +287,12 @@ export function runCleanup(
           cutoff,
         );
         if (!dryRun) {
+          const staleLineIds = `SELECT id FROM playback_source
+              WHERE household_id = ? AND source_entry_id IN (
+                SELECT id FROM source_entry
+                 WHERE household_id = ? AND present = 0 AND missing_since IS NOT NULL AND missing_since < ?
+              )`;
+          detachPlaybackReferences(db, householdId, staleLineIds, [householdId, householdId, cutoff]);
           db.prepare(
             `DELETE FROM playback_source
               WHERE household_id = ? AND source_entry_id IN (
