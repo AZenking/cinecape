@@ -356,28 +356,27 @@ const GuideChannelRow = memo(function GuideChannelRow({
           >
             {channelIndex + 1}
           </span>
-          {/* 台标:posterRef → 同源 logo 接口;无 ref 时回退首字(仍不展示全名) */}
-          <span
-            aria-hidden="true"
-            className="relative inline-flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-md bg-transparent"
-          >
-            {channel.media.posterRef !== null ? (
-              <ChannelLogo
-                key={channel.media.posterRef}
-                posterRef={channel.media.posterRef}
-                channelTitle={channel.media.title}
-                fallbackClassName="text-lg font-black leading-none text-muted"
-              />
-            ) : (
-              <span className="text-lg font-bold text-muted">{channel.media.title.slice(0, 1).toUpperCase()}</span>
-            )}
-            {/* 已收藏频道标记:星标角标(aria 由整格 aria-label 与 sr-only 文本承担) */}
+          {/* 台标:posterRef → 同源 logo 接口;无 ref 时回退首字(仍不展示全名)。
+              星标必须放在 overflow-hidden 之外,否则会被台标盒裁掉(实测)。 */}
+          <span aria-hidden="true" className="relative inline-flex shrink-0">
+            <span className="inline-flex size-14 items-center justify-center overflow-hidden rounded-md bg-transparent">
+              {channel.media.posterRef !== null ? (
+                <ChannelLogo
+                  key={channel.media.posterRef}
+                  posterRef={channel.media.posterRef}
+                  channelTitle={channel.media.title}
+                  fallbackClassName="text-lg font-black leading-none text-muted"
+                />
+              ) : (
+                <span className="text-lg font-bold text-muted">
+                  {channel.media.title.slice(0, 1).toUpperCase()}
+                </span>
+              )}
+            </span>
+            {/* 已收藏标记:右上角实心星标(不参与裁切;aria 由整格 aria-label 承担) */}
             {favorite ? (
               <>
-                <Star
-                  aria-hidden="true"
-                  className="absolute -right-1 -top-1 size-3.5 fill-current text-accent drop-shadow"
-                />
+                <Star className="absolute -right-2 -top-2 size-4 fill-current text-accent drop-shadow-[0_0_2px_rgba(0,0,0,0.9)]" />
                 <span className="hmp-sr-only">(已收藏)</span>
               </>
             ) : null}
