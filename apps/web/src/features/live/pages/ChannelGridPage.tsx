@@ -14,7 +14,7 @@ import { queryKeys } from '../../../shared/query/keys';
 import { fetchLiveChannels, fetchLiveGroups, type LiveChannelQuery } from '../live-api';
 import { PlayButton, usePlayAction } from '../../playback/use-play-action';
 import { useSession } from '../../../app/session-provider';
-import { useFavoriteToggleMutation } from '../../favorites/use-favorites';
+import { useFavoriteState, useFavoriteToggleMutation } from '../../favorites/use-favorites';
 import { ProgrammeDetailPanel } from '../../shared-programme/ProgrammeDetailPanel';
 import { panelStatusOf } from '../LivePage';
 import { useLiveRefresh } from '../hooks/use-live-refresh';
@@ -78,6 +78,11 @@ export function ChannelGridPage(): ReactNode {
     title: slotDialog?.channelTitle ?? '',
     unavailable: false,
   });
+  const detailFavorited = useFavoriteState(
+    activeProfileId,
+    slotDialog?.mediaId ?? null,
+    slotDialog !== null,
+  );
 
   /* ---------------- URL 状态:?group / ?q / ?view(routing §2.2) ---------------- */
 
@@ -372,6 +377,7 @@ export function ChannelGridPage(): ReactNode {
           setSlotDialog(null);
         }}
         channel={{ name: slotDialog?.channelTitle ?? '', logo: null }}
+        favorited={detailFavorited}
         programme={
           slotDialog?.programme == null
             ? null
@@ -403,7 +409,12 @@ export function ChannelGridPage(): ReactNode {
             return;
           }
           // 已选档:既有 favorites 变更(乐观写 + onSettled 服务端对账,数据层收口)
-          void favoriteToggle.mutateAsync(true).catch(() => undefined);
+          if (favoriteToggle.isPending) {
+            return;
+          }
+          void favoriteToggle
+            .mutateAsync(!detailFavorited)
+            .catch(() => undefined);
         }}
       />
     </div>

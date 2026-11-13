@@ -8,7 +8,7 @@ import { queryKeys } from '../../shared/query/keys';
 import { fetchLiveChannels, fetchLiveGroups, type LiveChannelQuery } from './live-api';
 import { usePlayAction } from '../playback/use-play-action';
 import { useSession } from '../../app/session-provider';
-import { useFavoriteToggleMutation } from '../favorites/use-favorites';
+import { useFavoriteState, useFavoriteToggleMutation } from '../favorites/use-favorites';
 import { ProgrammeDetailPanel, type ProgrammeStatus } from '../shared-programme/ProgrammeDetailPanel';
 import { serverNowMs } from '../../shared/time/server-clock';
 import { useLiveRefresh } from './hooks/use-live-refresh';
@@ -106,6 +106,12 @@ export function LivePage(): ReactNode {
     title: slotDialog?.channelTitle ?? '',
     unavailable: false,
   });
+  /** 详情面板收藏态(打开且已选档时才取数;切换后按同一 query key 对账) */
+  const detailFavorited = useFavoriteState(
+    activeProfileId,
+    slotDialog?.mediaId ?? null,
+    slotDialog !== null,
+  );
 
   const qParam = searchParams.get('q') ?? '';
 
@@ -294,6 +300,7 @@ export function LivePage(): ReactNode {
           setSlotDialog(null);
         }}
         channel={{ name: slotDialog?.channelTitle ?? '', logo: null }}
+        favorited={detailFavorited}
         programme={
           slotDialog?.programme == null
             ? null
@@ -326,7 +333,12 @@ export function LivePage(): ReactNode {
           }
           // 已选档:既有 favorites 变更(乐观写 + onSettled 服务端对账;失败回滚与
           // 提示由数据层收口;已收藏态回显与行内成功反馈归 T011,本期最小接线)
-          void favoriteToggle.mutateAsync(true).catch(() => undefined);
+          if (favoriteToggle.isPending) {
+            return;
+          }
+          void favoriteToggle
+            .mutateAsync(!detailFavorited)
+            .catch(() => undefined);
         }}
       />
     </div>

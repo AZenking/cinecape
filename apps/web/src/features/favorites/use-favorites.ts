@@ -89,6 +89,27 @@ export function useFavoriteChannelsQuery(
 }
 
 /**
+ * 单个媒体的收藏态(详情面板用):仅在 `enabled` 为真(面板打开)且已选档时取数,
+ * 避免浏览页平白增加 /me 请求;与收藏列表共享同一 query key,变更后自动对账。
+ */
+export function useFavoriteState(
+  profileId: string | null,
+  mediaId: string | null,
+  enabled: boolean,
+): boolean {
+  const query = useAppQuery<FavoriteChannelPage>({
+    domain: 'profile',
+    queryKey: queryKeys.profile(profileId ?? '').favorites(),
+    queryFn: ({ signal }) => fetchFavoriteChannels({ limit: 50, signal }),
+    enabled: enabled && profileId !== null && mediaId !== null,
+  });
+  if (mediaId === null) {
+    return false;
+  }
+  return (query.data?.items ?? []).some((item) => item.media.id === mediaId);
+}
+
+/**
  * 收藏/取消收藏变更(optimistic 档,Q1):
  * - onMutate:取消在途列表查询 → 快照 → optimistic.apply 改写 favorites 键;
  * - onError:自动回滚快照 + formatApiError toast(网络失败落通用兜底文案);

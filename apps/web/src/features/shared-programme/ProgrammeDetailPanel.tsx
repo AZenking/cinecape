@@ -55,6 +55,8 @@ export interface ProgrammeDetailPanelProps {
   /** 播放该频道当前直播(频道语义,无参;宿主闭包持有 mediaId) */
   readonly onPlay: () => void;
   readonly onFavorite: () => void;
+  /** 当前是否已收藏该频道(受控;决定星标与文案,点击仍走 onFavorite 切换) */
+  readonly favorited?: boolean;
   readonly onClose: () => void;
 }
 
@@ -66,7 +68,7 @@ const STATUS_LABEL: Record<ProgrammeStatus, string> = {
 } as const;
 
 export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNode {
-  const { open, onClose, channel, programme, status, timezone, onPlay, onFavorite } = props;
+  const { open, onClose, channel, programme, status, timezone, onPlay, onFavorite, favorited = false } = props;
   const { nowMs } = useServerNow();
   /** 正在直播:已播进度(服务端基准钟;无校准回落本地钟) */
   const livePercent =
@@ -210,9 +212,17 @@ export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNod
                   播放
                 </Button>
               ) : null}
-              <Button variant="secondary" className="w-full" onPress={onFavorite}>
-                <Star aria-hidden="true" className="size-4" />
-                收藏频道
+              <Button
+                variant="secondary"
+                className="w-full"
+                aria-pressed={favorited}
+                onPress={onFavorite}
+              >
+                <Star
+                  aria-hidden="true"
+                  className={`size-4 ${favorited ? 'fill-current text-accent' : ''}`}
+                />
+                {favorited ? '已收藏' : '收藏频道'}
               </Button>
           </Drawer.Footer>
         </Drawer.Dialog>

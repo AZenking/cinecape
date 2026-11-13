@@ -8,7 +8,6 @@ import { SlidersHorizontal } from 'lucide-react';
 import { RetryableAlert } from '../../shared/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchGuideWindow, useGuideWindow } from './useGuideWindow';
-import { queryKeys } from '../../shared/query/keys';
 import { EPG_QUERY_STALE_TIME_MS } from '../../shared/query/hooks';
 import { GuideDateTabs } from './GuideDateTabs';
 import { GuideScrollContainer } from './GuideScrollContainer';
@@ -20,7 +19,9 @@ import { consumeGuideSessionSnapshot, GUIDE_WALL_SESSION_KEY, saveGuideSessionSn
 import { usePlayAction } from '../playback/use-play-action';
 import { useSession } from '../../app/session-provider';
 import { useAuthAction } from '../../app/action-coordinator';
-import { useFavoriteToggleMutation } from '../favorites/use-favorites';
+import { useFavoriteState, useFavoriteToggleMutation } from '../favorites/use-favorites';
+import { queryKeys } from '../../shared/query/keys';
+import { useAppToast } from '../../shared/ui/toast';
 import { ProgrammeDetailPanel, type ProgrammeStatus } from '../shared-programme/ProgrammeDetailPanel';
 
 /**
@@ -182,6 +183,9 @@ export function GuidePage(): ReactNode {
   // 收藏频道(T022 最小接线):身份未定(null)时无乐观写/无失效目标;
   // 仅在已选档的 onFavorite 内 mutate —— 游客/未选档不产生任何 /me 请求(ui.md §1.5)
   const activeProfileId = session.session?.activeProfile?.id ?? null;
+  // 收藏态按需取:仅在已选档且打开详情时请求(/me 请求不为浏览页平白增加)
+  const detailFavorited = useFavoriteState(activeProfileId, detail?.mediaId ?? null, detail !== null);
+  const toast = useAppToast();
   const favoriteToggle = useFavoriteToggleMutation(activeProfileId, {
     id: detail?.mediaId ?? '',
     title: detail?.channelTitle ?? '',
@@ -855,6 +859,7 @@ export function GuidePage(): ReactNode {
             closeDetail('restore');
             onPlayChannel(target.mediaId, target.channelTitle);
           }}
+          favorited={detailFavorited}
           onFavorite={() => {
             const target = detail;
             if (target === null) {
@@ -867,9 +872,17 @@ export function GuidePage(): ReactNode {
               startLogin(`${location.pathname}${location.search}`);
               return;
             }
-            // 已选档:仅收藏频道(PUT favorites),不触发播放(§1.5)。面板暂无
-            // 收藏态/行内反馈属性,收藏状态呈现随 T011 收藏行为任务统一补(最小接线)。
-            favoriteToggle.mutate(true);
+            // 已选档:按当前收藏态切换(PUT/DELETE),不触发播放(§1.5);
+            // 在途去重 + 成功 toast,面板按钮同步显示「已收藏/收藏频道」
+            if (favoriteToggle.isPending) {
+              return;
+            }
+            const next = !detailFavorited;
+            favoriteToggle.mutate(next, {
+              onSuccess: () => {
+                toast.success(next ? `已收藏 ${target.channelTitle}` : `已取消收藏 ${target.channelTitle}`);
+              },
+            });
           }}
           onClose={() => {
             closeDetail('restore');
