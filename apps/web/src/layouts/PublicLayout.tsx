@@ -14,6 +14,7 @@ import type { ReactNode } from 'react';
 import { Link, Outlet } from 'react-router';
 import { IdentityMenu } from '../features/profiles/identity-menu';
 import { PublicNav } from '../shared/ui';
+import { BrandLogo } from '../shared/ui/brand-logo';
 
 /**
  * 公共布局宽度策略(统一基准):
@@ -34,20 +35,26 @@ export function PublicLayout({ fill = false }: PublicLayoutProps = {}): ReactNod
   return (
     <div className={fill ? 'flex h-dvh min-h-0 flex-col overflow-hidden' : 'flex min-h-screen flex-col'}>
       <header className="border-b border-border bg-background/30">
-        <div className="mx-auto flex h-14 w-full items-center justify-between gap-4 px-4 lg:px-6">
-          <div className="flex items-center gap-6">
+        {/* 三段网格:左品牌 / 中导航(页面级居中)/ 右身份;两侧 1fr 等宽保证导航真正居中 */}
+        <div className="mx-auto grid h-14 w-full grid-cols-[1fr_auto_1fr] items-center gap-4 px-4 lg:px-6">
+          <div className="flex items-center justify-self-start">
             <Link
               to="/"
+              aria-label="映岬 Cinecape"
               className="rounded text-lg font-semibold tracking-widest text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
             >
-              映岬 Cinecape
+              <BrandLogo />
             </Link>
+          </div>
+          <div className="justify-self-center">
             <PublicNav />
           </div>
           {/* 登录入口插槽(ui.md §2):IdentityMenu 自足覆盖 游客=登录(restoring=轻量恢复;
               登录未选档=账号+选择 Profile;已选档=账号+头像/名称菜单,切档/设置入口/退出),
               内部经 useAuthAction 走 T043 统一受控弹层(T042/T043 交付,lead 接线)。 */}
-          <IdentityMenu />
+          <div className="justify-self-end">
+            <IdentityMenu />
+          </div>
         </div>
       </header>
             {/* min-h-0 + flex:让「需铺满视口」的页面(节目单)能拿到确定高度并内部滚动 */}

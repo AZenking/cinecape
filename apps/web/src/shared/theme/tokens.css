@@ -20,7 +20,7 @@
  *     焦点/链接:--focus、--link、--ring-offset-width
  *     布局:--spacing、--radius、--field-radius、--disabled-opacity、--backdrop 等
  *   本文件只做两件事:
- *   1) 以暗色媒体界面基调覆盖品牌强调色(香槟金 accent #D8B56A,research D6;
+ *   1) 以暗色媒体界面基调覆盖品牌强调色(柔和紫 accent #8874D8;
  *      覆盖须在 @heroui/styles 之后导入——见 globals.css 导入顺序);
  *   2) 补充本仓库自定义别名(--hmp-* 前缀),供可访问性基线(./a11y.css)与后续组件使用。
  *
@@ -40,20 +40,20 @@
 }
 
 .dark {
-  /* 主题配色(2026-11-13 产品指定):鸢尾紫 + 石墨黑
-     鸢尾紫 #8B7AE6 强调 / 浅紫 #A99AF2 悬停高亮 / 石墨黑 #141318 画布 /
-     紫灰黑 #201E27 卡片侧栏 / 柔白 #F3F1F7 正文。
-     紫色集中在播放按钮、选中导航与进度条,大面积保留黑灰。
-     对比度:柔白/石墨黑 16.5:1、紫/石墨黑 5.3:1、深黑墨/紫 5.3:1(均达 AA)。 */
-  --accent: oklch(0.6438 0.1573 288.40); /* #8B7AE6 */
-  --accent-hover: oklch(0.7336 0.1259 290.78); /* #A99AF2 浅紫(悬停/高亮) */
-  --accent-foreground: oklch(0.1902 0.0101 294.59); /* #141318:紫底用深墨字保证对比 */
-  --background: oklch(0.1902 0.0101 294.59); /* #141318 石墨黑 */
-  --foreground: oklch(0.9614 0.0082 301.36); /* #F3F1F7 柔白 */
-  --surface: oklch(0.2412 0.0172 295.27); /* #201E27 卡片/侧栏 */
-  --surface-secondary: oklch(0.2811 0.0221 296.40); /* #2A2733 次级面(卡片内块) */
+  /* 映岬 · Cinecape:柔和紫 + 墨紫黑。Logo 保留原始电光紫图片。
+     界面强调 #8874D8 / 画布 #100D18 / 卡片 #1D1829 / 正文 #F5F3FF。
+     紫底使用深墨字(对比度 5.07:1);悬停略提亮,保持文字清晰。 */
+  --accent: oklch(0.62225 0.14729 290.67); /* #8874D8 */
+  --accent-hover: color-mix(in oklab, var(--accent) 92%, var(--white) 8%);
+  --accent-foreground: var(--background);
+  --background: oklch(0.16867 0.02302 296.38); /* #100D18 */
+  --foreground: oklch(0.96914 0.01606 293.76); /* #F5F3FF */
+  --surface: oklch(0.22347 0.03319 297.16); /* #1D1829 */
+  --surface-secondary: oklch(0.26577 0.03947 299.02); /* #282136 */
+  --surface-tertiary: oklch(0.30701 0.04718 299.53); /* #332A44 */
+  --overlay: var(--surface-secondary);
 
-  /* 统一焦点色跟随品牌 accent(ui.md §8「统一焦点色」;heroui 默认亦为 var(--accent)) */
+  /* 焦点跟随柔和紫主题。 */
   --focus: var(--accent);
 }
 

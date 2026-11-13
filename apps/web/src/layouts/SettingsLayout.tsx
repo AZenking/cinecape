@@ -24,6 +24,7 @@ import {
 } from '../features/settings/settings-modules';
 import { useMediaQuery } from '../shared/hooks';
 import { PublicNav } from '../shared/ui';
+import { BrandLogo } from '../shared/ui/brand-logo';
 
 export interface SettingsLayoutProps {
   /** 可选注入 isMainProfile 覆盖 (用于测试或显式指定) */
@@ -97,7 +98,7 @@ function SettingsSubmenu({
     >
       <nav aria-label="设置子菜单" className="flex min-h-0 flex-1 flex-col">
         <div className="mb-6 flex min-w-0 flex-col gap-1">
-          <span className="truncate text-2xl font-semibold leading-9 text-foreground">redRoad</span>
+          <span className="text-base font-semibold leading-9 text-foreground"><BrandLogo withText /></span>
           <span className="truncate text-xs leading-5 text-muted" title={profileName}>
             {profileName} · {isMainProfile ? '家庭主管理员' : '家庭成员'}
           </span>
