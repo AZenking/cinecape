@@ -96,7 +96,7 @@ test.describe.serial('T035 · 认证与选档主链路(SC-002)', () => {
 
     // 刷新恢复(FR-009,同一浏览器上下文):会话与当前 Profile 持久,公共页正常渲染
     await page.reload();
-    await expect(page.getByRole('link', { name: 'HOME MEDIA' })).toBeVisible();
+    await expect(page.getByRole('link', { name: '映岬 Cinecape' })).toBeVisible();
     await expect(dialog(page)).toBeHidden();
     const restored = await page.request.get('/api/auth/session');
     expect(restored.status()).toBe(200);
@@ -119,7 +119,7 @@ test.describe.serial('T035 · 认证与选档主链路(SC-002)', () => {
 
     await page.goto('/vod');
     await expect(page).toHaveURL(/\/vod$/);
-    await expect(page.getByRole('link', { name: 'HOME MEDIA' })).toBeVisible();
+    await expect(page.getByRole('link', { name: '映岬 Cinecape' })).toBeVisible();
     // 已初始化部署:不自动弹出配置弹窗(FR-007 游客仍可浏览)
     await expect(dialog(page)).toBeHidden();
 
@@ -144,7 +144,7 @@ test.describe.serial('T035 · 认证与选档主链路(SC-002)', () => {
     expect(mediaRequestsAfterCancel).toBe(0); // 取消登录不触发任何媒体请求(FR-010);遮罩已彻底卸载
 
     // 取消后不自动重开:SPA 内导航到首页也不出现弹窗(不重复弹窗)
-    await page.getByRole('link', { name: 'HOME MEDIA' }).click();
+    await page.getByRole('link', { name: '映岬 Cinecape' }).click();
     await expect(page).toHaveURL(/\/$/);
     await expect(dialog(page)).toBeHidden();
   });

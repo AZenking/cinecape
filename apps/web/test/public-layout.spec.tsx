@@ -8,7 +8,7 @@ import { PUBLIC_NAV_ITEMS } from '../src/shared/ui/global-nav';
 /**
  * T020(US1 前端单测):PublicLayout 公共导航壳。
  * 对照 docs/specs/005-pc-browsing-flow/contracts/ui.md §1/§2 与 spec.md US1:
- * - 品牌入口(HOME MEDIA)返回首页;左侧 首页/点播/直播 为真实路由链接(FR-005);
+ * - 品牌入口(映岬 Cinecape)返回首页;左侧 首页/点播/直播 为真实路由链接(FR-005);
  * - 游客右侧显示登录入口(T042 IdentityMenu:会话恢复 401→anonymous 后呈现,
  *   内部经 useAuthAction 走 T043 统一登录意图弹层);
  * - 公共 Layout 不被 RequireSession 包裹:渲染即出内容,无登录重定向、无会话依赖;
@@ -61,7 +61,7 @@ describe('PublicLayout 导航壳(T020)', () => {
   it('品牌入口返回首页,导航项为真实路由链接(v1 只做直播:不含点播)', () => {
     renderLayoutAt('/');
 
-    const brand = screen.getByRole('link', { name: 'HOME MEDIA' });
+    const brand = screen.getByRole('link', { name: '映岬 Cinecape' });
     expect(brand).toHaveAttribute('href', '/');
 
     const nav = screen.getByRole('navigation', { name: '公共导航' });

@@ -10,7 +10,7 @@ import { PUBLIC_NAV_ITEMS } from '../src/shared/ui/global-nav';
  * T013(005-pc-browsing-flow · Phase 2):web foundation 冒烟门禁。
  *
  * 只验证 Phase 1~2 已有能力(T010 公共骨架 + typed fetch 底座),不承担 005 业务验收:
- * 1. 游客公共壳:App 渲染 PublicLayout,品牌 HOME MEDIA 与 首页/点播/直播 导航可见,
+ * 1. 游客公共壳:App 渲染 PublicLayout,品牌 映岬 Cinecape 与 首页/点播/直播 导航可见,
  *   `/`、`/vod`、`/live` 直达占位页,无登录强制跳转(地址保持原样);
  * 2. typed fetch 行为(fetch.ts 真实 API):
  *    - publicFetch → credentials:'omit',privateFetch → credentials:'same-origin';
@@ -68,7 +68,7 @@ describe('T013 foundation 冒烟 · 游客公共壳(T010 骨架)', () => {
     renderAppAt(path);
 
     // 品牌 + 导航(跟随 feature-flags,不写死项)
-    expect(screen.getByRole('link', { name: 'HOME MEDIA' })).toBeVisible();
+    expect(screen.getByRole('link', { name: '映岬 Cinecape' })).toBeVisible();
     const nav = screen.getByRole('navigation', { name: '公共导航' });
     expect(nav).toBeVisible();
     expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual(

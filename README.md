@@ -1,4 +1,4 @@
-# Home Media Platform
+# 映岬 Cinecape
 
 一个运行在家庭 NAS 上的自托管媒体平台。它以家庭为资源边界，以 Profile 为观看身份，统一管理 Live TV、电影/剧集、本地媒体库和播放体验。
 

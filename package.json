@@ -1,5 +1,5 @@
 {
-  "name": "home-media-platform",
+  "name": "cinecape",
   "private": true,
   "packageManager": "pnpm@11.28.5",
   "engines": {

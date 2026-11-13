@@ -1,7 +1,7 @@
 /**
  * 公共布局(T010;005 Phase 2)。
  *
- * - 顶部品牌「HOME MEDIA」回首页;左侧 首页/点播/直播 为真实 NavLink(react-router,
+ * - 顶部品牌「映岬 Cinecape」回首页;左侧 首页/点播/直播 为真实 NavLink(react-router,
  *   自动带 aria-current);右侧登录入口插槽 —— 本阶段为静态占位按钮,由 US2
  *   (T042 身份菜单 / T043 ActionCoordinator 统一登录意图)接管(ui.md §2)。
  * - 本布局不被 RequireSession 包裹(ui.md §1):游客直达、刷新可加载;
@@ -40,7 +40,7 @@ export function PublicLayout({ fill = false }: PublicLayoutProps = {}): ReactNod
               to="/"
               className="rounded text-lg font-semibold tracking-widest text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
             >
-              HOME MEDIA
+              映岬 Cinecape
             </Link>
             <PublicNav />
           </div>

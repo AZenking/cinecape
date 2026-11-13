@@ -108,7 +108,7 @@ test.describe.serial('T032 · 身份切换与缓存隔离(006 US3)', () => {
     await page.goto('/');
 
     // 公共壳照常渲染(公共浏览不因会话丢失中断)
-    await expect(page.getByRole('link', { name: 'HOME MEDIA' })).toBeVisible();
+    await expect(page.getByRole('link', { name: '映岬 Cinecape' })).toBeVisible();
     await expect(page.getByRole('heading', { name: '首页' })).toBeVisible();
 
     // 统一收敛到游客/登录引导:登录入口回归、个人区消失、无半失效的已选档身份
@@ -133,7 +133,7 @@ test.describe.serial('T032 · 身份切换与缓存隔离(006 US3)', () => {
     await switchProfile(page, '儿童档案', CHILD_PIN);
     await page.goto('/vod');
     await expect(page.getByRole('heading', { name: '点播' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'HOME MEDIA' })).toBeVisible();
+    await expect(page.getByRole('link', { name: '映岬 Cinecape' })).toBeVisible();
 
     // 回切主档案:收藏仍在(个人域按档案隔离,不互吞)
     await switchProfile(page, '主档案', MAIN_PIN);

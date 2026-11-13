@@ -37,7 +37,7 @@ test.describe('游客直接浏览家庭内容(T021)', () => {
     await page.goto('/');
     await expect(page).toHaveURL(/\/$/);
     // 公共导航壳可见;登录入口为占位按钮而非强制跳转
-    await expect(page.getByRole('link', { name: 'HOME MEDIA' })).toBeVisible();
+    await expect(page.getByRole('link', { name: '映岬 Cinecape' })).toBeVisible();
     await expect(page.getByRole('navigation', { name: '公共导航' })).toBeVisible();
     await expect(page.getByRole('button', { name: '登录' })).toBeVisible();
     // 公共区入口(直播摘要入口/节目单入口/点播入口)可见
