@@ -212,7 +212,7 @@ describe('T014 · 无节目单频道保留身份(FR-012 卡片)', () => {
     expect(dialogScope.getByText('例牌电影频道')).toBeVisible();
     expect(dialogScope.getByText('暂无节目数据')).toBeVisible();
     expect(dialogScope.getByText('暂无节目单')).toBeVisible();
-    expect(dialogScope.getByRole('button', { name: '播放当前频道' })).toBeEnabled();
+    expect(dialogScope.getByRole('button', { name: '播放' })).toBeEnabled();
   });
 });
 
@@ -244,7 +244,7 @@ describe('T014 · 直播宿主面板状态映射(FR-013;T016 接线)', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('即将播放节目面板:状态「即将开始」+ 开播时间,无「播放当前频道」主操作(ui.md §1.6)', async () => {
+  it('即将播放节目面板:状态「即将开始」+ 开播时间,无播放主操作(ui.md §1.6)', async () => {
     installLiveFetchMock();
     renderLivePage();
     const user = userEvent.setup();
@@ -257,8 +257,10 @@ describe('T014 · 直播宿主面板状态映射(FR-013;T016 接线)', () => {
     expect(dialogScope.getByText('即将开始')).toBeVisible();
     // 开播时间:13:00Z → 家庭时区 21:00(「开播」行)
     expect(dialogScope.getByText('21:00')).toBeVisible();
-    expect(dialogScope.queryByRole('button', { name: '播放当前频道' })).toBeNull();
-    expect(dialogScope.getByRole('button', { name: '查看节目单' })).toBeVisible();
+    expect(dialogScope.queryByRole('button', { name: '播放' })).toBeNull();
+    // 查看节目单已按产品要求移除;面板仅保留「收藏频道」
+    expect(dialogScope.queryByRole('button', { name: '查看节目单' })).toBeNull();
+    expect(dialogScope.getByRole('button', { name: '收藏频道' })).toBeVisible();
   });
 
   it('宿主映射纯函数:current+时段含 now→now;current+时段不含 now→ended;current+now 缺失→ended;双 null→none;upcoming→upcoming(T018 none 映射钉面)', () => {

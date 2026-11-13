@@ -328,10 +328,6 @@ export function LivePage(): ReactNode {
           // 提示由数据层收口;已收藏态回显与行内成功反馈归 T011,本期最小接线)
           void favoriteToggle.mutateAsync(true).catch(() => undefined);
         }}
-        onGuide={() => {
-          // 次操作「查看节目单」:导航节目单页(ui.md §2.3;公共路由 /live/guide)
-          void navigate('/live/guide');
-        }}
       />
     </div>
   );

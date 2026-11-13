@@ -871,12 +871,6 @@ export function GuidePage(): ReactNode {
             // 收藏态/行内反馈属性,收藏状态呈现随 T011 收藏行为任务统一补(最小接线)。
             favoriteToggle.mutate(true);
           }}
-          onGuide={() => {
-            // 「查看节目单」:已在节目单页 → 关闭面板回到节目单,并把键盘锚定位到
-            // 窗口标题(复用翻页焦点机制;mode=guide 免去节目块焦点重复恢复)
-            closeDetail('guide');
-            setNavSeq((value) => value + 1);
-          }}
           onClose={() => {
             closeDetail('restore');
           }}

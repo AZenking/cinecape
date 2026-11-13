@@ -307,7 +307,7 @@ describe('T011 · GuidePage 宿主接线:current 墙块点击 → 统一登录�
       const detail = await screen.findByRole('dialog', { name: /节目详情/ });
       expect(detail).toBeVisible();
       // 详情里「正在直播」提供播放主操作;点击后才进入统一登录链路
-      fireEvent.click(within(detail).getByRole('button', { name: '播放当前频道' }));
+      fireEvent.click(within(detail).getByRole('button', { name: '播放' }));
       await waitFor(() => expect(screen.getByRole('dialog', { name: '登录' })).toBeVisible());
       // 登录前零媒体流请求(US3 契约:授权前不请求 /playback/*)
       expect(counter.counts.playback).toBe(0);

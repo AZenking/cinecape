@@ -50,7 +50,6 @@ interface ProgrammeDetailPanelProps {
   readonly source?: 'now' | 'next' | 'guide';
   readonly onPlay: () => void;
   readonly onFavorite: () => void;
-  readonly onGuide: () => void;
   readonly onClose: () => void;
 }
 
@@ -89,7 +88,6 @@ function panelProps(overrides: Partial<ProgrammeDetailPanelProps> = {}): Program
     source: 'guide',
     onPlay: vi.fn(),
     onFavorite: vi.fn(),
-    onGuide: vi.fn(),
     onClose: vi.fn(),
     ...overrides,
   };
@@ -133,40 +131,39 @@ describe('T003 · 共享节目详情面板 ProgrammeDetailPanel(ui.md §2;T005 �
     // ② 节目标题 + 简介
     expect(screen.getByText(NOW_PROGRAMME.title)).toBeVisible();
     expect(screen.getByText(NOW_PROGRAMME.description)).toBeVisible();
-    // ③ 起止时间(家庭时区 HH:mm–HH:mm)+ 时长 + 家庭时区标注文本
+    // ③ 起止时间(家庭时区 HH:mm–HH:mm)+ 时长(时区说明段已按产品要求移除)
     expect(screen.getByText(/20:00\s*[–—-]\s*20:30/)).toBeVisible();
     expect(screen.getByText(/时长/).textContent).toMatch(/30\s*分钟/);
-    const zoneNote = screen.getByText(/家庭时区/);
-    expect(zoneNote.textContent).toContain(TZ);
+    expect(screen.queryByText(/家庭时区/)).toBeNull();
     // ④ 状态文案:正在直播
     expect(screen.getByText('正在直播')).toBeVisible();
-    // ⑤ 主操作(仅 now):「播放当前频道」,可用
-    expect(screen.getByRole('button', { name: '播放当前频道' })).toBeEnabled();
-    // ⑥ 次操作:收藏频道、查看节目单
+    // ⑤ 主操作(仅 now):「播放」(带图标),可用
+    expect(screen.getByRole('button', { name: '播放' })).toBeEnabled();
+    // ⑥ 次操作:收藏频道(查看节目单已按产品要求移除)
     expect(screen.getByRole('button', { name: '收藏频道' })).toBeVisible();
-    expect(screen.getByRole('button', { name: '查看节目单' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: '查看节目单' })).toBeNull();
+    // ⑦ 正在直播:展示进度条
+    expect(screen.getByRole('progressbar', { name: '直播进度' })).toBeInTheDocument();
   });
 
-  it('now 状态:按下主操作「播放当前频道」触发 onPlay(频道语义,不锁定具体节目)', async () => {
+  it('now 状态:按下主操作「播放」触发 onPlay(频道语义,不锁定具体节目)', async () => {
     const props = panelProps();
     renderPanel(props);
     const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: '播放当前频道' }));
+    await user.click(screen.getByRole('button', { name: '播放' }));
     expect(props.onPlay).toHaveBeenCalledTimes(1);
   });
 
-  it('次操作:收藏频道/查看节目单各触发对应回调;收藏不触发播放(ui.md §1.5)', async () => {
+  it('次操作:收藏频道触发回调且不触发播放(ui.md §1.5)', async () => {
     const props = panelProps();
     renderPanel(props);
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: '收藏频道' }));
-    await user.click(screen.getByRole('button', { name: '查看节目单' }));
     expect(props.onFavorite).toHaveBeenCalledTimes(1);
-    expect(props.onGuide).toHaveBeenCalledTimes(1);
     expect(props.onPlay).not.toHaveBeenCalled();
   });
 
-  it('upcoming 状态:显示「即将开始」与开播时间,无播放主操作;主操作回落「查看节目单」(ui.md §1.6)', () => {
+  it('upcoming 状态:显示「即将开始」与开播时间,无播放主操作(ui.md §1.6)', () => {
     renderPanel(
       panelProps({
         status: 'upcoming',
@@ -177,8 +174,9 @@ describe('T003 · 共享节目详情面板 ProgrammeDetailPanel(ui.md §2;T005 �
     expect(screen.getByText('即将开始')).toBeVisible();
     // 开播时间断言精确匹配「开播」行的 13:00(时段区间 dd 文本为区间串,不会误匹配)
     expect(screen.getByText('13:00')).toBeVisible();
-    expect(screen.queryByRole('button', { name: '播放当前频道' })).toBeNull();
-    expect(screen.getByRole('button', { name: '查看节目单' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: '播放' })).toBeNull();
+    // 非直播态不展示直播进度
+    expect(screen.queryByRole('progressbar', { name: '直播进度' })).toBeNull();
   });
 
   it('ended 状态:显示「已结束」,无播放主操作(ui.md §1.6)', () => {
@@ -190,7 +188,7 @@ describe('T003 · 共享节目详情面板 ProgrammeDetailPanel(ui.md §2;T005 �
       }),
     );
     expect(screen.getByText('已结束')).toBeVisible();
-    expect(screen.queryByRole('button', { name: '播放当前频道' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '播放' })).toBeNull();
   });
 
   it('none 状态:保留频道身份并显示「暂无节目单/暂无节目数据」;频道可用时主操作仍可播(以旧 live 弹层 programme=null 仍渲染播放按钮的语义为准,ui.md §2.5)', () => {
@@ -200,7 +198,7 @@ describe('T003 · 共享节目详情面板 ProgrammeDetailPanel(ui.md §2;T005 �
     expect(screen.getByText(CHANNEL.name)).toBeVisible(); // 频道身份保留
     expect(screen.getByText('暂无节目数据')).toBeVisible(); // 状态文案
     expect(screen.getByText('暂无节目单')).toBeVisible(); // 无节目提示
-    expect(screen.getByRole('button', { name: '播放当前频道' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '播放' })).toBeVisible();
   });
 
   it('打开时焦点进入面板;关闭态不渲染面板(ui.md §2.2、§6.3)', async () => {

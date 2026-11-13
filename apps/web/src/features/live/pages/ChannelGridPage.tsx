@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useSearchParams } from 'react-router';
 import {
   Label,
   SearchField,
@@ -63,7 +63,6 @@ type GridView = 'grid' | 'list';
 
 export function ChannelGridPage(): ReactNode {
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
   const { refreshKey } = useLiveRefresh();
   const [slotDialog, setSlotDialog] = useState<ProgrammeOpenDetail | null>(null);
   const [guestNotice, setGuestNotice] = useState<string | null>(null);
@@ -405,10 +404,6 @@ export function ChannelGridPage(): ReactNode {
           }
           // 已选档:既有 favorites 变更(乐观写 + onSettled 服务端对账,数据层收口)
           void favoriteToggle.mutateAsync(true).catch(() => undefined);
-        }}
-        onGuide={() => {
-          // 次操作「查看节目单」:导航节目单页(ui.md §2.3;公共路由 /live/guide)
-          void navigate('/live/guide');
         }}
       />
     </div>

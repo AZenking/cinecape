@@ -229,8 +229,10 @@ describe('T022 · EPG 详情面板宿主(共享面板挂载与语义接线)', ()
     const dialog = await screen.findByRole('dialog', { name: /节目详情:频道甲/ });
     expect(within(dialog).getByText('即将开始')).toBeVisible();
     expect(within(dialog).getByText('10:00')).toBeVisible(); // 15:00Z → EST 开播时间
-    expect(within(dialog).queryByRole('button', { name: '播放当前频道' })).toBeNull();
-    expect(within(dialog).getByRole('button', { name: '查看节目单' })).toBeVisible();
+    expect(within(dialog).queryByRole('button', { name: '播放' })).toBeNull();
+    // 查看节目单按钮已按产品要求移除(仅保留收藏频道)
+    expect(within(dialog).queryByRole('button', { name: '查看节目单' })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: '收藏频道' })).toBeVisible();
     expect(network?.counts.playback).toBe(0);
   });
 
@@ -243,7 +245,7 @@ describe('T022 · EPG 详情面板宿主(共享面板挂载与语义接线)', ()
 
     const dialog = await screen.findByRole('dialog', { name: /节目详情:频道甲/ });
     expect(within(dialog).getByText('已结束')).toBeVisible();
-    expect(within(dialog).queryByRole('button', { name: '播放当前频道' })).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: '播放' })).toBeNull();
     expect(network?.counts.playback).toBe(0);
   });
 
@@ -299,17 +301,17 @@ describe('T022 · EPG 详情面板宿主(共享面板挂载与语义接线)', ()
     expect(screen.getByRole('dialog', { name: /节目详情:频道甲/ })).toBeVisible();
   });
 
-  it('面板次操作「查看节目单」:关闭面板并聚焦窗口标题(已在节目单页,保持节目单;015 T013 起经 upcoming 墙块开面板)', async () => {
+  it('面板无「查看节目单」次操作(产品要求移除);关闭走右上角 X', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderGuidePage();
     await waitFor(() => expect(screen.getByText(/午间专题/)).toBeTruthy());
 
     await user.click(wallProgrammeButton('频道甲', '晚间剧场'));
-    await screen.findByRole('dialog', { name: /节目详情:频道甲/ });
-    await user.click(screen.getByRole('button', { name: '查看节目单' }));
+    const dialog = await screen.findByRole('dialog', { name: /节目详情:频道甲/ });
+    expect(within(dialog).queryByRole('button', { name: '查看节目单' })).toBeNull();
 
+    await user.click(within(dialog).getByRole('button', { name: '关闭' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: /节目详情:频道甲/ })).toBeNull());
-    await waitFor(() => expect(document.activeElement?.id).toBe('guide-window-title'));
   });
 });
 

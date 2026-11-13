@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
-import { Button, Drawer } from '@heroui/react';
-import { formatRangeInZone, formatTimeInZone, formatZoneLabel } from '../live/live-format';
+import { Button, Drawer, ProgressBar } from '@heroui/react';
+import { Play, Star } from 'lucide-react';
+import { formatRangeInZone, formatTimeInZone } from '../live/live-format';
+import { useServerNow } from '../../shared/time/use-server-now';
 
 /**
  * 共享节目详情面板(012 T005;FR-013、contracts/ui.md §2):
@@ -53,7 +55,6 @@ export interface ProgrammeDetailPanelProps {
   /** 播放该频道当前直播(频道语义,无参;宿主闭包持有 mediaId) */
   readonly onPlay: () => void;
   readonly onFavorite: () => void;
-  readonly onGuide: () => void;
   readonly onClose: () => void;
 }
 
@@ -65,7 +66,21 @@ const STATUS_LABEL: Record<ProgrammeStatus, string> = {
 } as const;
 
 export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNode {
-  const { open, onClose, channel, programme, status, timezone, onPlay, onFavorite, onGuide } = props;
+  const { open, onClose, channel, programme, status, timezone, onPlay, onFavorite } = props;
+  const { nowMs } = useServerNow();
+  /** 正在直播:已播进度(服务端基准钟;无校准回落本地钟) */
+  const livePercent =
+    status === 'now' && programme !== null
+      ? Math.min(
+          100,
+          Math.max(
+            0,
+            (((nowMs ?? Date.now()) - Date.parse(programme.start)) /
+              Math.max(1, Date.parse(programme.end) - Date.parse(programme.start))) *
+              100,
+          ),
+        )
+      : 0;
 
   // 主操作:now 恒可用;none=无节目单但频道可用,沿用现状仍可播当前直播的语义(§2.5)。
   const canPlay = status === 'now' || status === 'none';
@@ -91,9 +106,25 @@ export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNod
               保留可访问名「关闭」,既有键盘/测试契约不变 */}
           <Drawer.CloseTrigger aria-label="关闭" />
           <Drawer.Header>
+            <div className="flex items-center gap-2">
+              {channel.posterRef !== undefined && channel.posterRef !== null ? (
+                <img
+                  src={`/api/public/media/logos/${encodeURIComponent(channel.posterRef)}`}
+                  alt=""
+                  aria-hidden="true"
+                  className="h-7 w-7 shrink-0 rounded object-contain"
+                />
+              ) : channel.logo !== undefined && channel.logo !== null ? (
+                <img
+                  src={channel.logo}
+                  alt={`${channel.name} 频道标识`}
+                  className="h-7 w-7 shrink-0 rounded object-contain"
+                />
+              ) : null}
             <Drawer.Heading className="text-base font-semibold">
               {programme?.title ?? `节目时段:${channel.name}`}
             </Drawer.Heading>
+            </div>
           </Drawer.Header>
           <Drawer.Body className="flex flex-col gap-4">
               {/* 海报区:16:9 容器;有 posterRef 时走同源媒体接口(object-contain,
@@ -153,30 +184,35 @@ export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNod
                   </>
                 ) : null}
               </dl>
+              {status === 'now' && programme !== null ? (
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between text-xs text-muted">
+                    <span>直播进度</span>
+                    <span className="hmp-tabular-nums text-accent">{Math.round(livePercent)}%</span>
+                  </div>
+                  <ProgressBar aria-label="直播进度" value={Math.round(livePercent)} className="w-full">
+                    <ProgressBar.Track>
+                      <ProgressBar.Fill />
+                    </ProgressBar.Track>
+                  </ProgressBar>
+                </div>
+              ) : null}
               {status === 'none' ? <p className="text-sm text-muted">暂无节目单</p> : null}
-              <p className="text-xs text-muted">
-                {`时间按家庭时区(${formatZoneLabel(timezone, programme?.start ?? '')})显示。`}
-                {status === 'upcoming' ? '该节目尚未开播,不提供未来内容播放。' : ''}
-              </p>
+              {status === 'upcoming' ? (
+                <p className="text-xs text-muted">该节目尚未开播,不提供未来内容播放。</p>
+              ) : null}
           </Drawer.Body>
           <Drawer.Footer className="flex flex-col gap-2">
               {/* 主/次操作各占一行、按钮拉满宽度(产品要求);关闭由右上角 X 承担 */}
               {canPlay ? (
                 <Button variant="primary" className="w-full" onPress={onPlay}>
-                  播放当前频道
+                  <Play aria-hidden="true" className="size-4" />
+                  播放
                 </Button>
               ) : null}
               <Button variant="secondary" className="w-full" onPress={onFavorite}>
+                <Star aria-hidden="true" className="size-4" />
                 收藏频道
-              </Button>
-              {/* 次操作:低频动作以文字链呈现,不与两个全宽主/次按钮争夺视觉重量 */}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="mx-auto text-xs text-muted data-[hovered=true]:bg-transparent data-[hovered=true]:text-foreground"
-                onPress={onGuide}
-              >
-                查看节目单
               </Button>
           </Drawer.Footer>
         </Drawer.Dialog>

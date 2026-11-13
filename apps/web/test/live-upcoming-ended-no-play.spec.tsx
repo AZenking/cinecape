@@ -48,7 +48,6 @@ function renderSharedPanel(status: Exclude<ProgrammeStatus, 'none'>) {
       source="guide"
       onPlay={onPlay}
       onFavorite={vi.fn()}
-      onGuide={vi.fn()}
       onClose={vi.fn()}
     />,
   );
@@ -81,7 +80,7 @@ describe('T012 · 节目详情面板(共享面板):upcoming/ended 无播放主�
   it('now:保留播放主操作「播放当前频道」(频道语义,指向当前直播而非该节目快照)', () => {
     const { onPlay } = renderSharedPanel('now');
 
-    expect(screen.getByRole('button', { name: '播放当前频道' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '播放' })).toBeVisible();
     expect(screen.getByText('正在直播')).toBeVisible();
     expect(onPlay).not.toHaveBeenCalled();
   });
