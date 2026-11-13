@@ -366,13 +366,12 @@ const GuideChannelRow = memo(function GuideChannelRow({
               )}
             </span>
           </span>
-          {/* 已收藏标记:台标右侧、与台标垂直居中对齐(产品要求;不叠在台标上) */}
-          {favorite ? (
-            <>
-              <Star aria-hidden="true" className="size-4 shrink-0 fill-current text-accent" />
-              <span className="hmp-sr-only">(已收藏)</span>
-            </>
-          ) : null}
+          {/* 已收藏标记:台标右侧固定槽位 —— 槽位常驻占宽,未收藏时留空,
+              保证所有行的台标左缘完全对齐(否则收藏行会把台标挤偏)。 */}
+          <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center">
+            {favorite ? <Star className="size-4 fill-current text-accent" /> : null}
+          </span>
+          {favorite ? <span className="hmp-sr-only">(已收藏)</span> : null}
           {/* 右缘渐变阴影:区分频道列与时间轴,并暗示可横向滚动 */}
           <span
             aria-hidden="true"
