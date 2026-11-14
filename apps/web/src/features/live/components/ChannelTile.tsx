@@ -167,27 +167,26 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
             glowOnRight ? '-right-8' : '-left-8'
           }`}
         />
-        {/* 频道身份主视觉(2026-11-13 修订):原右上角小角标 + 大面积空渐变底板被
-            反馈为「中间空着、台标又太小」。现将台标移到 16:9 底板中央作为唯一主视觉
-            (ChannelLogo 自带加载中/失败首字回退);无台标频道显示频道名。状态签/进度线/
-            底部进度线互不重叠;悬停 ▶ 浮于中央,台标作为底图仍可辨。 */}
+        {/* 频道身份(2026-11-14 修订):台标固定在 16:9 底板左上角的小尺寸品牌位,
+            不再居中压住中央播放键(产品要求「logo 展示在左上角」);ChannelLogo 自带
+            加载中/失败首字回退;无台标频道显示频道名。 */}
         <div
           data-testid="tile-logo"
-          className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 pb-10 pt-6"
+          className="pointer-events-none absolute left-3 top-3 z-[1] h-10 w-28 sm:h-11 sm:w-32"
         >
           {row.media.posterRef !== null ? (
-            <div className="relative h-12 w-32 max-w-full sm:h-16 sm:w-40 lg:h-20 lg:w-48">
+            <div className="relative h-full w-full">
               <ChannelLogo
                 key={row.media.posterRef}
                 posterRef={row.media.posterRef}
                 channelTitle={channelTitle}
-                fallbackClassName="text-xl font-semibold text-muted"
+                fallbackClassName="text-sm font-semibold text-muted"
               />
             </div>
           ) : (
             <span
               data-testid="tile-logo-fallback"
-              className="line-clamp-2 max-w-full text-center text-sm font-semibold text-muted"
+              className="line-clamp-2 text-sm font-semibold leading-tight text-muted"
             >
               {channelTitle}
             </span>
