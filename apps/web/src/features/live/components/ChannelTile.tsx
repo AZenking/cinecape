@@ -201,17 +201,29 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
               warning/danger,accent 即品牌主色,与瓦片直播语义 token 同源);
             - current == null(空档/降级,§1.2)→ 整条隐藏,禁用态不扩散到卡片,
               播放/悬停行为不受影响(Hover ▶ 契约保持); */}
-        {/* 整块 16:9 底板即播放入口:不渲染可见按钮/图标,点击或键盘回车播放该频道
-            当前直播(aria-label 保留「播放 <频道名>」,焦点环落在底板上)。 */}
+        {/* 整块 16:9 底板是卡片的主点击区(无可见按钮/图标):
+            - 正在直播档:点击 = 播放该频道当前直播;
+            - 即将播放档:点击 = 打开节目详情(不拉播放器,未来节目不提供直接播放)。 */}
         <button
           type="button"
-          aria-label={`播放 ${channelTitle}`}
+          aria-label={slot === 'upcoming' ? `查看 ${channelTitle} 节目详情` : `播放 ${channelTitle}`}
           className="absolute inset-0 z-10 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
           onClick={() => {
+            if (slot === 'upcoming') {
+              onOpenProgramme({
+                mediaId: row.media.id,
+                channelTitle,
+                groupLabel: row.groupLabel,
+                programme: row.next,
+                kind: 'upcoming',
+                channelPosterRef: row.media.posterRef,
+              });
+              return;
+            }
             play({ mediaId: row.media.id, title: channelTitle, startMode: 'beginning', posterRef: row.media.posterRef });
           }}
         />
-        {liveCurrent !== null ? (
+        {slot === 'current' && liveCurrent !== null ? (
           <ProgressBar
             aria-label="节目播放进度"
             value={programme.progressPercent}

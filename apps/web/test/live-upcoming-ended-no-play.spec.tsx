@@ -154,8 +154,9 @@ describe('T012 · 直播瓦片卡:节目名不承载播放,中央播放钮保持
   it('upcoming 档位(即将播放分区):展示下一档节目名,点击=打开详情回调(kind=upcoming),零 /playback/ 请求', () => {
     const { onOpenProgramme, counter, restore } = renderTile('now', 'upcoming', 'upcoming');
     try {
-      // 频道播放钮保留(频道语义;未来节目不因此获得播放入口)
-      expect(screen.getByRole('button', { name: `播放 ${TILE_CHANNEL_TITLE}` })).toBeVisible();
+      // 即将播放档的底板主点击区不再提供播放语义,改为「查看详情」
+      expect(screen.getByRole('button', { name: `查看 ${TILE_CHANNEL_TITLE} 节目详情` })).toBeVisible();
+      expect(screen.queryByRole('button', { name: `播放 ${TILE_CHANNEL_TITLE}` })).toBeNull();
 
       // upcoming 档位展示下一档节目名,点击仅开详情(kind=upcoming,面板无播放主操作)
       fireEvent.click(screen.getByRole('button', { name: LIVE_PROGRAMME_STATES.upcoming.title }));
@@ -173,11 +174,11 @@ describe('T012 · 直播瓦片卡:节目名不承载播放,中央播放钮保持
     }
   });
 
-  it('upcoming-only 频道(无当前节目):upcoming 档位展示下一档节目名,中央播放钮保留(频道可用即播放当前直播,FR-012)', () => {
+  it('upcoming-only 频道(无当前节目):upcoming 档位展示下一档节目名,底板点击区为查看详情', () => {
     const { onOpenProgramme, counter, restore } = renderTile('none', 'upcoming', 'upcoming');
     try {
-      // 无节目单/无当前节目不撤频道播放入口(可用性不由 EPG 决定)
-      expect(screen.getByRole('button', { name: `播放 ${TILE_CHANNEL_TITLE}` })).toBeVisible();
+      // upcoming 档底板点击区 = 查看详情(不拉播放器)
+      expect(screen.getByRole('button', { name: `查看 ${TILE_CHANNEL_TITLE} 节目详情` })).toBeVisible();
       // 左上状态签已按产品要求移除
       expect(screen.queryByText('即将播放')).toBeNull();
       // 下一档节目名仍只是详情入口,不播放

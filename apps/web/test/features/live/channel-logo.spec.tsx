@@ -383,10 +383,10 @@ describe('T022 · 回退链不变量:host 级失败恢复、加载中可交互�
       expect(onOpenProgramme).toHaveBeenCalledTimes(1);
       // 收藏入口已从瓦片移除(改由详情/收藏页承担)
       expect(screen.queryByRole('button', { name: `收藏 ${CHANNEL_TITLE}` })).toBeNull();
-      // 播放:可点且未被 pending img 阻塞(不抛错)
-      const play = screen.getByRole('button', { name: `播放 ${CHANNEL_TITLE}` });
-      expect(play).toBeEnabled();
-      expect(() => fireEvent.click(play)).not.toThrow();
+      // upcoming 档:底板点击区 = 查看详情(不拉播放器),且未被 pending img 阻塞
+      const openDetail = screen.getByRole('button', { name: `查看 ${CHANNEL_TITLE} 节目详情` });
+      expect(openDetail).toBeEnabled();
+      expect(() => fireEvent.click(openDetail)).not.toThrow();
     } finally {
       view.restore();
     }
