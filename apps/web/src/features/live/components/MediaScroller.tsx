@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Button } from '@heroui/react';
+import { Button, ScrollShadow } from '@heroui/react';
 
 /**
  * Netflix 式横向滚动行(T067 布局演进;ui.md §8「整页无横向溢出」):
  * - 溢出被限制在行容器内部,页面永不横向滚动;卡片列固定宽度,按视口自然截断;
  * - 左右圆形箭头:悬停行或键盘聚焦时浮现,整页步进滚动(0.8 视口宽),
  *   到达边缘时隐藏;内容不溢出时不渲染箭头/渐隐(jsdom scrollWidth=0 自然退化);
- * - 滚动吸附(snap proximity)+ 细滚动条;prefers-reduced-motion 时改为瞬时滚动
+ * - 滚动容器 = HeroUI `ScrollShadow`(horizontal + hideScrollBar,与节目单同款),
+ *   隐藏原生滚动条、以边缘渐隐提示可滚动;snap proximity 吸附;prefers-reduced-motion
+ *   时改为瞬时滚动
  *   (全局 CSS 基线只影响 scroll-behavior,JS scrollBy 的显式 behavior 需自行判断);
  * - 列表语义:容器为 ul,子项由调用方提供 li(固定宽度 + snap-start)。
  */
@@ -19,7 +21,7 @@ export interface MediaScrollerProps {
 }
 
 export function MediaScroller({ label, children }: MediaScrollerProps): ReactNode {
-  const scrollerRef = useRef<HTMLUListElement | null>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(false);
 
@@ -122,12 +124,17 @@ export function MediaScroller({ label, children }: MediaScrollerProps): ReactNod
           </Button>
         </>
       ) : null}
-      <ul
+      {/* 滚动容器交给 HeroUI ScrollShadow:orientation=horizontal + hideScrollBar
+          (与节目单页同款),边缘渐隐由组件按滚动位置生成;原生滚动条不再出现。
+          snap 吸附放在滚动容器上,列表只负责 flex 布局(w-max 让内容自然溢出)。 */}
+      <ScrollShadow
         ref={scrollerRef}
-        className="flex snap-x snap-proximity gap-4 overflow-x-auto pb-2 [scrollbar-width:thin]"
+        orientation="horizontal"
+        hideScrollBar
+        className="snap-x snap-proximity pb-2"
       >
-        {children}
-      </ul>
+        <ul className="flex w-max gap-4">{children}</ul>
+      </ScrollShadow>
     </div>
   );
 }

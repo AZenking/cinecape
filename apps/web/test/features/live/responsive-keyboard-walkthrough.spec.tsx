@@ -243,7 +243,7 @@ describe('T024-A · 响应式视口(jsdom 可断言面)', () => {
     expect(hero.textContent).toContain('已播出 33%');
   });
 
-  it('A1 泳道行横向滚动溢出限于行内:ul overflow-x-auto + 外层 min-w-0;无溢出(jsdom)不渲染箭头(quickstart 场景 1)', () => {
+  it('A1 泳道行横向滚动溢出限于行内:HeroUI ScrollShadow(horizontal/hideScrollBar)+ 外层 min-w-0;无溢出(jsdom)不渲染箭头(quickstart 场景 1)', () => {
     const { container } = renderWorld(
       <MediaScroller label="走查行">
         <li className="w-60 shrink-0 snap-start">甲</li>
@@ -254,12 +254,17 @@ describe('T024-A · 响应式视口(jsdom 可断言面)', () => {
     const wrapper = container.firstElementChild as HTMLElement;
     expect(wrapper.className).toContain('min-w-0');
     expect(wrapper.className).toContain('group/scroller');
-    // 滚动语义收在行内:overflow-x-auto + snap 吸附 + 细滚动条(页面级无横向溢出容器)
+    // 滚动容器 = HeroUI ScrollShadow(horizontal + hideScrollBar,隐藏原生滚动条);
+    // snap 吸附挂在滚动容器上,内部 ul 只做 flex 布局
+    const scroll = wrapper.querySelector('[data-slot="scroll-shadow"]') as HTMLElement;
+    expect(scroll).toBeTruthy();
+    expect(scroll.getAttribute('data-orientation')).toBe('horizontal');
+    expect(scroll.className).toContain('scroll-shadow');
+    expect(scroll.className).toContain('snap-x');
+    expect(scroll.className).toContain('snap-proximity');
     const list = wrapper.querySelector('ul') as HTMLElement;
     expect(list).toBeTruthy();
-    expect(list.className).toContain('overflow-x-auto');
-    expect(list.className).toContain('snap-x');
-    expect(list.className).toContain('snap-proximity');
+    expect(list.className).toContain('w-max');
     // jsdom scrollWidth=0:左右箭头自然不渲染(内容不溢出不出箭头,勿虚占 Tab 位)
     expect(screen.queryByRole('button', { name: '向左滚动 走查行' })).toBeNull();
     expect(screen.queryByRole('button', { name: '向右滚动 走查行' })).toBeNull();
