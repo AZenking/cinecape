@@ -84,24 +84,23 @@ afterEach(() => {
 });
 
 describe('T007 · 频道卡 Hover 一键起播(FR-005;R5 双层交互)', () => {
-  it('瓦片为 group 容器,中央播放按钮具备 hover 与 focus-within 浮现契约(aria-label=播放 <频道名>)', () => {
+  it('整块 16:9 底板即播放入口(无可见按钮/图标),aria-label=播放 <频道名>', () => {
     const { restore } = renderTile();
     try {
       const article = screen.getByRole('article', { name: '频道 星光影城' });
       expect(article.className).toContain('group');
 
-      // 中央快捷播放按钮恒在 DOM(键盘可达),浮现态由 group-hover / group-focus-within 承担
-      // (jsdom 不计算 CSS:浮现契约按 class 静态钉面,与 ChannelTile 实装一一对应)
-      const hoverPlay = screen.getByRole('button', { name: '播放 星光影城' });
-      expect(hoverPlay.className).toContain('group-hover:opacity-100');
-      expect(hoverPlay.className).toContain('group-focus-within:opacity-100');
-      expect(hoverPlay.className).toContain('group-hover:pointer-events-auto');
-      expect(hoverPlay.className).toContain('bg-accent/80');
-      expect(hoverPlay).toBeEnabled();
+      // 播放入口 = 覆盖整块底板的透明热区:无图标/无可见按钮样式,
+      // 键盘可聚焦,点击/回车直接起播
+      const playTarget = screen.getByRole('button', { name: '播放 星光影城' });
+      expect(playTarget.className).toContain('absolute inset-0');
+      expect(playTarget.className).not.toContain('bg-accent/80');
+      expect(playTarget.querySelector('svg')).toBeNull();
+      expect(playTarget).toBeEnabled();
 
       // 悬停/聚焦模拟:触发事件路径(样式计算归浏览器,不在此断言)
       fireEvent.mouseEnter(article);
-      fireEvent.focus(hoverPlay);
+      fireEvent.focus(playTarget);
       expect(screen.getByRole('button', { name: '播放 星光影城' })).toBeEnabled();
     } finally {
       restore();

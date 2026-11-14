@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { Button, Card, ProgressBar, Tooltip } from '@heroui/react';
-import { Play } from 'lucide-react';
 import type { ChannelRowDto, ExperienceProgrammeDto } from '@hmp/shared';
 import { usePlayAction } from '../../playback/use-play-action';
 import { useCurrentProgramme } from '../hooks/use-current-programme';
@@ -17,8 +16,9 @@ import { formatRangeInZone, formatTimeInZone } from '../live-format';
  * - 16:9 频道标识底板:频道无海报是常态,底板为 token 渐变 + 稳定散列光斑
  *   (frontend-home-live-epg-design.md §4.3;渐变角度/光斑位置由稳定 media.id 散列决定,
  *   同一频道跨刷新不闪变,颜色只用语义 token);
- * - 2026-11-14 呈现精简:去掉左上状态签与右下「收藏/播放」常驻按钮(产品要求),
- *   播放入口收敛为悬停/聚焦中央 ▶(触屏恒显);当前节目进度微条保留;
+ * - 2026-11-14 呈现精简:去掉状态签、收藏/播放按钮与悬停中央 ▶ —— 卡片视觉上
+ *   只承载「台标 + 台/时段/节目」(参考 HeroUI 图片卡);播放入口改为整块 16:9
+ *   底板的透明热区(可点击/可 Tab,无图标),信息区节目名仍负责导航/详情;
  * - 信息区(2026-11-13 呈现修订):第一行频道名 + 家庭时区时段,第二行节目名
  *   (最多两行);档位由分区决定(正在直播类分区=当前节目,即将播放分区=下一档
  *   节目)。频道身份不再只依赖可读名,横向扫读即可确认「台 + 节目 + 时间」;
@@ -121,10 +121,10 @@ export function progressOf(startsAt: string, endsAt: string, nowIso: string | nu
 
 export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }: ChannelTileProps): ReactNode {
   const channelTitle = row.media.title;
+  // 统一播放入口(US3):整块底板即播放热区,不渲染可见按钮
+  const { play } = usePlayAction();
   // 路由导航(015 T004):current 档文字信息区 → /live/watch/:channelId
   const navigate = useNavigate();
-  // 统一播放入口(US3):Hover 中央 ▶ 走统一入口,本组件不旁路第二状态机
-  const { play } = usePlayAction();
   // 智能事件定时器(016 T010;ui-experience.md §1/§2):每卡一个 Hook 实例 ——
   // 15s 本地 tick 平滑推进进度、到点本地翻转(无需等 30s 刷新),墙面上 20 卡
   // × 15s 定时器为契约接受成本(零网络;Hook 不发请求,数据真值仍归周期刷新)。
@@ -193,27 +193,7 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
           )}
         </div>
 
-        {/* Hover 快捷起播(015 T004;research.md R5、ui-layout.md §1.2 第 3 条):
-            悬停/键盘聚焦瓦片(group-hover / group-focus-within)时,底板正中央平滑淡入
-            bg-accent/80 text-accent-foreground 的 ▶ 按钮,点击直接起播(见组件头注)。
-            - 按钮恒在 DOM:键盘 Tab 可达,聚焦即浮现且焦点环可见(HeroUI Button
-              data-focus-visible + a11y.css 全局基线双通道);隐藏态 pointer-events-none
-              防止透明热区误触,浮现态恢复可点;
-            - 图标为装饰节点 aria-hidden,可读名由 aria-label「播放 <频道名>」承担,
-            - 动效仅 opacity 过渡(reduced-motion 由 a11y.css 全局基线收敛);
-              半透明 = bg-accent/80 语义 token,不硬编码颜色。 */}
-        <Button
-          isIconOnly
-          size="lg"
-          variant="primary"
-          aria-label={`播放 ${channelTitle}`}
-          className="absolute left-1/2 top-[64%] z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/80 text-accent-foreground opacity-100 shadow-lg backdrop-blur-sm transition-opacity duration-200 [@media(hover:hover)]:pointer-events-none [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:pointer-events-auto [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:pointer-events-auto [@media(hover:hover)]:group-focus-within:opacity-100"
-          onPress={() => {
-            play({ mediaId: row.media.id, title: channelTitle, startMode: 'beginning', posterRef: row.media.posterRef });
-          }}
-        >
-          <Play aria-hidden="true" className="size-5 fill-current" />
-        </Button>
+
 
         {/* 当前节目进度微条(016 T010;ui-experience.md §1:HeroUI v3 ProgressBar,
             严禁原生 <progress>;值经 useCurrentProgramme 平滑推进,到点本地翻转):
@@ -222,6 +202,16 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
               warning/danger,accent 即品牌主色,与瓦片直播语义 token 同源);
             - current == null(空档/降级,§1.2)→ 整条隐藏,禁用态不扩散到卡片,
               播放/悬停行为不受影响(Hover ▶ 契约保持); */}
+        {/* 整块 16:9 底板即播放入口:不渲染可见按钮/图标,点击或键盘回车播放该频道
+            当前直播(aria-label 保留「播放 <频道名>」,焦点环落在底板上)。 */}
+        <button
+          type="button"
+          aria-label={`播放 ${channelTitle}`}
+          className="absolute inset-0 z-10 cursor-pointer rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          onClick={() => {
+            play({ mediaId: row.media.id, title: channelTitle, startMode: 'beginning', posterRef: row.media.posterRef });
+          }}
+        />
         {liveCurrent !== null ? (
           <ProgressBar
             aria-label="节目播放进度"

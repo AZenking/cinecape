@@ -375,7 +375,7 @@ describe('T024-B · 键盘可访问性(jsdom 可断言面)', () => {
     expect(mute.getAttribute('aria-pressed')).toBe('true'); // 默认静音意图(状态可感知)
   });
 
-  it('B1 卡片中央 ▶ 恒在 DOM(键盘 Tab 可达),hover:hover 基线隐藏 + group-focus-within 浮现双通道', () => {
+  it('B1 卡片播放入口 = 整块底板热区(键盘 Tab 可达,无可见按钮)', () => {
     const { container } = renderWorld(
       <ChannelTile
         row={WALKTHROUGH_CHANNEL}
@@ -390,18 +390,12 @@ describe('T024-B · 键盘可访问性(jsdom 可断言面)', () => {
     expect(article.className).toContain('card');
     expect(article.className).toContain('group');
     expect(article.className).not.toContain('p-0');
-    // 中央 ▶ 按钮恒在 DOM(jsdom 无 hover 也存在=Tab 可达);hover:hover 下缺省
-    // pointer-events-none+opacity-0,键盘聚焦(group-focus-within)恢复可点+浮现
-    const hoverPlay = article.querySelector('button[aria-label="播放 星光影城"]') as HTMLElement;
-    expect(hoverPlay).toBeTruthy();
-    const cls = hoverPlay.className;
-    expect(cls).toContain('[@media(hover:hover)]:pointer-events-none');
-    expect(cls).toContain('[@media(hover:hover)]:opacity-0');
-    expect(cls).toContain('[@media(hover:hover)]:group-focus-within:pointer-events-auto');
-    expect(cls).toContain('[@media(hover:hover)]:group-focus-within:opacity-100');
-    expect(cls).toContain('group-hover:opacity-100'); // 指示设备悬浮浮现
-    expect(cls).toContain('transition-opacity'); // 动效仅 opacity(全局 reduced-motion 收敛)
-    // 右下常驻播放/收藏钮已按产品要求移除;播放入口只保留中央悬浮钮
+    // 播放入口 = 整块底板透明热区:恒在 DOM、可 Tab 聚焦,无图标/无浮现动画
+    const playTarget = article.querySelector('button[aria-label="播放 星光影城"]') as HTMLElement;
+    expect(playTarget).toBeTruthy();
+    expect(playTarget.className).toContain('absolute inset-0');
+    expect(playTarget.querySelector('svg')).toBeNull();
+    // 右下常驻播放/收藏钮与中央悬浮钮均已按产品要求移除
     expect(article.querySelector('button[aria-label="播放 星光影城 当前直播"]')).toBeNull();
     // 信息区节目名按钮(HeroUI ghost sm,焦点环走组件原生状态)
     expect(screen.getByRole('button', { name: '星际回响' })).toBeTruthy();
