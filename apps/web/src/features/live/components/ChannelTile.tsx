@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { useNavigate } from 'react-router';
 import { Button, Card, ProgressBar, Tooltip } from '@heroui/react';
 import type { ChannelRowDto, ExperienceProgrammeDto } from '@hmp/shared';
 import { usePlayAction } from '../../playback/use-play-action';
@@ -61,6 +60,8 @@ export interface ProgrammeOpenDetail {
   readonly groupLabel: string;
   readonly programme: ExperienceProgrammeDto | null;
   readonly kind: 'current' | 'upcoming';
+  /** 频道台标不透明引用(详情页/播放浮层回退用) */
+  readonly channelPosterRef?: string | null;
 }
 
 export type OpenProgrammeHandler = (input: ProgrammeOpenDetail) => void;
@@ -123,8 +124,6 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
   const channelTitle = row.media.title;
   // 统一播放入口(US3):整块底板即播放热区,不渲染可见按钮
   const { play } = usePlayAction();
-  // 路由导航(015 T004):current 档文字信息区 → /live/watch/:channelId
-  const navigate = useNavigate();
   // 智能事件定时器(016 T010;ui-experience.md §1/§2):每卡一个 Hook 实例 ——
   // 15s 本地 tick 平滑推进进度、到点本地翻转(无需等 30s 刷新),墙面上 20 卡
   // × 15s 定时器为契约接受成本(零网络;Hook 不发请求,数据真值仍归周期刷新)。
@@ -255,20 +254,15 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
                 size="sm"
                 className="h-auto min-h-8 w-full min-w-0 justify-start whitespace-normal px-0 py-0.5 text-left text-sm font-semibold leading-snug"
                 onPress={() => {
-                  if (slot === 'upcoming') {
-                    // 即将播放档:节目名仍是「查看详情」控件——打开节目时段详情面板
-                    // (未来节目不伪装可播放,FR-024;§1.2 双层交互仅改 current 档)
-                    onOpenProgramme({
-                      mediaId: row.media.id,
-                      channelTitle,
-                      groupLabel: row.groupLabel,
-                      programme: slotProgramme,
-                      kind: 'upcoming',
-                    });
-                    return;
-                  }
-                   // 正在直播档:导航观看详情页(015 T004;id = 频道 media.id,即 :channelId)
-                   void navigate(`/live/watch/${row.media.id}`);
+                  // 节目名点击统一交给宿主裁决:now → 直接播放;非直播 → 详情页
+                  onOpenProgramme({
+                    mediaId: row.media.id,
+                    channelTitle,
+                    groupLabel: row.groupLabel,
+                    programme: slotProgramme,
+                    kind: slot === 'upcoming' ? 'upcoming' : 'current',
+                    channelPosterRef: row.media.posterRef,
+                  });
                 }}
               >
                 <span className="line-clamp-2">{slotProgramme.title}</span>
@@ -293,6 +287,7 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
                 groupLabel: row.groupLabel,
                 programme: null,
                 kind: 'current',
+                channelPosterRef: row.media.posterRef,
               });
             }}
           >

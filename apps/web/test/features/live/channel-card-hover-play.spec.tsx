@@ -130,16 +130,16 @@ describe('T007 · 频道卡 Hover 一键起播(FR-005;R5 双层交互)', () => {
     }
   });
 
-  it('点击文字信息区(当前节目名):导航 /live/watch/:channelId,零播放调用、零面板(FR-005 双层交互另一半)', () => {
+  it('点击文字信息区(当前节目名):上报宿主(kind=current),瓦片自身不导航、不播放', () => {
     const { onOpenProgramme, restore } = renderTile();
     try {
       fireEvent.click(screen.getByRole('button', { name: '星际回响' }));
 
-      expect(screen.getByTestId('tile-location').textContent).toBe(
-        `/live/watch/${TILE_ROW.media.id}`,
+      expect(onOpenProgramme).toHaveBeenCalledWith(
+        expect.objectContaining({ mediaId: TILE_ROW.media.id, kind: 'current' }),
       );
+      expect(screen.getByTestId('tile-location').textContent).toBe('/live');
       expect(mockPlay).not.toHaveBeenCalled();
-      expect(onOpenProgramme).not.toHaveBeenCalled();
       expect(screen.queryByRole('dialog')).toBeNull();
     } finally {
       restore();

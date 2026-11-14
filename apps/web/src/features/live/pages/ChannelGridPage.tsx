@@ -12,17 +12,13 @@ import { LayoutGrid, List } from 'lucide-react';
 import { keepPreviousData } from '../../../shared/query/hooks';
 import { queryKeys } from '../../../shared/query/keys';
 import { fetchLiveChannels, fetchLiveGroups, type LiveChannelQuery } from '../live-api';
-import { PlayButton, usePlayAction } from '../../playback/use-play-action';
-import { useSession } from '../../../app/session-provider';
-import { useFavoriteState, useFavoriteToggleMutation } from '../../favorites/use-favorites';
-import { ProgrammeDetailPanel } from '../../shared-programme/ProgrammeDetailPanel';
-import { panelStatusOf } from '../LivePage';
+import { PlayButton } from '../../playback/use-play-action';
+import { useOpenProgramme } from '../../shared-programme/use-open-programme';
 import { useLiveRefresh } from '../hooks/use-live-refresh';
 import { useLiveSection } from '../hooks/use-live-sections';
 import { SectionFrame } from '../components/SectionFrame';
-import { ChannelTile, type ProgrammeOpenDetail } from '../components/ChannelTile';
+import { ChannelTile } from '../components/ChannelTile';
 import { GuestActionNotice } from '../components/GuestActionNotice';
-import { serverNowMs } from '../../../shared/time/server-clock';
 
 /**
  * 分类平铺网格页(015 T019;Screen 2、FR-004 分类深入检索,ui-layout.md §2 线框、
@@ -44,7 +40,8 @@ import { serverNowMs } from '../../../shared/time/server-clock';
  *   2xl=1536(5 列);<768 移动端线框未定义,取单列;卡片复用 ChannelTile
  *   (slot='current',nowIso 取响应快照;双层交互:中央 ▶ 直接起播,文字区导
  *   /live/watch/:channelId);
- * - 面板与提示:宿主 ProgrammeDetailPanel(复用 LivePage 导出的 panelStatusOf 与面板
+ * - 节目单详情跳转:now 直接起播,非直播进入 /live/programmes/:channelId 详情页
+ * - 提示:
  *   接线模式,不复制再造状态推导)+ GuestActionNotice 宿主(游客收藏登录引导);
  * - 空组/加载/失败:SectionFrame 四态骨架(grid variant,失败仅重试本区)。
  */
@@ -64,25 +61,7 @@ type GridView = 'grid' | 'list';
 export function ChannelGridPage(): ReactNode {
   const [searchParams, setSearchParams] = useSearchParams();
   const { refreshKey } = useLiveRefresh();
-  const [slotDialog, setSlotDialog] = useState<ProgrammeOpenDetail | null>(null);
   const [guestNotice, setGuestNotice] = useState<string | null>(null);
-  const { play } = usePlayAction();
-
-  // 收藏(与 LivePage 同款最小接线):profile 域 favorites 变更键内嵌当前档案 id;
-  // 游客/未选档为 null(无乐观写与 /me 目标,onFavorite 走登录引导,零请求)。
-  const session = useSession();
-  const activeProfileId =
-    session.status === 'authenticated' ? (session.session?.activeProfile?.id ?? null) : null;
-  const favoriteToggle = useFavoriteToggleMutation(activeProfileId, {
-    id: slotDialog?.mediaId ?? '',
-    title: slotDialog?.channelTitle ?? '',
-    unavailable: false,
-  });
-  const detailFavorited = useFavoriteState(
-    activeProfileId,
-    slotDialog?.mediaId ?? null,
-    slotDialog !== null,
-  );
 
   /* ---------------- URL 状态:?group / ?q / ?view(routing §2.2) ---------------- */
 
@@ -201,14 +180,9 @@ export function ChannelGridPage(): ReactNode {
     true,
   );
 
-  // 016 基准时间条款:serverNow 优先取服务端基准钟(响应携带 now 即校准;未校准
-  // 回落响应快照,不臆造本地钟)
-  const calibratedNowMs = serverNowMs();
-  const serverNowIso =
-    calibratedNowMs !== null
-      ? new Date(calibratedNowMs).toISOString()
-      : (channelsResource.data?.now ?? groupsResource.data?.now ?? null);
   const timezone = channelsResource.data?.timezone ?? groupsResource.data?.timezone ?? 'UTC';
+  /** 节目单详情跳转:now 直接起播,非直播进详情页 */
+  const openProgramme = useOpenProgramme(timezone);
   const items = channelsResource.data?.items ?? [];
   const activeGroupLabel =
     activeGroup === ALL_GROUP_KEY
@@ -221,14 +195,6 @@ export function ChannelGridPage(): ReactNode {
     // 游客/未选档私有动作(收藏):登录引导提示,零请求(播放不经此,走共享 usePlayAction)
     setGuestNotice(actionLabel);
   }, []);
-
-  const playChannel = useCallback(
-    (mediaId: string, channelTitle: string): void => {
-      // 面板播放主操作:指向该频道当前直播,经 US3 统一受控入口(游客拦截归协调器)
-      play({ mediaId, title: channelTitle });
-    },
-    [play],
-  );
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
@@ -332,7 +298,7 @@ export function ChannelGridPage(): ReactNode {
                 slot="current"
                 nowIso={channelsResource.data?.now ?? null}
                 timezone={timezone}
-                onOpenProgramme={setSlotDialog}
+                onOpenProgramme={openProgramme}
                 onRequireAuth={requireAuth}
               />
             ))}
@@ -365,55 +331,6 @@ export function ChannelGridPage(): ReactNode {
         ) : null}
       </SectionFrame>
 
-      {/* 节目详情面板(与 LivePage 同一共享面板宿主;status 由宿主闭包 panelStatusOf
-          裁决,复用 LivePage 导出的推导,勿再造;动作回调均无参) */}
-      <ProgrammeDetailPanel
-        open={slotDialog !== null}
-        onClose={() => {
-          setSlotDialog(null);
-        }}
-        channel={{ name: slotDialog?.channelTitle ?? '', logo: null }}
-        favorited={detailFavorited}
-        programme={
-          slotDialog?.programme == null
-            ? null
-            : {
-                title: slotDialog.programme.title,
-                description: slotDialog.programme.description,
-                posterRef: slotDialog.programme.posterRef,
-                start: slotDialog.programme.startsAt,
-                end: slotDialog.programme.endsAt,
-              }
-        }
-        status={panelStatusOf(
-          slotDialog?.kind ?? 'current',
-          slotDialog?.programme ?? null,
-          serverNowIso,
-        )}
-        timezone={timezone}
-        onPlay={() => {
-          if (slotDialog !== null) {
-            playChannel(slotDialog.mediaId, slotDialog.channelTitle);
-          }
-        }}
-        onFavorite={() => {
-          if (slotDialog === null) {
-            return;
-          }
-          // 游客/未选档:零请求,仅登录引导(与 LivePage 面板收藏同语义)
-          if (activeProfileId === null) {
-            requireAuth(`收藏 ${slotDialog.channelTitle}`);
-            return;
-          }
-          // 已选档:既有 favorites 变更(乐观写 + onSettled 服务端对账,数据层收口)
-          if (favoriteToggle.isPending) {
-            return;
-          }
-          void favoriteToggle
-            .mutateAsync(!detailFavorited)
-            .catch(() => undefined);
-        }}
-      />
     </div>
   );
 }

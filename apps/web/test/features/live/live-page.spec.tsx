@@ -283,28 +283,18 @@ describe('直播页分区与内容(T061)', () => {
     expect(fetchCalls.some((call) => call.url.startsWith('/api/me'))).toBe(false);
   });
 
-  it('点击即将播放节目:仅展示节目时段(频道与起止时间),文案不出现预约/回看/立即播放未来节目', async () => {
+  it('点击即将播放节目:非直播 → 进入节目单详情页(/live/programmes/:id),不再打开抽屉', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderLivePage();
     await waitFor(() => {
       expect(screen.getAllByText(/晚间剧场/).length).toBeGreaterThan(0);
     });
     await user.click(screen.getAllByText(/晚间剧场/)[0] as HTMLElement);
-    const dialog = await screen.findByRole('dialog');
-    expect(dialog.textContent).toContain('新闻频道');
-    expect(dialog.textContent).toContain('07:30–08:00');
-    // 时区说明段已按产品要求移除;时间本身仍按家庭时区换算(断言时间的本地化结果)
-    expect(dialog.textContent).not.toContain('家庭时区');
-    const text = dialog.textContent ?? '';
-    expect(text).not.toMatch(/预约/);
-    expect(text).not.toMatch(/回看/);
-    expect(text).not.toMatch(/立即播放/);
-    // 012 §1.6/T005:upcoming 面板无播放主操作(共享面板仅 now/none 提供「播放当前频道」);
-    // 明示开播时间与「不提供未来内容播放」提示,面板动作回落「查看节目单」
-    expect(within(dialog).queryByRole('button', { name: '播放' })).toBeNull();
-    expect(text).toContain('即将开始');
-    expect(text).toContain('不提供未来内容播放');
-    expect(within(dialog).queryByRole('button', { name: '查看节目单' })).toBeNull();
+    await waitFor(() => {
+      expect(screen.getByTestId('live-location').textContent).toBe('/live/programmes/ch-1');
+    });
+    // 抽屉路径已移除;详情由独立页面承载
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('游客点播放:进入 US3 统一登录选档意图,登录前零 /playback/ 请求;瓦片不再提供收藏入口', async () => {

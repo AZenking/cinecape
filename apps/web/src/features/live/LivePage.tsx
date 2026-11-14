@@ -1,16 +1,12 @@
 import { useCallback, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import type { ChannelRowDto, ExperienceProgrammeDto } from '@hmp/shared';
+import type { ChannelRowDto } from '@hmp/shared';
 import { Alert, Button } from '@heroui/react';
 import { keepPreviousData } from '../../shared/query/hooks';
 import { queryKeys } from '../../shared/query/keys';
 import { fetchLiveChannels, fetchLiveGroups, type LiveChannelQuery } from './live-api';
-import { usePlayAction } from '../playback/use-play-action';
-import { useSession } from '../../app/session-provider';
-import { useFavoriteState, useFavoriteToggleMutation } from '../favorites/use-favorites';
-import { ProgrammeDetailPanel, type ProgrammeStatus } from '../shared-programme/ProgrammeDetailPanel';
-import { serverNowMs } from '../../shared/time/server-clock';
+import { useOpenProgramme } from '../shared-programme/use-open-programme';
 import { useLiveRefresh } from './hooks/use-live-refresh';
 import { useLiveSection } from './hooks/use-live-sections';
 import { NowSection } from './components/NowSection';
@@ -36,82 +32,20 @@ import { GuestActionNotice } from './components/GuestActionNotice';
  * - 30 秒周期刷新 + 回前台立即刷新(useLiveRefresh);刷新失败保留旧数据并提示可重试;
  * - 播放统一经 US3 受控入口(usePlayAction;无节目频道仍可发起;Hero 主操作同样
  *   只发起 play(),游客拦截归 ActionCoordinator);
- * - 详情面板:同一共享面板承载 now/upcoming/ended/none 四状态(FR-013、ui.md §2;
- *   status 由宿主闭包 panelStatusOf 裁决);
- * - 收藏:游客/未选档仅登录引导零请求(GuestActionNotice);已选档走既有 favorites
- *   变更(乐观写+对账;卡片收藏的行内反馈收口归 012 T011)。
+ * - 节目单详情跳转(2026-11-14):正在直播的节目点击直接起播;非直播(即将开始/
+ *   已结束/无节目)进入 /live/programmes/:channelId 详情页,不再打开抽屉
+ *   (抽屉仅保留在 /live/guide 页面)。
  */
 
 const PREVIEW_PAGE_SIZE = 20;
 /** 概览分组集合请求条数(分区展示为前端切片,完整列表经行尾入口去分类网格/EPG) */
 const OVERVIEW_GROUP_FETCH_SIZE = 50;
 
-interface SlotDialogState {
-  readonly mediaId: string;
-  readonly channelTitle: string;
-  readonly groupLabel: string;
-  /** 节目数据;无节目单频道(current/next 双 null)为 null → 面板 none 态(FR-012) */
-  readonly programme: ExperienceProgrammeDto | null;
-  readonly kind: 'current' | 'upcoming';
-}
-
-/**
- * 详情面板状态映射(012 T016/T018;FR-013、ui.md §2.3/§2.5):宿主闭包裁决,
- * 共享面板不做时间推导(T005 契约——四状态由宿主传入):
- * - programme=null(无节目单频道,current/next 双 null)→ 'none':面板保留频道身份
- *   +「暂无节目单」,主操作仍可播放当前直播(ui.md §2.5);
- * - kind='upcoming'(未来节目)→ 'upcoming'(无播放主操作,ui.md §1.6);
- * - kind='current' 且服务端快照 now 落在节目时段内 → 'now';
- * - 其余(current 但时段不含 now,含 serverNow 缺失/无效——不臆造本地时钟)→ 'ended'。
- */
-export function panelStatusOf(
-  kind: SlotDialogState['kind'],
-  programme: ExperienceProgrammeDto | null,
-  serverNowIso: string | null,
-): ProgrammeStatus {
-  if (programme === null) {
-    return 'none';
-  }
-  if (kind === 'upcoming') {
-    return 'upcoming';
-  }
-  if (serverNowIso !== null) {
-    const nowMs = Date.parse(serverNowIso);
-    if (
-      Number.isFinite(nowMs) &&
-      Date.parse(programme.startsAt) <= nowMs &&
-      nowMs <= Date.parse(programme.endsAt)
-    ) {
-      return 'now';
-    }
-  }
-  return 'ended';
-}
-
 export function LivePage(): ReactNode {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { refreshKey } = useLiveRefresh();
-  const [slotDialog, setSlotDialog] = useState<SlotDialogState | null>(null);
   const [guestNotice, setGuestNotice] = useState<string | null>(null);
-  const { play } = usePlayAction();
-
-  // 收藏(012 T016 最小接线):profile 域 favorites 变更键内嵌当前档案 id(FR-021);
-  // 游客/未选档为 null(无乐观写与 /me 目标,onFavorite 走登录引导,零请求)。
-  const session = useSession();
-  const activeProfileId =
-    session.status === 'authenticated' ? (session.session?.activeProfile?.id ?? null) : null;
-  const favoriteToggle = useFavoriteToggleMutation(activeProfileId, {
-    id: slotDialog?.mediaId ?? '',
-    title: slotDialog?.channelTitle ?? '',
-    unavailable: false,
-  });
-  /** 详情面板收藏态(打开且已选档时才取数;切换后按同一 query key 对账) */
-  const detailFavorited = useFavoriteState(
-    activeProfileId,
-    slotDialog?.mediaId ?? null,
-    slotDialog !== null,
-  );
 
   const qParam = searchParams.get('q') ?? '';
 
@@ -191,22 +125,9 @@ export function LivePage(): ReactNode {
     setGuestNotice(actionLabel);
   }, []);
 
-  const playChannel = useCallback(
-    (mediaId: string, channelTitle: string): void => {
-      // 节目详情弹层的播放:指向该频道当前直播,经 US3 统一受控入口
-      play({ mediaId, title: channelTitle });
-    },
-    [play],
-  );
-
   const timezone = groupsResource.data?.timezone ?? nowResource.data?.timezone ?? 'UTC';
-  // 016 基准时间条款:serverNow 优先取服务端基准钟(响应携带 now 即校准,本地平滑
-  // 推进;设备时钟漂移不影响状态裁决/时间标签);未校准回落响应快照,不臆造本地钟
-  const calibratedNowMs = serverNowMs();
-  const serverNowIso =
-    calibratedNowMs !== null
-      ? new Date(calibratedNowMs).toISOString()
-      : (groupsResource.data?.now ?? nowResource.data?.now ?? null);
+  /** 节目单详情跳转:now 直接起播,非直播进详情页(不打开抽屉) */
+  const openProgramme = useOpenProgramme(timezone);
   /** 直接播放大屏对象:now 区服务端稳定排序首频道(数据未就绪为 null,大屏隐藏降级) */
   const firstNowRow: ChannelRowDto | null = nowResource.data?.items[0] ?? null;
 
@@ -260,7 +181,7 @@ export function LivePage(): ReactNode {
           row={firstNowRow}
           timezone={nowResource.data.timezone}
           nowIso={nowResource.data.now}
-          onOpenProgramme={setSlotDialog}
+          onOpenProgramme={openProgramme}
         />
       ) : null}
       <NowSection
@@ -269,7 +190,7 @@ export function LivePage(): ReactNode {
         /* 015 FR-003(R3):行尾入口直达 EPG 节目单时间墙(取代 012 聚焦视图分流;
            行尾文案由 015 T012 归属任务演进) */
         onViewMore={openLiveGuide}
-        onOpenProgramme={setSlotDialog}
+        onOpenProgramme={openProgramme}
         onRequireAuth={requireAuth}
       />
       <NextSection
@@ -277,7 +198,7 @@ export function LivePage(): ReactNode {
         onRetry={nextResource.retry}
         /* 聚焦视图移除后,即将播放行尾入口同样导向 EPG 时间墙(未来排期事实源) */
         onViewMore={openLiveGuide}
-        onOpenProgramme={setSlotDialog}
+        onOpenProgramme={openProgramme}
         onRequireAuth={requireAuth}
       />
       <CategorySwimlanes
@@ -286,62 +207,10 @@ export function LivePage(): ReactNode {
         onRetry={retryGroups}
         /* 015 FR-004(R3):行尾「全部XX频道」直达分类平铺网格(携带 Tab 高亮参数) */
         onViewAll={openCategoryGrid}
-        onOpenProgramme={setSlotDialog}
+        onOpenProgramme={openProgramme}
         onRequireAuth={requireAuth}
       />
 
-      {/* 节目详情面板(012 T016;FR-013、ui.md §2):各区共用同一共享面板宿主
-          (shared-programme/ProgrammeDetailPanel,T005 落点)。
-          status 由宿主闭包 panelStatusOf 按 kind+programme+serverNowIso 裁决;
-          动作回调均无参:频道身份(mediaId)由本闭包持有(ui.md §1.4 频道语义)。 */}
-      <ProgrammeDetailPanel
-        open={slotDialog !== null}
-        onClose={() => {
-          setSlotDialog(null);
-        }}
-        channel={{ name: slotDialog?.channelTitle ?? '', logo: null }}
-        favorited={detailFavorited}
-        programme={
-          slotDialog?.programme == null
-            ? null
-            : {
-                title: slotDialog.programme.title,
-                description: slotDialog.programme.description,
-                posterRef: slotDialog.programme.posterRef,
-                start: slotDialog.programme.startsAt,
-                end: slotDialog.programme.endsAt,
-              }
-        }
-        status={panelStatusOf(
-          slotDialog?.kind ?? 'current',
-          slotDialog?.programme ?? null,
-          serverNowIso,
-        )}
-        timezone={timezone}
-        onPlay={() => {
-          if (slotDialog !== null) {
-            playChannel(slotDialog.mediaId, slotDialog.channelTitle);
-          }
-        }}
-        onFavorite={() => {
-          if (slotDialog === null) {
-            return;
-          }
-          // 游客/未选档:零请求,仅登录引导(FR-009;与卡片收藏同语义,行内反馈收口归 T011)
-          if (activeProfileId === null) {
-            requireAuth(`收藏 ${slotDialog.channelTitle}`);
-            return;
-          }
-          // 已选档:既有 favorites 变更(乐观写 + onSettled 服务端对账;失败回滚与
-          // 提示由数据层收口;已收藏态回显与行内成功反馈归 T011,本期最小接线)
-          if (favoriteToggle.isPending) {
-            return;
-          }
-          void favoriteToggle
-            .mutateAsync(!detailFavorited)
-            .catch(() => undefined);
-        }}
-      />
     </div>
   );
 }

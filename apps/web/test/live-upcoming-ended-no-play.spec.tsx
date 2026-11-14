@@ -132,18 +132,19 @@ function renderTile(current: 'now' | 'none', next: 'upcoming' | 'none', slot: 'c
 }
 
 describe('T012 · 直播瓦片卡:节目名不承载播放,中央播放钮保持频道当前直播语义', () => {
-  it('current 档位:中央播放钮语义为当前直播;节目名点击=导航 /live/watch/:id(015 T004 双层交互),不开面板、零 /playback/ 请求', () => {
+  it('current 档位:节目名点击交给宿主裁决(kind=current),瓦片自身不导航、不播放', () => {
     const { onOpenProgramme, counter, restore } = renderTile('now', 'upcoming');
     try {
-      // 频道播放钮(频道语义:播放该频道当前直播,不锁具体节目)
+      // 频道播放入口(整块底板热区,频道语义)
       expect(screen.getByRole('button', { name: `播放 ${TILE_CHANNEL_TITLE}` })).toBeVisible();
 
-      // 015 T004:current 档节目名 = 导航观看详情页(路由元素稍后由 015 任务注册,
-      // 此处断言内存路由已跳转;id = 频道 media.id),不再打开节目时段面板
       fireEvent.click(screen.getByRole('button', { name: LIVE_PROGRAMME_STATES.now.title }));
-      expect(screen.getByTestId('tile-location').textContent).toBe('/live/watch/ch-tile-1');
-      expect(onOpenProgramme).not.toHaveBeenCalled();
-      expect(counter.counts.playback).toBe(0); // 节目名不触发播放(双层交互只导航)
+      expect(onOpenProgramme).toHaveBeenCalledWith(
+        expect.objectContaining({ mediaId: 'ch-tile-1', kind: 'current' }),
+      );
+      // 2026-11-14 规则:now → 宿主直接播放;瓦片只上报,不改路由、不自行播放
+      expect(screen.getByTestId('tile-location').textContent).toBe('/live');
+      expect(counter.counts.playback).toBe(0);
       expect(screen.queryByRole('dialog')).toBeNull();
     } finally {
       restore();

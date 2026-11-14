@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { useLocation } from 'react-router';
 import { LivePage } from '../src/features/live/LivePage';
-import { panelStatusOf } from '../src/features/live/LivePage';
 import { ActionCoordinator } from '../src/app/action-coordinator';
 import { SettingsAccessProvider } from '../src/features/settings/settings-access-provider';
 import {
@@ -177,112 +176,6 @@ describe('T014 · Hero 信息(FR-002;015 T008 起 = LiveHeroPlayer 直接播放�
 
 // ---------------------------------------------------------------------------
 // 3 · 无节目单频道保留身份(FR-012 卡片半边:T004 桩 例牌电影频道 current/next 双 null)
-// ---------------------------------------------------------------------------
-
-describe('T014 · 无节目单频道保留身份(FR-012 卡片)', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('卡片保留频道身份并显示「暂无节目」占位,播放入口仍在(频道可用即可播)', async () => {
-    installLiveFetchMock();
-    renderLivePage();
-
-    // 桩频道行会同时出现在 正在直播/即将播放/分组 三区(分区查询均返回同集),取任一瓦片断言;
-    // 卡面只展示节目名,频道身份由 article 可读名承载
-    const card = (await screen.findAllByRole('article', { name: '频道 例牌电影频道' }))[0] as HTMLElement;
-    const cardScope = within(card);
-
-    expect(cardScope.getByTestId('no-programme')).toHaveTextContent('暂无节目');
-    // 频道可用时仍可播放当前内容(FR-012)
-    expect(cardScope.getByRole('button', { name: '播放 例牌电影频道' })).toBeEnabled();
-  });
-
-  it('无节目频道打开详情面板:保留频道身份 +「暂无节目单」+ 主操作仍可播放(ui.md §2.5;T016/T018 接线,预期先红)', async () => {
-    installLiveFetchMock();
-    renderLivePage();
-    const user = userEvent.setup();
-
-    const card = (await screen.findAllByRole('article', { name: '频道 例牌电影频道' }))[0] as HTMLElement;
-    await user.click(within(card).getByTestId('no-programme'));
-
-    const dialog = await screen.findByRole('dialog');
-    const dialogScope = within(dialog);
-    // 频道身份保留 + 无节目单语义 + 主操作仍可播放(共享面板 none 态契约)
-    expect(dialogScope.getByText('例牌电影频道')).toBeVisible();
-    expect(dialogScope.getByText('暂无节目数据')).toBeVisible();
-    expect(dialogScope.getByText('暂无节目单')).toBeVisible();
-    expect(dialogScope.getByRole('button', { name: '播放' })).toBeEnabled();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 4 · 面板状态映射(T016 宿主闭包:kind+serverNowIso → now/upcoming;ui.md §1.6)
-//     015 T004 起 current 档节目名改为导航 /live/watch(见上方用例),面板入口
-//     由 upcoming 档与无节目占位承载;'now/ended' 映射由纯函数断言钉住
-// ---------------------------------------------------------------------------
-
-describe('T014 · 直播宿主面板状态映射(FR-013;T016 接线)', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('当前节目名点击:015 T004 双层交互 → 导航 /live/watch/:channelId,不再打开节目面板(面板四态映射由下方纯函数断言钉住)', async () => {
-    installLiveFetchMock();
-    renderLivePage();
-    const user = userEvent.setup();
-
-    // current 档瓦片(正在直播区首卡 = 例牌新闻台),点击信息区节目名
-    const card = (await screen.findAllByRole('article', { name: '频道 例牌新闻台' }))[0] as HTMLElement;
-    await user.click(within(card).getByRole('button', { name: '例牌正播节目' }));
-
-    // 015 T004(research.md R5、ui-layout.md §1.2 第 3 条):current 档文字区 = 导航
-    // 观看详情页(路由元素稍后由 015 任务注册,此处断言内存路由已跳转),不开面板
-    expect(screen.getByTestId('route-probe').textContent).toBe(
-      '/live/watch/a0000000-0000-4000-8000-000000000001',
-    );
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
-
-  it('即将播放节目面板:状态「即将开始」+ 开播时间,无播放主操作(ui.md §1.6)', async () => {
-    installLiveFetchMock();
-    renderLivePage();
-    const user = userEvent.setup();
-
-    const upcomingButton = (await screen.findAllByRole('button', { name: /例牌预告节目/ }))[0]!;
-    await user.click(upcomingButton);
-
-    const dialog = await screen.findByRole('dialog');
-    const dialogScope = within(dialog);
-    expect(dialogScope.getByText('即将开始')).toBeVisible();
-    // 开播时间:13:00Z → 家庭时区 21:00(「开播」行)
-    expect(dialogScope.getByText('21:00')).toBeVisible();
-    expect(dialogScope.queryByRole('button', { name: '播放' })).toBeNull();
-    // 查看节目单已按产品要求移除;面板仅保留「收藏频道」
-    expect(dialogScope.queryByRole('button', { name: '查看节目单' })).toBeNull();
-    expect(dialogScope.getByRole('button', { name: '收藏频道' })).toBeVisible();
-  });
-
-  it('宿主映射纯函数:current+时段含 now→now;current+时段不含 now→ended;current+now 缺失→ended;双 null→none;upcoming→upcoming(T018 none 映射钉面)', () => {
-    const nowProgramme = LIVE_PROGRAMME_STATES.now;
-    const endedProgramme = LIVE_PROGRAMME_STATES.ended;
-
-    // kind=current 且 LIVE_NOW(12:00Z)落在 11:30–12:30Z 内 → now
-    expect(panelStatusOf('current', nowProgramme, LIVE_NOW)).toBe('now');
-    // 时段不含 now(ended 样本 09:30–10:30Z)→ ended
-    expect(panelStatusOf('current', endedProgramme, LIVE_NOW)).toBe('ended');
-    // serverNow 缺失无法核实「此刻」→ 其余归 ended(宿主裁决,不臆造本地时钟)
-    expect(panelStatusOf('current', nowProgramme, null)).toBe('ended');
-    // 双 null 频道(无节目单)→ none(FR-012/T018)
-    expect(panelStatusOf('current', null, LIVE_NOW)).toBe('none');
-    expect(panelStatusOf('upcoming', null, LIVE_NOW)).toBe('none');
-    // kind=upcoming → upcoming(不受 now 影响)
-    expect(panelStatusOf('upcoming', LIVE_PROGRAMME_STATES.upcoming, LIVE_NOW)).toBe('upcoming');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 夹具自检:本文件时间断言依赖的数据桩窗口(挪动桩时先改这里)
 // ---------------------------------------------------------------------------
 
 describe('T014 · 夹具自检', () => {

@@ -31,6 +31,7 @@ import { LivePage } from '../features/live/LivePage';
 import { ChannelGridPage } from '../features/live/pages/ChannelGridPage';
 import { LiveWatchPage } from '../features/live/pages/LiveWatchPage';
 import { GuidePage } from '../features/epg/GuidePage';
+import { ProgrammeDetailPage } from '../features/shared-programme/ProgrammeDetailPage';
 import { AdminRouteGuard } from '../features/settings/components/AdminRouteGuard';
 import { SettingsAccountPage } from '../features/settings/settings-account-page';
 import { SettingsAppearancePage } from '../features/settings/settings-appearance-page';
@@ -68,6 +69,8 @@ export function AppRoutes(): ReactNode {
             播放与详情一体化页(US4/T014,Screen 4;ChannelTile 文字区导航目标) */}
         <Route path="/live/channels" element={<ChannelGridPage />} />
         <Route path="/live/watch/:channelId" element={<LiveWatchPage />} />
+        {/* 节目单详情页(非直播节目):直播/频道库点节目时,now 直接起播,其余进本页 */}
+        <Route path="/live/programmes/:channelId" element={<ProgrammeDetailPage />} />
         {/* 未知路由:可回首页的 404,不重定向(ui.md §1) */}
         <Route path="*" element={<NotFoundPage />} />
       </Route>
