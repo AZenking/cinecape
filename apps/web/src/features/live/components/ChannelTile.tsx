@@ -153,12 +153,12 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
     // render 成 <article> 保留可访问语义(role=article)与既有查询契约。
     <Card<"article">
       render={(props) => <article {...props} />}
-      className="group min-w-0"
+      className="group min-w-0 gap-0 overflow-hidden p-0"
       aria-label={`频道 ${channelTitle}`}
     >
       {/* 16:9 频道标识底板(无海报常态降级;装饰节点一律 aria-hidden,可读名由 article 承担) */}
       <div
-        className="relative aspect-video w-full overflow-hidden rounded-2xl bg-surface-secondary"
+        className="relative aspect-video w-full overflow-hidden bg-surface-secondary"
         style={{ background: `linear-gradient(${plateAngle}deg, var(--surface-secondary) 0%, var(--surface-tertiary) 55%, var(--surface) 100%)` }}
       >
         <span
@@ -207,7 +207,7 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
         <button
           type="button"
           aria-label={`播放 ${channelTitle}`}
-          className="absolute inset-0 z-10 cursor-pointer rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          className="absolute inset-0 z-10 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
           onClick={() => {
             play({ mediaId: row.media.id, title: channelTitle, startMode: 'beginning', posterRef: row.media.posterRef });
           }}
@@ -240,7 +240,7 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
           包装器,内嵌原生按钮会产生重复同名 role=button)。
           样式只用对齐/宽度/字重覆盖(DESIGN.md:用既有变体,不重造按钮);
           尺寸/内边距/悬停/焦点环走 ghost sm 变体原生状态。 */}
-      <Card.Header className="min-w-0">
+      <Card.Header className="min-w-0 p-4">
         <div className="mb-1 flex min-w-0 items-baseline justify-between gap-2">
           <span className="hmp-truncate text-xs font-medium text-foreground/80">{channelTitle}</span>
           {timeLabel !== null ? (

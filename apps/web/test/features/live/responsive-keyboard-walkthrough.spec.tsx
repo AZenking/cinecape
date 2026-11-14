@@ -389,7 +389,9 @@ describe('T024-B · 键盘可访问性(jsdom 可断言面)', () => {
     const article = container.querySelector('article') as HTMLElement;
     expect(article.className).toContain('card');
     expect(article.className).toContain('group');
-    expect(article.className).not.toContain('p-0');
+    // 参考图片卡:海报通栏铺满,Card 去内边距并裁切圆角(信息区自带 p-4)
+    expect(article.className).toContain('p-0');
+    expect(article.className).toContain('overflow-hidden');
     // 播放入口 = 整块底板透明热区:恒在 DOM、可 Tab 聚焦,无图标/无浮现动画
     const playTarget = article.querySelector('button[aria-label="播放 星光影城"]') as HTMLElement;
     expect(playTarget).toBeTruthy();

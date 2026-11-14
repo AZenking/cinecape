@@ -106,13 +106,13 @@ export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNod
           时间轴浏览,不遮住节目墙其余部分) */}
       <Drawer.Content placement="right">
         {/* 宽度加在 Dialog(面板)上:加在 Content(定位容器)上会把整层压窄并贴左 */}
-        <Drawer.Dialog aria-label={`节目详情:${channel.name}`} className="w-[420px] max-w-[92vw]">
+        <Drawer.Dialog aria-label={`节目详情:${channel.name}`} className="w-[420px] max-w-[92vw] p-0">
           {/* 关闭由右上角 X 承担;可访问名「关闭」的既有键盘/测试契约不变 */}
-          <Drawer.CloseTrigger aria-label="关闭" />
-          <Drawer.Body className="flex flex-col gap-4">
+          <Drawer.CloseTrigger aria-label="关闭" className="z-20" />
+          <Drawer.Body className="flex flex-col gap-0 p-0">
             {/* 参考 HeroUI 促销卡样式:顶部 16:9 图像横幅(节目海报,缺省回退频道台标),
                 下方标题/简介/元信息。 */}
-            <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-border/60 bg-gradient-to-br from-surface-secondary via-surface-tertiary to-surface">
+            <div className="relative aspect-video w-full overflow-hidden bg-gradient-to-br from-surface-secondary via-surface-tertiary to-surface">
               {programme !== null && programme.posterRef !== undefined && programme.posterRef !== null ? (
                 <ProgrammePoster
                   posterRef={programme.posterRef}
@@ -134,6 +134,7 @@ export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNod
               )}
             </div>
 
+            <div className="flex min-w-0 flex-col gap-4 px-6 py-5">
             <div className="flex min-w-0 flex-col gap-2">
               <h2 className="text-lg font-bold leading-snug text-foreground">
                 {programme !== null ? programme.title : '暂无节目单'}
@@ -190,9 +191,10 @@ export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNod
             {status === 'upcoming' ? (
               <p className="text-xs text-muted">该节目尚未开播,不提供未来内容播放。</p>
             ) : null}
+            </div>
           </Drawer.Body>
 
-          <Drawer.Footer className="flex flex-col gap-2">
+          <Drawer.Footer className="flex flex-col gap-2 px-6 pb-6">
             {/* 主/次操作各占一行、按钮拉满宽度;关闭由右上角 X 承担 */}
             {canPlay ? (
               <Button variant="primary" className="w-full" onPress={onPlay}>
