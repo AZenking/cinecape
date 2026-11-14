@@ -381,10 +381,12 @@ describe('T024-B · 键盘可访问性(jsdom 可断言面)', () => {
         onRequireAuth={vi.fn()}
       />,
     );
-    // 瓦片为 group 容器(focus-within 联动中央 ▶ 与抬升)
+    // 瓦片为 HeroUI Card 容器(card 类)+ group(focus-within 联动中央 ▶);
+    // 不再覆盖 Card 的 padding/圆角/阴影等原生样式
     const article = container.querySelector('article') as HTMLElement;
+    expect(article.className).toContain('card');
     expect(article.className).toContain('group');
-    expect(article.className).toContain('focus-within:-translate-y-0.5');
+    expect(article.className).not.toContain('p-0');
     // 中央 ▶ 按钮恒在 DOM(jsdom 无 hover 也存在=Tab 可达);hover:hover 下缺省
     // pointer-events-none+opacity-0,键盘聚焦(group-focus-within)恢复可点+浮现
     const hoverPlay = article.querySelector('button[aria-label="播放 星光影城"]') as HTMLElement;

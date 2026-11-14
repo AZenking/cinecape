@@ -10,9 +10,10 @@ import { formatRangeInZone, formatTimeInZone } from '../live-format';
 
 /**
  * 直播频道瓦片卡(Netflix 式 16:9 瓦片;T069/T070/T071 演进,FR-021/023/024、ui.md §5/§8):
- * - 容器 = HeroUI v3 `Card`(唯一外壳:边框/圆角/背景/hover 均走 Card 与语义 token,
- *   不再自绘 article 卡片);`render={<article />}` 保留 role=article 的可访问语义,
- *   信息区用 `Card.Content`;媒体底板按 HeroUI「With Images」惯例作为 Card 子内容。
+ * - 容器 = HeroUI v3 `Card`(唯一外壳;**不覆盖** Card 原生 padding/圆角/阴影/gap,
+ *   保持 heroUI 默认样式);`render={<article />}` 保留 role=article 的可访问语义,
+ *   信息区用 `Card.Content`;16:9 媒体底板按「With Images」惯例作为 Card 子内容
+ *   (内嵌圆角缩略图)。
  * - 16:9 频道标识底板:频道无海报是常态,底板为 token 渐变 + 稳定散列光斑
  *   (frontend-home-live-epg-design.md §4.3;渐变角度/光斑位置由稳定 media.id 散列决定,
  *   同一频道跨刷新不闪变,颜色只用语义 token);
@@ -147,17 +148,17 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
   const plateAngle = 100 + (hash % 140);
   const glowOnRight = hash % 2 === 1;
   return (
-    // HeroUI v3 Card 作为唯一容器(不再自建卡片外壳);render 成 <article> 保留
-    // 可访问语义(role=article)与既有查询契约。
+    // HeroUI v3 Card 作为唯一容器;不覆盖 Card 自身的 padding/圆角/背景/阴影/
+    // gap(保持 heroUI 原样式),只追加布局所需的 min-w-0 与 group(hover 揭示播放键)。
+    // render 成 <article> 保留可访问语义(role=article)与既有查询契约。
     <Card<"article">
       render={(props) => <article {...props} />}
-      variant="default"
-      className="group relative flex min-w-0 flex-col gap-0 overflow-hidden rounded-xl border border-border bg-surface p-0 shadow-none transition duration-200 hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lg hover:shadow-background/60 focus-within:-translate-y-0.5 focus-within:border-accent/40"
+      className="group min-w-0"
       aria-label={`频道 ${channelTitle}`}
     >
       {/* 16:9 频道标识底板(无海报常态降级;装饰节点一律 aria-hidden,可读名由 article 承担) */}
       <div
-        className="relative aspect-video w-full overflow-hidden bg-surface-secondary"
+        className="relative aspect-video w-full overflow-hidden rounded-2xl bg-surface-secondary"
         style={{ background: `linear-gradient(${plateAngle}deg, var(--surface-secondary) 0%, var(--surface-tertiary) 55%, var(--surface) 100%)` }}
       >
         <span
@@ -249,7 +250,7 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
           包装器,内嵌原生按钮会产生重复同名 role=button)。
           样式只用对齐/宽度/字重覆盖(DESIGN.md:用既有变体,不重造按钮);
           尺寸/内边距/悬停/焦点环走 ghost sm 变体原生状态。 */}
-      <Card.Content className="min-w-0 p-3">
+      <Card.Content className="min-w-0">
         <div className="mb-1 flex min-w-0 items-baseline justify-between gap-2">
           <span className="hmp-truncate text-xs font-medium text-foreground/80">{channelTitle}</span>
           {timeLabel !== null ? (
