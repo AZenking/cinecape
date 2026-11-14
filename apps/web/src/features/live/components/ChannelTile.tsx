@@ -1,12 +1,9 @@
-import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { Button, ProgressBar, Tooltip } from '@heroui/react';
 import { Play } from 'lucide-react';
 import type { ChannelRowDto, ExperienceProgrammeDto } from '@hmp/shared';
-import { PlayButton, usePlayAction } from '../../playback/use-play-action';
-import { useSession } from '../../../app/session-provider';
-import { FavoriteStarButton } from '../../favorites/favorite-star-button';
+import { usePlayAction } from '../../playback/use-play-action';
 import { useCurrentProgramme } from '../hooks/use-current-programme';
 import { ChannelLogo } from './channel-logo';
 import { formatRangeInZone, formatTimeInZone } from '../live-format';
@@ -16,9 +13,8 @@ import { formatRangeInZone, formatTimeInZone } from '../live-format';
  * - 16:9 频道标识底板:频道无海报是常态,底板为 token 渐变 + 稳定散列光斑
  *   (frontend-home-live-epg-design.md §4.3;渐变角度/光斑位置由稳定 media.id 散列决定,
  *   同一频道跨刷新不闪变,颜色只用语义 token);
- * - 瓦片承载状态:左上「正在直播/即将播放/暂无排期」标注(红点 + 文字,状态不只靠
- *   颜色),与卡面承载档位对齐(upcoming 卡恒标「即将播放」,详见 statusBadge);
- *   current 档正在直播时底板底部附当前节目进度线(红色 = 直播/时间线语义,见 §2 视觉约定);
+ * - 2026-11-14 呈现精简:去掉左上状态签与右下「收藏/播放」常驻按钮(产品要求),
+ *   播放入口收敛为悬停/聚焦中央 ▶(触屏恒显);当前节目进度微条保留;
  * - 信息区(2026-11-13 呈现修订):第一行频道名 + 家庭时区时段,第二行节目名
  *   (最多两行);档位由分区决定(正在直播类分区=当前节目,即将播放分区=下一档
  *   节目)。频道身份不再只依赖可读名,横向扫读即可确认「台 + 节目 + 时间」;
@@ -33,11 +29,8 @@ import { formatRangeInZone, formatTimeInZone } from '../live-format';
  *   upcoming 档 → 打开节目时段详情面板(频道与起止时间;不伪装可播放未来节目,FR-024);
  * - 触屏/无 hover 设备降级(R5 简单方案):(hover: none) 媒体下中央 ▶ 恒显可点,
  *   触屏点击即等价播放;不引入 JS 媒体查询探测与新依赖;
- * - 播放按钮与收藏按钮分离:播放经共享 PlayButton 走 US3 统一受控播放
- *   (usePlayAction;游客点击进入登录选档意图,选档完成前零 /playback/ 请求);
- *   收藏按会话分流(012 T011、ui.md §1.5):已选档 → 共享 FavoriteStarButton 仅执行
- *   收藏变更(PUT/DELETE /me/favorites/channels,幂等;乐观行内翻面,成功不触发播放);
- *   游客/未选档 → onRequireAuth 登录引导(GuestActionNotice),零请求零部分写入。
+ * - 播放入口统一经 usePlayAction(US3 统一受控播放;游客拦截进登录选档意图,
+ *   选档完成前零 /playback/ 请求);收藏入口从瓦片移除,改由详情/收藏页承担。
  * - 悬停/键盘聚焦(cards focus-within)轻微抬升;动效仅悬停反馈,尊重 reduced-motion
  *   (全局基线见 shared/theme/a11y.css);
  * - 长节目名 .hmp-truncate 截断,HeroUI Tooltip 提供完整可读名称。
@@ -90,8 +83,8 @@ export interface ChannelTileProps {
   readonly timezone?: string;
   /** 节目时段详情回调(即将播放/当前节目共用;打开频道/节目信息) */
   readonly onOpenProgramme: OpenProgrammeHandler;
-  /** 游客收藏:进入登录选档提示(收藏属 US4;播放不经此,走共享 PlayButton) */
-  readonly onRequireAuth: (actionLabel: string) => void;
+  /** @deprecated 2026-11-14 瓦片不再提供收藏入口;保留仅为宿主兼容,将被移除 */
+  readonly onRequireAuth?: (actionLabel: string) => void;
 }
 
 /** djb2 散列:底板渐变角度与光斑位置由稳定 id 派生(伪随机但跨刷新不变) */
@@ -122,11 +115,11 @@ export function progressOf(startsAt: string, endsAt: string, nowIso: string | nu
   return Math.min(1, Math.max(0, (now - start) / (end - start)));
 }
 
-export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme, onRequireAuth }: ChannelTileProps): ReactNode {
+export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }: ChannelTileProps): ReactNode {
   const channelTitle = row.media.title;
   // 路由导航(015 T004):current 档文字信息区 → /live/watch/:channelId
   const navigate = useNavigate();
-  // 统一播放入口(US3):Hover 中央 ▶ 与右下 PlayButton 同源消费,本组件不旁路第二状态机
+  // 统一播放入口(US3):Hover 中央 ▶ 走统一入口,本组件不旁路第二状态机
   const { play } = usePlayAction();
   // 智能事件定时器(016 T010;ui-experience.md §1/§2):每卡一个 Hook 实例 ——
   // 15s 本地 tick 平滑推进进度、到点本地翻转(无需等 30s 刷新),墙面上 20 卡
@@ -135,8 +128,6 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme, 
   const programme = useCurrentProgramme({ initialCurrent: row.current, initialNext: row.next });
   /** 智能时钟下的当前节目(到点本地翻转;空档 → null,信息区「暂无节目单」降级) */
   const liveCurrent = programme.current;
-  const hasCurrent = liveCurrent !== null;
-  const hasNext = row.next !== null;
   /** 本卡承载的节目(档位决定:current=智能时钟当前节目,upcoming=下一档;双缺时走「暂无节目单」占位) */
   const slotProgramme: ExperienceProgrammeDto | null = slot === 'upcoming' ? row.next : liveCurrent;
   /**
@@ -152,27 +143,6 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme, 
   const hash = hashOf(row.media.id);
   const plateAngle = 100 + (hash % 140);
   const glowOnRight = hash % 2 === 1;
-  /** 状态签与卡面承载档位对齐(DESIGN.md「状态只作语义」;FR-024):
-   *  upcoming 卡展示下一档节目名 → 签标「即将播放」,避免「正在直播」签 + 未来节目名
-   *  的误读;current 卡:有当前节目 → 正在直播(红点),降级 即将播放,双缺 暂无排期。 */
-  const statusBadge: { live: boolean; label: string } =
-    slot === 'upcoming'
-      ? hasNext
-        ? { live: false, label: '即将播放' }
-        : { live: false, label: '暂无排期' }
-      : hasCurrent
-        ? { live: true, label: '正在直播' }
-        : hasNext
-          ? { live: false, label: '即将播放' }
-          : { live: false, label: '暂无排期' };
-
-  // 收藏会话分流(012 T011):仅「已登录且已选档」直接执行收藏;游客/未选档走登录引导
-  const session = useSession();
-  const activeProfile = session.status === 'authenticated' ? (session.session?.activeProfile ?? null) : null;
-  // 墙面无收藏态数据源(ChannelRowDto 不含 favorited):会话内本地翻面,
-  // 服务端真值以收藏页/个人区列表为准(成功经 onChanged 收敛,失败由数据层回滚)
-  const [wallFavorited, setWallFavorited] = useState(false);
-
   return (
     <article
       className="group relative flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-surface transition duration-200 hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lg hover:shadow-background/60 focus-within:-translate-y-0.5 focus-within:border-accent/40"
@@ -192,7 +162,7 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme, 
         {/* 频道身份主视觉(2026-11-13 修订):原右上角小角标 + 大面积空渐变底板被
             反馈为「中间空着、台标又太小」。现将台标移到 16:9 底板中央作为唯一主视觉
             (ChannelLogo 自带加载中/失败首字回退);无台标频道显示频道名。状态签/进度线/
-            右下播放收藏仍分居三角,互不重叠;悬停 ▶ 浮于中央,台标作为底图仍可辨。 */}
+            底部进度线互不重叠;悬停 ▶ 浮于中央,台标作为底图仍可辨。 */}
         <div
           data-testid="tile-logo"
           className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 pb-10 pt-6"
@@ -216,16 +186,6 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme, 
           )}
         </div>
 
-        {/* 状态标注:红点 + 文字(状态不只靠颜色);上左角,随档位对齐(见 statusBadge)。
-            无节目频道状态签用「暂无排期」而非「暂无节目单」:信息区已有「暂无节目单」
-            明确占位(016 §1.2 降级标题;FR-023),措辞不得构成其子串,避免文本查询歧义。 */}
-        <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-sm bg-background/75 px-1.5 py-0.5 text-xs text-foreground backdrop-blur-sm">
-          {statusBadge.live ? (
-            <span aria-hidden="true" className="size-1.5 rounded-full bg-accent" />
-          ) : null}
-          {statusBadge.label}
-        </span>
-
         {/* Hover 快捷起播(015 T004;research.md R5、ui-layout.md §1.2 第 3 条):
             悬停/键盘聚焦瓦片(group-hover / group-focus-within)时,底板正中央平滑淡入
             bg-accent/80 text-accent-foreground 的 ▶ 按钮,点击直接起播(见组件头注)。
@@ -233,7 +193,6 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme, 
               data-focus-visible + a11y.css 全局基线双通道);隐藏态 pointer-events-none
               防止透明热区误触,浮现态恢复可点;
             - 图标为装饰节点 aria-hidden,可读名由 aria-label「播放 <频道名>」承担,
-              与右下 PlayButton(播放 <频道名> 当前直播)语义互补不冲突;
             - 动效仅 opacity 过渡(reduced-motion 由 a11y.css 全局基线收敛);
               半透明 = bg-accent/80 语义 token,不硬编码颜色。 */}
         <Button
@@ -248,46 +207,6 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme, 
         >
           <Play aria-hidden="true" className="size-5 fill-current" />
         </Button>
-
-        {/* 播放/收藏恒驻底板右下(可见性不随悬停变化,避免触控/键盘丢失入口) */}
-        <div className="absolute bottom-2 right-2 flex items-center gap-1">
-          {activeProfile !== null ? (
-            /* 已选档:收藏即收藏——共享星标组件幂等 PUT/DELETE + 乐观行内翻面,
-               与播放零关联(§1.5「收藏成功为行内反馈,不得触发播放」) */
-            <span className="inline-flex items-center rounded bg-background/70 backdrop-blur-sm">
-              <FavoriteStarButton
-                mediaId={row.media.id}
-                title={channelTitle}
-                favorited={wallFavorited}
-                size="sm"
-                onChanged={(_mediaId, next) => {
-                  setWallFavorited(next);
-                }}
-              />
-            </span>
-          ) : (
-            /* 游客/未选档:登录引导(GuestActionNotice),零请求零部分写入 */
-            <Button
-              size="sm"
-              variant="ghost"
-              isIconOnly
-              aria-label={`收藏 ${channelTitle}`}
-              className="bg-background/70 backdrop-blur-sm"
-              onPress={() => {
-                onRequireAuth(`收藏 ${channelTitle}`);
-              }}
-            >
-              ☆
-            </Button>
-          )}
-          <PlayButton
-            mediaId={row.media.id}
-            title={channelTitle}
-            size="sm"
-            label="播放"
-            ariaLabel={`播放 ${channelTitle} 当前直播`}
-          />
-        </div>
 
         {/* 当前节目进度微条(016 T010;ui-experience.md §1:HeroUI v3 ProgressBar,
             严禁原生 <progress>;值经 useCurrentProgramme 平滑推进,到点本地翻转):

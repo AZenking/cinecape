@@ -396,8 +396,8 @@ describe('T024-B · 键盘可访问性(jsdom 可断言面)', () => {
     expect(cls).toContain('[@media(hover:hover)]:group-focus-within:opacity-100');
     expect(cls).toContain('group-hover:opacity-100'); // 指示设备悬浮浮现
     expect(cls).toContain('transition-opacity'); // 动效仅 opacity(全局 reduced-motion 收敛)
-    // 恒驻右下播放入口(键盘/触屏不依赖 hover 也不丢失)
-    expect(article.querySelector('button[aria-label="播放 星光影城 当前直播"]')).toBeTruthy();
+    // 右下常驻播放/收藏钮已按产品要求移除;播放入口只保留中央悬浮钮
+    expect(article.querySelector('button[aria-label="播放 星光影城 当前直播"]')).toBeNull();
     // 信息区节目名按钮(HeroUI ghost sm,焦点环走组件原生状态)
     expect(screen.getByRole('button', { name: '星际回响' })).toBeTruthy();
   });

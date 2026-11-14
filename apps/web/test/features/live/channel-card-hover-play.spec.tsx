@@ -147,10 +147,12 @@ describe('T007 · 频道卡 Hover 一键起播(FR-005;R5 双层交互)', () => {
     }
   });
 
-  it('右下常驻播放钮保持频道语义(播放 <频道名> 当前直播),与中央悬浮钮并存不冲突', () => {
+  it('播放入口收敛为中央悬浮钮(右下常驻播放/收藏钮已按产品要求移除)', () => {
     const { restore } = renderTile();
     try {
-      expect(screen.getByRole('button', { name: '播放 星光影城 当前直播' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: '播放 星光影城' })).toBeEnabled();
+      expect(screen.queryByRole('button', { name: '播放 星光影城 当前直播' })).toBeNull();
+      expect(screen.queryByRole('button', { name: '收藏 星光影城' })).toBeNull();
     } finally {
       restore();
     }

@@ -116,7 +116,7 @@ async function clickTilePlay(): Promise<HTMLElement> {
     expect(screen.getAllByRole('article', { name: `频道 ${TITLE}` }).length).toBeGreaterThan(0);
   });
   const tile = screen.getAllByRole('article', { name: `频道 ${TITLE}` })[0] as HTMLElement;
-  fireEvent.click(within(tile).getByRole('button', { name: `播放 ${TITLE} 当前直播` }));
+  fireEvent.click(within(tile).getByRole('button', { name: `播放 ${TITLE}` }));
   return tile;
 }
 

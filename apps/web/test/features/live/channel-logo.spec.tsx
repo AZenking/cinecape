@@ -209,9 +209,9 @@ describe('T018/T019(2026-11-13 修订) · 接入:台标移到 16:9 底板中央�
         /(^|\s)text-6xl(\s|$)/.test(el.className),
       );
       expect(hugeFirstChar).toHaveLength(0);
-      // 状态签与播放入口照常
-      expect(screen.getByText('正在直播')).toBeVisible();
-      expect(screen.getByRole('button', { name: `播放 ${CHANNEL_TITLE} 当前直播` })).toBeEnabled();
+      // 状态签已按产品要求移除;播放入口收敛为中央按钮
+      expect(screen.queryByText('正在直播')).toBeNull();
+      expect(screen.getByRole('button', { name: `播放 ${CHANNEL_TITLE}` })).toBeEnabled();
     } finally {
       view.restore();
     }
@@ -342,7 +342,7 @@ function guideWindowFixture(): GuideWindowDto {
 }
 
 describe('T022 · 回退链不变量:host 级失败恢复、加载中可交互、SC-006 范围守护(ui.md §4-3/4/6)', () => {
-  it('ChannelTile onError:img 卸载、中央首字回退接替、无裂图痕迹,播放/收藏入口仍在(ui.md §4-3 host 级)', () => {
+  it('ChannelTile onError:img 卸载、中央首字回退接替、无裂图痕迹,中央播放入口仍在(ui.md §4-3 host 级)', () => {
     const view = renderInLiveWorld(
       <ChannelTile
         row={channelRowWithPoster(LOGO_REF)}
@@ -358,22 +358,20 @@ describe('T022 · 回退链不变量:host 级失败恢复、加载中可交互�
       expect(screen.getByTestId('tile-logo').textContent).toContain(CHANNEL_TITLE.slice(0, 1));
       // 无错误文案/占位框
       expect(view.container.textContent).not.toContain('加载失败');
-      expect(screen.getByRole('button', { name: `播放 ${CHANNEL_TITLE} 当前直播` })).toBeEnabled();
+      expect(screen.getByRole('button', { name: `播放 ${CHANNEL_TITLE}` })).toBeEnabled();
     } finally {
       view.restore();
     }
   });
 
-  it('加载中:播放/收藏/详情按钮可交互(pending img 不阻塞任何操作,ui.md §4-4)', () => {
+  it('加载中:播放/详情按钮可交互(pending img 不阻塞任何操作,ui.md §4-4)', () => {
     const onOpenProgramme = vi.fn();
-    const onRequireAuth = vi.fn();
     const view = renderInLiveWorld(
       <ChannelTile
         row={channelRowWithPoster(LOGO_REF)}
         nowIso={LIVE_NOW}
         slot="upcoming"
         onOpenProgramme={onOpenProgramme}
-        onRequireAuth={onRequireAuth}
       />,
     );
     try {
@@ -383,11 +381,10 @@ describe('T022 · 回退链不变量:host 级失败恢复、加载中可交互�
       // 面板入口契约改由 upcoming 档钉住(下一档节目,kind=upcoming)
       fireEvent.click(screen.getByRole('button', { name: '例牌预告节目' }));
       expect(onOpenProgramme).toHaveBeenCalledTimes(1);
-      // 收藏:游客星标走登录引导
-      fireEvent.click(screen.getByRole('button', { name: `收藏 ${CHANNEL_TITLE}` }));
-      expect(onRequireAuth).toHaveBeenCalledWith(`收藏 ${CHANNEL_TITLE}`);
+      // 收藏入口已从瓦片移除(改由详情/收藏页承担)
+      expect(screen.queryByRole('button', { name: `收藏 ${CHANNEL_TITLE}` })).toBeNull();
       // 播放:可点且未被 pending img 阻塞(不抛错)
-      const play = screen.getByRole('button', { name: `播放 ${CHANNEL_TITLE} 当前直播` });
+      const play = screen.getByRole('button', { name: `播放 ${CHANNEL_TITLE}` });
       expect(play).toBeEnabled();
       expect(() => fireEvent.click(play)).not.toThrow();
     } finally {

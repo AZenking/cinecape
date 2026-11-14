@@ -195,7 +195,7 @@ describe('T014 · 无节目单频道保留身份(FR-012 卡片)', () => {
 
     expect(cardScope.getByTestId('no-programme')).toHaveTextContent('暂无节目');
     // 频道可用时仍可播放当前内容(FR-012)
-    expect(cardScope.getByRole('button', { name: '播放 例牌电影频道 当前直播' })).toBeEnabled();
+    expect(cardScope.getByRole('button', { name: '播放 例牌电影频道' })).toBeEnabled();
   });
 
   it('无节目频道打开详情面板:保留频道身份 +「暂无节目单」+ 主操作仍可播放(ui.md §2.5;T016/T018 接线,预期先红)', async () => {

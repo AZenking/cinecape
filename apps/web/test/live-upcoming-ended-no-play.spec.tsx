@@ -131,12 +131,12 @@ function renderTile(current: 'now' | 'none', next: 'upcoming' | 'none', slot: 'c
   return { onOpenProgramme, counter, restore: view.restore };
 }
 
-describe('T012 · 直播瓦片卡:节目名不承载播放,播放钮保持频道当前直播语义', () => {
-  it('current 档位:播放钮语义为当前直播;节目名点击=导航 /live/watch/:id(015 T004 双层交互),不开面板、零 /playback/ 请求', () => {
+describe('T012 · 直播瓦片卡:节目名不承载播放,中央播放钮保持频道当前直播语义', () => {
+  it('current 档位:中央播放钮语义为当前直播;节目名点击=导航 /live/watch/:id(015 T004 双层交互),不开面板、零 /playback/ 请求', () => {
     const { onOpenProgramme, counter, restore } = renderTile('now', 'upcoming');
     try {
       // 频道播放钮(频道语义:播放该频道当前直播,不锁具体节目)
-      expect(screen.getByRole('button', { name: `播放 ${TILE_CHANNEL_TITLE} 当前直播` })).toBeVisible();
+      expect(screen.getByRole('button', { name: `播放 ${TILE_CHANNEL_TITLE}` })).toBeVisible();
 
       // 015 T004:current 档节目名 = 导航观看详情页(路由元素稍后由 015 任务注册,
       // 此处断言内存路由已跳转;id = 频道 media.id),不再打开节目时段面板
@@ -154,7 +154,7 @@ describe('T012 · 直播瓦片卡:节目名不承载播放,播放钮保持频道
     const { onOpenProgramme, counter, restore } = renderTile('now', 'upcoming', 'upcoming');
     try {
       // 频道播放钮保留(频道语义;未来节目不因此获得播放入口)
-      expect(screen.getByRole('button', { name: `播放 ${TILE_CHANNEL_TITLE} 当前直播` })).toBeVisible();
+      expect(screen.getByRole('button', { name: `播放 ${TILE_CHANNEL_TITLE}` })).toBeVisible();
 
       // upcoming 档位展示下一档节目名,点击仅开详情(kind=upcoming,面板无播放主操作)
       fireEvent.click(screen.getByRole('button', { name: LIVE_PROGRAMME_STATES.upcoming.title }));
@@ -172,13 +172,13 @@ describe('T012 · 直播瓦片卡:节目名不承载播放,播放钮保持频道
     }
   });
 
-  it('upcoming-only 频道(无当前节目):upcoming 档位展示下一档节目名,播放钮保留(频道可用即播放当前直播,FR-012),状态标注「即将播放」', () => {
+  it('upcoming-only 频道(无当前节目):upcoming 档位展示下一档节目名,中央播放钮保留(频道可用即播放当前直播,FR-012)', () => {
     const { onOpenProgramme, counter, restore } = renderTile('none', 'upcoming', 'upcoming');
     try {
       // 无节目单/无当前节目不撤频道播放入口(可用性不由 EPG 决定)
-      expect(screen.getByRole('button', { name: `播放 ${TILE_CHANNEL_TITLE} 当前直播` })).toBeVisible();
-      // 状态签标注即将播放(非颜色唯一表达;存在即达标)
-      expect(screen.getAllByText('即将播放').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByRole('button', { name: `播放 ${TILE_CHANNEL_TITLE}` })).toBeVisible();
+      // 左上状态签已按产品要求移除
+      expect(screen.queryByText('即将播放')).toBeNull();
       // 下一档节目名仍只是详情入口,不播放
       fireEvent.click(screen.getByRole('button', { name: LIVE_PROGRAMME_STATES.upcoming.title }));
       expect(onOpenProgramme).toHaveBeenCalledTimes(1);

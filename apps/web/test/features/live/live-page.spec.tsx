@@ -263,7 +263,7 @@ describe('直播页分区与内容(T061)', () => {
     expect(sportsCard.textContent).toContain('暂无节目');
     // 播放入口保留
     expect(
-      Array.from(sportsCard.querySelectorAll('button')).some((button) => button.getAttribute('aria-label') === '播放 体育频道 当前直播'),
+      Array.from(sportsCard.querySelectorAll('button')).some((button) => button.getAttribute('aria-label') === '播放 体育频道'),
     ).toBe(true);
   });
 
@@ -307,14 +307,14 @@ describe('直播页分区与内容(T061)', () => {
     expect(within(dialog).queryByRole('button', { name: '查看节目单' })).toBeNull();
   });
 
-  it('游客点播放:进入 US3 统一登录选档意图,登录前零 /playback/ 请求;收藏为 US4 提示不发起播放', async () => {
+  it('游客点播放:进入 US3 统一登录选档意图,登录前零 /playback/ 请求;瓦片不再提供收藏入口', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderLivePage();
     await waitFor(() => {
-      expect(screen.getAllByRole('button', { name: '播放 新闻频道 当前直播' }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole('button', { name: '播放 新闻频道' }).length).toBeGreaterThan(0);
     });
     const playbackCallsBefore = fetchCalls.filter((call) => call.url.includes('/playback/')).length;
-    await user.click(screen.getAllByRole('button', { name: '播放 新闻频道 当前直播' })[0] as HTMLElement);
+    await user.click(screen.getAllByRole('button', { name: '播放 新闻频道' })[0] as HTMLElement);
     // US3:游客播放 → 统一受控弹层进入登录步骤(弹层内出现登录入口)
     expect(await screen.findByRole('dialog')).toBeTruthy();
     expect(await screen.findByRole('heading', { name: '登录' })).toBeTruthy();
@@ -326,9 +326,8 @@ describe('直播页分区与内容(T061)', () => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
     expect(fetchCalls.filter((call) => call.url.includes('/playback/')).length).toBe(playbackCallsBefore);
-    // 收藏(US4 占位):出现游客提示(登录入口 + 收藏动作文案),不发起任何播放
-    await user.click(screen.getAllByRole('button', { name: '收藏 新闻频道' })[0] as HTMLElement);
-    expect(await screen.findByText('收藏 新闻频道需要先登录并选择档案')).toBeTruthy();
+    // 收藏入口已从瓦片移除(改由详情/收藏页承担);播放链路不因此产生任何请求
+    expect(screen.queryByRole('button', { name: '收藏 新闻频道' })).toBeNull();
     expect(fetchCalls.filter((call) => call.url.includes('/playback/')).length).toBe(playbackCallsBefore);
   });
 
