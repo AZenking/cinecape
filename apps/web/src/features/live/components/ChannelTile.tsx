@@ -38,10 +38,10 @@ import { formatRangeInZone, formatTimeInZone } from '../live-format';
  * - 悬停/键盘聚焦(cards focus-within)轻微抬升;动效仅悬停反馈,尊重 reduced-motion
  *   (全局基线见 shared/theme/a11y.css);
  * - 长节目名 .hmp-truncate 截断,HeroUI Tooltip 提供完整可读名称。
- * - 频道身份(2026-11-14 修订;原右上角角标/居中主视觉均退场):
- *   台标铺满 16:9 底板上半部分(左右留边、约 38% 高,contain 居中),posterRef 非空 →
- *   ChannelLogo(加载中/失败回退首字),posterRef null → 频道名文本;悬停/聚焦 ▶
- *   下移到 64% 处,与台标、底部进度线互不重叠(channel-logo.tsx)。
+ * - 频道身份(2026-11-14 修订;原右上角角标/居中主视觉/上半部分均退场):
+ *   台标回到左上角,装在半透明圆角衬底里并带柔和投影(浮起观感);posterRef 非空 →
+ *   ChannelLogo(加载中/失败回退首字),posterRef null → 频道名文本。
+ *   整块底板仍是播放入口(透明热区),台标与进度线互不重叠(channel-logo.tsx)。
  * - 当前节目进度微条(016 T010;contracts/ui-experience.md §1/§2):015 的红色
  *   快照进度线升级为 HeroUI v3 ProgressBar(size="sm" color="accent",
  *   aria-label「节目播放进度」,严禁原生 <progress>),值经 useCurrentProgramme
@@ -167,12 +167,12 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
             glowOnRight ? '-right-8' : '-left-8'
           }`}
         />
-        {/* 频道身份(2026-11-14 修订):台标铺满 16:9 底板上半部分(左右留边、
-            约 38% 高),contain 居中;播放键下移到 64% 处,与台标/进度线互不重叠。
-            ChannelLogo 自带加载中/失败首字回退;无台标频道显示频道名。 */}
+        {/* 频道身份(2026-11-14 修订):台标回到左上角,装在半透明圆角衬底里并带柔和
+            投影,让台标从底板上"浮"起来;ChannelLogo 自带加载中/失败首字回退;
+            无台标频道显示频道名。 */}
         <div
           data-testid="tile-logo"
-          className="pointer-events-none absolute inset-x-3 top-3 z-[1] flex h-[38%] items-center justify-center"
+          className="pointer-events-none absolute left-3 top-3 z-[1] flex h-10 w-28 items-center justify-center rounded-lg bg-background/55 p-1.5 shadow-lg shadow-background/50 backdrop-blur-sm"
         >
           {row.media.posterRef !== null ? (
             <div className="relative h-full w-full">
@@ -180,13 +180,13 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
                 key={row.media.posterRef}
                 posterRef={row.media.posterRef}
                 channelTitle={channelTitle}
-                fallbackClassName="text-2xl font-semibold text-muted"
+                fallbackClassName="text-xs font-semibold text-muted"
               />
             </div>
           ) : (
             <span
               data-testid="tile-logo-fallback"
-              className="line-clamp-2 text-center text-xl font-semibold leading-tight text-muted"
+              className="line-clamp-2 text-center text-xs font-semibold leading-tight text-muted"
             >
               {channelTitle}
             </span>
