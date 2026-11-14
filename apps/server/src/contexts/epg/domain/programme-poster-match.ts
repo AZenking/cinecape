@@ -15,6 +15,8 @@ export interface TmdbPosterCandidate {
   readonly title: string;
   readonly originalTitle: string | null;
   readonly posterPath: string | null;
+  /** 16:9 剧照(TMDB backdrop_path);优先于 2:3 海报,满足节目单 16:9 展示 */
+  readonly backdropPath?: string | null;
   readonly releaseDate: string | null;
   readonly voteAverage: number | null;
   readonly popularity: number | null;
@@ -94,6 +96,8 @@ export function matchProgrammePoster(
     readonly titleExact: boolean;
     readonly candidateYear: number | null;
     readonly score: number;
+    /** 实际下发的图片相对路径(backdrop 优先 / poster 回退) */
+    readonly imagePath: string;
   }> = [];
 
   for (const candidate of candidates) {
@@ -103,7 +107,9 @@ export function matchProgrammePoster(
     if (candidate.adult) {
       continue;
     }
-    if (!isWellFormedPosterPath(candidate.posterPath)) {
+    // 优先 16:9 backdrop;缺失时回退 2:3 海报(展示层统一按 16:9 容器裁切)
+    const imagePath = candidate.backdropPath ?? candidate.posterPath;
+    if (!isWellFormedPosterPath(imagePath)) {
       continue;
     }
     if (typeof candidate.title !== 'string' || candidate.title.trim() === '') {
@@ -136,6 +142,7 @@ export function matchProgrammePoster(
       titleExact,
       candidateYear,
       score: scoreOf(normalized, candidate, titleExact, candidateYear),
+      imagePath: imagePath as string,
     });
   }
 
@@ -166,7 +173,7 @@ export function matchProgrammePoster(
     mediaType: winner.mediaType,
     title: winner.candidate.title,
     originalTitle: winner.candidate.originalTitle,
-    posterPath: winner.candidate.posterPath as string,
+    posterPath: winner.imagePath,
     releaseDate: winner.candidate.releaseDate,
     voteAverage: winner.candidate.voteAverage,
     popularity: winner.candidate.popularity,

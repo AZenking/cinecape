@@ -37,23 +37,23 @@ function DefaultPoster({ className }: { readonly className?: string }): ReactNod
   return (
     <svg
       data-testid="programme-poster-default"
-      viewBox="0 0 200 300"
+      viewBox="0 0 320 180"
       preserveAspectRatio="xMidYMid slice"
       aria-hidden="true"
       className={className}
     >
-      <rect width="200" height="300" style={{ fill: 'var(--surface-secondary)' }} />
-      <rect width="200" height="300" style={{ fill: 'var(--accent)', opacity: 0.06 }} />
+      <rect width="320" height="180" style={{ fill: 'var(--surface-secondary)' }} />
+      <rect width="320" height="180" style={{ fill: 'var(--accent)', opacity: 0.06 }} />
       <g style={{ opacity: 0.5 }}>
         <rect
-          x="52"
-          y="104"
-          width="96"
+          x="110"
+          y="54"
+          width="100"
           height="72"
-          rx="12"
-          style={{ fill: 'none', stroke: 'var(--muted)', strokeWidth: 8 }}
+          rx="10"
+          style={{ fill: 'none', stroke: 'var(--muted)', strokeWidth: 6 }}
         />
-        <path d="M88 122 L88 158 L122 140 Z" style={{ fill: 'var(--muted)' }} />
+        <path d="M150 72 L150 108 L182 90 Z" style={{ fill: 'var(--muted)' }} />
       </g>
     </svg>
   );

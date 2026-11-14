@@ -380,11 +380,11 @@ export const envSchema = z.object({
         return false;
       }
     }, '必须为合法 http(s) URL,且不含 userinfo/query/fragment'),
-  /** 图片基址(只存 poster_path,代理时拼接;生产建议 https) */
+  /** 图片基址(只存 TMDB 相对路径,代理时拼接;backdrop 16:9 优先;生产建议 https) */
   TMDB_IMAGE_BASE_URL: z
     .string()
     .trim()
-    .default('https://image.tmdb.org/t/p/w342')
+    .default('https://image.tmdb.org/t/p/w780')
     .refine((raw) => {
       try {
         const url = new URL(raw);

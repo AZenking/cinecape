@@ -1,7 +1,8 @@
 /**
  * 020 TMDB 客户端（EPG 上下文基础设施适配器）。
  *
- * 最小调用路径：只调用 GET /search/multi，一次返回 movie/tv/person 与 poster_path；
+ * 最小调用路径：只调用 GET /search/multi，一次返回 movie/tv/person 与
+ * poster_path/backdrop_path（匹配优先用 16:9 backdrop）；
  * 不调用详情/图片/季集接口。缓存、去重、匹配与节流在 application/domain 层。
  *
  * 安全/稳定性：
@@ -104,6 +105,7 @@ function toCandidate(raw: unknown): TmdbPosterCandidate | null {
     title,
     originalTitle: isMovie ? stringOrNull(row['original_title']) : stringOrNull(row['original_name']),
     posterPath: stringOrNull(row['poster_path']),
+    backdropPath: stringOrNull(row['backdrop_path']),
     releaseDate: isMovie ? stringOrNull(row['release_date']) : stringOrNull(row['first_air_date']),
     voteAverage: numberOrNull(row['vote_average']),
     popularity: numberOrNull(row['popularity']),

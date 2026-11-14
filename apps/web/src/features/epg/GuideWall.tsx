@@ -277,7 +277,7 @@ const GuideChannelRow = memo(function GuideChannelRow({
     const blockContent = (
       <span className="relative flex h-full min-w-0 items-center gap-1.5 px-2">
         {showPoster ? (
-          <span className="relative h-full max-h-12 aspect-[2/3] shrink-0 overflow-hidden rounded">
+          <span className="relative h-full max-h-10 aspect-video shrink-0 overflow-hidden rounded">
             <ProgrammePoster
               posterRef={programme.posterRef}
               title={programme.title}
