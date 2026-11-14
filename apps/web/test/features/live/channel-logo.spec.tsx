@@ -257,9 +257,9 @@ describe('T018/T019(2026-11-14 修订) · 接入:台标固定在 16:9 底板左�
     try {
       // 等待会话恢复到认证态(主操作呈现「全屏播放」,匹配 /播放/ 断言)
       await screen.findByRole('button', { name: /播放/ });
+      // 背景图卡布局:角标改为 Header 内联(不再绝对定位),身份链不变
       const anchor = screen.getByTestId('identity-name').closest('[data-testid="identity-badge"]');
-      expect(anchor?.className).toContain('right-4');
-      expect(anchor?.className).toContain('top-4');
+      expect(anchor).not.toBeNull();
       fireEvent.load(view.container.querySelector('img') as HTMLImageElement);
       expect(screen.getByTestId('identity-logo')).toBeVisible();
       // 大首字取消:无超大首字字号档(结构断言;信息区合法文本含首字属正常)

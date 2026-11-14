@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { Button, ProgressBar } from '@heroui/react';
+import { Button, Card, ProgressBar } from '@heroui/react';
 import { Info, Play, Volume2, VolumeX } from 'lucide-react';
 import type { ChannelRowDto } from '@hmp/shared';
 import { usePlayAction } from '../../playback/use-play-action';
@@ -18,11 +18,11 @@ import { progressOf, type OpenProgrammeHandler } from './ChannelTile';
  *   主操作「全屏播放」一律经 usePlayAction().play() 发起,ActionCoordinator 统一
  *   authorize/prepare,全局播放面(playback-surface 浮层 + PlayerView)随即浮现,
  *   页面保持可交互;
- * - 布局(2026-11-13 修订,宽视口通栏大屏高度失控):md 及以上「左侧舞台（基础 16:9，随信息栏高度拉伸）+ 右
- *   20~22rem 信息栏」,更窄视口舞台在上、信息面板在下。舞台 = token 渐变 + 光斑 + 频道
- *   台标 ident(有 posterRef 用 CSS background,无台标回落频道名水印(加载失败由右上角身份角标兜底)),不再
- *   依赖节目海报也有一眼可辨的频道身份;信息栏承载节目/时段/进度/操作,总高度
- *   约 480px 封顶,保证「正在直播」与首行卡片进入首屏;
+ * - 布局(2026-11-14 修订,HeroUI Card「With Images」背景图卡用法):舞台铺满整张
+ *   Card(absolute inset-0:token 渐变 + 光斑 + 台标 ident),信息层以 z-10 叠加在
+ *   舞台上 —— Header 在顶部(直播状态 + 频道身份 + 静音),Footer 在底部(节目/时段/
+ *   进度/预告/操作);底部与左侧压暗层保证文字对比度。Card 只追加 min-h/overflow,
+ *   不改原生 padding/圆角/阴影;移动端同一套叠加布局,内容自然撑高;
  * - 静音开关(默认静音意图,R2「静音起播免打扰」):**意图状态**——全局播放面
  *   PlayerView/ActionCoordinator 当前未暴露 muted/音量 API(实查 player-view.tsx
  *   PlayerViewProps 无音量属性,action-coordinator PlayActionRequest 仅
@@ -35,7 +35,7 @@ import { progressOf, type OpenProgrammeHandler } from './ChannelTile';
  * - 频道选择沿用 NowHero 语义:now 区服务端稳定排序首频道(宿主 LivePage 传入,
  *   不引入虚构热度/推荐算法);无节目单频道(current=null)保留频道身份与播放入口,
  *   节目标题位显示「暂无节目单」(FR-023 可用性不由 EPG 决定);
- * - 信息栏:分组·此刻直播 → 当前节目(h2)→ 频道·档期(家庭时区)→ 本档进度
+ * - 叠加信息层:分组·此刻直播 → 当前节目(h2)→ 频道·档期(家庭时区)→ 本档进度
  *   (文字百分比 + HeroUI ProgressBar;进度以服务端快照 nowIso 计算,不臆造本地
  *   时钟)→ 接下来预告(打开节目详情)→ 主/次操作;
  * - [ℹ️ 节目详情] 次操作走既有 ProgrammeDetailPanel 回调链(kind='current',
@@ -100,126 +100,113 @@ export function LiveHeroPlayer({ row, timezone, nowIso, onOpenProgramme }: LiveH
   const progressPercent = progress !== null ? Math.round(progress * 100) : 0;
 
   return (
-    <section
+    // HeroUI Card「With Images」的背景图卡用法:舞台铺满 Card,Header/Footer 内容
+    // 叠在上层(z-10),压暗层保证文字对比度;Card 仅追加高度与裁切(文档示例同款)。
+    <Card
+      render={(props) => <section {...props} />}
       aria-label="直播精选大屏"
       data-testid="live-hero-player"
-      className="min-w-0"
+      className="relative min-h-[20rem] min-w-0 overflow-hidden md:min-h-[24rem]"
     >
-      {/* 2026-11-13 布局修订:通栏 16:9 大屏在宽视口下高度失控(1440 宽约 780px),
-          且无节目海报时整屏只剩渐变。改为「左侧 16:9 舞台 + 右侧信息栏」——
-          舞台负责频道身份与直播氛围,信息栏承载节目/时段/进度/操作;总高度由
-          舞台宽度自然收敛(约 480px 封顶),「正在直播」首屏可见。移动端仍为
-          舞台在上、信息面板在下,保持 16:9 语义。 */}
-      <div className="grid overflow-hidden rounded-xl border border-border bg-surface md:grid-cols-[minmax(0,1fr)_20rem] lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <div
-          data-testid="live-hero-stage"
-          className="relative aspect-video max-h-[30rem] w-full overflow-hidden bg-surface-secondary"
-          style={{ background: `linear-gradient(${plateAngle}deg, var(--surface-secondary) 0%, var(--surface-tertiary) 55%, var(--surface) 100%)` }}
-        >
-          {/* 舞台艺术层(token 渐变 + 光斑;装饰节点 aria-hidden,同瓦片卡表达) */}
-          <span
-            aria-hidden="true"
-            className={`absolute -bottom-16 h-72 w-72 rounded-full bg-accent/15 blur-3xl ${
-              glowOnRight ? '-right-12' : '-left-12'
-            }`}
-          />
-          {/* 舞台身份锚点:有台标时用 CSS background 放大为「频道 ident」,失败/无台标
-              时回落频道名水印 —— 两种情况都不再是一整块空渐变。用 background 而非
-              <img>,不新增图片节点/裂图占位,也不影响角标的加载相位与测试断言。 */}
-          {row.media.posterRef === null ? (
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden px-8"
-            >
-              <span className="hmp-truncate max-w-full text-center text-5xl font-bold tracking-tight text-foreground/10 md:text-7xl">
-                {channelTitle}
-              </span>
+      {/* 背景层:16:9 舞台(token 渐变 + 光斑 + 台标 ident)+ 可读性压暗层。
+          aria-hidden:装饰层,可读语义全部由上层内容承担。 */}
+      <div
+        data-testid="live-hero-stage"
+        aria-hidden="true"
+        className="absolute inset-0 aspect-video w-full overflow-hidden bg-surface-secondary"
+        style={{ background: `linear-gradient(${plateAngle}deg, var(--surface-secondary) 0%, var(--surface-tertiary) 55%, var(--surface) 100%)` }}
+      >
+        <span
+          className={`absolute -bottom-16 h-72 w-72 rounded-full bg-accent/15 blur-3xl ${
+            glowOnRight ? '-right-12' : '-left-12'
+          }`}
+        />
+        {/* 频道 ident:有台标时用 CSS background 放大(不新增 img 节点,不影响角标加载相位);
+            无台标回落频道名水印。 */}
+        {row.media.posterRef === null ? (
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden px-8">
+            <span className="hmp-truncate max-w-full text-center text-5xl font-bold tracking-tight text-foreground/10 md:text-7xl">
+              {channelTitle}
             </span>
-          ) : null}
-          {row.media.posterRef !== null ? (
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 bg-center bg-no-repeat opacity-80"
-              style={{
-                backgroundImage: `url(/api/public/media/logos/${encodeURIComponent(row.media.posterRef)})`,
-                backgroundSize: 'min(38%, 18rem) auto',
-              }}
-            />
-          ) : null}
-
-          {/* 频道身份角标(014 呈现修订;posterRef=高保真预览海报链路,右上位与状态签对称) */}
-          <ChannelIdentityBadge
-            key={row.media.posterRef ?? 'no-logo'}
-            posterRef={row.media.posterRef}
-            channelTitle={channelTitle}
-            className="absolute right-4 top-4 md:right-6 md:top-6"
+          </span>
+        ) : (
+          <span
+            className="pointer-events-none absolute inset-0 bg-no-repeat opacity-70"
+            style={{
+              backgroundImage: `url(/api/public/media/logos/${encodeURIComponent(row.media.posterRef)})`,
+              backgroundSize: 'min(26%, 14rem) auto',
+              backgroundPosition: '93% 30%',
+            }}
           />
+        )}
+        {/* 压暗层:底部为主、左侧为辅,保证叠加文字在任意台标上都有对比度 */}
+        <span className="absolute inset-0 bg-gradient-to-t from-background/90 via-background/35 to-transparent" />
+        <span className="absolute inset-0 bg-gradient-to-r from-background/75 via-background/10 to-transparent" />
+        {/* 当前节目进度线(红 = 直播/时间线;只描述服务端快照) */}
+        {progress !== null ? (
+          <span className="absolute bottom-0 left-0 h-0.5 w-full bg-background/40">
+            <span className="block h-full bg-accent" style={{ width: `${Math.round(progress * 100)}%` }} />
+          </span>
+        ) : null}
+      </div>
 
-          {/* LIVE 语义标注:文字 + 状态点(状态不只靠颜色),取代静态横幅语义 */}
+      {/* 内容层:Header(直播状态 + 频道身份 + 静音)与 Footer(节目/进度/预告/操作)。
+          p-2 与 Card 原生 p-4 叠加为 24px 视觉边距,不覆盖 Card 样式。 */}
+      <div className="relative z-10 flex min-h-[20rem] flex-col justify-between gap-6 p-2 md:min-h-[24rem]">
+        <div className="flex items-start justify-between gap-3">
           <span
             data-testid="live-hero-live-badge"
-            className="absolute left-4 top-4 inline-flex items-center gap-1.5 rounded bg-background/75 px-2 py-1 text-xs text-foreground backdrop-blur-sm md:left-6 md:top-6"
+            className="inline-flex items-center gap-1.5 rounded bg-background/75 px-2 py-1 text-xs text-foreground backdrop-blur-sm"
           >
             <span aria-hidden="true" className="size-2 rounded-full bg-accent" />
             正在直播
           </span>
-
-          {/* 静音切换(默认静音意图;意图状态——播放面暂无音量 API,见组件头注) */}
-          <Button
-            isIconOnly
-            size="sm"
-            variant="ghost"
-            data-testid="live-hero-mute"
-            aria-pressed={mutedIntent}
-            aria-label={mutedIntent ? '取消静音' : '静音'}
-            className="absolute right-4 top-16 z-10 bg-background/70 backdrop-blur-sm md:right-6 md:top-20"
-            onPress={() => {
-              setMutedIntent((previous) => !previous);
-            }}
-          >
-            {mutedIntent ? (
-              <VolumeX aria-hidden="true" className="size-4" />
-            ) : (
-              <Volume2 aria-hidden="true" className="size-4" />
-            )}
-          </Button>
-
-          {/* 底部压暗层:只为进度线过渡,不再承载信息层(信息已移至右侧面板) */}
-          <span
-            aria-hidden="true"
-            className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-background/45 to-transparent"
-          />
-
-          {/* 当前节目进度线(红 = 直播/时间线;只描述服务端快照,不臆测本地时钟) */}
-          {progress !== null ? (
-            <span aria-hidden="true" className="absolute bottom-0 left-0 h-0.5 w-full bg-background/40">
-              <span className="block h-full bg-accent" style={{ width: `${Math.round(progress * 100)}%` }} />
-            </span>
-          ) : null}
+          <div className="flex items-center gap-2">
+            <ChannelIdentityBadge
+              key={row.media.posterRef ?? 'no-logo'}
+              posterRef={row.media.posterRef}
+              channelTitle={channelTitle}
+              size="md"
+            />
+            <Button
+              isIconOnly
+              size="sm"
+              variant="ghost"
+              data-testid="live-hero-mute"
+              aria-pressed={mutedIntent}
+              aria-label={mutedIntent ? '取消静音' : '静音'}
+              className="bg-background/70 backdrop-blur-sm"
+              onPress={() => {
+                setMutedIntent((previous) => !previous);
+              }}
+            >
+              {mutedIntent ? (
+                <VolumeX aria-hidden="true" className="size-4" />
+              ) : (
+                <Volume2 aria-hidden="true" className="size-4" />
+              )}
+            </Button>
+          </div>
         </div>
 
-        {/* 信息栏:分组 → 节目主标题 → 频道/档期/进度 → 接下来 → 主次操作。
-            窄屏置于舞台下方,宽屏作为右栏与舞台等高;操作区 mt-auto 底部对齐。 */}
-        <div className="flex min-w-0 flex-col justify-center gap-4 border-t border-border p-5 md:border-l md:border-t-0 md:p-5 lg:p-6">
+        <div className="flex min-w-0 flex-col gap-3">
           <p className="text-xs font-medium text-accent">{row.groupLabel} · 此刻直播</p>
 
           <div className="min-w-0">
             <h2
-              className="line-clamp-3 text-2xl font-bold leading-tight text-foreground"
+              className="line-clamp-2 text-2xl font-bold leading-tight text-foreground md:text-3xl"
               title={current?.title ?? undefined}
             >
               {current !== null ? current.title : '暂无节目单'}
             </h2>
-            <p className="mt-2 hmp-tabular-nums text-sm leading-relaxed text-muted">{metaText}</p>
+            <p className="mt-2 hmp-tabular-nums text-sm leading-relaxed text-foreground/75">{metaText}</p>
           </div>
 
-          {/* 进度从大屏底边细线升级为信息栏可读进度:文字百分比 + HeroUI ProgressBar,
-              与卡片同一语义(直播时间线,非仅颜色)。无节目单频道整块隐藏。 */}
           {progress !== null ? (
-            <div className="flex flex-col gap-1.5">
+            <div className="flex max-w-xl flex-col gap-1.5">
               <div className="flex items-baseline justify-between gap-3 text-xs">
-                <span className="text-muted">本档进度</span>
-                <span className="hmp-tabular-nums text-foreground/80">{progressLabel}</span>
+                <span className="text-foreground/70">本档进度</span>
+                <span className="hmp-tabular-nums text-foreground/85">{progressLabel}</span>
               </div>
               <ProgressBar aria-label="节目播放进度" value={progressPercent} size="sm" color="accent">
                 <ProgressBar.Track>
@@ -229,12 +216,12 @@ export function LiveHeroPlayer({ row, timezone, nowIso, onOpenProgramme }: LiveH
             </div>
           ) : null}
 
-          <div className="flex flex-col gap-2.5 border-t border-border/60 pt-4">
+          <div className="flex flex-wrap items-end justify-between gap-3 border-t border-border/40 pt-3">
             {row.next !== null ? (
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-auto min-w-0 justify-start px-0 py-0.5 text-left text-xs font-normal text-muted"
+                className="h-auto min-w-0 justify-start px-0 py-0.5 text-left text-xs font-normal text-foreground/70"
                 onPress={() => {
                   onOpenProgramme({
                     mediaId: row.media.id,
@@ -247,9 +234,8 @@ export function LiveHeroPlayer({ row, timezone, nowIso, onOpenProgramme }: LiveH
               >
                 <span className="hmp-truncate min-w-0">接下来:{row.next.title} · {formatTimeInZone(row.next.startsAt, timezone)} 开始</span>
               </Button>
-            ) : null}
+            ) : <span />}
 
-            {/* 操作层:主操作(全屏播放/直接收看;游客零登录自判,统一拦截)+ 次操作(节目详情) */}
             <div className="flex flex-wrap items-center gap-2">
               {guestPresentation ? (
                 <Button
@@ -293,6 +279,6 @@ export function LiveHeroPlayer({ row, timezone, nowIso, onOpenProgramme }: LiveH
           </div>
         </div>
       </div>
-    </section>
+    </Card>
   );
 }

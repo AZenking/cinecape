@@ -227,18 +227,16 @@ describe('T024-A · 响应式视口(jsdom 可断言面)', () => {
     expect(stage.className).toContain('aspect-video');
     expect(stage.className).toContain('w-full');
     expect(stage.className).toContain('overflow-hidden');
-    // 宽窄视口两档:角标/状态签/静音的 md: 偏移 + 信息层 md 内边距 + 标题 md 字阶
-    const badge = hero.querySelector('[data-testid="identity-badge"]') as HTMLElement;
-    expect(badge.className).toContain('md:right-6');
-    expect(badge.className).toContain('md:top-6');
-    const liveBadge = hero.querySelector('[data-testid="live-hero-live-badge"]') as HTMLElement;
-    expect(liveBadge.className).toContain('md:left-6');
-    expect(liveBadge.className).toContain('md:top-6');
-    const mute = hero.querySelector('[data-testid="live-hero-mute"]') as HTMLElement;
-    expect(mute.className).toContain('md:top-20');
-    expect(mute.className).toContain('md:right-6');
+    // 背景图卡:Card 提供 min-h 安全区(md 一档更高),Header 内联承载
+    // 状态签/频道身份/静音,标题在 md 提升字阶
+    expect(hero.className).toContain('min-h-[20rem]');
+    expect(hero.className).toContain('md:min-h-[24rem]');
+    expect(hero.querySelector('[data-testid="identity-badge"]')).toBeTruthy();
+    expect(hero.querySelector('[data-testid="live-hero-live-badge"]')).toBeTruthy();
+    expect(hero.querySelector('[data-testid="live-hero-mute"]')).toBeTruthy();
     const h2 = hero.querySelector('h2') as HTMLElement;
     expect(h2.className).toContain('text-2xl');
+    expect(h2.className).toContain('md:text-3xl');
     // 进度线语义(非仅颜色):aria-hidden 装饰 + 「已播出 N%」文字并行
     expect(hero.textContent).toContain('已播出 33%');
   });
