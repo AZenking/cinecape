@@ -31,6 +31,21 @@ describe('020 · ProgrammePoster', () => {
     expect(container.querySelector('img')).toBeNull();
   });
 
+  it('ref=null 且 showDefaultWhenMissing → 渲染默认海报(非 img)', () => {
+    const { container } = render(<ProgrammePoster posterRef={null} title="沙丘" showDefaultWhenMissing />);
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByTestId('programme-poster-default')).toBeInTheDocument();
+  });
+
+  it('加载失败且 showDefaultWhenMissing → 默认海报接替,不留裂图', () => {
+    const { container } = render(<ProgrammePoster posterRef={REF} title="沙丘" showDefaultWhenMissing />);
+    const img = container.querySelector('img');
+    expect(img).not.toBeNull();
+    fireEvent.error(img!);
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByTestId('programme-poster-default')).toBeInTheDocument();
+  });
+
   it('ref 变化重置失败状态并请求新地址', () => {
     const { container, rerender } = render(<ProgrammePoster posterRef={REF} title="沙丘" />);
     fireEvent.error(container.querySelector('img')!);

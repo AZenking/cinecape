@@ -20,6 +20,11 @@ export interface ProgrammePosterProps {
   /** 默认 true：装饰图 alt="" + aria-hidden；详情场景传 false */
   readonly decorative?: boolean;
   readonly className?: string;
+  /**
+   * ref 为空或加载失败时渲染默认海报(墙内占位用);缺省 false = 返回 null,
+   * 由宿主自行决定回退(详情面板回退频道身份区,不在此列)。
+   */
+  readonly showDefaultWhenMissing?: boolean;
 }
 
 interface PosterPhase {
@@ -27,18 +32,46 @@ interface PosterPhase {
   readonly failed: boolean;
 }
 
+/** 默认节目海报:2:3 品牌渐变 + 电视/播放符号(纯装饰,无文本,零网络请求) */
+function DefaultPoster({ className }: { readonly className?: string }): ReactNode {
+  return (
+    <svg
+      data-testid="programme-poster-default"
+      viewBox="0 0 200 300"
+      preserveAspectRatio="xMidYMid slice"
+      aria-hidden="true"
+      className={className}
+    >
+      <rect width="200" height="300" style={{ fill: 'var(--surface-secondary)' }} />
+      <rect width="200" height="300" style={{ fill: 'var(--accent)', opacity: 0.06 }} />
+      <g style={{ opacity: 0.5 }}>
+        <rect
+          x="52"
+          y="104"
+          width="96"
+          height="72"
+          rx="12"
+          style={{ fill: 'none', stroke: 'var(--muted)', strokeWidth: 8 }}
+        />
+        <path d="M88 122 L88 158 L122 140 Z" style={{ fill: 'var(--muted)' }} />
+      </g>
+    </svg>
+  );
+}
+
 export function ProgrammePoster({
   posterRef,
   title,
   decorative = true,
   className,
+  showDefaultWhenMissing = false,
 }: ProgrammePosterProps): ReactNode {
   const [phase, setPhase] = useState<PosterPhase>({ ref: posterRef, failed: false });
   if (posterRef !== phase.ref) {
     setPhase({ ref: posterRef, failed: false });
   }
   if (posterRef === null || posterRef === undefined || phase.failed) {
-    return null;
+    return showDefaultWhenMissing ? <DefaultPoster className={className} /> : null;
   }
   return (
     <img

@@ -270,9 +270,10 @@ const GuideChannelRow = memo(function GuideChannelRow({
       className:
         'group/prog flex h-full w-full flex-col text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus',
     };
-    // 020:仅块宽/块高足够时展示 2:3 海报缩略图；窄块/多泳道压缩块保持纯文字，
-    // 避免信息挤压。图片 decorative，可读名仍由按钮 aria-label 承担。
-    const showPoster = programme.posterRef != null && width >= 110 && laneHeight >= 56;
+    // 020:块宽/块高足够时展示 2:3 海报缩略图；窄块/多泳道压缩块保持纯文字，
+    // 避免信息挤压。无海报(posterRef null)或加载失败时渲染默认海报占位，
+    // 保证同一行卡片视觉节奏一致；图片 decorative，可读名仍由按钮 aria-label 承担。
+    const showPoster = width >= 110 && laneHeight >= 56;
     const blockContent = (
       <span className="relative flex h-full min-w-0 items-center gap-1.5 px-2">
         {showPoster ? (
@@ -280,6 +281,7 @@ const GuideChannelRow = memo(function GuideChannelRow({
             <ProgrammePoster
               posterRef={programme.posterRef}
               title={programme.title}
+              showDefaultWhenMissing
               className="h-full w-full object-cover"
             />
           </span>
