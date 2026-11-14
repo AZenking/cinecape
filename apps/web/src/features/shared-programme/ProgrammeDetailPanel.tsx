@@ -107,167 +107,106 @@ export function ProgrammeDetailPanel(props: ProgrammeDetailPanelProps): ReactNod
       <Drawer.Content placement="right">
         {/* 宽度加在 Dialog(面板)上:加在 Content(定位容器)上会把整层压窄并贴左 */}
         <Drawer.Dialog aria-label={`节目详情:${channel.name}`} className="w-[420px] max-w-[92vw]">
-          {/* 关闭由右上角 X 承担(底部「关闭」按钮已按产品要求移除);
-              保留可访问名「关闭」,既有键盘/测试契约不变 */}
+          {/* 关闭由右上角 X 承担;可访问名「关闭」的既有键盘/测试契约不变 */}
           <Drawer.CloseTrigger aria-label="关闭" />
-          <Drawer.Header>
-            <div className="flex items-center gap-2">
-              {channel.posterRef !== undefined && channel.posterRef !== null ? (
+          <Drawer.Body className="flex flex-col gap-4">
+            {/* 参考 HeroUI 促销卡样式:顶部 16:9 图像横幅(节目海报,缺省回退频道台标),
+                下方标题/简介/元信息。 */}
+            <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-border/60 bg-gradient-to-br from-surface-secondary via-surface-tertiary to-surface">
+              {programme !== null && programme.posterRef !== undefined && programme.posterRef !== null ? (
+                <ProgrammePoster
+                  posterRef={programme.posterRef}
+                  title={programme.title}
+                  decorative={false}
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+              ) : channel.posterRef !== undefined && channel.posterRef !== null ? (
                 <img
                   src={`/api/public/media/logos/${encodeURIComponent(channel.posterRef)}`}
                   alt=""
                   aria-hidden="true"
-                  className="h-7 w-7 shrink-0 rounded object-contain"
+                  className="absolute inset-0 m-auto h-2/3 w-2/3 object-contain"
                 />
-              ) : channel.logo !== undefined && channel.logo !== null ? (
-                <img
-                  src={channel.logo}
-                  alt={`${channel.name} 频道标识`}
-                  className="h-7 w-7 shrink-0 rounded object-contain"
-                />
-              ) : null}
-            <Drawer.Heading className="text-base font-semibold">
-              {programme?.title ?? `节目时段:${channel.name}`}
-            </Drawer.Heading>
-            </div>
-          </Drawer.Header>
-          <Drawer.Body className="flex flex-col gap-4">
-              {/* 020:有节目海报时用 2:3 海报 + 右侧标题/简介；无海报时保持既有 16:9 频道身份区。
-                  海报加载失败时 ProgrammePoster 返回 null，下层频道 Logo/首字自然露出。 */}
-              {programme !== null && programme.posterRef !== undefined && programme.posterRef !== null ? (
-                <div className="flex items-start gap-4">
-                  <div className="relative aspect-[2/3] w-28 shrink-0 overflow-hidden rounded-lg border border-border/60 bg-surface-secondary/60">
-                    {channel.posterRef !== undefined && channel.posterRef !== null ? (
-                      <img
-                        src={`/api/public/media/logos/${encodeURIComponent(channel.posterRef)}`}
-                        alt=""
-                        aria-hidden="true"
-                        className="absolute inset-0 h-full w-full object-contain p-2"
-                      />
-                    ) : channel.logo !== undefined && channel.logo !== null ? (
-                      <img
-                        src={channel.logo}
-                        alt={`${channel.name} 频道标识`}
-                        className="absolute inset-0 h-full w-full object-contain p-2"
-                      />
-                    ) : (
-                      <span className="absolute inset-0 flex items-center justify-center text-3xl font-black text-muted/40">
-                        {channel.name.slice(0, 1).toUpperCase()}
-                      </span>
-                    )}
-                    <ProgrammePoster
-                      posterRef={programme.posterRef}
-                      title={programme.title}
-                      decorative={false}
-                      className="absolute inset-0 h-full w-full object-cover"
-                    />
-                  </div>
-                  <div className="min-w-0 flex flex-col gap-2">
-                    <h3 className="text-base font-semibold text-foreground">{programme.title}</h3>
-                    {programme.description !== null && programme.description !== '' ? (
-                      <p className="text-sm text-muted">{programme.description}</p>
-                    ) : null}
-                  </div>
-                </div>
               ) : (
-                <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-border/60 bg-surface-secondary/60">
-                  {channel.posterRef !== undefined && channel.posterRef !== null ? (
-                    <img
-                      src={`/api/public/media/logos/${encodeURIComponent(channel.posterRef)}`}
-                      alt=""
-                      aria-hidden="true"
-                      className="absolute inset-0 h-full w-full object-contain p-6"
-                    />
-                  ) : channel.logo !== undefined && channel.logo !== null ? (
-                    <img
-                      src={channel.logo}
-                      alt={`${channel.name} 频道标识`}
-                      className="absolute inset-0 h-full w-full object-contain p-6"
-                    />
-                  ) : (
-                    <span className="absolute inset-0 flex items-center justify-center text-3xl font-black text-muted/40">
-                      {channel.name.slice(0, 1).toUpperCase()}
-                    </span>
-                  )}
-                </div>
+                <span className="absolute inset-0 flex items-center justify-center text-4xl font-black text-muted/30">
+                  {channel.name.slice(0, 1).toUpperCase()}
+                </span>
               )}
+            </div>
 
-              {programme !== null &&
-              (programme.posterRef === undefined || programme.posterRef === null) &&
-              programme.description !== null &&
-              programme.description !== '' ? (
-                <p className="text-sm text-muted">{programme.description}</p>
+            <div className="flex min-w-0 flex-col gap-2">
+              <h2 className="text-lg font-bold leading-snug text-foreground">
+                {programme !== null ? programme.title : '暂无节目单'}
+              </h2>
+              {programme !== null && programme.description !== null && programme.description !== '' ? (
+                <p className="text-sm leading-relaxed text-muted">{programme.description}</p>
               ) : null}
-              <div className="flex items-center gap-2">
+            </div>
+
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+              <dt className="text-muted">频道</dt>
+              <dd className="flex min-w-0 items-center gap-1.5 text-foreground">
                 {channel.logo !== undefined && channel.logo !== null ? (
                   <img
                     src={channel.logo}
                     alt={`${channel.name} 频道标识`}
-                    className="h-6 w-6 rounded-sm object-contain"
+                    className="h-5 w-5 shrink-0 rounded-sm object-contain"
                   />
                 ) : null}
-                <span className="text-sm font-medium text-foreground">{channel.name}</span>
-              </div>
-              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-                {programme !== null ? (
-                  <>
-                    <dt className="text-muted">时段</dt>
-                    <dd className="hmp-tabular-nums text-foreground">
-                      {formatRangeInZone(programme.start, programme.end, timezone)}
-                      <span className="text-muted">{` · 时长 ${durationMinutes} 分钟`}</span>
-                    </dd>
-                  </>
-                ) : null}
-                <dt className="text-muted">状态</dt>
-                <dd className="text-foreground">{STATUS_LABEL[status]}</dd>
-                {status === 'upcoming' && programme !== null ? (
-                  <>
-                    <dt className="text-muted">开播</dt>
-                    <dd className="hmp-tabular-nums text-foreground">
-                      {formatTimeInZone(programme.start, timezone)}
-                    </dd>
-                  </>
-                ) : null}
-              </dl>
-              {status === 'now' && programme !== null ? (
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between text-xs text-muted">
-                    <span>直播进度</span>
-                    <span className="hmp-tabular-nums text-accent">{Math.round(livePercent)}%</span>
-                  </div>
-                  <ProgressBar aria-label="直播进度" value={Math.round(livePercent)} className="w-full">
-                    <ProgressBar.Track>
-                      <ProgressBar.Fill />
-                    </ProgressBar.Track>
-                  </ProgressBar>
+                <span className="truncate">{channel.name}</span>
+              </dd>
+              {programme !== null ? (
+                <>
+                  <dt className="text-muted">时段</dt>
+                  <dd className="hmp-tabular-nums text-foreground">
+                    {formatRangeInZone(programme.start, programme.end, timezone)}
+                    <span className="text-muted">{` · 时长 ${durationMinutes} 分钟`}</span>
+                  </dd>
+                </>
+              ) : null}
+              <dt className="text-muted">状态</dt>
+              <dd className="text-foreground">{STATUS_LABEL[status]}</dd>
+              {status === 'upcoming' && programme !== null ? (
+                <>
+                  <dt className="text-muted">开播</dt>
+                  <dd className="hmp-tabular-nums text-foreground">{formatTimeInZone(programme.start, timezone)}</dd>
+                </>
+              ) : null}
+            </dl>
+
+            {status === 'now' && programme !== null ? (
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between text-xs text-muted">
+                  <span>直播进度</span>
+                  <span className="hmp-tabular-nums text-accent">{Math.round(livePercent)}%</span>
                 </div>
-              ) : null}
-              {status === 'none' ? <p className="text-sm text-muted">暂无节目单</p> : null}
-              {status === 'upcoming' ? (
-                <p className="text-xs text-muted">该节目尚未开播,不提供未来内容播放。</p>
-              ) : null}
+                <ProgressBar aria-label="直播进度" value={Math.round(livePercent)} className="w-full">
+                  <ProgressBar.Track>
+                    <ProgressBar.Fill />
+                  </ProgressBar.Track>
+                </ProgressBar>
+              </div>
+            ) : null}
+            {status === 'upcoming' ? (
+              <p className="text-xs text-muted">该节目尚未开播,不提供未来内容播放。</p>
+            ) : null}
           </Drawer.Body>
+
           <Drawer.Footer className="flex flex-col gap-2">
-              {/* 主/次操作各占一行、按钮拉满宽度(产品要求);关闭由右上角 X 承担 */}
-              {canPlay ? (
-                <Button variant="primary" className="w-full" onPress={onPlay}>
-                  <Play aria-hidden="true" className="size-4" />
-                  播放
-                </Button>
-              ) : null}
-              <Button
-                variant="secondary"
-                className="w-full"
-                aria-pressed={favorited}
-                onPress={onFavorite}
-              >
-                <Star
-                  aria-hidden="true"
-                  className={`size-4 ${favorited ? 'fill-current text-accent' : ''}`}
-                />
-                {favorited ? '已收藏' : '收藏频道'}
+            {/* 主/次操作各占一行、按钮拉满宽度;关闭由右上角 X 承担 */}
+            {canPlay ? (
+              <Button variant="primary" className="w-full" onPress={onPlay}>
+                <Play aria-hidden="true" className="size-4" />
+                播放
               </Button>
+            ) : null}
+            <Button variant="secondary" className="w-full" aria-pressed={favorited} onPress={onFavorite}>
+              <Star aria-hidden="true" className={`size-4 ${favorited ? 'fill-current text-accent' : ''}`} />
+              {favorited ? '已收藏' : '收藏频道'}
+            </Button>
           </Drawer.Footer>
+
+
         </Drawer.Dialog>
       </Drawer.Content>
     </Drawer.Backdrop>
