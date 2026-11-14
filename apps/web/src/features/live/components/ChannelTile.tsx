@@ -172,7 +172,7 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
             加载中/失败首字回退;无台标频道显示频道名。 */}
         <div
           data-testid="tile-logo"
-          className="pointer-events-none absolute left-3 top-3 z-[1] h-10 w-28 sm:h-11 sm:w-32"
+          className="pointer-events-none absolute left-3 top-3 z-[1] h-7 w-20 sm:h-8 sm:w-24"
         >
           {row.media.posterRef !== null ? (
             <div className="relative h-full w-full">
@@ -180,13 +180,13 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
                 key={row.media.posterRef}
                 posterRef={row.media.posterRef}
                 channelTitle={channelTitle}
-                fallbackClassName="text-sm font-semibold text-muted"
+                fallbackClassName="text-xs font-semibold text-muted"
               />
             </div>
           ) : (
             <span
               data-testid="tile-logo-fallback"
-              className="line-clamp-2 text-sm font-semibold leading-tight text-muted"
+              className="line-clamp-2 text-xs font-semibold leading-tight text-muted"
             >
               {channelTitle}
             </span>
