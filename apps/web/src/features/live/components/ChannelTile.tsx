@@ -237,7 +237,8 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
         ) : null}
       </div>
 
-      {/* 信息区(2026-11-13 呈现修订):第一行频道身份 + 时段,第二行节目名。
+      {/* 信息区(按 HeroUI Card「With Images」示例的解剖):Card.Header 承载
+          「频道身份 + 时段 + 节目名」,节目名用 Card.Title(渲染 h3)包可交互按钮。
           原卡面只有一行节目名,频道身份仅靠右上角台标角标,扫读时难以确认「哪个台」;
           现将频道名/时段显性放入信息区,节目名放宽到两行(line-clamp-2),卡片横向
           扫读时「台 + 节目 + 时间」一眼可得。长名截断 + Tooltip 完整名;
@@ -249,7 +250,7 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
           包装器,内嵌原生按钮会产生重复同名 role=button)。
           样式只用对齐/宽度/字重覆盖(DESIGN.md:用既有变体,不重造按钮);
           尺寸/内边距/悬停/焦点环走 ghost sm 变体原生状态。 */}
-      <Card.Content className="min-w-0">
+      <Card.Header className="min-w-0">
         <div className="mb-1 flex min-w-0 items-baseline justify-between gap-2">
           <span className="hmp-truncate text-xs font-medium text-foreground/80">{channelTitle}</span>
           {timeLabel !== null ? (
@@ -257,7 +258,7 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
           ) : null}
         </div>
         {slotProgramme !== null ? (
-          <h3 className="min-w-0">
+          <Card.Title className="min-w-0 text-sm font-semibold leading-snug">
             <Tooltip>
               <Button
                 variant="ghost"
@@ -284,7 +285,7 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
               </Button>
               <Tooltip.Content>{slotProgramme.title}</Tooltip.Content>
             </Tooltip>
-          </h3>
+          </Card.Title>
         ) : (
           /* 无节目占位可点开共享详情面板(none 态:保留频道身份 +「暂无节目单」,
              主操作仍可播放当前直播,FR-012/012 T018;焦点环同相邻节目按钮;
@@ -308,7 +309,7 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
             <span className="block text-sm text-muted">暂无节目单</span>
           </button>
         )}
-      </Card.Content>
+      </Card.Header>
     </Card>
   );
 }
