@@ -18,7 +18,8 @@ import { normalizeLogoUrl } from '@contexts/sources/infrastructure/logo-url';
  * - 缺必要字段/非法时间/预算超限 → 整次失败(抛 XMLTVParseFailure,稳定 code),
  *   不截断、不跳过(FR-005);错误信息只含稳定描述,不含原始 XML 片段与 URL(脱敏要求);
  * - 上游把跨午夜的 stop 写成同日(23:59 → 00:04 且日期相同)时,仅当 +1 天后时长
- *   ≤ MAX_MIDNIGHT_ROLLOVER_MS 才按次日修正并计数;更长的倒置仍判 TIME_INVALID。
+ *   ≤ MAX_MIDNIGHT_ROLLOVER_MS 才按次日修正并计数;零时长/超长倒置跳过并计数,
+ *   全部或 >5% 条目畸形时整次 TIME_INVALID(避免静默导入垃圾)。
  */
 
 /** 稳定错误码:解析失败原因的唯一标识(导入任务 error_code、HTTP Problem Details 复用)。 */
@@ -93,6 +94,8 @@ export interface XMLTVParseResult {
   conflictedChannelIds: Set<string> | string[];
   /** 上游 stop 同日写法的跨午夜修正条数(仅计数,供执行器告警;不改变节目语义) */
   midnightRollovers: number;
+  /** 无法修正而跳过的节目窗口数(零时长/超长倒置;占比过高时整次解析抛错) */
+  skippedInvalidProgrammes: number;
 }
 
 /**
@@ -334,6 +337,8 @@ export async function parseXMLTV(
   let programmeCount = 0;
   /** 上游跨午夜 stop 同日写法的修正计数(只计数,不改变其余语义) */
   let midnightRollovers = 0;
+  /** 无法安全修正的节目窗口(零时长/超长倒置):跳过并计数,占比过高时整次失败 */
+  let invalidProgrammeWindows = 0;
 
   parser.onerror = (error: Error): void => {
     // sax strict 的未知实体错误消息含 entity 字样;其余按畸形 XML 处理。
@@ -410,7 +415,10 @@ export async function parseXMLTV(
           endsAtUtc = new Date(rolledMs);
           midnightRollovers += 1;
         } else {
-          failOnce(TIME_INVALID, 'programme 的 stop 必须严格晚于 start');
+          // 零时长(start==stop)或超过修正上限的倒置:跳过该条并计数;
+          // 若畸形条目占比过高(源整体损坏),在解析结束时统一抛 TIME_INVALID,
+          // 避免"静默导入垃圾"。
+          invalidProgrammeWindows += 1;
           return;
         }
       }
@@ -675,5 +683,21 @@ export async function parseXMLTV(
     }
   }
 
-  return { channels, programmes, conflictedChannelIds: Array.from(conflictedChannelIds), midnightRollovers };
+  // 畸形窗口预算:全部非法,或占比 >5%,整次失败;否则按"跳过坏条目"导入。
+  const validProgrammeCount = programmeCount - invalidProgrammeWindows;
+  if (
+    programmeCount > 0 &&
+    (validProgrammeCount === 0 || invalidProgrammeWindows / programmeCount > 0.05)
+  ) {
+    failOnce(TIME_INVALID, `XMLTV 节目时间非法条目过多(${invalidProgrammeWindows} 条)`);
+  }
+  if (failure !== null) throw failure;
+
+  return {
+    channels,
+    programmes,
+    conflictedChannelIds: Array.from(conflictedChannelIds),
+    midnightRollovers,
+    skippedInvalidProgrammes: invalidProgrammeWindows,
+  };
 }

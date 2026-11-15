@@ -492,6 +492,34 @@ describe('时间语义(必须带合法时区,统一 UTC)', () => {
     expect(programme.endsAtUtc.getTime() - programme.startsAtUtc.getTime()).toBe(5 * 60 * 1000);
   });
 
+  it('零时长/无法修正的窗口:少量时跳过并计数,不影响其余节目导入', async () => {
+    const fmt = (ms: number): string => {
+      const d = new Date(ms);
+      const p = (n: number): string => String(n).padStart(2, '0');
+      return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())} +0000`;
+    };
+    const base = Date.UTC(2026, 0, 1, 0, 0, 0);
+    const programmes = Array.from({ length: 30 }, (_, index) => ({
+      channel: 'cctv1',
+      start: fmt(base + index * 30 * 60_000),
+      stop: fmt(base + (index + 1) * 30 * 60_000),
+      title: `节目${index}`,
+    }));
+    // 追加一条零时长(start==stop)坏窗口:1/31 ≈ 3.2% ≤ 5%,应跳过而非整次失败
+    programmes.push({
+      channel: 'cctv1',
+      start: fmt(base + 30 * 60 * 60_000),
+      stop: fmt(base + 30 * 60 * 60_000),
+      title: '零时长坏节目',
+    });
+    const xml = buildXmltv([{ id: 'cctv1' }], programmes);
+
+    const result = await parseXMLTV(streamOf(xml));
+    expect(result.skippedInvalidProgrammes).toBe(1);
+    expect(result.programmes.some((programme) => programme.title === '零时长坏节目')).toBe(false);
+    expect(result.programmes.length).toBe(30);
+  });
+
   it('时间格式非法整次失败(TIME_INVALID)', async () => {
     for (const bad of ['2026-01-01T08:00:00+08:00', '2026010108', '20260101080000 +08']) {
       const xml = buildXmltv([{ id: 'cctv1' }], [

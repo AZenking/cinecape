@@ -439,6 +439,10 @@ export class RefreshExecutorService implements OnModuleInit, OnModuleDestroy, IR
         // 上游把跨午夜 stop 写成同日:按次日修正后继续导入,仅告警计数(不含原始数据)
         this.logger.warn(`XMLTV 跨午夜 stop 同日修正 ${parsed.midnightRollovers} 条`);
       }
+      if (parsed.skippedInvalidProgrammes > 0) {
+        // 零时长/超长倒置等无法修正的条目:跳过导入,仅告警计数
+        this.logger.warn(`XMLTV 跳过非法节目窗口 ${parsed.skippedInvalidProgrammes} 条`);
+      }
       this.captureSnapshot(job, source, 'epg', captured.snapshot(), nowMs);
     } finally {
       await opened.close();
