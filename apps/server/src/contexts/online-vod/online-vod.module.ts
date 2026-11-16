@@ -43,7 +43,7 @@ import {
   VodUpstreamTimeoutError,
   type VodSearchUpstreamFn,
 } from '@contexts/online-vod/application/search.service';
-import { createVodPosterService } from '@contexts/online-vod/application/poster.service';
+import { createVodPosterService } from '@contexts/online-vod/infrastructure/poster.service';
 import { createVodPreviewService, type VodDetailUpstreamFn } from '@contexts/online-vod/application/preview.service';
 import type { MaterializationServiceDeps } from '@contexts/online-vod/application/materialization.service';
 import type {

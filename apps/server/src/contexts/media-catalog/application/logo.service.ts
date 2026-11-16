@@ -19,7 +19,7 @@
  *
  * 预算数值沿用 010 VOD_POSTER_BUDGETS(≤2MiB/8s/4s/≤3 跳;R7「数值常量复用」)——
  * 跨上下文深导入被 R2 禁止,故此处等值复制并以本注释声明唯一事实源为
- * contexts/online-vod/application/poster.service.ts 的 VOD_POSTER_BUDGETS。
+ * contexts/online-vod/infrastructure/poster.service.ts 的 VOD_POSTER_BUDGETS。
  */
 
 import fs from 'node:fs';

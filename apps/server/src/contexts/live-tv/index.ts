@@ -18,3 +18,4 @@ export {
 // —— 跨上下文必需的领域纯函数再导出（domain/live-clock、domain/live-time）——
 export { liveNowMs } from './domain/live-clock';
 export { pickCurrentNext } from './domain/live-time';
+export { normalizeChannelName } from './domain/channel-normalizer';

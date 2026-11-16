@@ -80,9 +80,6 @@ export function normalizeChannelName(rawName: string): string {
   return text;
 }
 
-/** research R1 / T005 两处命名(research 用 normalizeChannelKey,任务书用
- *  normalizeChannelName)——同一实现互为别名,语义完全一致。 */
-export const normalizeChannelKey = normalizeChannelName;
 
 /** 循环剔除对称括注段至不动点:单轮只摘最内层,嵌套括注多轮收敛 */
 function removeBracketSegments(text: string): string {

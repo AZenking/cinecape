@@ -87,4 +87,3 @@ export class SettingsGuard implements CanActivate {
   }
 }
 
-export default SettingsGuard;

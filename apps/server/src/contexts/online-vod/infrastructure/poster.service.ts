@@ -19,9 +19,9 @@ import { ProblemCode } from '@hmp/shared';
 import type { SafeUpstreamPort } from '@platform/upstream/safe-upstream.port';
 import { RemoteReadFailure } from '@platform/upstream/safe-upstream-reader';
 import type { LanTarget } from '@platform/config/env.schema';
-import { VOD_UPSTREAM_PROBLEM_CODES, vodUpstreamError } from './search.service';
-import type { VodCache } from '../infrastructure/vod-cache';
-import type { VodTitlePayload } from './preview.service';
+import { VOD_UPSTREAM_PROBLEM_CODES, vodUpstreamError } from '../application/search.service';
+import type { VodCache } from './vod-cache';
+import type { VodTitlePayload } from '../application/preview.service';
 
 /* ------------------------------------------------------------------ */
 /* 预算(海报探测固定值;传输层预算语义与搜索/详情一致)                    */

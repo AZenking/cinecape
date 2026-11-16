@@ -199,16 +199,11 @@ export function revokeCurrentSessionGrant(context: SessionContext): void {
  * Session 失效先 401;档案/grant 不满足 403 SETTINGS_ACCESS_REQUIRED;过期 403
  * SETTINGS_ACCESS_EXPIRED。通过仅返回 expiresAt 元数据(无 bearer、无管理主体)。
  *
- * 管理写路径在 BEGIN IMMEDIATE 事务内以 requireValidSettingsGrantTx 重验同一份
- * 权限快照(data-model §1「提交前重新校验权限快照」);两个入口共用同一判定体。
+ * 管理写路径在 BEGIN IMMEDIATE 事务内重验同一份权限快照(data-model §1
+ * 「提交前重新校验权限快照」);与只读入口共用同一判定体。
  */
 export function requireValidSettingsGrant(context: SessionContext): SettingsGrantValidation {
   return validateSettingsGrant(settingsStore(), context);
-}
-
-/** 事务内变体:调用方传入 BEGIN IMMEDIATE 事务作用域(或共享连接),提交前重验权限快照 */
-export function requireValidSettingsGrantTx(tx: SettingsTxStore, context: SessionContext): SettingsGrantValidation {
-  return validateSettingsGrant(tx, context);
 }
 
 function validateSettingsGrant(db: SettingsTxStore, context: SessionContext): SettingsGrantValidation {

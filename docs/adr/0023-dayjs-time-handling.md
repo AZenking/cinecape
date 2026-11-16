@@ -20,7 +20,8 @@
 
 1. **两端各设唯一配置入口**，只有它能注册插件，业务代码禁止直接 `import dayjs from 'dayjs'`：
    - 前端 `src/shared/time/dayjs.ts`（`utc` + `timezone` 插件）；
-   - 服务端 `src/platform/time/dayjs.ts`（`utc` + `timezone` 插件，另导出 `nowMs()` / `toIso()`）。
+   - 服务端 `src/platform/time/dayjs.ts`（`utc` + `timezone` 插件，导出 `toIso()`；
+  `nowMs()` 因无消费方已于 2026-11-16 移除，取时仍走各上下文统一的 `Date.now()` / `liveNowMs()`）。
 2. **边界格式不变**：存储与传输仍是 UTC ISO 字符串；`now` 仍由服务端每请求冻结一次（`liveNowMs()`），前端仍先经 `shared/time/server-clock` 校准。
 3. **domain 层例外**：`src/contexts/*/domain/**` 不引入 dayjs（007 依赖矩阵禁止 domain → platform），纯函数继续只做 epoch ms 运算；EPG 日历日/DST 日界继续用 `@internationalized/date`（data-model §8 锁定），dayjs 不替代 `CalendarDate` 语义。
 4. **platform 白名单修订**：应用层此前只允许 `platform/http-common|config`（ADR-0015 D3）。本 ADR 追加 `platform/time`——它无 IO、无状态，只封装 dayjs 配置与 `toIso/nowMs`；domain 仍禁止。

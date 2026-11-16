@@ -21,7 +21,7 @@ import type { VodPreviewValues } from '@contexts/online-vod/application/preview.
 import type { VodSearchPageSnapshot } from '@contexts/online-vod/application/publication-work-set.port';
 import { VOD_CACHE, VOD_POSTER_SERVICE, VOD_PREVIEW_SERVICE, VOD_SEARCH_SERVICE } from '@contexts/online-vod/online-vod.tokens';
 import type { VodCache } from '@contexts/online-vod/infrastructure/vod-cache';
-import type { VodPosterContent } from '@contexts/online-vod/application/poster.service';
+import type { VodPosterContent } from '@contexts/online-vod/infrastructure/poster.service';
 
 /**
  * 010 T031 — 公共搜索/预览契约路由(api.md §2;公共边界)。

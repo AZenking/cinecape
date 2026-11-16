@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeChannelKey, normalizeChannelName } from '@contexts/live-tv/domain/channel-normalizer';
+import { normalizeChannelName } from '@contexts/live-tv/domain/channel-normalizer';
 
 /**
  * T005(US 016-research R1/R2 Level 4;data-model §1.2 normalized_key)频道名归一化纯函数:
@@ -164,11 +164,6 @@ describe('频道名归一化 normalizeChannelName(T005)', () => {
       for (const input of trickyInputs) {
         expect(normalizeChannelName(input)).toBe(normalizeChannelName(input));
       }
-    });
-
-    it('别名导出:normalizeChannelKey 与 normalizeChannelName 同一实现(research R1 / T005 两处命名)', () => {
-      expect(normalizeChannelKey).toBe(normalizeChannelName);
-      expect(normalizeChannelKey('CCTV-1 综合 1080P')).toBe('cctv1综合');
     });
   });
 

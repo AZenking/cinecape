@@ -2,13 +2,13 @@ import type { Readable } from 'node:stream';
 import { TextDecoder } from 'node:util';
 import { IMPORT_BUDGETS } from '@platform/config/import-budgets';
 import { LOGO_URL_MAX_LENGTH, normalizeLogoUrl } from '@contexts/sources/infrastructure/logo-url';
-// 016 T018(US3 多线路聚合):归一键复用 live-tv 领域纯函数 normalizeChannelKey
+// 016 T018(US3 多线路聚合):归一键复用 live-tv 发布面 normalizeChannelName
 // (research R1「命中相同规范化 key 的流合并为同一逻辑频道的备用线路」)。
 // 跨上下文只读 import 领域纯函数(零 IO/零框架依赖,无行为副作用);落点为
 // live-tv/domain 深路径,属 dependency-cruiser R2「跨上下文落点仅限发布面 index」
 // 的豁免申请点 —— 待 live-tv 所有权代理在 index.ts 再导出后应收口为
-// `import { normalizeChannelKey } from '@contexts/live-tv'`(功能与本注释同步移除)。
-import { normalizeChannelKey } from '@contexts/live-tv/domain/channel-normalizer';
+// `import { normalizeChannelName } from '@contexts/live-tv'`(经发布面,不深导入)。
+import { normalizeChannelName } from '@contexts/live-tv';
 
 /**
  * M3U 流式解析器(T022;对照 research R2/R6):
@@ -351,18 +351,18 @@ export async function parseM3U(input: Readable | AsyncIterable<Buffer>): Promise
 /* ------------------------------------------------------------------ */
 /* 016 research R1/data-model §2.1:同名流(归一键相同)聚合为单 media_item 的多条  */
 /* 线路(source_entry);线路元数据 label/priority 为派生属性,本节集中其确定性公式: */
-/* - channelKeyOf:复用 live-tv normalizeChannelKey(单点复用,聚合与投影共用同键);   */
+/* - channelKeyOf:复用 live-tv normalizeChannelName(单点复用,聚合与投影共用同键);*/
 /* - extractLineDifferenceLabel:线路差异段 = 括注段原文,缺省回退清晰度噪音词;      */
 /* - deriveLinePriority:来源 priority(越小越优)+ 清晰度罚分(越清晰罚分越小);     */
 /* - buildLineLabel:「线路 N [差异段|来源名]」公开投影形态(resolve 组装共用)。      */
 /* 全部为零 IO 纯函数,导入发布事务与播放解析只读消费,规则改动一处生效。            */
 
 /**
- * 频道归一键(016 R1 聚合键):委托 live-tv normalizeChannelKey 的单点薄封装。
+ * 频道归一键(016 R1 聚合键):委托 live-tv normalizeChannelName 的单点薄封装。
  * 空串语义与上游一致 = 「无法归一化」,调用方(发布聚合)按不同名不合并处理。
  */
 export function channelKeyOf(rawTitle: string): string {
-  return normalizeChannelKey(rawTitle);
+  return normalizeChannelName(rawTitle);
 }
 
 /** 清晰度规则表(罚分升序 = 清晰度降序;词边界判定与 channel-normalizer 同口径):

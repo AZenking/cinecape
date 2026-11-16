@@ -13,7 +13,7 @@ import { ProblemCode } from '@hmp/shared';
  * - 请求形态:SafeUpstream read url=私有 upstream_url、allowedTargets 原样贯通、
  *   byteBudget/timeBudgets = MEDIA_LOGO_BUDGETS(数值沿用 010 VOD_POSTER_BUDGETS);
  * - 响应门:仅接受 image/* 且 identity 编码,否则 502;
- * - 失败映射(R7 分类逐字对照 poster.service mapUpstreamFailure):
+ * - 失败映射(R7 分类逐字对照 poster.service(mapUpstreamFailure)):
  *   IDLE_TIMEOUT/ABORTED/BUDGET_EXCEEDED → 504 MEDIA_LOGO_UPSTREAM_TIMEOUT,
  *   其余传输失败 → 502 MEDIA_LOGO_UPSTREAM_FAILED;
  * - 全部错误体 detail 为静态脱敏文案,不携带上游 URL 片段(api.md §1「不回显」)。

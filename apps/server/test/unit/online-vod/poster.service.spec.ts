@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { createVodCache, type VodCache } from '@contexts/online-vod/infrastructure/vod-cache';
-import { createVodPosterService, VOD_POSTER_BUDGETS, type VodPosterContent } from '@contexts/online-vod/application/poster.service';
+import { createVodPosterService, VOD_POSTER_BUDGETS, type VodPosterContent } from '@contexts/online-vod/infrastructure/poster.service';
 import type { VodTitlePayload } from '@contexts/online-vod/application/preview.service';
 import { RemoteReadFailure } from '@platform/upstream/safe-upstream-reader';
 import type { SafeUpstreamOpenRequest, SafeUpstreamReadResult } from '@platform/upstream/safe-upstream.port';

@@ -18,11 +18,6 @@ dayjs.extend(timezone);
 
 export { dayjs };
 
-/** 当前时刻(epoch ms);与 Date.now() 等价,作为服务端取时的统一入口 */
-export function nowMs(): number {
-  return dayjs().valueOf();
-}
-
 /** epoch ms → UTC ISO(传输/存储格式;dayjs 的 toISOString 与原生一致) */
 export function toIso(ms: number): string {
   return dayjs(ms).toISOString();
