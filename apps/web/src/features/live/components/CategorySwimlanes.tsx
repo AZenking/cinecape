@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { ChannelPageDto, GroupPageDto } from '@hmp/shared';
 import { Button } from '@heroui/react';
-import { ChannelTile } from './ChannelTile';
+import { ChannelTile, LIVE_TILE_WIDTH_CLASS } from './ChannelTile';
 import { MediaScroller } from './MediaScroller';
 import { SectionFrame } from './SectionFrame';
 import type { LiveResource } from '../hooks/use-live-sections';
@@ -92,7 +92,7 @@ export function CategorySwimlanes({
         {preview.length > 0 ? (
           <MediaScroller label={label}>
             {preview.map((row) => (
-              <li key={row.media.id} className="w-60 shrink-0 snap-start sm:w-64 lg:w-72">
+              <li key={row.media.id} className={LIVE_TILE_WIDTH_CLASS}>
                 <ChannelTile
                   row={row}
                   slot="current"

@@ -1,17 +1,18 @@
 import type { ReactNode } from 'react';
 import type { ChannelPageDto } from '@hmp/shared';
 import { Button } from '@heroui/react';
-import { ChannelTile } from './ChannelTile';
+import { ArrowRight } from 'lucide-react';
+import { ChannelTile, LIVE_TILE_WIDTH_CLASS } from './ChannelTile';
 import { MediaScroller } from './MediaScroller';
 import { SectionFrame } from './SectionFrame';
 import type { LiveResource } from '../hooks/use-live-sections';
 
 /**
  * 即将播放分区(T067;FR-021 顺序第三区):
- * - Netflix 式横向瓦片行:section=next 首页(20 项,不施加 2 小时窗口限制,ui.md §5),
- *   「查看更多」于行头右侧进入聚焦视图;
- * - 卡片承载 upcoming 档位:信息区展示下一档节目名(点击仅展示节目时段详情,
- *   频道与起止时间,FR-024,详见共享 shared-programme/ProgrammeDetailPanel 面板宿主)。
+ * - 2026-11-18 呈现调整:标题行 = 「即将播放」+ 副标「精彩稍后继续」,行尾
+ *   「完整节目单 →」直达 EPG 节目单墙;
+ * - 横向瓦片行保留左右滑动入口(MediaScroller),1519 宽一屏约 6 张;卡片承载
+ *   下一档节目(点击进节目详情,不拉起播放器,FR-024),右上角显示开播时刻。
  */
 
 export interface NextSectionProps {
@@ -28,17 +29,25 @@ export function NextSection({ resource, onRetry, onViewMore, onOpenProgramme, on
   return (
     <SectionFrame
       title="即将播放"
+      subtitle="精彩稍后继续"
+      subtitleInline
       status={resource.status}
       hasStaleContent={data !== null}
       isEmpty={data !== null && items.length === 0}
       emptyText="暂无即将播放的节目"
       skeletonVariant="row"
-      skeletonCount={5}
+      skeletonCount={6}
       onRetry={onRetry}
       headerAction={
-        data !== null && data.total > items.length ? (
-          <Button size="sm" variant="ghost" onPress={onViewMore}>
-            {`查看更多(共 ${data.total} 个频道) ›`}
+        data !== null ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-auto gap-1 px-1 py-0.5 text-xs font-normal text-muted"
+            onPress={onViewMore}
+          >
+            完整节目单
+            <ArrowRight aria-hidden="true" className="size-3.5" />
           </Button>
         ) : null
       }
@@ -46,7 +55,7 @@ export function NextSection({ resource, onRetry, onViewMore, onOpenProgramme, on
       {items.length > 0 ? (
         <MediaScroller label="即将播放">
           {items.map((row) => (
-            <li key={row.media.id} className="w-60 shrink-0 snap-start sm:w-64 lg:w-72">
+            <li key={row.media.id} className={LIVE_TILE_WIDTH_CLASS}>
               <ChannelTile
                 row={row}
                 slot="upcoming"

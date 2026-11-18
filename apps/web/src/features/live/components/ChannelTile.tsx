@@ -1,53 +1,29 @@
 import type { ReactNode } from 'react';
-import { Button, Card, ProgressBar, Tooltip } from '@heroui/react';
+import { Button, Card, Chip, ProgressBar, Tooltip } from '@heroui/react';
+import { Bell } from 'lucide-react';
 import type { ChannelRowDto, ExperienceProgrammeDto } from '@hmp/shared';
 import { usePlayAction } from '../../playback/use-play-action';
 import { useCurrentProgramme } from '../hooks/use-current-programme';
+import { useProgrammeReminder } from '../hooks/use-programme-reminder';
 import { ChannelLogo } from './channel-logo';
+import { ProgrammePoster } from '../../shared-programme/programme-poster';
 import { formatRangeInZone, formatTimeInZone } from '../live-format';
 
 /**
- * 直播频道瓦片卡(Netflix 式 16:9 瓦片;T069/T070/T071 演进,FR-021/023/024、ui.md §5/§8):
- * - 容器 = HeroUI v3 `Card`(唯一外壳;**不覆盖** Card 原生 padding/圆角/阴影/gap,
- *   保持 heroUI 默认样式);`render={<article />}` 保留 role=article 的可访问语义,
- *   信息区用 `Card.Content`;16:9 媒体底板按「With Images」惯例作为 Card 子内容
- *   (内嵌圆角缩略图)。
- * - 16:9 频道标识底板:频道无海报是常态,底板为 token 渐变 + 稳定散列光斑
- *   (frontend-home-live-epg-design.md §4.3;渐变角度/光斑位置由稳定 media.id 散列决定,
- *   同一频道跨刷新不闪变,颜色只用语义 token);
- * - 2026-11-14 呈现精简:去掉状态签、收藏/播放按钮与悬停中央 ▶ —— 卡片视觉上
- *   只承载「台标 + 台/时段/节目」(参考 HeroUI 图片卡);播放入口改为整块 16:9
- *   底板的透明热区(可点击/可 Tab,无图标),信息区节目名仍负责导航/详情;
- * - 信息区(2026-11-13 呈现修订):第一行频道名 + 家庭时区时段,第二行节目名
- *   (最多两行);档位由分区决定(正在直播类分区=当前节目,即将播放分区=下一档
- *   节目)。频道身份不再只依赖可读名,横向扫读即可确认「台 + 节目 + 时间」;
- * - 无节目频道显示「暂无节目」明确占位,占位可点开详情面板(共享面板 none 态,
- *   保留频道身份 +「暂无节目单」,012 T018);播放入口保留(可用性不由 EPG 决定,FR-023);
- * - 双层交互(015 T004;research.md R5、contracts/ui-layout.md §1.2 第 3 条):
- *   悬停/键盘聚焦瓦片时,底板正中央平滑淡入 bg-accent/80 text-accent-foreground 的
- *   ▶ 按钮,点击直接经 usePlayAction 起播(消灭二级详情阻断;不弹静态二级详情、
- *   不先跳路由详情页——游客由 ActionCoordinator 统一拦截进登录选档意图,本组件
- *   不做任何登录判断);点击文字信息区分流:current 档 → 导航 /live/watch/:channelId
- *   (观看详情页,路由由 015 后续任务注册,当前暂 404 属预期中间态),
- *   upcoming 档 → 打开节目时段详情面板(频道与起止时间;不伪装可播放未来节目,FR-024);
- * - 触屏/无 hover 设备降级(R5 简单方案):(hover: none) 媒体下中央 ▶ 恒显可点,
- *   触屏点击即等价播放;不引入 JS 媒体查询探测与新依赖;
- * - 播放入口统一经 usePlayAction(US3 统一受控播放;游客拦截进登录选档意图,
- *   选档完成前零 /playback/ 请求);收藏入口从瓦片移除,改由详情/收藏页承担。
- * - 悬停/键盘聚焦(cards focus-within)轻微抬升;动效仅悬停反馈,尊重 reduced-motion
- *   (全局基线见 shared/theme/a11y.css);
- * - 长节目名 .hmp-truncate 截断,HeroUI Tooltip 提供完整可读名称。
- * - 频道身份(2026-11-14 修订;原右上角角标/居中主视觉/上半部分均退场):
- *   台标回到左上角,装在半透明圆角衬底里并带柔和投影(浮起观感);posterRef 非空 →
- *   ChannelLogo(加载中/失败回退首字),posterRef null → 频道名文本。
- *   整块底板仍是播放入口(透明热区),台标与进度线互不重叠(channel-logo.tsx)。
- * - 当前节目进度微条(016 T010;contracts/ui-experience.md §1/§2):015 的红色
- *   快照进度线升级为 HeroUI v3 ProgressBar(size="sm" color="accent",
- *   aria-label「节目播放进度」,严禁原生 <progress>),值经 useCurrentProgramme
- *   智能时钟 15s 本地 tick 平滑推进、到点本地翻转(无需整页重载,数据真值由
- *   分区 30s 刷新收敛);current == null 降级:标题「暂无节目单」+ 进度条隐藏,
- *   禁用态不扩散到卡片(播放/悬停行为不受影响,FR-023/015 Hover ▶ 契约保持)。
- */
+ * 直播频道瓦片卡(Netflix 式 16:9 瓦片;T069/T070/T071 演进,FR-021/023/024):
+ *
+ * - 容器 = HeroUI v3 `Card`(唯一外壳;`render={<article />}` 保留 role=article,
+ *   信息区用 Card.Header/Card.Content);Card 追加 p-0/overflow-hidden 让海报通栏。
+ * - 2026-11-18 设计稿调整:节目有海报时优先用 16:9 节目剧照铺满底板,无海报才回退
+ *   频道标识渐变底板;左上角频道台标、右上角状态角标(正在直播=直播 / 即将播放=
+ *   开播时刻);信息区第一行频道名(+ 当前档时段),第二行节目名;即将播放卡在
+ *   节目名右侧提供开播提醒铃铛。
+ * - 台标回退链:posterRef 非空 → ChannelLogo(加载中/失败回退首字);null → 频道名。
+ * - 播放入口:整块 16:9 底板是透明热区(current=播放;upcoming=节目详情);信息区
+ *   节目名仍按档位分流,current 起播、upcoming 打开共享详情面板(FR-024)。
+ * - 无节目频道显示「暂无节目单」占位,播放入口保留(FR-023)。
+ * - 开播提醒见 useProgrammeReminder(页面会话内提醒,不承诺站外推送)。
+*/
 
 /**
  * 节目时段详情回调载荷(即将播放/当前节目共用;打开频道/节目信息):
@@ -66,6 +42,9 @@ export interface ProgrammeOpenDetail {
 
 export type OpenProgrammeHandler = (input: ProgrammeOpenDetail) => void;
 
+/** 首页/分类横滑行统一卡片宽度(1519 宽一屏 6 张,分类行与直播行同尺寸) */
+export const LIVE_TILE_WIDTH_CLASS = 'w-[13rem] shrink-0 snap-start sm:w-[14rem] lg:w-[14.4rem]';
+
 /** 卡片承载的节目档位:current=当前节目(正在直播类分区);upcoming=下一档节目(即将播放分区) */
 export type TileSlot = 'current' | 'upcoming';
 
@@ -75,10 +54,8 @@ export interface ChannelTileProps {
   readonly slot?: TileSlot;
   /**
    * 服务端快照 now(016 T010 起仅作入参兼容保留,分区宿主仍传)。
-   * 卡面进度已升级为 useCurrentProgramme 智能时钟(契约 ui-experience.md §1/§2):
-   * 进度与到点翻转按本地时钟推进(服务器 now 偏移取舍见 hook JSDoc),
-   * 服务端快照真值由 30s 周期刷新收敛;服务端快照进度语义仍由 progressOf
-   * 承担(LiveHeroPlayer 大屏消费)。
+   * 卡面进度已升级为 useCurrentProgramme 智能时钟,进度与到点翻转按本地时钟推进,
+   * 服务端快照真值由 30s 周期刷新收敛。
    */
   readonly nowIso: string | null;
   /**
@@ -104,8 +81,6 @@ function hashOf(key: string): number {
 /**
  * 当前节目进度 0..1(以服务端快照 now 计;无 now/区间无效/时刻解析失败返回 null)。
  * 导出供 LiveHeroPlayer 大屏复用(012 T017:FR-010 六信息之「进度」,同一快照语义)。
- * 016 T010 起瓦片卡卡面进度不再走本函数(改经 useCurrentProgramme 本地智能时钟),
- * 本函数保留服务端快照消费方(大屏)语义不变。
  */
 export function progressOf(startsAt: string, endsAt: string, nowIso: string | null): number | null {
   if (nowIso === null) {
@@ -124,17 +99,14 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
   const channelTitle = row.media.title;
   // 统一播放入口(US3):整块底板即播放热区,不渲染可见按钮
   const { play } = usePlayAction();
-  // 智能事件定时器(016 T010;ui-experience.md §1/§2):每卡一个 Hook 实例 ——
-  // 15s 本地 tick 平滑推进进度、到点本地翻转(无需等 30s 刷新),墙面上 20 卡
-  // × 15s 定时器为契约接受成本(零网络;Hook 不发请求,数据真值仍归周期刷新)。
-  // 瓦片无 onProgrammeAdvance(卡片不做静默拉取,翻转后由分区 30s 刷新收敛)。
+  // 智能事件定时器:15s 本地 tick 平滑推进、到点本地翻转(零网络)
   const programme = useCurrentProgramme({ initialCurrent: row.current, initialNext: row.next });
   /** 智能时钟下的当前节目(到点本地翻转;空档 → null,信息区「暂无节目单」降级) */
   const liveCurrent = programme.current;
   /** 本卡承载的节目(档位决定:current=智能时钟当前节目,upcoming=下一档;双缺时走「暂无节目单」占位) */
   const slotProgramme: ExperienceProgrammeDto | null = slot === 'upcoming' ? row.next : liveCurrent;
   /**
-   * 信息区时段标签(家庭时区):current 档 = 起止区间,upcoming 档 = 开播时刻。
+   * 信息区时段标签(家庭时区):current 档 = 起止区间;upcoming 档 = 开播时刻。
    * 无时区数据/无节目时省略,不臆造本地时间(与 Hero/分区时间语义一致)。
    */
   const timeLabel =
@@ -143,35 +115,78 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
       : slot === 'upcoming'
         ? `${formatTimeInZone(slotProgramme.startsAt, timezone)} 开始`
         : formatRangeInZone(slotProgramme.startsAt, slotProgramme.endsAt, timezone);
+  const reminder = useProgrammeReminder(
+    slot === 'upcoming' ? (slotProgramme?.key ?? null) : null,
+    slotProgramme?.title ?? channelTitle,
+    slotProgramme?.startsAt ?? null,
+  );
   const hash = hashOf(row.media.id);
   const plateAngle = 100 + (hash % 140);
   const glowOnRight = hash % 2 === 1;
+  const posterRef = slotProgramme?.posterRef ?? null;
+
   return (
-    // HeroUI v3 Card 作为唯一容器;不覆盖 Card 自身的 padding/圆角/背景/阴影/
-    // gap(保持 heroUI 原样式),只追加布局所需的 min-w-0 与 group(hover 揭示播放键)。
+    // HeroUI v3 Card 作为唯一容器;p-0/overflow-hidden 让海报通栏,圆角/阴影走原生样式。
     // render 成 <article> 保留可访问语义(role=article)与既有查询契约。
     <Card<"article">
       render={(props) => <article {...props} />}
       className="group min-w-0 gap-0 overflow-hidden p-0"
       aria-label={`频道 ${channelTitle}`}
     >
-      {/* 16:9 频道标识底板(无海报常态降级;装饰节点一律 aria-hidden,可读名由 article 承担) */}
+      {/* 16:9 底板:有节目海报用剧照铺满,无海报回退频道标识渐变底板(装饰层 aria-hidden) */}
       <div
         className="relative aspect-video w-full overflow-hidden bg-surface-secondary"
-        style={{ background: `linear-gradient(${plateAngle}deg, var(--surface-secondary) 0%, var(--surface-tertiary) 55%, var(--surface) 100%)` }}
+        style={posterRef === null
+          ? { background: `linear-gradient(${plateAngle}deg, var(--surface-secondary) 0%, var(--surface-tertiary) 55%, var(--surface) 100%)` }
+          : undefined}
       >
+        {posterRef !== null ? (
+          <ProgrammePoster
+            posterRef={posterRef}
+            title={slotProgramme?.title ?? channelTitle}
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+          />
+        ) : (
+          <>
+            <span
+              aria-hidden="true"
+              className={`absolute -bottom-12 h-36 w-36 rounded-full bg-accent/15 blur-3xl transition duration-300 group-hover:bg-accent/25 ${
+                glowOnRight ? '-right-8' : '-left-8'
+              }`}
+            />
+            {/* 无节目海报回退:居中放大的频道台标(与左上角身份台标同源,低透明度作底板水印)。
+                用 CSS background 而非第二个 <img>,避免同一卡片出现两条台标加载相位。 */}
+            {row.media.posterRef !== null ? (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 bg-contain bg-center bg-no-repeat opacity-15"
+                style={{
+                  backgroundImage: `url(/api/public/media/logos/${encodeURIComponent(row.media.posterRef)})`,
+                }}
+              />
+            ) : (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 flex items-center justify-center px-6"
+              >
+                <span className="hmp-truncate max-w-full text-center text-2xl font-bold tracking-tight text-foreground/10">
+                  {channelTitle}
+                </span>
+              </span>
+            )}
+          </>
+        )}
+
+        {/* 顶部压暗层:保证台标与状态角标在任意剧照上可读(装饰) */}
         <span
           aria-hidden="true"
-          className={`absolute -bottom-12 h-36 w-36 rounded-full bg-accent/15 blur-3xl transition duration-300 group-hover:bg-accent/25 ${
-            glowOnRight ? '-right-8' : '-left-8'
-          }`}
+          className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-background/55 to-transparent"
         />
-        {/* 频道身份(2026-11-14 修订):台标回到左上角,装在半透明圆角衬底里并带柔和
-            投影,让台标从底板上"浮"起来;ChannelLogo 自带加载中/失败首字回退;
-            无台标频道显示频道名。 */}
+
+        {/* 左上角频道台标(2026-11-18:按设计稿直接叠在剧照上,不加衬底) */}
         <div
           data-testid="tile-logo"
-          className="pointer-events-none absolute left-3 top-3 z-[1] flex h-10 w-28 items-center justify-center rounded-lg bg-background/55 p-1.5 shadow-lg shadow-background/50 backdrop-blur-sm"
+          className="pointer-events-none absolute left-3 top-2.5 z-[1] flex h-9 w-24 items-center justify-start drop-shadow-lg"
         >
           {row.media.posterRef !== null ? (
             <div className="relative h-full w-full">
@@ -179,31 +194,30 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
                 key={row.media.posterRef}
                 posterRef={row.media.posterRef}
                 channelTitle={channelTitle}
-                fallbackClassName="text-xs font-semibold text-muted"
+                fallbackClassName="text-xs font-semibold text-foreground"
               />
             </div>
           ) : (
             <span
               data-testid="tile-logo-fallback"
-              className="line-clamp-2 text-center text-xs font-semibold leading-tight text-muted"
+              className="line-clamp-2 text-xs font-semibold leading-tight text-foreground"
             >
               {channelTitle}
             </span>
           )}
         </div>
 
+        {/* 右上角状态角标:正在直播=「直播」;即将播放=开播时刻(与分区语义一致) */}
+        <Chip
+          size="sm"
+          variant="soft"
+          className="pointer-events-none absolute right-2.5 top-2.5 z-[1] bg-surface-tertiary/90 text-xs text-foreground backdrop-blur-sm"
+        >
+          {slot === 'upcoming' ? (timeLabel ?? '即将开始') : '直播'}
+        </Chip>
 
-
-        {/* 当前节目进度微条(016 T010;ui-experience.md §1:HeroUI v3 ProgressBar,
-            严禁原生 <progress>;值经 useCurrentProgramme 平滑推进,到点本地翻转):
-            - 契约伪码 <Progress color="primary"> 按 HeroUI v3 实际 API 映射为
-              ProgressBar + color="accent"(v3 色板为 default/accent/success/
-              warning/danger,accent 即品牌主色,与瓦片直播语义 token 同源);
-            - current == null(空档/降级,§1.2)→ 整条隐藏,禁用态不扩散到卡片,
-              播放/悬停行为不受影响(Hover ▶ 契约保持); */}
         {/* 整块 16:9 底板是卡片的主点击区(无可见按钮/图标):
-            - 正在直播档:点击 = 播放该频道当前直播;
-            - 即将播放档:点击 = 打开节目详情(不拉播放器,未来节目不提供直接播放)。 */}
+            current=播放该频道当前直播;upcoming=打开节目详情(未来节目不直接播放)。 */}
         <button
           type="button"
           aria-label={slot === 'upcoming' ? `查看 ${channelTitle} 节目详情` : `播放 ${channelTitle}`}
@@ -223,13 +237,16 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
             play({ mediaId: row.media.id, title: channelTitle, startMode: 'beginning', posterRef: row.media.posterRef });
           }}
         />
+
+        {/* 当前节目进度微条(恢复 016 T010 的卡面进度):智能时钟 15s 平滑推进,
+            current=null 时整条隐藏;覆盖在底板下沿,不拦截底板播放入口。 */}
         {slot === 'current' && liveCurrent !== null ? (
           <ProgressBar
             aria-label="节目播放进度"
             value={programme.progressPercent}
             size="sm"
             color="accent"
-            className="absolute inset-x-0 bottom-0"
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-[2]"
           >
             <ProgressBar.Track>
               <ProgressBar.Fill />
@@ -238,75 +255,80 @@ export function ChannelTile({ row, slot = 'current', timezone, onOpenProgramme }
         ) : null}
       </div>
 
-      {/* 信息区(按 HeroUI Card「With Images」示例的解剖):Card.Header 承载
-          「频道身份 + 时段 + 节目名」,节目名用 Card.Title(渲染 h3)包可交互按钮。
-          原卡面只有一行节目名,频道身份仅靠右上角台标角标,扫读时难以确认「哪个台」;
-          现将频道名/时段显性放入信息区,节目名放宽到两行(line-clamp-2),卡片横向
-          扫读时「台 + 节目 + 时间」一眼可得。长名截断 + Tooltip 完整名;
-          点击节目名按档位分流(015 T004;ui-layout.md §1.2 第 3 条):
-          current 档 → 导航 /live/watch/:channelId 观看详情页;
-          upcoming 档 → 打开共享详情面板(节目时段信息,FR-024)。
-          Trigger 直接用 HeroUI Button(消费 react-aria Focusable 上下文,悬停即可达
-          Tooltip;原生 button 不消费该上下文,Tooltip.Trigger 又是 div[role=button]
-          包装器,内嵌原生按钮会产生重复同名 role=button)。
-          样式只用对齐/宽度/字重覆盖(DESIGN.md:用既有变体,不重造按钮);
-          尺寸/内边距/悬停/焦点环走 ghost sm 变体原生状态。 */}
-      <Card.Header className="min-w-0 p-4">
-        <div className="mb-1 flex min-w-0 items-baseline justify-between gap-2">
+      {/* 信息区(按 HeroUI Card 解剖):Header 承载「频道名 + 时段」,
+          Content 承载节目名(可交互按钮)+ 即将播放的开播提醒铃铛。 */}
+      <Card.Header className="min-w-0 gap-0 p-3 pb-1.5">
+        <div className="flex min-w-0 items-baseline justify-between gap-2">
           <span className="hmp-truncate text-xs font-medium text-foreground/80">{channelTitle}</span>
-          {timeLabel !== null ? (
+          {slot === 'current' && timeLabel !== null ? (
             <span className="hmp-tabular-nums shrink-0 text-xs text-muted">{timeLabel}</span>
           ) : null}
         </div>
-        {slotProgramme !== null ? (
-          <Card.Title className="min-w-0 text-sm font-semibold leading-snug">
-            <Tooltip>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-auto min-h-8 w-full min-w-0 justify-start whitespace-normal px-0 py-0.5 text-left text-sm font-semibold leading-snug"
-                onPress={() => {
-                  // 节目名点击统一交给宿主裁决:now → 直接播放;非直播 → 详情页
-                  onOpenProgramme({
-                    mediaId: row.media.id,
-                    channelTitle,
-                    groupLabel: row.groupLabel,
-                    programme: slotProgramme,
-                    kind: slot === 'upcoming' ? 'upcoming' : 'current',
-                    channelPosterRef: row.media.posterRef,
-                  });
-                }}
-              >
-                <span className="line-clamp-2">{slotProgramme.title}</span>
-              </Button>
-              <Tooltip.Content>{slotProgramme.title}</Tooltip.Content>
-            </Tooltip>
-          </Card.Title>
-        ) : (
-          /* 无节目占位可点开共享详情面板(none 态:保留频道身份 +「暂无节目单」,
-             主操作仍可播放当前直播,FR-012/012 T018;焦点环同相邻节目按钮;
-             016 §1.2 降级标题 =「暂无节目单」,状态签仍用「暂无排期」——
-             后者不是前者子串,文本查询互不吞并) */
-          <button
-            type="button"
-            data-testid="no-programme"
-            className="block w-full min-w-0 rounded-sm p-1 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-            onClick={(event) => {
-              event.preventDefault();
-              onOpenProgramme({
-                mediaId: row.media.id,
-                channelTitle,
-                groupLabel: row.groupLabel,
-                programme: null,
-                kind: 'current',
-                channelPosterRef: row.media.posterRef,
-              });
-            }}
-          >
-            <span className="block text-sm text-muted">暂无节目单</span>
-          </button>
-        )}
       </Card.Header>
+      <Card.Content className="min-w-0 p-3 pt-0">
+        <div className="flex min-w-0 items-end justify-between gap-2">
+          {slotProgramme !== null ? (
+            <Card.Title className="min-w-0 text-sm font-semibold leading-snug">
+              <Tooltip>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto min-h-11 w-full min-w-0 justify-start whitespace-normal px-0 py-0.5 text-left text-sm font-semibold leading-snug"
+                  onPress={() => {
+                    // 节目名点击统一交给宿主裁决:now → 直接播放;非直播 → 详情页
+                    onOpenProgramme({
+                      mediaId: row.media.id,
+                      channelTitle,
+                      groupLabel: row.groupLabel,
+                      programme: slotProgramme,
+                      kind: slot === 'upcoming' ? 'upcoming' : 'current',
+                      channelPosterRef: row.media.posterRef,
+                    });
+                  }}
+                >
+                  <span className="line-clamp-2">{slotProgramme.title}</span>
+                </Button>
+                <Tooltip.Content>{slotProgramme.title}</Tooltip.Content>
+              </Tooltip>
+            </Card.Title>
+          ) : (
+            /* 无节目占位可点开共享详情面板(none 态:保留频道身份 +「暂无节目单」,
+               主操作仍可播放当前直播,FR-012/012 T018;焦点环同相邻节目按钮) */
+            <button
+              type="button"
+              data-testid="no-programme"
+              className="block min-h-11 w-full min-w-0 rounded-sm p-1 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+              onClick={(event) => {
+                event.preventDefault();
+                onOpenProgramme({
+                  mediaId: row.media.id,
+                  channelTitle,
+                  groupLabel: row.groupLabel,
+                  programme: null,
+                  kind: 'current',
+                  channelPosterRef: row.media.posterRef,
+                });
+              }}
+            >
+              <span className="block text-sm text-muted">暂无节目单</span>
+            </button>
+          )}
+
+          {slot === 'upcoming' && slotProgramme !== null ? (
+            <Button
+              isIconOnly
+              size="sm"
+              variant="ghost"
+              aria-pressed={reminder.reminded}
+              aria-label={reminder.reminded ? `取消《${slotProgramme.title}》开播提醒` : `预约《${slotProgramme.title}》开播提醒`}
+              className={`shrink-0 ${reminder.reminded ? 'text-accent' : 'text-muted'}`}
+              onPress={reminder.toggle}
+            >
+              <Bell aria-hidden="true" className={`size-4 ${reminder.reminded ? 'fill-current' : ''}`} />
+            </Button>
+          ) : null}
+        </div>
+      </Card.Content>
     </Card>
   );
 }

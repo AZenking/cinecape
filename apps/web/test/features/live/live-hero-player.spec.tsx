@@ -132,12 +132,12 @@ describe('T006 · LiveHeroPlayer 舞台容器与直播语义(FR-002)', () => {
     expect(heroScope.getByText('正在直播')).toBeVisible();
     // 当前节目 = h2 主标题;分组 · 此刻直播信息层
     expect(heroScope.getByRole('heading', { name: '星际回响' })).toBeVisible();
-    expect(heroScope.getByText(/电影 · 此刻直播/)).toBeVisible();
+    expect(heroScope.getByText(/电影 · 星光影城/)).toBeVisible();
     // 档期(家庭时区 Asia/Shanghai:11:40Z→19:40、12:40Z→20:40)与进度(20/60 ≈ 33%)
     expect(heroScope.getByText(/19:40–20:40/)).toBeVisible();
     expect(heroScope.getByText(/已播出\s*33%/)).toBeVisible();
     // 接下来预告(下一档节目)
-    expect(heroScope.getByRole('button', { name: /午夜场:雾都疑云 · 20:40 开始/ })).toBeVisible();
+    expect(heroScope.getByRole('button', { name: /接下来 20:40 · 午夜场:雾都疑云/ })).toBeVisible();
   });
 
   it('静音切换:默认静音意图,aria-pressed/aria-label 随切换翻转(意图状态,播放面暂无音量 API)', async () => {
@@ -157,7 +157,7 @@ describe('T006 · 全屏播放主操作与节目详情次操作(唯一播放管�
     const { counter, world } = renderHero(LIVE_SESSION_STATES.authedWithProfile);
     try {
       await waitForSession('authenticated:profile-a');
-      const fullscreen = await screen.findByRole('button', { name: '全屏播放 星光影城' });
+      const fullscreen = await screen.findByRole('button', { name: '全屏观看 星光影城' });
       expect(counter.counts.playback).toBe(0);
       fireEvent.click(fullscreen);
 
@@ -204,7 +204,7 @@ describe('T006 · 游客态:预览海报 + 直接收看入口 + 授权前零媒�
       // 高保真预览海报(posterRef Logo)已挂载;认证态主操作「全屏播放」不出现
       expect(screen.getByTestId('live-hero-player')).toBeTruthy();
       expect(screen.getByRole('button', { name: '直接收看 星光影城' })).toBeVisible();
-      expect(screen.queryByRole('button', { name: '全屏播放 星光影城' })).toBeNull();
+      expect(screen.queryByRole('button', { name: '全屏观看 星光影城' })).toBeNull();
 
       expect(counter.counts.playback).toBe(0);
       fireEvent.click(screen.getByRole('button', { name: '直接收看 星光影城' }));
@@ -235,7 +235,7 @@ describe('T006 · 无节目单频道降级(FR-023)', () => {
       const hero = screen.getByRole('region', { name: '直播精选大屏' });
       expect(within(hero).getByText('暂无节目单')).toBeVisible();
       // 播放入口保留(频道可用即可播,可用性不由 EPG 决定)
-      fireEvent.click(within(hero).getByRole('button', { name: '全屏播放 无节目单频道' }));
+      fireEvent.click(within(hero).getByRole('button', { name: '全屏观看 无节目单频道' }));
       await waitForResolveBody();
       expect(resolveBodies[0]).toEqual({ mediaId: noProgrammeRow.media.id, startMode: 'beginning' });
     } finally {

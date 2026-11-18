@@ -229,8 +229,8 @@ describe('T024-A · 响应式视口(jsdom 可断言面)', () => {
     expect(stage.className).toContain('overflow-hidden');
     // 背景图卡:Card 提供 min-h 安全区(md 一档更高),Header 内联承载
     // 状态签/频道身份/静音,标题在 md 提升字阶
-    expect(hero.className).toContain('min-h-[20rem]');
-    expect(hero.className).toContain('md:min-h-[24rem]');
+    expect(hero.className).toContain('min-h-[17rem]');
+    expect(hero.className).toContain('md:min-h-[17.5rem]');
     expect(hero.querySelector('[data-testid="identity-badge"]')).toBeTruthy();
     expect(hero.querySelector('[data-testid="live-hero-live-badge"]')).toBeTruthy();
     expect(hero.querySelector('[data-testid="live-hero-mute"]')).toBeTruthy();
@@ -367,8 +367,8 @@ describe('T024-B · 键盘可访问性(jsdom 可断言面)', () => {
     );
     expect(buttons).toEqual([
       '取消静音', // 静音切换(isIconOnly,aria-label 全称)
-      expect.stringContaining('接下来:'), // 下一档预告入口
-      '全屏播放 星光影城', // 主操作(已选档形态)
+      expect.stringContaining('接下来 '), // 下一档预告入口
+      '全屏观看 星光影城', // 主操作(已选档形态)
       '节目详情 星光影城', // 次操作
     ]);
     const mute = hero.querySelector('[data-testid="live-hero-mute"]') as HTMLElement;

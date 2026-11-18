@@ -239,7 +239,7 @@ describe('直播页分区与内容(T061)', () => {
     // 每个分类行尾无条件提供「全部XX频道」入口(FR-004 MUST;3 个分组 = 3 个入口)
     expect(screen.getAllByRole('button', { name: /全部.+频道 ›/ }).length).toBe(3);
     // 行尾入口存在:正在直播区(文案由 015 T012 演进:全部正在直播)与即将播放区(查看更多)
-    expect(screen.getAllByRole('button', { name: /查看更多|全部正在直播/ }).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByRole('button', { name: /查看全部|完整节目单/ }).length).toBeGreaterThanOrEqual(2);
   });
 
   it('时间按服务端家庭时区换算且不展示时区标注,不依赖浏览器时区(07:05 而非本地 20:05)', async () => {
@@ -340,7 +340,7 @@ describe('直播页分区与内容(T061)', () => {
     // 行尾文案由 015 T012 任务演进(「全部正在直播」),断言不锁文案、只锁接线
     const nowRegion = screen.getByRole('region', { name: '正在直播' });
     const rowEndButton = within(nowRegion).getAllByRole('button', {
-      name: /查看更多|全部正在直播/,
+      name: /查看全部|完整节目单/,
     })[0] as HTMLElement;
     await user.click(rowEndButton);
     expect(screen.getByTestId('live-location').textContent).toBe('/live/guide');

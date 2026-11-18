@@ -19,8 +19,8 @@ import { GuestActionNotice } from './components/GuestActionNotice';
  * 直播首页(015 T010 装配;FR-001~FR-006、ui-layout.md §1 Screen 1 线框、
  * routing-and-url-state.md §2.1;替代 012 T067/T068/T069/T070/T071 装配):
  * - Screen 1 自上而下固定顺序(LiveHeroPlayer 直接播放大屏 → NowSection 正在直播 →
- *   NextSection 即将播放 → CategorySwimlanes 各分类逐行平铺泳道;后三区为横向
- *   滚动瓦片行,溢出限于行内,整页无横向溢出);
+ *   NextSection 即将播放 → CategorySwimlanes 各分类逐行平铺泳道;前两区为横向
+ *   瓦片行(保留左右滑动与卡面进度),分类区同为泳道,整页无横向溢出);
  * - 015 智能分流:正在直播行尾入口经 navigate('/live/guide') 直达 EPG 节目单
  *   时间墙(FR-003,禁止导向无排期静态列表),各分类行尾入口 navigate
  *   (`/live/channels?group=${key}`) 直达分类平铺网格并携带 Tab 高亮参数(FR-004,
@@ -37,6 +37,7 @@ import { GuestActionNotice } from './components/GuestActionNotice';
  *   (抽屉仅保留在 /live/guide 页面)。
  */
 
+/** 首页两个预览区各取 20 个频道(横向滑动浏览;完整清单经行尾入口) */
 const PREVIEW_PAGE_SIZE = 20;
 /** 概览分组集合请求条数(分区展示为前端切片,完整列表经行尾入口去分类网格/EPG) */
 const OVERVIEW_GROUP_FETCH_SIZE = 50;
@@ -148,20 +149,20 @@ export function LivePage(): ReactNode {
   );
 
   return (
-    <div className="flex min-w-0 flex-col gap-8">
+    <div className="flex min-w-0 flex-col">
       {/* 页面标题保留 h1 语义(读屏/文档大纲/测试锚),按产品要求不呈现可见标题与
           时区说明行;频道搜索框已移除——`?q=` 仍作为深链过滤参数被读取(下方 query
           对象继续透传),恢复搜索 UI 时接回 updateParams 即可。 */}
       <h1 className="sr-only">直播</h1>
 
       {guestNotice !== null ? (
-        <div role="status">
+        <div role="status" className="mb-4">
           <GuestActionNotice actionLabel={guestNotice} onClose={() => setGuestNotice(null)} />
         </div>
       ) : null}
 
       {groupsResource.status === 'error' && groupsResource.data === null ? (
-        <Alert status="danger" role="alert">
+        <Alert status="danger" role="alert" className="mb-4">
           <Alert.Title>直播分组加载失败</Alert.Title>
           <Alert.Description>服务暂时不可用,可以重试;不影响其他分区。</Alert.Description>
           <Alert.Content>
@@ -184,33 +185,35 @@ export function LivePage(): ReactNode {
           onOpenProgramme={openProgramme}
         />
       ) : null}
-      <NowSection
-        resource={nowResource}
-        onRetry={nowResource.retry}
-        /* 015 FR-003(R3):行尾入口直达 EPG 节目单时间墙(取代 012 聚焦视图分流;
-           行尾文案由 015 T012 归属任务演进) */
-        onViewMore={openLiveGuide}
-        onOpenProgramme={openProgramme}
-        onRequireAuth={requireAuth}
-      />
-      <NextSection
-        resource={nextResource}
-        onRetry={nextResource.retry}
-        /* 聚焦视图移除后,即将播放行尾入口同样导向 EPG 时间墙(未来排期事实源) */
-        onViewMore={openLiveGuide}
-        onOpenProgramme={openProgramme}
-        onRequireAuth={requireAuth}
-      />
-      <CategorySwimlanes
-        groupsResource={groupsResource}
-        channelsResource={groupsChannelsResource}
-        onRetry={retryGroups}
-        /* 015 FR-004(R3):行尾「全部XX频道」直达分类平铺网格(携带 Tab 高亮参数) */
-        onViewAll={openCategoryGrid}
-        onOpenProgramme={openProgramme}
-        onRequireAuth={requireAuth}
-      />
-
+      {/* 2026-11-18 设计稿节奏:大屏 → 首区 40px,分区之间 24px(各分类分区内容不变) */}
+      <div className="mt-10 flex min-w-0 flex-col gap-6">
+        <NowSection
+          resource={nowResource}
+          onRetry={nowResource.retry}
+          /* 015 FR-003(R3):行尾入口直达 EPG 节目单时间墙(取代 012 聚焦视图分流;
+             行尾文案由 015 T012 归属任务演进) */
+          onViewMore={openLiveGuide}
+          onOpenProgramme={openProgramme}
+          onRequireAuth={requireAuth}
+        />
+        <NextSection
+          resource={nextResource}
+          onRetry={nextResource.retry}
+          /* 聚焦视图移除后,即将播放行尾入口同样导向 EPG 时间墙(未来排期事实源) */
+          onViewMore={openLiveGuide}
+          onOpenProgramme={openProgramme}
+          onRequireAuth={requireAuth}
+        />
+        <CategorySwimlanes
+          groupsResource={groupsResource}
+          channelsResource={groupsChannelsResource}
+          onRetry={retryGroups}
+          /* 015 FR-004(R3):行尾「全部XX频道」直达分类平铺网格(携带 Tab 高亮参数) */
+          onViewAll={openCategoryGrid}
+          onOpenProgramme={openProgramme}
+          onRequireAuth={requireAuth}
+        />
+      </div>
     </div>
   );
 }

@@ -81,9 +81,9 @@ test.describe('直播首页(T062 · 游客)', () => {
     const nextDom = await sectionCardTitles(page, '即将播放');
     expect(nextDom.slice(0, nextApi.items.length)).toEqual(nextApi.items.map((row) => row.next?.title ?? '暂无节目'));
 
-    // 015 智能分流(FR-003):正在直播行尾「全部正在直播 ›」直达 EPG 节目单时间墙
+    // 015 智能分流(FR-003):正在直播行尾「查看全部」直达 EPG 节目单时间墙
     // (取代 012 聚焦视图 ?section= 分页;首页各行为预览切片,完整清单在行尾入口)
-    await page.getByRole('button', { name: '全部正在直播 ›' }).click();
+    await page.getByRole('button', { name: '查看全部' }).click();
     await expect(page).toHaveURL(/\/live\/guide/);
     expect(apiPage.total).toBeGreaterThan(apiPage.items.length);
   });

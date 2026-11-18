@@ -255,8 +255,8 @@ describe('T018/T019(2026-11-14 修订) · 接入:台标固定在 16:9 底板左�
       },
     );
     try {
-      // 等待会话恢复到认证态(主操作呈现「全屏播放」,匹配 /播放/ 断言)
-      await screen.findByRole('button', { name: /播放/ });
+      // 等待会话恢复到认证态(主操作呈现「全屏观看」,匹配 /观看|播放/ 断言)
+      await screen.findByRole('button', { name: /观看|播放/ });
       // 背景图卡布局:角标改为 Header 内联(不再绝对定位),身份链不变
       const anchor = screen.getByTestId('identity-name').closest('[data-testid="identity-badge"]');
       expect(anchor).not.toBeNull();
@@ -268,7 +268,7 @@ describe('T018/T019(2026-11-14 修订) · 接入:台标固定在 16:9 底板左�
       );
       expect(hugeFirstChar).toHaveLength(0);
       expect(screen.getByText('正在直播')).toBeVisible();
-      expect(screen.getByRole('button', { name: /播放/ })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /观看|播放/ })).toBeEnabled();
     } finally {
       view.restore();
     }

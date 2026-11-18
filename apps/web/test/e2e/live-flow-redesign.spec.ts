@@ -7,7 +7,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  *   正在直播行 → 即将播放行 → 各分类泳道(行名 = 分组名 `${label}`)自上而下;
  *   卡片 hover 浮现中央 ▶(015 T004 双层交互),点击直接起播(游客 → 统一登录
  *   弹层,授权前零媒体流请求);
- * - 智能分流(FR-003/FR-004):正在直播行尾「全部正在直播 ›」直达 `/live/guide`;
+ * - 智能分流(FR-003/FR-004):正在直播行尾「查看全部」直达 `/live/guide`;
  *   分类行尾「全部XX频道 ›」直达 `/live/channels?group=:key` 且分类 Tab 自动激活;
  * - Screen 3 `/live/guide`:NOW 垂直红线可见;与 NOW 相交的 current 块(绿色 LIVE
  *   角标,aria-label 以「,正在直播」结尾)点击直接起播链路(游客 → 认证 Modal);
@@ -159,8 +159,8 @@ test.describe('015 T023 · 直播全流程重构走查(quickstart 场景 1→5)'
     const nowRegion = page.getByRole('region', { name: '正在直播', exact: true });
     await expect(nowRegion.locator('article').first()).toBeVisible({ timeout: 30_000 });
 
-    // FR-003:正在直播行尾「全部正在直播 ›」直达 EPG 节目单时间墙
-    await nowRegion.getByRole('button', { name: '全部正在直播 ›' }).click();
+    // FR-003:正在直播行尾「查看全部」直达 EPG 节目单时间墙
+    await nowRegion.getByRole('button', { name: '查看全部' }).click();
     await expect(page).toHaveURL(/\/live\/guide$/);
 
     // FR-004:分类行尾「全部XX频道 ›」直达分类平铺网格,URL 携带 ?group=:key

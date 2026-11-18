@@ -33,8 +33,10 @@ export function PublicNav({ className = '' }: { className?: string }): ReactNode
           to={item.to}
           end={item.end}
           className={({ isActive }) =>
-            `rounded px-1 py-1 text-sm transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
-              isActive ? 'font-medium text-foreground' : 'text-muted'
+            `relative rounded px-1 py-1 text-sm transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
+              isActive
+                ? 'font-medium text-foreground after:absolute after:-bottom-1 after:left-1/2 after:h-0.5 after:w-4 after:-translate-x-1/2 after:rounded-full after:bg-accent'
+                : 'text-muted'
             }`
           }
         >

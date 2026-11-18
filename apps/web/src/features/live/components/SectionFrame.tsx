@@ -12,9 +12,16 @@ import { Alert, Button, Skeleton } from '@heroui/react';
 export interface SectionFrameProps {
   /** 分区标题(如「正在直播」) */
   readonly title: string;
+  /** 标题前的装饰节点(如正在直播的绿色状态点;纯装饰,可读语义由 title 承担) */
+  readonly titleAdornment?: ReactNode;
   /** 副标(频道数/分页说明等;时间说明类文案已于 2026-11-13 移除) */
   readonly subtitle?: string;
-  /** 标题行右侧动作(Netflix 式「查看更多」入口;与副标同行右对齐) */
+  /**
+   * 副标是否紧跟标题(inline):true 时左簇为「装饰点 + 标题 + 副标」,右侧只放动作;
+   * false(缺省)保持旧布局(副标与动作在右侧同行)——分类泳道沿用旧布局。
+   */
+  readonly subtitleInline?: boolean;
+  /** 标题行右侧动作(「查看全部 / 完整节目单」等入口) */
   readonly headerAction?: ReactNode;
   readonly status: 'loading' | 'ready' | 'error';
   /** 是否有已展示的旧数据(决定失败形态:整区错误 vs 后台刷新横条) */
@@ -36,7 +43,9 @@ export interface SectionFrameProps {
 export function SectionFrame(props: SectionFrameProps): ReactNode {
   const {
     title,
+    titleAdornment,
     subtitle,
+    subtitleInline = false,
     headerAction,
     status,
     hasStaleContent,
@@ -50,15 +59,29 @@ export function SectionFrame(props: SectionFrameProps): ReactNode {
   } = props;
   return (
     <section aria-label={title} className="min-w-0">
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          {subtitle !== undefined && subtitle !== '' ? (
-            <p className="text-xs text-muted">{subtitle}</p>
-          ) : null}
-          {headerAction ?? null}
+      {subtitleInline ? (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <div className="flex min-w-0 items-center gap-2">
+            {titleAdornment ?? null}
+            <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+            {subtitle !== undefined && subtitle !== '' ? (
+              <p className="text-xs text-muted">{subtitle}</p>
+            ) : null}
+          </div>
+          {headerAction !== undefined ? <div className="shrink-0">{headerAction}</div> : null}
         </div>
-      </div>
+      ) : (
+        /* 分类泳道/频道网格沿用旧标题布局(副标与动作在右侧),避免下方分类区外观变化 */
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            {subtitle !== undefined && subtitle !== '' ? (
+              <p className="text-xs text-muted">{subtitle}</p>
+            ) : null}
+            {headerAction ?? null}
+          </div>
+        </div>
+      )}
 
       {status === 'error' && !hasStaleContent ? (
         <Alert status="danger" role="alert" className="mb-3">
