@@ -1,5 +1,5 @@
 import { render, screen, within } from '@testing-library/react';
-import { VOD_ENABLED } from '../../src/shared/feature-flags';
+import { PERSONAL_PREFS_ENABLED, VOD_ENABLED } from '../../src/shared/feature-flags';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import type { AccountSession } from '../../src/app/session-types';
@@ -74,11 +74,20 @@ describe('T019 · SettingsSidebarClean (013 US3)', () => {
     const sidebar = screen.getByTestId('settings-sidebar');
     expect(sidebar).toBeInTheDocument();
 
-    // 1. 验证仅包含个人偏好分组(我的档案入口已收敛到顶栏身份菜单,不再进侧栏)
-    expect(within(sidebar).getByTestId('settings-group-personal')).toBeInTheDocument();
-    expect(within(sidebar).getByText('个人偏好')).toBeInTheDocument();
-    expect(within(sidebar).getByRole('option', { name: '播放体验' })).toBeInTheDocument();
-    expect(within(sidebar).getByRole('option', { name: '界面外观' })).toBeInTheDocument();
+    // 1. 个人偏好在 v1 隐藏(偏好暂无消费方):普通成员没有可用分组,侧栏只剩身份与退出
+    //    「我的档案」入口已收敛到顶栏身份菜单,不进侧栏
+    if (PERSONAL_PREFS_ENABLED) {
+      expect(within(sidebar).getByTestId('settings-group-personal')).toBeInTheDocument();
+      expect(within(sidebar).getByText('个人偏好')).toBeInTheDocument();
+      expect(within(sidebar).getByRole('option', { name: '播放体验' })).toBeInTheDocument();
+      expect(within(sidebar).getByRole('option', { name: '界面外观' })).toBeInTheDocument();
+    } else {
+      expect(within(sidebar).queryByTestId('settings-group-personal')).toBeNull();
+      expect(within(sidebar).queryByText('个人偏好')).toBeNull();
+      expect(within(sidebar).queryByRole('option', { name: '播放体验' })).toBeNull();
+      expect(within(sidebar).queryByRole('option', { name: '界面外观' })).toBeNull();
+      expect(within(sidebar).queryAllByRole('option')).toHaveLength(0);
+    }
     expect(within(sidebar).queryByRole('option', { name: '我的档案' })).toBeNull();
 
     // 2. 验证严禁展示家庭管理和账号与安全分组
@@ -134,12 +143,19 @@ describe('T019 · SettingsSidebarClean (013 US3)', () => {
     expect(sidebar).toBeInTheDocument();
 
     // 1. 验证包含全部分组及对应链接(菜单拆分:家庭管理 = IPTV 管理 + NAS/点播 + 其余四项)
-    expect(within(sidebar).getByTestId('settings-group-personal')).toBeInTheDocument();
+    if (PERSONAL_PREFS_ENABLED) {
+      expect(within(sidebar).getByTestId('settings-group-personal')).toBeInTheDocument();
+      expect(within(sidebar).getByRole('option', { name: '播放体验' })).toBeInTheDocument();
+      expect(within(sidebar).getByRole('option', { name: '界面外观' })).toBeInTheDocument();
+    } else {
+      // v1 暂未接入播放/主题偏好:个人偏好分组整体不渲染
+      expect(within(sidebar).queryByTestId('settings-group-personal')).toBeNull();
+      expect(within(sidebar).queryByRole('option', { name: '播放体验' })).toBeNull();
+      expect(within(sidebar).queryByRole('option', { name: '界面外观' })).toBeNull();
+    }
     expect(within(sidebar).getByTestId('settings-group-household')).toBeInTheDocument();
     expect(within(sidebar).getByTestId('settings-group-system')).toBeInTheDocument();
 
-    expect(within(sidebar).getByRole('option', { name: '播放体验' })).toBeInTheDocument();
-    expect(within(sidebar).getByRole('option', { name: '界面外观' })).toBeInTheDocument();
     expect(within(sidebar).queryByRole('option', { name: '我的档案' })).toBeNull();
     expect(within(sidebar).getByRole('option', { name: '成员管理' })).toBeInTheDocument();
     expect(within(sidebar).getByRole('option', { name: '内容策略' })).toBeInTheDocument();
@@ -176,7 +192,12 @@ describe('T019 · SettingsSidebarClean (013 US3)', () => {
     );
 
     let sidebar = screen.getByTestId('settings-sidebar');
-    expect(within(sidebar).getByTestId('settings-group-personal')).toBeInTheDocument();
+    if (PERSONAL_PREFS_ENABLED) {
+      expect(within(sidebar).getByTestId('settings-group-personal')).toBeInTheDocument();
+    } else {
+      // 个人偏好隐藏后,普通成员没有任何设置分组
+      expect(within(sidebar).queryByTestId('settings-group-personal')).toBeNull();
+    }
     expect(within(sidebar).queryByTestId('settings-group-household')).toBeNull();
     // 底部唯一交互 = 退出登录入口(维护者 2026-11-06 要求;仍无任何提权/解锁按钮)
     expect(within(sidebar).getAllByRole('button')).toHaveLength(1);

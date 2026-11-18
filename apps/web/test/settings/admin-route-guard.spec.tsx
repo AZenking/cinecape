@@ -9,6 +9,10 @@ import {
 import { AdminRouteGuard } from '../../src/features/settings/components/AdminRouteGuard';
 import type { AccountSession } from '../../src/app/session-types';
 import * as sessionModule from '../../src/app/session-provider';
+import { PERSONAL_PREFS_ENABLED } from '../../src/shared/feature-flags';
+
+/** 普通成员被拦截后的回落页(个人偏好关闭时为「我的档案」) */
+const MEMBER_FALLBACK = PERSONAL_PREFS_ENABLED ? '/settings/playback' : '/settings/profile';
 
 // Mock useAppToast
 const mockToastError = vi.fn();
@@ -152,18 +156,18 @@ describe('T007 · AdminRouteGuard', () => {
                 </AdminRouteGuard>
               }
             />
-            <Route path="/settings/playback" element={<div data-testid="playback-page">播放偏好页</div>} />
+            <Route path={MEMBER_FALLBACK} element={<div data-testid="member-fallback-page">成员设置回落页</div>} />
           </Routes>
         </SettingsAccessProvider>
       </MemoryRouter>,
     );
 
     expect(screen.getByTestId('protected-content')).toBeDefined();
-    expect(screen.queryByTestId('playback-page')).toBeNull();
+    expect(screen.queryByTestId('member-fallback-page')).toBeNull();
     expect(mockToastError).not.toHaveBeenCalled();
   });
 
-  it('普通成员访问受保护路由: 阻断渲染受保护内容, 触发 Toast 并重定向至 /settings/playback', async () => {
+  it('普通成员访问受保护路由: 阻断渲染受保护内容, 触发 Toast 并重定向至个人可见设置页', async () => {
     vi.spyOn(sessionModule, 'useOptionalSession').mockReturnValue({
       status: 'authenticated',
       session: createSession(false),
@@ -186,7 +190,7 @@ describe('T007 · AdminRouteGuard', () => {
                 </AdminRouteGuard>
               }
             />
-            <Route path="/settings/playback" element={<div data-testid="playback-page">播放偏好页</div>} />
+            <Route path={MEMBER_FALLBACK} element={<div data-testid="member-fallback-page">成员设置回落页</div>} />
           </Routes>
         </SettingsAccessProvider>
       </MemoryRouter>,
@@ -198,7 +202,7 @@ describe('T007 · AdminRouteGuard', () => {
     // 触发轻提示与平滑重定向
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalledWith('该页面需要管理员权限');
-      expect(screen.getByTestId('playback-page')).toBeDefined();
+      expect(screen.getByTestId('member-fallback-page')).toBeDefined();
     });
   });
 

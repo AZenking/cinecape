@@ -4,7 +4,7 @@ import {
   SETTINGS_MODULES,
   type SettingsModuleGroupView,
 } from '../../src/features/settings/settings-modules';
-import { VOD_ENABLED } from '../../src/shared/feature-flags';
+import { PERSONAL_PREFS_ENABLED, VOD_ENABLED } from '../../src/shared/feature-flags';
 
 /**
  * 入口收敛演进: profile(我的档案) 仍注册于 SETTINGS_MODULES(路由/面包屑),
@@ -14,8 +14,14 @@ import { VOD_ENABLED } from '../../src/shared/feature-flags';
  * policy → devices → general,模块总数仍 10(侧栏导航仍 9 项)。
  */
 describe('T008 · 设置导航可见性过滤 (getVisibleSettingsGroups)', () => {
-  it('普通成员 (isMainProfile === false) 仅返回个人偏好分组，且包含 playback, appearance 模块(profile 不入导航)', () => {
+  it('普通成员 (isMainProfile === false) 仅返回个人偏好分组；个人偏好隐藏时没有可用导航分组', () => {
     const groups: readonly SettingsModuleGroupView[] = getVisibleSettingsGroups(false);
+
+    if (!PERSONAL_PREFS_ENABLED) {
+      // v1 暂未接入播放/主题偏好:个人偏好两项都隐藏 → 普通成员无可用设置分组
+      expect(groups).toHaveLength(0);
+      return;
+    }
 
     // 仅返回 1 个分组 (个人偏好)
     expect(groups).toHaveLength(1);
@@ -43,21 +49,29 @@ describe('T008 · 设置导航可见性过滤 (getVisibleSettingsGroups)', () =>
     }
   });
 
-  it('主管理员 (isMainProfile === true) 返回个人、家庭管理、账号与安全全部分组', () => {
+  it('主管理员 (isMainProfile === true) 返回可见分组;个人偏好关闭时只剩家庭管理与账号与安全', () => {
     const groups: readonly SettingsModuleGroupView[] = getVisibleSettingsGroups(true);
 
-    // 返回全部分组 (个人偏好、家庭管理、账号与安全)
-    expect(groups).toHaveLength(3);
+    // 个人偏好在 v1 隐藏时不出现(空分组被过滤)
+    expect(groups).toHaveLength(PERSONAL_PREFS_ENABLED ? 3 : 2);
 
     const groupKeys = groups.map((g) => g.key);
-    expect(groupKeys).toEqual(['personal', 'household', 'system']);
+    expect(groupKeys).toEqual(PERSONAL_PREFS_ENABLED ? ['personal', 'household', 'system'] : ['household', 'system']);
 
     const groupScopes = groups.map((g) => g.scope);
-    expect(groupScopes).toEqual(['personal', 'household_admin', 'system_admin']);
+    expect(groupScopes).toEqual(
+      PERSONAL_PREFS_ENABLED
+        ? ['personal', 'household_admin', 'system_admin']
+        : ['household_admin', 'system_admin'],
+    );
 
     // 个人偏好分组检查(profile 仅注册路由,inNav=false 不进导航视图)
-    const personalGroup = groups.find((g) => g.key === 'personal')!;
-    expect(personalGroup.modules.map((m) => m.key)).toEqual(['playback', 'appearance']);
+    if (PERSONAL_PREFS_ENABLED) {
+      const personalGroup = groups.find((g) => g.key === 'personal')!;
+      expect(personalGroup.modules.map((m) => m.key)).toEqual(['playback', 'appearance']);
+    } else {
+      expect(groups.some((g) => g.key === 'personal')).toBe(false);
+    }
 
     // 家庭管理分组检查(菜单拆分:iptv 在首,sources 收窄为 NAS/点播;原 epg 键移除)
     const householdGroup = groups.find((g) => g.key === 'household')!;
@@ -84,13 +98,18 @@ describe('T008 · 设置导航可见性过滤 (getVisibleSettingsGroups)', () =>
 
   it('支持传入对象参数 { isMainProfile: boolean }', () => {
     const memberGroups = getVisibleSettingsGroups({ isMainProfile: false });
-    expect(memberGroups).toHaveLength(1);
-    expect(memberGroups[0]!.key).toBe('personal');
-    expect(memberGroups[0]!.modules.map((m) => m.key)).toEqual(['playback', 'appearance']);
-
     const adminGroups = getVisibleSettingsGroups({ isMainProfile: true });
-    expect(adminGroups).toHaveLength(3);
-    expect(adminGroups.map((g) => g.key)).toEqual(['personal', 'household', 'system']);
+
+    if (PERSONAL_PREFS_ENABLED) {
+      expect(memberGroups).toHaveLength(1);
+      expect(memberGroups[0]!.key).toBe('personal');
+      expect(memberGroups[0]!.modules.map((m) => m.key)).toEqual(['playback', 'appearance']);
+      expect(adminGroups).toHaveLength(3);
+      expect(adminGroups.map((g) => g.key)).toEqual(['personal', 'household', 'system']);
+    } else {
+      expect(memberGroups).toHaveLength(0);
+      expect(adminGroups.map((g) => g.key)).toEqual(['household', 'system']);
+    }
   });
 
   it('模块全量注册表契约一致性校验', () => {

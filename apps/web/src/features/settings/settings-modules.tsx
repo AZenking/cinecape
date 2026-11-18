@@ -4,6 +4,8 @@
  * 导航/标题/组件绑定的单一事实源：
  * - 013 T010: 每个模块声明确切的 scope ('personal' | 'household_admin' | 'system_admin')
  * - 个人偏好组 (personal): playback(播放体验), appearance(界面外观), profile(我的档案)
+ *   播放体验/界面外观的偏好字段暂无消费方,v1 由 feature-flags.PERSONAL_PREFS_ENABLED
+ *   隐藏入口(inNav=false),路由重定向到「我的档案」;翻开关即恢复。
  * - 家庭管理组 (household_admin): iptv(IPTV 管理:直播源/EPG 来源/频道匹配),
  *   sources(NAS/点播), profiles(成员管理), devices, policy, general(家庭设置)
  * - 账号与安全组 (system_admin): account(账号信息)
@@ -24,7 +26,7 @@ import { SettingsDevicesPage } from './settings-devices-page';
 import { SettingsGeneralPage } from './settings-general-page';
 import { SettingsPlaybackPage } from './settings-playback-page';
 import { SettingsAppearancePage } from './settings-appearance-page';
-import { VOD_ENABLED } from '../../shared/feature-flags';
+import { PERSONAL_PREFS_ENABLED, VOD_ENABLED } from '../../shared/feature-flags';
 import { SettingsProfilePage } from './settings-profile-page';
 
 export type { SettingsScope };
@@ -94,6 +96,8 @@ export const SETTINGS_MODULES: readonly SettingsModuleMeta[] = [
     scopeLabel: '仅当前 Profile',
     description: '默认音轨、字幕与自动连播',
     component: SettingsPlaybackPage,
+    // 暂未生效:保存的偏好暂无消费方,先隐藏侧栏入口(路由保留并重定向)
+    inNav: PERSONAL_PREFS_ENABLED,
   },
   {
     id: 'appearance',
@@ -105,6 +109,8 @@ export const SETTINGS_MODULES: readonly SettingsModuleMeta[] = [
     scopeLabel: '仅当前 Profile',
     description: '深浅色彩模式与海报视图密度',
     component: SettingsAppearancePage,
+    // 暂未生效:主题固定暗色、海报密度无消费方,先隐藏侧栏入口(路由保留并重定向)
+    inNav: PERSONAL_PREFS_ENABLED,
   },
   {
     id: 'profile',

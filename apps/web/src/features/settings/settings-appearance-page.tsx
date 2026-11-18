@@ -61,7 +61,7 @@ export function SettingsAppearancePage(): ReactNode {
     }
     try {
       await save({ themeMode, posterDensity });
-      toast.success('外观偏好已就地保存并生效');
+      toast.success('外观偏好已保存');
     } catch (cause: unknown) {
       toast.error(formatApiError(cause));
     }

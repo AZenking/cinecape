@@ -105,16 +105,18 @@ function SettingsSubmenu({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <ListBox
-            aria-label="设置模块"
-            className="w-full"
-            selectionMode="single"
-            disallowEmptySelection
-            selectedKeys={[current.key]}
-            onSelectionChange={navigateOnSelection}
-          >
-            {mainGroups.map(renderSection)}
-          </ListBox>
+          {mainGroups.length > 0 ? (
+            <ListBox
+              aria-label="设置模块"
+              className="w-full"
+              selectionMode="single"
+              disallowEmptySelection
+              selectedKeys={[current.key]}
+              onSelectionChange={navigateOnSelection}
+            >
+              {mainGroups.map(renderSection)}
+            </ListBox>
+          ) : null}
         </div>
 
         <div className="mt-4 flex flex-col border-t border-border/20 pb-1 pt-4">

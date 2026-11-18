@@ -5,18 +5,20 @@
  * - 未认证(anonymous)→ 平滑回首页并提示登录,不误报「需要管理员权限」;
  * - 会话恢复中(restoring / checking)时阻止错误判定,呈现轻量加载提示;
  * - 检查当前 Profile 是否为主管理员(isMainProfile);非管理员阻止受限子路由渲染,
- *   通过 useNavigate 平滑重定向至 '/settings/playback' 并提示;
+ *   通过 useNavigate 平滑重定向至个人可见的设置页(/settings/playback;个人偏好
+ *   关闭时回落到 /settings/profile)并提示;
  * - 调用 Toast 提示「该页面需要管理员权限」。
  */
 import { useEffect, useRef, type ReactNode } from 'react';
 import { useNavigate, Outlet } from 'react-router';
 import { useOptionalSession } from '../../../app/session-provider';
+import { PERSONAL_PREFS_ENABLED } from '../../../shared/feature-flags';
 import { useOptionalSettingsAccess } from '../settings-access-provider';
 import { useAppToast, LoadingSpinner } from '../../../shared/ui';
 
 export interface AdminRouteGuardProps {
   children?: ReactNode;
-  /** 重定向目的地，默认 '/settings/playback' */
+  /** 重定向目的地，默认个人偏好页；个人偏好关闭时回落到「我的档案」 */
   redirectTo?: string;
   /** 权限不足时的 Toast 提示，默认 '该页面需要管理员权限' */
   deniedMessage?: string;
@@ -24,7 +26,7 @@ export interface AdminRouteGuardProps {
 
 export function AdminRouteGuard({
   children,
-  redirectTo = '/settings/playback',
+  redirectTo = PERSONAL_PREFS_ENABLED ? '/settings/playback' : '/settings/profile',
   deniedMessage = '该页面需要管理员权限',
 }: AdminRouteGuardProps): ReactNode {
   const navigate = useNavigate();

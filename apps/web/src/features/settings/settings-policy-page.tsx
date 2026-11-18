@@ -17,6 +17,7 @@ import { useAppMutation, useAppQuery } from '../../shared/query/hooks';
 import { queryKeys } from '../../shared/query/keys';
 import { formatApiError } from '../../shared/query/error';
 import { privateFetch } from '../../shared/fetch';
+import { VOD_ENABLED } from '../../shared/feature-flags';
 import { classifySettingsWriteError } from './shared/access-expiry';
 import type { PolicyDto, ProfileSummary } from './shared/settings-api';
 import { useSettingsAccess } from './settings-access-provider';
@@ -286,18 +287,25 @@ function PolicyEditor({ profileId }: { profileId: string }): ReactNode {
             </Card.Content>
           </Card>
 
-          <ListEditor
-            name="allowedMediaIds"
-            label="媒体允许名单(每行一个媒体 ID)"
-            ids={draft.allowedMediaIds}
-            onChange={(ids) => setOverrides({ ...overrides, allowedMediaIds: ids })}
-          />
-          <ListEditor
-            name="blockedMediaIds"
-            label="媒体禁止名单(每行一个媒体 ID)"
-            ids={draft.blockedMediaIds}
-            onChange={(ids) => setOverrides({ ...overrides, blockedMediaIds: ids })}
-          />
+          {/* 媒体允许/禁止名单只对点播资源有意义:ID 取自媒体库,v1 无点播入口
+              可查 ID —— 先隐藏两个编辑器;保存名单时仍原样回传服务端现值,
+              不做清空(整体替换语义下不能缺字段)。 */}
+          {VOD_ENABLED ? (
+            <>
+              <ListEditor
+                name="allowedMediaIds"
+                label="媒体允许名单(每行一个媒体 ID)"
+                ids={draft.allowedMediaIds}
+                onChange={(ids) => setOverrides({ ...overrides, allowedMediaIds: ids })}
+              />
+              <ListEditor
+                name="blockedMediaIds"
+                label="媒体禁止名单(每行一个媒体 ID)"
+                ids={draft.blockedMediaIds}
+                onChange={(ids) => setOverrides({ ...overrides, blockedMediaIds: ids })}
+              />
+            </>
+          ) : null}
           <ListEditor
             name="allowedChannelIds"
             label="频道白名单(每行一个频道 ID)"

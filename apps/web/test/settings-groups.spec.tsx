@@ -1,5 +1,5 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
-import { VOD_ENABLED } from '../src/shared/feature-flags';
+import { PERSONAL_PREFS_ENABLED, VOD_ENABLED } from '../src/shared/feature-flags';
 import { MemoryRouter, Navigate, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -41,13 +41,18 @@ import { queryClient as appQueryClient } from '../src/shared/query/client';
  * - 账号与安全组(system):account(账号信息)。
  */
 const PERSONAL_KEYS = ['playback', 'appearance', 'profile'] as const;
-/** 侧栏导航实际渲染的个人偏好键(profile 已收敛到顶栏身份菜单入口) */
-const PERSONAL_NAV_KEYS = ['playback', 'appearance'] as const;
+/**
+ * 侧栏导航实际渲染的个人偏好键(profile 已收敛到顶栏身份菜单入口)。
+ * v1 暂未接入播放/主题偏好:playback/appearance 隐藏 → 个人偏好分组整体不出现。
+ */
+const PERSONAL_NAV_KEYS = PERSONAL_PREFS_ENABLED ? (['playback', 'appearance'] as const) : ([] as const);
 const HOUSEHOLD_KEYS = ['iptv', 'sources', 'profiles', 'policy', 'devices', 'general'] as const;
 /** 侧栏可见的家庭管理键(v1 只做直播时 sources=NAS/点播 隐藏,inNav=false) */
 const HOUSEHOLD_NAV_KEYS = VOD_ENABLED ? HOUSEHOLD_KEYS : (['iptv', 'profiles', 'policy', 'devices', 'general'] as const);
 const SYSTEM_KEYS = ['account'] as const;
 const GROUP_ORDER: readonly SettingsModuleGroup[] = ['personal', 'household', 'system'];
+/** 导航视图中出现分组的键顺序(个人偏好为空时整组被过滤) */
+const NAV_GROUP_ORDER = PERSONAL_PREFS_ENABLED ? GROUP_ORDER : (['household', 'system'] as const);
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -136,7 +141,14 @@ function renderSettingsRoutes(path: string): { unmount: () => void } {
               <Route
                 key={module.key}
                 path={module.key}
-                element={<SettingsModulePlaceholder moduleName={module.title} scope={module.scope ?? ''} />}
+                element={
+                  // 与 routes.tsx 对齐:个人偏好关闭时深链回落「我的档案」
+                  (module.key === 'playback' || module.key === 'appearance') && !PERSONAL_PREFS_ENABLED ? (
+                    <Navigate to="/settings/profile" replace />
+                  ) : (
+                    <SettingsModulePlaceholder moduleName={module.title} scope={module.scope ?? ''} />
+                  )
+                }
               />
             ))}
             <Route path="*" element={<NotFoundPage />} />
@@ -187,51 +199,75 @@ describe('T030 · 设置分组渲染(ui.md §5 / FR-024 / FR-025 注记 / Q1)', 
     expect(screen.queryByText(/关于与帮助/)).toBeNull();
   });
 
-  it('013 US1:个人偏好组就位——注册表含 3 个 personal 模块,导航视图含 playback/appearance(profile 入口收敛到身份菜单)', async () => {
+  it('013 US1:个人偏好组就位——注册表含 3 个 personal 模块;导航视图随开关展示 playback/appearance(profile 入口收敛到身份菜单)', async () => {
     expect(SETTINGS_MODULES.filter((module) => module.group === 'personal').map((module) => module.key)).toEqual([
       ...PERSONAL_KEYS,
     ]);
     const personal = settingsModuleGroups().find((group) => group.key === 'personal');
-    expect(personal, '全量视图(主管理员)含个人偏好组').toBeDefined();
-    expect(personal!.modules.map((module) => module.key)).toEqual([...PERSONAL_NAV_KEYS]);
+    if (PERSONAL_PREFS_ENABLED) {
+      expect(personal, '全量视图(主管理员)含个人偏好组').toBeDefined();
+      expect(personal!.modules.map((module) => module.key)).toEqual([...PERSONAL_NAV_KEYS]);
+    } else {
+      // v1 暂未接入播放/主题偏好:两个入口都隐藏,空分组被过滤
+      expect(personal, '个人偏好隐藏后不出现空分组').toBeUndefined();
+    }
     renderSettingsRoutes('/settings/account');
     const nav = await screen.findByRole('navigation', { name: '设置子菜单' });
-    expect(within(nav).getByText('个人偏好')).toBeVisible();
-    for (const title of ['播放体验', '界面外观']) {
-      expect(within(nav).getByRole('option', { name: title })).toBeVisible();
+    if (PERSONAL_PREFS_ENABLED) {
+      expect(within(nav).getByText('个人偏好')).toBeVisible();
+      for (const title of ['播放体验', '界面外观']) {
+        expect(within(nav).getByRole('option', { name: title })).toBeVisible();
+      }
+    } else {
+      expect(within(nav).queryByText('个人偏好')).toBeNull();
+      for (const title of ['播放体验', '界面外观']) {
+        expect(within(nav).queryByRole('option', { name: title })).toBeNull();
+      }
     }
     // 我的档案不进侧栏导航(入口 = 顶栏身份菜单),但路由/面包屑仍可达
     expect(within(nav).queryByRole('option', { name: '我的档案' })).toBeNull();
   });
 
-  it('分组视图:按 个人偏好→家庭管理→账号与安全 顺序聚合(013 全量视图三组俱全)', () => {
+  it('分组视图:按 个人偏好→家庭管理→账号与安全 顺序聚合(个人偏好隐藏时只剩后两组)', () => {
     expect(SETTINGS_GROUPS.map((group) => group.key)).toEqual(GROUP_ORDER); // 既定组顺序
     const view = settingsModuleGroups();
-    expect(view.map((group) => group.key)).toEqual(['personal', 'household', 'system']);
-    expect(view.map((group) => group.label)).toEqual(['个人偏好', '家庭管理', '账号与安全']);
-    expect(view[0]!.modules.map((module) => module.key)).toEqual([...PERSONAL_NAV_KEYS]);
-    expect(view[1]!.modules.map((module) => module.key)).toEqual([...HOUSEHOLD_NAV_KEYS]);
-    expect(view[2]!.modules.map((module) => module.key)).toEqual([...SYSTEM_KEYS]);
+    expect(view.map((group) => group.key)).toEqual([...NAV_GROUP_ORDER]);
+    const labels = PERSONAL_PREFS_ENABLED ? ['个人偏好', '家庭管理', '账号与安全'] : ['家庭管理', '账号与安全'];
+    expect(view.map((group) => group.label)).toEqual(labels);
+    if (PERSONAL_PREFS_ENABLED) {
+      expect(view[0]!.modules.map((module) => module.key)).toEqual([...PERSONAL_NAV_KEYS]);
+      expect(view[1]!.modules.map((module) => module.key)).toEqual([...HOUSEHOLD_NAV_KEYS]);
+      expect(view[2]!.modules.map((module) => module.key)).toEqual([...SYSTEM_KEYS]);
+    } else {
+      expect(view[0]!.modules.map((module) => module.key)).toEqual([...HOUSEHOLD_NAV_KEYS]);
+      expect(view[1]!.modules.map((module) => module.key)).toEqual([...SYSTEM_KEYS]);
+    }
   });
 
-  it('布局:左侧按组渲染,组头为加粗标题并标注作用范围,组顺序 个人偏好→家庭管理→账号与安全;链接集合与注册表一致', async () => {
+  it('布局:左侧按组渲染,组头为加粗标题并标注作用范围,组顺序随开关;链接集合与注册表一致', async () => {
     renderSettingsRoutes('/settings/account');
     const nav = await screen.findByRole('navigation', { name: '设置子菜单' });
-    const personal = screen.getByTestId('settings-group-personal');
     const household = screen.getByTestId('settings-group-household');
     const system = screen.getByTestId('settings-group-system');
-    // 组顺序:个人偏好 → 家庭管理 → 账号与安全
-    expect(personal.compareDocumentPosition(household) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    if (PERSONAL_PREFS_ENABLED) {
+      const personal = screen.getByTestId('settings-group-personal');
+      // 组顺序:个人偏好 → 家庭管理 → 账号与安全
+      expect(personal.compareDocumentPosition(household) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(within(personal).getByText('个人偏好')).toBeVisible();
+      expect(within(personal).queryByText('仅当前 Profile')).toBeNull();
+    } else {
+      // 个人偏好隐藏后不渲染空分组
+      expect(screen.queryByTestId('settings-group-personal')).toBeNull();
+      expect(within(nav).queryByText('个人偏好')).toBeNull();
+    }
     expect(household.compareDocumentPosition(system) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // 组头仅呈现分组名(作用范围标注已按设计要求从侧栏移除)
-    expect(within(personal).getByText('个人偏好')).toBeVisible();
-    expect(within(personal).queryByText('仅当前 Profile')).toBeNull();
     expect(within(household).getByText('家庭管理')).toBeVisible();
     expect(within(household).queryByText('需要管理授权')).toBeNull();
     // 账号与安全组头可见(无「仅当前账号」范围标注)
     expect(within(system).getByText('账号与安全')).toBeVisible();
     expect(within(system).queryByText('仅当前账号')).toBeNull();
-    // 分组不丢选项:九条导航选项(inNav=false 的 profile 除外)、顺序与注册表一致(= 渲染顺序);
+    // 分组不丢选项:导航选项(inNav=false 的 profile/隐藏模块除外)、顺序与注册表一致(= 渲染顺序);
     // ListBox 选项 = 图标 + 模块标题(范围标注统一在组头,不再渲染模块级 Description)
     const navModules = SETTINGS_MODULES.filter((module) => module.inNav !== false);
     const options = within(nav).getAllByRole('option');
@@ -254,10 +290,13 @@ describe('T030 · 设置分组渲染(ui.md §5 / FR-024 / FR-025 注记 / Q1)', 
     expect(await screen.findByTestId('settings-current-module')).toHaveTextContent('家庭设置');
   });
 
-  it('路由不变:十条 /settings/{key} 全部可达且面包屑正确(菜单拆分:sources 键渲染「NAS/点播」,面包屑随注册表自动更新);/settings 默认打开 account;未知子路径元数据回落 account', async () => {
+  it('路由:十条 /settings/{key} 均注册且面包屑正确;个人偏好隐藏时深链回落「我的档案」;/settings 默认打开 account;未知子路径元数据回落 account', async () => {
+    const HIDDEN_PERSONAL_KEYS = ['playback', 'appearance'];
     for (const module of SETTINGS_MODULES) {
       const view = renderSettingsRoutes(settingsModulePath(module.key));
-      expect(await screen.findByTestId('settings-current-module')).toHaveTextContent(module.title);
+      const expectedTitle =
+        !PERSONAL_PREFS_ENABLED && HIDDEN_PERSONAL_KEYS.includes(module.key) ? '我的档案' : module.title;
+      expect(await screen.findByTestId('settings-current-module')).toHaveTextContent(expectedTitle);
       view.unmount();
     }
     // 默认模块:/settings → account(路由与注册表默认均不变)

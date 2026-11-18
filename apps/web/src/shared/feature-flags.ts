@@ -19,3 +19,19 @@ export const VOD_ENABLED = false;
 
 /** 便于条件渲染的语义化别名(读起来更像产品语言) */
 export const isVodVisible = VOD_ENABLED;
+
+/**
+ * 个人偏好设置开关(播放体验 / 界面外观)。
+ *
+ * v1 暂未接入生效链路:这两个页面写入的字段(defaultAudioLanguage /
+ * defaultSubtitleLanguage / autoPlayNext / themeMode / posterDensity)
+ * 目前没有任何消费方——播放器音轨/字幕是会话内临时选择,主题固定暗色,
+ * 海报密度属于点播海报墙。用户改了不会生效,先隐藏入口与深链。
+ *
+ * 恢复方式:把开关改回 true。页面组件、路由、接口与注册表均保留;
+ * 真正恢复前需先让播放链路与主题读取这些偏好(见 AGENTS/ADR 记录)。
+ */
+export const PERSONAL_PREFS_ENABLED = false;
+
+/** 语义化别名(设置侧栏/深链守卫共用) */
+export const isPersonalPrefsVisible = PERSONAL_PREFS_ENABLED;

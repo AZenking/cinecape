@@ -358,7 +358,7 @@ describe('T009 / T011 / T012 · 个人偏好设置契约与组件交互(自动�
     const saveButton = screen.getByTestId('save-appearance-preferences');
     fireEvent.click(saveButton);
     await waitFor(() => {
-      expect(screen.getByTestId('app-toast-region')).toHaveTextContent('外观偏好已就地保存并生效');
+      expect(screen.getByTestId('app-toast-region')).toHaveTextContent('外观偏好已保存');
     });
 
     const putCall = recordedFetches.find((f) => f.method === 'PUT' && f.url.includes('/api/profile/preferences'));

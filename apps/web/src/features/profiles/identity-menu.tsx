@@ -7,13 +7,16 @@
  * - 登录未选档 = 账号 + 「选择 Profile」入口(bootstrapRequired 时先首建);
  * - 已选档 = 账号 + 头像/名称菜单(我的档案 / 切档 / 设置 / 退出);
  *   「我的档案」为 /settings/profile 的唯一导航入口(该页不再进设置侧栏);
- * - 只有当前主 Profile 显示设置入口(隐藏入口不替代 API 校验,FR-005/US7;
- *   /settings 路由权限最终由服务端 API 校验)。
+ * - 「设置」入口:主档案直达 /settings/account;普通成员在个人偏好可用时直达
+ *   /settings/playback,个人偏好暂未生效(feature-flags.PERSONAL_PREFS_ENABLED)
+ *   时普通成员没有可用的设置页 —— 隐藏「设置」,保留「我的档案」。
+ *   隐藏入口不替代 API 校验(FR-005/US7;/settings 路由权限最终由服务端 API 校验)。
  */
 import type { ReactNode } from 'react';
 import { Button, Dropdown } from '@heroui/react';
 import { useOptionalSession } from '../../app/session-provider';
 import { useOptionalAuthAction } from '../../app/action-coordinator';
+import { PERSONAL_PREFS_ENABLED } from '../../shared/feature-flags';
 
 export function IdentityMenu(): ReactNode {
   const sessionContext = useOptionalSession();
@@ -90,7 +93,8 @@ export function IdentityMenu(): ReactNode {
             {session.account.username}
           </Dropdown.Item>
           <Dropdown.Item id="profile">我的档案</Dropdown.Item>
-          <Dropdown.Item id="settings">设置</Dropdown.Item>
+          {/* 普通成员在个人偏好隐藏后没有可用设置页,不展示空入口 */}
+          {profile.isMain || PERSONAL_PREFS_ENABLED ? <Dropdown.Item id="settings">设置</Dropdown.Item> : null}
           <Dropdown.Item id="switch">切换 Profile</Dropdown.Item>
           <Dropdown.Item id="logout">退出登录</Dropdown.Item>
         </Dropdown.Menu>

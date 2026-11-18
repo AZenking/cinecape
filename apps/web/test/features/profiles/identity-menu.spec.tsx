@@ -7,6 +7,7 @@ import * as sessionModule from '../../../src/app/session-provider';
 import * as authModule from '../../../src/app/action-coordinator';
 import type { AccountSession } from '../../../src/app/session-types';
 import type { AuthActionApi } from '../../../src/app/action-coordinator';
+import { PERSONAL_PREFS_ENABLED } from '../../../src/shared/feature-flags';
 
 /**
  * 顶栏身份菜单入口(我的档案入口收敛):
@@ -52,12 +53,17 @@ function mockAuthAction(): AuthActionApi {
 
 /** 主管理员/普通成员双角色共 用例:菜单项 → startSettings 目标路径契约 */
 const NAV_CASES = [
-  { isMain: true, settingsTarget: '/settings/account' },
-  { isMain: false, settingsTarget: '/settings/playback' },
+  { isMain: true, settingsVisible: true, settingsTarget: '/settings/account' },
+  {
+    isMain: false,
+    // 普通成员的「设置」只通向个人偏好;偏好隐藏时没有可用设置页,入口一并隐藏
+    settingsVisible: PERSONAL_PREFS_ENABLED,
+    settingsTarget: '/settings/playback',
+  },
 ] as const;
 
 describe('顶栏身份菜单 · 我的档案入口(settings/profile 入口收敛)', () => {
-  for (const { isMain, settingsTarget } of NAV_CASES) {
+  for (const { isMain, settingsVisible, settingsTarget } of NAV_CASES) {
     it(`${isMain ? '主管理员' : '普通成员'}菜单含「我的档案」,点击直达 /settings/profile;「设置」目标保持 ${settingsTarget}`, async () => {
       const user = userEvent.setup();
       const auth = mockAuthAction();
@@ -89,11 +95,17 @@ describe('顶栏身份菜单 · 我的档案入口(settings/profile 入口收敛
       await user.click(profileItem);
       expect(auth.startSettings).toHaveBeenCalledWith('/settings/profile');
 
-      // 「设置」项既有目标保持不变
+      // 「设置」项:个人偏好可用时保持既有目标;隐藏时普通成员不出现空入口
       await user.click(trigger);
-      const settingsItem = screen.getByRole('menuitem', { name: '设置' });
-      await user.click(settingsItem);
-      expect(auth.startSettings).toHaveBeenCalledWith(settingsTarget);
+      const settingsItem = screen.queryByRole('menuitem', { name: '设置' });
+      if (settingsVisible) {
+        expect(settingsItem).not.toBeNull();
+        await user.click(settingsItem!);
+        expect(auth.startSettings).toHaveBeenCalledWith(settingsTarget);
+      } else {
+        expect(settingsItem).toBeNull();
+        expect(auth.startSettings).not.toHaveBeenCalledWith('/settings/playback');
+      }
     });
   }
 

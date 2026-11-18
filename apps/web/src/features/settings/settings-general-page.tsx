@@ -2,7 +2,8 @@
  * 家庭设置页(013 T018, US2; 角色差异化设置体系;原「通用设置」随侧栏分组语义化更名;
  * 013/ADR-0017 演进:常规运维免当次密码):
  * - 免临时 Ticket: 直接通过会话凭据读取家庭设置 (household: name, language, timezone);
- * - 家庭名称/语言/时区草稿以「服务端现值 + 覆盖层」承载(渲染期派生,零同步副作用);
+ * - 家庭名称/时区草稿以「服务端现值 + 覆盖层」承载(渲染期派生,零同步副作用);
+ * - 语言字段暂隐藏:全站未接入 i18n,改值不会切换界面;服务端字段与契约保留;
  * - 保存为 confirmed 变更(expectedVersion CAS,免当次密码直接提交):成功后失效键以
  *   服务端真值回填并清空覆盖层(等价原 setValues(saved));timezone 须为运行环境
  *   认可的 IANA 时区(提交前本地预检 + 服务端权威);
@@ -145,7 +146,7 @@ export function SettingsGeneralPage(): ReactNode {
           // 提示走 toast(带服务端现值说明 + 「读取现值并放弃我的编辑」动作;
           // 关闭/自动消失即「保留我的编辑」)
           toast.warning('设置已被其他操作修改,保存未生效;当前编辑已保留,可对比后重试。', {
-            description: `服务端现值:名称「${server.name}」/ 语言 ${server.language} / 时区 ${server.timezone} / 版本 ${server.version}`,
+            description: `服务端现值:名称「${server.name}」/ 时区 ${server.timezone} / 版本 ${server.version}`,
             actionLabel: '读取现值并放弃我的编辑',
             onAction: () => {
               setOverrides({});
@@ -177,16 +178,8 @@ export function SettingsGeneralPage(): ReactNode {
                   <Input name="name" maxLength={100} variant="secondary" />
                 </TextField>
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex flex-col gap-1">
-                  <span className="text-sm font-medium text-foreground">语言</span>
-                  <span className="text-xs text-muted">家庭默认使用的语言</span>
-                </div>
-                <TextField className="w-full shrink-0 sm:w-64" value={values.language} onChange={(language: string) => setOverrides({ ...overrides, language })}>
-                  <Label className="sr-only">语言(如 zh-CN)</Label>
-                  <Input name="language" maxLength={35} variant="secondary" />
-                </TextField>
-              </div>
+              {/* 语言:全站文案当前未接入 i18n,改值不会切换界面 —— 先隐藏入口,
+                  服务端字段与契约保留(defaultLanguage);接入多语言后再放出。 */}
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-col gap-1">
                   <span className="text-sm font-medium text-foreground">时区</span>

@@ -44,7 +44,7 @@ import { SettingsProfilePage } from '../features/settings/settings-profile-page'
 import { SettingsProfilesPage } from '../features/settings/settings-profiles-page';
 import { SettingsNasVodSourcesPage } from '../features/settings/settings-sources-page';
 import { NotFoundPage } from './NotFoundPage';
-import { VOD_ENABLED } from '../shared/feature-flags';
+import { PERSONAL_PREFS_ENABLED, VOD_ENABLED } from '../shared/feature-flags';
 
 export function AppRoutes(): ReactNode {
   return (
@@ -84,9 +84,17 @@ export function AppRoutes(): ReactNode {
         <Route index element={<Navigate to="/settings/account" replace />} />
         <Route path="account" element={<SettingsAccountPage />} />
 
-        {/* 个人偏好模块: 零门禁直达 (013 US1 / T010) */}
-        <Route path="playback" element={<SettingsPlaybackPage />} />
-        <Route path="appearance" element={<SettingsAppearancePage />} />
+        {/* 个人偏好模块: 零门禁直达 (013 US1 / T010)
+            v1 暂未接入生效链路(feature-flags.PERSONAL_PREFS_ENABLED=false):
+            入口隐藏,深链重定向到「我的档案」;页面组件与接口保留,翻开关即恢复。 */}
+        <Route
+          path="playback"
+          element={PERSONAL_PREFS_ENABLED ? <SettingsPlaybackPage /> : <Navigate to="/settings/profile" replace />}
+        />
+        <Route
+          path="appearance"
+          element={PERSONAL_PREFS_ENABLED ? <SettingsAppearancePage /> : <Navigate to="/settings/profile" replace />}
+        />
         <Route path="profile" element={<SettingsProfilePage />} />
 
         {/* 管理路由: 受 AdminRouteGuard 保护拦截 (013 US5 / T027) */}

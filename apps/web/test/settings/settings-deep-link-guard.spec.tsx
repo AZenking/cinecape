@@ -6,7 +6,11 @@ import type { ReactNode } from 'react';
 import type { AccountSession } from '../../src/app/session-types';
 import * as sessionModule from '../../src/app/session-provider';
 import { AppRoutes } from '../../src/app/routes';
+import { PERSONAL_PREFS_ENABLED } from '../../src/shared/feature-flags';
 import { queryClient } from '../../src/shared/query/client';
+
+/** 普通成员被管理路由拦截后的回落页:个人偏好关闭时为「我的档案」 */
+const MEMBER_SETTINGS_FALLBACK = PERSONAL_PREFS_ENABLED ? '/settings/playback' : '/settings/profile';
 
 // Mock useAppToast
 const mockToastError = vi.fn();
@@ -102,7 +106,7 @@ describe('T025 · SettingsDeepLinkGuard (013 US5)', () => {
     );
   });
 
-  it('普通成员直接访问受限管理路由 /settings/sources：被 AdminRouteGuard 拦截，弹出友好 Toast 并平滑重定向至 /settings/playback', async () => {
+  it(`普通成员直接访问受限管理路由 /settings/sources：被 AdminRouteGuard 拦截，弹出友好 Toast 并平滑重定向至 ${MEMBER_SETTINGS_FALLBACK}`, async () => {
     vi.spyOn(sessionModule, 'useOptionalSession').mockReturnValue({
       status: 'authenticated',
       session: createSession(false, '子成员'),
@@ -131,16 +135,22 @@ describe('T025 · SettingsDeepLinkGuard (013 US5)', () => {
     expect(screen.queryByTestId('sources-page')).toBeNull();
     expect(screen.queryByText('添加来源')).toBeNull();
 
-    // 3. 验证页面被平滑重定向至 /settings/playback
+    // 3. 验证页面被平滑重定向至个人可见的设置页
     await waitFor(() => {
-      expect(screen.getByTestId('current-location')).toHaveTextContent('/settings/playback');
+      expect(screen.getByTestId('current-location')).toHaveTextContent(MEMBER_SETTINGS_FALLBACK);
     });
 
-    // 4. 验证播放体验设置表单正常展示
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: '播放体验' })).toBeInTheDocument();
-      expect(screen.getByTestId('switch-autoplay-next')).toBeInTheDocument();
-    });
+    // 4. 验证回落页正常展示(个人偏好可用 = 播放体验表单;关闭 = 我的档案)
+    if (PERSONAL_PREFS_ENABLED) {
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '播放体验' })).toBeInTheDocument();
+        expect(screen.getByTestId('switch-autoplay-next')).toBeInTheDocument();
+      });
+    } else {
+      await waitFor(() => {
+        expect(screen.getByTestId('settings-profile-page')).toBeInTheDocument();
+      });
+    }
   });
 
   it('普通成员深链接直接访问其他受保护路由（如 /settings/policy, /settings/iptv, /settings/devices, /settings/general, /settings/profiles）均被拦截并重定向', async () => {
@@ -177,7 +187,7 @@ describe('T025 · SettingsDeepLinkGuard (013 US5)', () => {
 
       await waitFor(() => {
         expect(mockToastError).toHaveBeenCalledWith('该页面需要管理员权限');
-        expect(screen.getByTestId('current-location')).toHaveTextContent('/settings/playback');
+        expect(screen.getByTestId('current-location')).toHaveTextContent(MEMBER_SETTINGS_FALLBACK);
       });
 
       unmount();

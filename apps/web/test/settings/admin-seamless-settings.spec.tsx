@@ -258,7 +258,8 @@ describe('T014 · 管理员免二次验 PIN 畅行设置测试 (013 US2)', () =>
 
       // 等待通用设置数据加载完成并渲染输入字段
       expect(await screen.findByDisplayValue('我的家庭')).toBeInTheDocument();
-      expect(screen.getByDisplayValue('zh-CN')).toBeInTheDocument();
+      // v1 语言字段隐藏(全站未接入 i18n),只保留家庭名与时区
+      expect(screen.queryByDisplayValue('zh-CN')).toBeNull();
       expect(screen.getByDisplayValue('Asia/Shanghai')).toBeInTheDocument();
 
       // 用户就地修改家庭名称
