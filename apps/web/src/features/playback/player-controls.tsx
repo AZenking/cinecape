@@ -50,6 +50,11 @@ export interface PlayerControlsProps {
   readonly liveWindow?: PlayerLiveWindow | null;
   /** 缩小为右下角 mini 播放器(mini 态不渲染本控制栏,还原入口在播放面外壳) */
   readonly onToggleMinimize?: () => void;
+  /**
+   * 业务面板打开期间保持控制栏可见(如播放设置 Popover):置 true 时强制可见并
+   * 暂停 3 秒自动隐藏(触发钮不能随栏消失,否则面板失去锚点)。
+   */
+  readonly keepVisible?: boolean;
   /** 右侧业务动作区(播放设置/换源/线路/节目单) */
   readonly children?: ReactNode;
 }
@@ -75,6 +80,7 @@ export function PlayerControls({
   canSeek,
   liveWindow = null,
   onToggleMinimize,
+  keepVisible = false,
   children,
 }: PlayerControlsProps): ReactNode {
   const [playing, setPlaying] = useState(false);
@@ -87,6 +93,8 @@ export function PlayerControls({
   /** 拖动进度条期间以本地值显示,松手才写回媒体(避免 timeupdate 抢写) */
   const [scrubValue, setScrubValue] = useState<number | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 面板打开期间保持可见(计时器闭包读 ref,避免闭包捕获旧值) */
+  const keepVisibleRef = useRef(keepVisible);
 
   // 媒体事件 → 控件状态(单一事实来源:媒体元素本身)
   useEffect(() => {
@@ -147,6 +155,10 @@ export function PlayerControls({
       clearTimeout(hideTimerRef.current);
     }
     hideTimerRef.current = setTimeout(() => {
+      // 业务面板打开期间不隐藏(触发钮是面板锚点;关面板后由下方 effect 重新计时)
+      if (keepVisibleRef.current) {
+        return;
+      }
       const el = videoRef.current;
       if (el !== null && !el.paused) {
         setVisible(false);
@@ -162,6 +174,20 @@ export function PlayerControls({
       }
     };
   }, [revealControls]);
+
+  // 保持可见开关:打开即强制可见并清掉计时器;关闭后恢复自动隐藏计时
+  useEffect(() => {
+    keepVisibleRef.current = keepVisible;
+    if (keepVisible) {
+      setVisible(true);
+      if (hideTimerRef.current !== null) {
+        clearTimeout(hideTimerRef.current);
+        hideTimerRef.current = null;
+      }
+      return;
+    }
+    revealControls();
+  }, [keepVisible, revealControls]);
 
   // 唤出监听挂在**整个播放器容器**上(而非控制栏自身):控制栏隐藏后是
   // pointer-events-none,鼠标移到画面上时事件根本到不了栏内 —— 只挂栏上会导致

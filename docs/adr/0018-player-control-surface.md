@@ -59,8 +59,8 @@
 | 只读进度（直播节目进度） | `ProgressBar`（`value`/`minValue`/`maxValue`/`color`/`size` + `Track/Fill`，React Aria progressbar 语义） | ✅ 覆盖 | 直接使用（`aria-label=节目进度`，只读，不接受拖动） |
 | 直播/点播状态标识 | `Chip`（`variant=soft`、`color`、`size` + `Chip.Label`） | ✅ 覆盖 | 直播 = `Chip` `LIVE · 正在直播`（圆点 + 文字）；点播 = `Chip` `点播` |
 | 面板加载态 | `Skeleton` | ✅ 覆盖 | 切台面板加载骨架 |
-| 面板容器视觉 | `Surface` / `Card` | ✅ 覆盖 | 以语义 token 表达（面板为绝对定位覆盖层，未套 Surface 壳） |
-| 设置菜单面板 | `Popover`（portal 弹层，支持非模态） | ⚠️ 可用但未采用 | 现为自绘绝对定位弹层（`bottom-full end-0`），功能/键盘等价；**可迁移项，登记为技术债** |
+| 面板容器视觉 | `Surface` / `Card` / `Popover` | ✅ 覆盖 | 切台面板仍以语义 token 自绘绝对定位覆盖层（非模态、不 portal）；播放设置面板已迁 `Popover`（portal + 弹层表面，见下行） |
+| 设置菜单面板 | `Popover`（portal 弹层，支持非模态） | ✅ 覆盖（2026-11-18 迁移，T015） | `Popover` 复合组件：`Popover.Content`（`placement="top end"`、`offset=8`、`isNonModal`、portal）+ `Popover.Dialog`/`Heading` 承载音轨/字幕/清晰度/线路/换源；锚定控制栏触发钮（右缘对齐）、Esc/外部点击关闭；非模态只取消 aria-hidden/焦点陷阱，外部指针关闭由组件内一处最小收口补齐 |
 | 切台列表行 | `ListBox`（支持 Section/Virtualizer，Item 可含自定义子节点） | ⚠️ 可用但未采用 | 现为原生 `button` + 行内进度条；行内进度与「当前」标记属自定义内容，迁移收益低，登记为可选优化 |
 | 控制栏容器（画面覆盖、自动隐藏、暂停常显） | `Toolbar` 仅为布局分组原语，无播放器覆盖层/自动隐藏语义 | ❌ 无覆盖 | 自研 `PlayerControls` 容器（Button/Slider 仍来自 HeroUI） |
 | 播放器内**非模态**覆盖面板（不 portal、不 aria-hidden 播放器、不拦截播放） | `Sheet`/`Drawer` 带 backdrop 与拖拽关闭（模态覆盖）；`Popover` 为 portal 弹层 | ❌ 无覆盖 | 自研 `LiveGuidePanel`（`role="dialog"` + 绝对定位覆盖，播放器保持可交互） |
@@ -97,6 +97,7 @@
 
 **正**
 - 控制面统一为一套 HeroUI 语义视觉，与页面其余部分一致（约束 5/8/9 落地）。
+- 播放设置面板迁入 HeroUI `Popover`：弹层以 portal 渲染并锚定控制栏触发钮，面板与控制栏不再错位（右缘实测对齐、间距 8px），也不被播放器外壳/手机全出血面的 `overflow-hidden` 裁切；「当前」项同时有文字、aria-pressed、accent 淡染与尾部 Check（FR-030 不只靠颜色）。
 - 身份层移入画面顶栏后，playing 相位不再占用独立 header 高度，视频在圆角卡片内满铺；状态/标题/元数据与节目进度同屏可读，失败态仍保留极简 header。
 - 换流从「卸载重建」变为「原地换源」，播放中断只剩一次缓冲；`PlayerView` 的进度泵、探针、票据续期随 `sessionId` 变化自然重挂，无需额外生命周期。
 - 直播切台路径从「退出→列表→重播」缩短为「面板内一键」，且切台不再拆播放面（同一 `video` 节点、无 `preparing` 空窗）；切台数据与直播首页同源，无新增端点。
@@ -106,6 +107,7 @@
 - 自绘控制栏接管了原生控件的键盘可达性与移动端手势，需持续维护；当前未实现手势与 PiP（见 spec Out of Scope）。
 - 原地换流的失败分支只能「保持原线路 + 提示」，无法回滚到中间态；依赖旧会话 stop 的幂等性做卫生清理。
 - 自动隐藏的可发现性依赖容器级监听，属易回归点（已用单测钉住）。
+- 非模态 `Popover` 不自带外部点击关闭（`isNonModal` 只关闭 aria-hidden 与焦点陷阱），Esc/外部点击由 `playback-settings-overlay` 内一处最小监听收口；升级 HeroUI 时需复核该监听是否仍必要。
 - 控制栏密度与播放器容器宽度绑定（28rem 单断点）：新增控件或放宽间距时，320px 全出血面是最紧的实测界（当前无横向溢出）；mini 窗不挂控制栏，只看视频。
 - 手机全出血面覆盖页面，「边看边浏览」在 `<sm` 由 mini 窗承担；浮层的非模态语义只在大屏成立。
 - mini 只留「还原」一个控件：暂停、音量、退出都要先还原，窗口不可直退。这是本设计的取舍（最小化＝纯看画面）。
@@ -121,9 +123,10 @@
 
 ## Verification
 
-- 单元：`test/playback/player-controls.spec.tsx`（隐藏/唤回/悬停不隐藏/暂停可见 + 两行布局/只读节目进度/LIVE Chip）、`test/playback/playback-modal.spec.tsx`（身份层存在、外壳无 header、返回退出）、`test/vod-switch.spec.tsx`（换源入口经设置）、`test/playback/playback-settings.spec.tsx`（直播态无角标、设置面板）。
-- 运行/浏览器：两行控制栏（时间轴 + 动作行）、vjs 控制条 `display:none`、mini 尺寸与拖动、切台面板 14 行含进度且切台生效、playing 相位无外壳 header（身份在 PlayerView 顶栏，退出为返回图标）、unavailable 保留极简 header、设置面板线路/换源互斥。
+- 单元：`test/playback/player-controls.spec.tsx`（隐藏/唤回/悬停不隐藏/暂停可见 + 两行布局/只读节目进度/LIVE Chip + `keepVisible` 期间不自动隐藏）、`test/playback/playback-modal.spec.tsx`（身份层存在、外壳无 header、返回退出）、`test/vod-switch.spec.tsx`（换源入口经设置）、`test/playback/playback-settings.spec.tsx`（直播态无角标、设置面板 + Popover Esc/外部点击关闭且零媒体副作用）。
+- 运行/浏览器：两行控制栏（时间轴 + 动作行）、vjs 控制条 `display:none`、mini 尺寸与拖动、切台面板 14 行含进度且切台生效、playing 相位无外壳 header（身份在 PlayerView 顶栏，退出为返回图标）、unavailable 保留极简 header、设置面板为 Popover（锚定齿轮、Esc/外部点击关闭）且线路/换源互斥。
 - 分档实测（2026-11-18，真实 Chromium，播放中暂停常显控制栏）：外壳 1288/1024/768/640 为居中浮层（圆角 8、边框 1）、480/390/320 为全出血（0,0、无圆角边框）；控制栏行宽 1094/937/696/576/456/374/304 全部等于可用宽度（无溢出，紧凑档在 390/320 命中：音量 `display:none`、LIVE 胶囊 44×19 单行）；mini 300 窗行宽 282/282、音量隐藏。真机点播档的「当前时间 / 总时长」截断由 mock 会话与生成 CSS 探针各验一次（`@container (width < 28rem)` / `>= 28rem` 规则均在产物 CSS 内）。
 - 切台实测（2026-11-18，真实 Chromium，播放 CCTV-16 打开节目单点 CCTV-13）：修复前 100ms 采样 `surface=false, playback-preparing=true`，约 700ms 后才重挂；修复后全程 `surface=true`、`preparing=false`、`video` 同一节点、`paused=false`，约 660ms 标题由旧频道切到新频道，服务端日志为 `resolve 201 → session GET → renew 200 → stop 旧会话 204`（无新 `playStart`）。自动化：`test/features/live/in-place-zap.spec.tsx`（20ms 采样相位恒 `playing`；失败保持当前频道）。
 - mini/头部实测（2026-11-18，真实 Chromium）：头部 logo 装饰层 30×30 落在 32×32 盒内（修复前 1118×678 溢出被裁，图不可见），img natural 119、opacity 1、首字回退 opacity 0；mini 外壳 300×170、`header` 0 个、`PlayerControls` 不挂载、只剩 1 个「还原播放器」按钮（z-30、opacity 1），默认停机位底部留白 17px，从画面拖动 (−180, −120) 生效，真实鼠标点「还原」回到大窗。
-- 全量：`pnpm --filter @hmp/web exec vitest run` → 90 文件、593 通过 / 1 跳过（2026-11-18 操作台改版全量；新增 3 例两行控制栏/只读节目进度/身份层断言）；`tsc --noEmit`、eslint 零告警。
+- 设置 Popover 实测（2026-11-18，真实 Chromium，直播播放中；1440×900 与 390×844 模拟）：齿轮 1159..1190 × 725..756 / 面板 903..1191 × 468..717（右缘差 0px、间距 8px、面板 288×249）；390×844 齿轮 284..315、面板 28..316 × 231..484（右缘差 1px、面板 288×253，视口内不裁切）；`role=dialog` 名「播放设置」恰 1 个（`SECTION`），打开/关闭前后 `video.paused=false`、媒体节点不变；Esc 与外部点击均关闭；面板开启 >3.6s 控制栏 `opacity=1`（齿轮仍在原位）。
+- 全量：本次增量新增 3 例（播放设置 Esc/外部点击关闭 2 例、控制栏 `keepVisible` 1 例）→ 90 文件、596 通过 / 1 跳过；与并行任务未提交的 `programme-reminder.spec.tsx`（2 例）同时在树时全量为 91 文件、598 通过 / 1 跳过。`tsc --noEmit`、eslint 零告警。

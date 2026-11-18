@@ -750,6 +750,7 @@ export function PlayerView({
           canSeek={seekCapability !== 'none'}
           liveWindow={liveWindow}
           onToggleMinimize={onToggleMinimize}
+          keepVisible={trackSelection.open}
         >
           {/* 直播节目单(切台器):点击在播放器内呼出正在直播列表 */}
           {isLive && onZapChannel !== undefined ? (

@@ -15,15 +15,23 @@ import { PlayerControls, type PlayerLiveWindow } from '../../src/features/playba
 function Harness({
   isLive = true,
   liveWindow = null,
+  keepVisible = false,
 }: {
   readonly isLive?: boolean;
   readonly liveWindow?: PlayerLiveWindow | null;
+  readonly keepVisible?: boolean;
 }): ReactNode {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   return (
     <div data-testid="player-host">
       <video ref={videoRef} data-testid="fake-video" />
-      <PlayerControls videoRef={videoRef} isLive={isLive} canSeek={!isLive} liveWindow={liveWindow} />
+      <PlayerControls
+        videoRef={videoRef}
+        isLive={isLive}
+        canSeek={!isLive}
+        liveWindow={liveWindow}
+        keepVisible={keepVisible}
+      />
     </div>
   );
 }
@@ -95,6 +103,30 @@ describe('PlayerControls · 自动隐藏与悬浮唤回', () => {
       vi.advanceTimersByTime(6000);
     });
     expect(controlsClass()).toContain('opacity-100');
+  });
+
+  it('keepVisible(播放设置面板打开):强制可见且不自动隐藏;关闭后恢复 3 秒计时', () => {
+    const { rerender } = render(<Harness />);
+    markPlaying();
+    act(() => {
+      vi.advanceTimersByTime(3200);
+    });
+    expect(controlsClass()).toContain('opacity-0');
+
+    // 打开面板:立刻强制可见,且超时后仍不隐藏(触发钮是面板锚点)
+    rerender(<Harness keepVisible />);
+    expect(controlsClass()).toContain('opacity-100');
+    act(() => {
+      vi.advanceTimersByTime(6000);
+    });
+    expect(controlsClass()).toContain('opacity-100');
+
+    // 面板关闭:恢复自动隐藏
+    rerender(<Harness keepVisible={false} />);
+    act(() => {
+      vi.advanceTimersByTime(3200);
+    });
+    expect(controlsClass()).toContain('opacity-0');
   });
 });
 describe('PlayerControls · 两行控制栏(019 操作台 mock)', () => {

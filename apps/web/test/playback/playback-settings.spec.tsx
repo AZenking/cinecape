@@ -284,6 +284,36 @@ describe('T028 · 播放设置浮层:开/关不中断播放(FR-023)', () => {
     expect(screen.getByText('暂无可切换音轨')).toBeInTheDocument();
     expect(screen.getByText('暂无可切换字幕')).toBeInTheDocument();
   });
+
+  it('A4 Popover 浮层:Esc 关闭(零媒体副作用),触发钮点击可再开/再关', async () => {
+    renderPlayer();
+    await openSettings();
+    expect(screen.getByRole('dialog', { name: '播放设置' })).toBeInTheDocument();
+    const callsAtOpen = fakePlayerState.calls.length;
+
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('playback-settings')).not.toBeInTheDocument());
+    expect(fakePlayerState.calls.length).toBe(callsAtOpen);
+
+    // 触发钮再开 → 再点触发钮关闭(不是「关掉又重开」)
+    fireEvent.click(screen.getByRole('button', { name: '播放设置' }));
+    await waitFor(() => expect(screen.getByTestId('playback-settings')).toBeInTheDocument());
+    fireEvent.pointerDown(screen.getByRole('button', { name: '播放设置' }));
+    fireEvent.click(screen.getByRole('button', { name: '播放设置' }));
+    await waitFor(() => expect(screen.queryByTestId('playback-settings')).not.toBeInTheDocument());
+  });
+
+  it('A5 Popover 浮层:外部指针按下关闭(锚定触发钮的非模态弹层)', async () => {
+    renderPlayer();
+    await openSettings();
+    fireEvent.pointerDown(document.body);
+    await waitFor(() => expect(screen.queryByTestId('playback-settings')).not.toBeInTheDocument());
+    // 面板内部指针按下不关闭(选择项自身处理)
+    fireEvent.click(screen.getByRole('button', { name: '播放设置' }));
+    await waitFor(() => expect(screen.getByTestId('playback-settings')).toBeInTheDocument());
+    fireEvent.pointerDown(screen.getByRole('button', { name: '关闭(当前)' }));
+    expect(screen.getByTestId('playback-settings')).toBeInTheDocument();
+  });
 });
 
 // ────────────────────────── B · 字幕切换(CAS/同会话/零请求冗余) ──────────────────────────

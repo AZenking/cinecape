@@ -98,7 +98,7 @@
   - unavailable 相位 MUST 保留极简 header（logo + 标题 + 退出）。
 - **FR-009**：画面内 MUST NOT 渲染「正在直播」常驻角标与「进度不可保存」常驻提示；直播状态由控制栏 LIVE 胶囊承载。
 - **FR-010**：换流入口 MUST 二选一：直播（`isLive`）仅「线路」（`lines.length ≥ 2`），点播仅「换源」；两者不得同时出现。
-- **FR-011**：控制栏与设置面板 MUST 保持键盘可达（HeroUI/React Aria 焦点语义），面板限高可滚动，长线路名截断且完整名称进 `aria-label`。
+- **FR-011**（2026-11-18 修订，设置面板改 Popover）：控制栏与设置面板 MUST 保持键盘可达（HeroUI/React Aria 焦点语义），面板限高可滚动，长线路名截断且完整名称进 `aria-label`。设置面板 MUST 为 HeroUI v3 `Popover` 复合组件：portal 渲染并锚定控制栏触发钮（`placement="top end"`、`isNonModal`），Esc 与外部点击 MUST 关闭，390px 全出血面不得被播放器外壳裁切；开关面板 MUST NOT 触媒体元素（FR-023 不中断播放）、MUST NOT 出现跳转完整设置页入口（FR-020 既有不变量不变）。
 
 ### HeroUI 能力缺口（约束 5 偏离记录）
 
@@ -130,7 +130,8 @@
 |---|---|---|
 | 自绘控制栏 | `apps/web/src/features/playback/player-controls.tsx` | `test/playback/player-controls.spec.tsx` |
 | 引擎控件关闭 | `video-player.tsx`（`nativeControls`） | 浏览器实测 vjs-control-bar `display:none` |
-| 控制栏接线/设置收敛 | `player-view.tsx`、`playback-settings-overlay.tsx` | `test/vod-switch.spec.tsx`（换源入口经设置） |
+| 控制栏接线/设置收敛 | `player-view.tsx`、`playback-settings-overlay.tsx`（HeroUI `Popover`） | `test/vod-switch.spec.tsx`（换源入口经设置）；`test/playback/playback-settings.spec.tsx`（Popover Esc/外部点击关闭、开关零媒体副作用） |
+| 播放设置 Popover 锚定与常显 | `playback-settings-overlay.tsx`（`Popover.Content`+`Dialog`）、`player-controls.tsx`（`keepVisible`） | `test/playback/player-controls.spec.tsx`（keepVisible 期间不自动隐藏）；浏览器实测 1440×900 / 390×844：面板右缘与齿轮对齐（0/1px）、间距 8px、`role=dialog` 名「播放设置」、Esc/外部点击关闭、视频 `paused=false`、面板开启 >3.6s 控制栏仍可见 |
 | 原地换线/切台 | `action-coordinator.tsx`（`switchSessionInPlace` + `playRetarget`） | `test/features/live/in-place-zap.spec.tsx`；浏览器实测（播放面不重建） |
 | 直播切台面板 | `features/live/components/LiveGuidePanel.tsx` | 浏览器实测 14 行含进度、点击切台（原地换装，播放面不卸载） |
 | mini 播放器 | `action-coordinator.tsx`（`minimized`/拖动） | 浏览器实测 300×200、拖动生效 |
