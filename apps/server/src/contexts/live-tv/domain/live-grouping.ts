@@ -28,7 +28,7 @@ export interface GroupTitleSource {
 /**
  * group_title 存储值域归一化:trim;空白(含全空白)→ null;
  * 超长(>100,trim 后)→ null(防御;写入侧由导入链路校验失败拦截,不截断伪造)。
- * 非字符串输入按缺失处理。
+ * 非字符串输入按缺失处理;上游占位字面量「undefined」(大小写不敏感)→ null。
  */
 export function normalizeGroupTitle(raw: unknown): string | null {
   if (typeof raw !== 'string') {
@@ -36,6 +36,11 @@ export function normalizeGroupTitle(raw: unknown): string | null {
   }
   const trimmed = raw.trim();
   if (trimmed === '' || trimmed.length > GROUP_TITLE_MAX_LENGTH) {
+    return null;
+  }
+  // 上游 iptv-org 的 cn.m3u 对未分类频道写 group-title="Undefined"(占位,不是分组名);
+  // 按 FR-023「缺失归入其他」视同缺失,避免公开分组列表出现字面量 Undefined。
+  if (trimmed.toLowerCase() === 'undefined') {
     return null;
   }
   return trimmed;

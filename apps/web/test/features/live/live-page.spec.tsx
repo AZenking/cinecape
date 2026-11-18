@@ -232,9 +232,10 @@ describe('直播页分区与内容(T061)', () => {
     const nowRegion = screen.getByRole('region', { name: '正在直播' });
     expect(hero.compareDocumentPosition(nowRegion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-    // 分类区以分类标题逐行平铺(FR-004;015 各分类泳道取代 012 分组聚合行)
-    expect(screen.getByRole('heading', { name: '新闻 · 正在直播' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: '其他 · 正在直播' })).toBeTruthy();
+    // 分类区以分类标题逐行平铺(FR-004;015 各分类泳道取代 012 分组聚合行);
+    // 行标题即分组名本身,不拼「· 正在直播」
+    expect(screen.getByRole('heading', { name: '新闻' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '其他' })).toBeTruthy();
     // 每个分类行尾无条件提供「全部XX频道」入口(FR-004 MUST;3 个分组 = 3 个入口)
     expect(screen.getAllByRole('button', { name: /全部.+频道 ›/ }).length).toBe(3);
     // 行尾入口存在:正在直播区(文案由 015 T012 演进:全部正在直播)与即将播放区(查看更多)

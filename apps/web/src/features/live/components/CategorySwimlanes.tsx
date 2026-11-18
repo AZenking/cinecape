@@ -16,7 +16,8 @@ import type { LiveResource } from '../hooks/use-live-sections';
  *   以服务端分组列表为准,无对应频道的分组照常出空态行(不把空组当无分组);
  * - 每行 = SectionFrame(四态:加载骨架/空/失败可重试/正常)+ MediaScroller 横滑
  *   (溢出限于行内,ui.md §8),频道卡复用 ChannelTile(slot='current',
- *   Hover ▶ 一键起播由 T004 双层交互承担);
+ *   Hover ▶ 一键起播由 T004 双层交互承担);行标题只显示分组名本身
+ *   (不拼「· 正在直播」,「正在直播」语义由页面顶部 NowSection 承担);
  * - 行尾 [全部XX频道 ›](FR-004 MUST):经 onViewAll 回调导出,宿主 LivePage 接
  *   navigate(`/live/channels?group=${key}`)(该路由由 Wave 3 注册,注册前跳转
  *   暂 404 属预期中间态,routing-and-url-state.md §2.2);
@@ -65,7 +66,7 @@ export function CategorySwimlanes({
     return (
       <SectionFrame
         key={groupKey}
-        title={`${label} · 正在直播`}
+        title={label}
         subtitle={`${rows.length} 个可用频道`}
         status={channelsResource.status}
         hasStaleContent={channels !== null}
@@ -89,7 +90,7 @@ export function CategorySwimlanes({
         }
       >
         {preview.length > 0 ? (
-          <MediaScroller label={`${label} · 正在直播`}>
+          <MediaScroller label={label}>
             {preview.map((row) => (
               <li key={row.media.id} className="w-60 shrink-0 snap-start sm:w-64 lg:w-72">
                 <ChannelTile

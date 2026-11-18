@@ -4,7 +4,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  * 015 T023 · 端到端走查(live-flow-redesign;quickstart.md 场景 1→5 全旅程):
  *
  * - Screen 1 `/live`:LiveHeroPlayer 直接播放大屏(data-testid=live-hero-player)→
- *   正在直播行 → 即将播放行 → 各分类泳道(行名 `${label} · 正在直播`)自上而下;
+ *   正在直播行 → 即将播放行 → 各分类泳道(行名 = 分组名 `${label}`)自上而下;
  *   卡片 hover 浮现中央 ▶(015 T004 双层交互),点击直接起播(游客 → 统一登录
  *   弹层,授权前零媒体流请求);
  * - 智能分流(FR-003/FR-004):正在直播行尾「全部正在直播 ›」直达 `/live/guide`;
@@ -130,14 +130,14 @@ test.describe('015 T023 · 直播全流程重构走查(quickstart 场景 1→5)'
     expect(nowY).toBeLessThan(nextY);
     expect(nextY).toBeLessThan(groupY);
 
-    // 分类泳道行名 = `${label} · 正在直播`(数据驱动;不锚定具体标签)
+    // 分类泳道行名 = 分组名本身 `${label}`(不拼「· 正在直播」;数据驱动,不锚定具体标签)
     const groups = await fetchJson<{ items: Array<{ key: string; label: string }> }>(
       page.request,
       '/api/public/live/groups',
     );
     expect(groups.items.length).toBeGreaterThan(0);
     const firstLabel = groups.items[0]!.label;
-    await expect(page.getByRole('region', { name: `${firstLabel} · 正在直播`, exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: firstLabel, exact: true })).toBeVisible();
 
     // 卡片 hover → 中央 ▶ 平滑浮现(FR-005);点击直接起播:游客 → 认证 Modal,
     // 授权前零媒体流请求(不进入静态二级详情页;SC-001 路径长度 1 次点击)
@@ -170,7 +170,7 @@ test.describe('015 T023 · 直播全流程重构走查(quickstart 场景 1→5)'
       '/api/public/live/groups',
     );
     const target = groups.items[0]!;
-    const categoryRow = page.getByRole('region', { name: `${target.label} · 正在直播`, exact: true });
+    const categoryRow = page.getByRole('region', { name: target.label, exact: true });
     await expect(categoryRow).toBeVisible({ timeout: 30_000 });
     await categoryRow.getByRole('button', { name: `全部${target.label}频道 ›` }).click();
     await expect(page).toHaveURL(new RegExp(`/live/channels\\?group=${target.key}$`));

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { useLocation } from 'react-router';
 import { LivePage } from '../src/features/live/LivePage';
@@ -8,7 +7,6 @@ import { ActionCoordinator } from '../src/app/action-coordinator';
 import { SettingsAccessProvider } from '../src/features/settings/settings-access-provider';
 import {
   LIVE_NOW,
-  LIVE_PROGRAMME_STATES,
   LIVE_PROGRAMME_WINDOWS,
   LIVE_TEST_TIMEZONE,
   liveChannelPage,
@@ -133,9 +131,9 @@ describe('T014 · 直播首页页面顺序', () => {
     const hero = await screen.findByRole('region', { name: '直播精选大屏' });
     const now = screen.getByRole('region', { name: '正在直播' });
     const next = screen.getByRole('region', { name: '即将播放' });
-    const groupNews = screen.getByRole('region', { name: '例牌新闻 · 正在直播' });
-    const groupDrama = screen.getByRole('region', { name: '例牌剧场 · 正在直播' });
-    const groupKids = screen.getByRole('region', { name: '例牌少儿 · 正在直播' });
+    const groupNews = screen.getByRole('region', { name: '例牌新闻' });
+    const groupDrama = screen.getByRole('region', { name: '例牌剧场' });
+    const groupKids = screen.getByRole('region', { name: '例牌少儿' });
 
     expectDocumentOrder([hero, now, next, groupNews, groupDrama, groupKids]);
   });

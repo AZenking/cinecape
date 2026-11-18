@@ -36,6 +36,14 @@ describe('normalizeGroupTitle(存储值域归一化)', () => {
     expect(normalizeGroupTitle(42)).toBeNull();
   });
 
+  it('上游占位字面量 Undefined(大小写/前后空白不敏感)按缺失处理(NULL)', () => {
+    // iptv-org cn.m3u 对未分类频道写 group-title="Undefined"(占位,不是分组名);
+    // 按 FR-023「缺失归入其他」处理
+    expect(normalizeGroupTitle('Undefined')).toBeNull();
+    expect(normalizeGroupTitle('undefined')).toBeNull();
+    expect(normalizeGroupTitle(' UNDEFINED ')).toBeNull();
+  });
+
   it('超长(>100)不截断伪造:防御性归一化按缺失处理(写入侧由导入验证失败拦截)', () => {
     expect(normalizeGroupTitle('a'.repeat(101))).toBeNull();
     expect(normalizeGroupTitle(`  ${'b'.repeat(101)}  `)).toBeNull();
@@ -83,6 +91,11 @@ describe('pickMainGroupLabel(主分组选取)', () => {
 
   it('归一化在选取前执行:前置空白条目等同缺失,不遮蔽后续非空来源', () => {
     expect(pickMainGroupLabel([entry('s1', 'e1', '  '), entry('s2', 'e1', '纪录')])).toBe('纪录');
+  });
+
+  it('上游占位 Undefined 不参与主分组选取:首个非占位分组胜出,全占位归 NULL', () => {
+    expect(pickMainGroupLabel([entry('s1', 'e1', 'Undefined'), entry('s1', 'e2', 'News')])).toBe('News');
+    expect(pickMainGroupLabel([entry('s1', 'e1', 'Undefined'), entry('s2', 'e1', 'undefined')])).toBeNull();
   });
 });
 
