@@ -106,6 +106,9 @@ export function usePlaybackProgress(options: UsePlaybackProgressOptions): Playba
   // phase 上下文(generation 更新只 setPhase;渲染期同步,建控制器时取当前值)
   const generationRef = useRef(generation);
   generationRef.current = generation;
+  /** 当前会话身份(渲染期同步):旧会话的终局回调不得改写新会话的状态/提示 */
+  const activeSessionIdRef = useRef(sessionId);
+  activeSessionIdRef.current = sessionId;
 
   useEffect(() => {
     // 身份撤销/会话变化(T079):旧控制器统一收口(revoke=同一 stopOnce 唯一
@@ -124,15 +127,33 @@ export function usePlaybackProgress(options: UsePlaybackProgressOptions): Playba
     if (pending !== null && pending.sessionId === sessionId) {
       pendingTerminal = null;
     }
+    // 会话存活守卫:控制器收口是异步的(disposeLocal → 微任务 collectTerminal),
+    // 原地换装(节目单切台/OSD 换线)会先换 sessionId 再收到旧会话的终局回调。
+    // 旧会话的「进度未保存」/拒绝/回执若照常上抛,会把上一频道的提示或终止语义
+    // 带到新频道(实测切台后残留「播放进度未保存」)。
+    const sessionAlive = (): boolean => activeSessionIdRef.current === sessionId;
     const controller = new ProgressController(sessionId, {
-      onStartedAcked: setStartedAcked,
-      onSyncFailed: setSyncFailed,
-      onHistoryApplied: setHistoryApplied,
-      onUnsavedProgress: () => unsavedRef.current?.(),
-      onRejected: (message) => rejectedRef.current?.(message),
-      onFinishReceipt: (receipt) => finishedRef.current?.(receipt),
+      onStartedAcked: (acked) => {
+        if (sessionAlive()) setStartedAcked(acked);
+      },
+      onSyncFailed: (failed) => {
+        if (sessionAlive()) setSyncFailed(failed);
+      },
+      onHistoryApplied: (applied) => {
+        if (sessionAlive()) setHistoryApplied(applied);
+      },
+      onUnsavedProgress: () => {
+        if (sessionAlive()) unsavedRef.current?.();
+      },
+      onRejected: (message) => {
+        if (sessionAlive()) rejectedRef.current?.(message);
+      },
+      onFinishReceipt: (receipt) => {
+        if (sessionAlive()) finishedRef.current?.(receipt);
+      },
       // 三态状态面:hook 内状态 + 调用方回调双通道(T079)
       onSaveOutcome: (outcome) => {
+        if (!sessionAlive()) return;
         setSaveOutcome(outcome);
         saveOutcomeCbRef.current?.(outcome);
       },

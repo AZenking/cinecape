@@ -310,9 +310,12 @@ export function PlayerView({
   }, [transition.state.phase, autoplay.state.phase, autoplay.cancel]);
 
   // 会话身份变化(B3 切档语义):手势面随会话重置;新会话安装 src 后由引擎重新起播,
-  // 仍被拒绝则回调再次置位(新会话的 awaitingGesture 事实重新呈现)
+  // 仍被拒绝则回调再次置位(新会话的 awaitingGesture 事实重新呈现)。
+  // 原地换装(节目单切台/换线)不卸载本组件,上一会话的「进度未保存」提示(notice)
+  // 必须随会话清除 —— 否则会把旧会话的终局提示带到新频道(实测切台后残留)。
   useEffect(() => {
     setAwaitingGesture(false);
+    setNotice(null);
   }, [sessionId]);
 
   // 本地连播开关关闭即终止进行中的倒计时/询问(cancel 终态:收口定时器、零意图;
