@@ -692,40 +692,46 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
     [armRecoverWindow, dispatchWithMirror, launchPlayback, lineFailoverToast],
   );
 
-  /** OSD 手动换线(016 T021):以 {…target, lineId} 发起新 resolve(新 session 契约语义);
-   *  容灾追踪不清零 —— 从指定线路继续顺位(R4:手动选择后容灾仍可用) */
   /**
-   * 手动换线(OSD):**原地换装**——不再走 launchPlayback(preparing 会卸载 PlayerView,
-   * 表现为「播放器关闭后重新加载」)。流程:同 intentId 下 resolve 新线路 → prepare
-   * 轮询 → 换票 → 只 patch 会话面(sessionId/URL/线路),相位保持 playing,
-   * PlayerView 不卸载、媒体元素不销毁,仅底层换源续播。
-   * 失败保持原线路继续播放并提示;在途时忽略重复触发。
+   * **原地换装**(共享实现;016 T021 OSD 手动换线 + 直播节目单「节目单」切台):
+   *
+   * 绝不能走 launchPlayback —— 新意图的 playStart 会把相位推到 authorizing →
+   * preparing,播放面(`phase === 'playing' || 'unavailable'`)随之整体卸载,真机
+   * 表现就是「切台时播放器先关闭、再重新打开」(实测 700ms 空窗)。这里在同一
+   * intentId 下 resolve 新会话 → prepare 轮询 → 换票,等新会话真正就绪后才一次
+   * 写入:playRetarget(改写目标面)+ playPatch(会话面),相位始终 playing,
+   * PlayerView 不卸载、媒体元素不销毁,旧会话继续播出直到换装那一刻,然后仅
+   * 底层换源。
+   *
+   * 失败保持当前会话继续播放,只提示 failMessage(不落 unavailable、不拆播放面);
+   * 在途时忽略重复触发(切台/换线共用同一在途位:一次只做一个换装)。
    */
-  const lineSwitchInFlightRef = useRef(false);
-  const handleManualLineSelect = useCallback(
-    (lineId: string): void => {
+  const sessionSwitchInFlightRef = useRef(false);
+  const switchSessionInPlace = useCallback(
+    (next: PlayTarget, failMessage: string): void => {
       const current = stateRef.current.playback;
-      if (current === null || current.phase !== 'playing' || lineSwitchInFlightRef.current) {
-        return;
-      }
-      if (lineId === current.selectedLineId) {
+      if (current === null || current.phase !== 'playing' || sessionSwitchInFlightRef.current) {
         return;
       }
       const intentId = current.intentId;
       const keepAlive = (): boolean => stateRef.current.playback?.intentId === intentId;
       const previousSessionId = current.sessionId;
-      lineSwitchInFlightRef.current = true;
+      sessionSwitchInFlightRef.current = true;
       void (async () => {
         try {
           const dto = await privateFetch<PlaybackDto>('/playback/resolve', {
             method: 'POST',
-            body: { mediaId: current.target.mediaId, startMode: current.target.startMode, lineId },
+            body: {
+              mediaId: next.mediaId,
+              startMode: next.startMode,
+              ...(next.lineId !== undefined ? { lineId: next.lineId } : {}),
+            },
           });
           if (!keepAlive()) {
             abandonSession(dto.id);
             return;
           }
-          // prepare 轮询(与首播同一预算);期间旧线路继续播放,无黑屏
+          // prepare 轮询(与首播同一预算);期间旧会话继续播放,无黑屏
           const deadline = Date.now() + PREPARE_BUDGET_MS;
           while (Date.now() < deadline) {
             await delay(PREPARE_POLL_MS);
@@ -748,7 +754,10 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
                 abandonSession(dto.id);
                 return;
               }
-              // 关键:不写 phase —— 保持 playing,PlayerView 原地换源
+              // 关键:不写 phase —— 保持 playing,PlayerView 原地换源。
+              // 目标面必须单独经 playRetarget 改写(playPatch 的类型刻意不含 target):
+              // 两次 dispatch 同步执行,镜像 ref 逐次推进,渲染批次内看到的是完整新会话。
+              dispatchWithMirror({ type: 'playRetarget', intentId, target: next });
               dispatchWithMirror({
                 type: 'playPatch',
                 intentId,
@@ -775,16 +784,58 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
           }
           throw new Error('switch_timeout');
         } catch {
-          // 失败:保留原线路继续播放(不降级、不弹不可播面),仅提示
+          // 失败:保留当前内容继续播放(不降级、不弹不可播面),仅提示
           if (keepAlive()) {
-            lineFailoverToast.error('换线失败,已保持当前线路继续播放。');
+            lineFailoverToast.error(failMessage);
           }
         } finally {
-          lineSwitchInFlightRef.current = false;
+          sessionSwitchInFlightRef.current = false;
         }
       })();
     },
     [abandonSession, dispatchWithMirror, lineFailoverToast],
+  );
+
+  /**
+   * OSD 手动换线(016 T021):同一频道内原地换成指定线路,容灾追踪不清零 ——
+   * 从指定线路继续顺位(R4:手动选择后容灾仍可用)。目标 = {…当前 target, lineId}。
+   */
+  const handleManualLineSelect = useCallback(
+    (lineId: string): void => {
+      const current = stateRef.current.playback;
+      if (current === null || current.phase !== 'playing' || sessionSwitchInFlightRef.current) {
+        return;
+      }
+      if (lineId === current.selectedLineId) {
+        return;
+      }
+      switchSessionInPlace({ ...current.target, lineId }, '换线失败,已保持当前线路继续播放。');
+    },
+    [switchSessionInPlace],
+  );
+
+  /**
+   * 直播节目单切台(播放器内「节目单」面板点击另一频道):与 OSD 换线同一原地换装
+   * 通道,不新建播放意图、不拆播放面。切台 = 换内容,起播语义从 beginning 重新开始
+   * (不继承上一频道的 resume 位置),也不继承上一频道的 lineId(由服务端为新媒体
+   * 优选线路)。容灾尝试记录清零 —— 这是新频道,不是旧频道的线路重试。
+   */
+  const handleChannelZap = useCallback(
+    (mediaId: string, title: string, posterRef: string | null): void => {
+      const current = stateRef.current.playback;
+      if (current === null || current.phase !== 'playing' || sessionSwitchInFlightRef.current) {
+        return;
+      }
+      if (mediaId === current.target.mediaId) {
+        return; // 已经是当前频道:无操作(不重启、不重复 resolve)
+      }
+      resetLineFailoverTracking();
+      switchSessionInPlace(
+        { mediaId, title, startMode: 'beginning', posterRef },
+        '切换频道失败,已保持当前频道继续播放。',
+      );
+    },
+    [resetLineFailoverTracking, switchSessionInPlace],
   );
 
   /**
@@ -1214,11 +1265,10 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
                   // mini 播放器:外壳尺寸由协调器控制,PlayerView 只提供栏内按钮
                   minimized={minimized}
                   onToggleMinimize={toggleMinimize}
-                  // 直播切台(控制栏「节目单」icon → 播放器内列表面板)
+                  // 直播切台(控制栏「节目单」icon → 播放器内列表面板):
+                  // 原地换装,不新建播放意图(否则相位离开 playing → 播放面卸载)
                   currentChannelId={playback.target.mediaId}
-                  onZapChannel={(mediaId, title, posterRef) => {
-                    play({ mediaId, title, posterRef });
-                  }}
+                  onZapChannel={handleChannelZap}
                   onRenew={(url, expiresAt) => {
                     // 续期换装:URL/到期时间更新(意图面收口;URL 不落任何持久存储)
                     dispatchWithMirror({

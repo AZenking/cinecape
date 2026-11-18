@@ -33,7 +33,7 @@
    `handleManualLineSelect` 改为**同 intentId 内**：resolve 新线路 → prepare 轮询 → 换票 → 仅 patch 会话面（`sessionId`/`playbackUrl`/`ticketExpiresAt`/`delivery`/`lines`/`selectedLineId`），**不写 `phase`**，保持 `playing`。旧会话在换装成功后 best-effort `stop`。失败保持原线路继续播放并 Toast 提示；在途去重。
 
 5. **播放器内直播切台面板**
-   新增 `LiveGuidePanel`：控制栏「节目单」icon 呼出全频道当前节目列表（复用 `GET /public/live/channels?section=now`），每行含频道标识、节目名、时段与实时进度（服务端基准钟 15s tick），点击经统一 `play()` 切台并自动关闭；面板为播放器内非模态覆盖层，关闭态零请求。
+   新增 `LiveGuidePanel`：控制栏「节目单」icon 呼出全频道当前节目列表（复用 `GET /public/live/channels?section=now`），每行含频道标识、节目名、时段与实时进度（服务端基准钟 15s tick），点击后自动关闭；面板为播放器内非模态覆盖层，关闭态零请求。**切台走与原地换线同一通道（2026-11-18 修订）**：同 `intentId` 内 resolve 新频道 → prepare 轮询 → 换票，经 `playRetarget` 改写目标面 + `playPatch` 改写会话面，Phase 始终 `playing`；旧频道播到换装那一刻，播放面与媒体元素不重建（不再走 `play()`，否则 `playStart` 会把相位推到 `authorizing` → `preparing`，播放器先关闭再重开，实测约 700ms 空窗）。失败保持当前频道继续播放并提示一次；同一频道行与在途重复点击不动作。
 
 6. **mini 播放器**
    播放面可最小化为 300×171 悬浮窗（16:9 画面 + 边框，无头部）；mini 只保留**底部右侧一个「还原」按钮**（外壳级、任何相位都在、不参与控制栏自动隐藏），标题、频道 logo、退出与其余播放控件全部隐藏，退出走「还原 → 退出」两步；拖动由整个窗口承担（指针捕获 + 视口 clamp，`cursor-move`），切换仅改外壳定位/尺寸，**不改变 `PlayerView` 子树结构**，避免重挂中断播放。
@@ -94,7 +94,7 @@
 **正**
 - 控制面统一为一套 HeroUI 语义视觉，与页面其余部分一致（约束 5/8/9 落地）。
 - 换流从「卸载重建」变为「原地换源」，播放中断只剩一次缓冲；`PlayerView` 的进度泵、探针、票据续期随 `sessionId` 变化自然重挂，无需额外生命周期。
-- 直播切台路径从「退出→列表→重播」缩短为「面板内一键」；切台数据与直播首页同源，无新增端点。
+- 直播切台路径从「退出→列表→重播」缩短为「面板内一键」，且切台不再拆播放面（同一 `video` 节点、无 `preparing` 空窗）；切台数据与直播首页同源，无新增端点。
 - mini 播放器让「边看边浏览」成立，且不产生第二套播放器实例。
 
 **负 / 风险**
@@ -117,5 +117,6 @@
 - 单元：`test/playback/player-controls.spec.tsx`（隐藏/唤回/悬停不隐藏/暂停可见）、`test/vod-switch.spec.tsx`（换源入口经设置）、`test/playback/playback-settings.spec.tsx`（直播态无角标、设置面板）。
 - 运行/浏览器：控制栏 7 控件、vjs 控制条 `display:none`、mini 尺寸与拖动、切台面板 14 行含进度且切台生效、头部仅「退出播放」、设置面板线路/换源互斥。
 - 分档实测（2026-11-18，真实 Chromium，播放中暂停常显控制栏）：外壳 1288/1024/768/640 为居中浮层（圆角 8、边框 1）、480/390/320 为全出血（0,0、无圆角边框）；控制栏行宽 1094/937/696/576/456/374/304 全部等于可用宽度（无溢出，紧凑档在 390/320 命中：音量 `display:none`、LIVE 胶囊 44×19 单行）；mini 300 窗行宽 282/282、音量隐藏。真机点播档的「当前时间 / 总时长」截断由 mock 会话与生成 CSS 探针各验一次（`@container (width < 28rem)` / `>= 28rem` 规则均在产物 CSS 内）。
+- 切台实测（2026-11-18，真实 Chromium，播放 CCTV-16 打开节目单点 CCTV-13）：修复前 100ms 采样 `surface=false, playback-preparing=true`，约 700ms 后才重挂；修复后全程 `surface=true`、`preparing=false`、`video` 同一节点、`paused=false`，约 660ms 标题由旧频道切到新频道，服务端日志为 `resolve 201 → session GET → renew 200 → stop 旧会话 204`（无新 `playStart`）。自动化：`test/features/live/in-place-zap.spec.tsx`（20ms 采样相位恒 `playing`；失败保持当前频道）。
 - mini/头部实测（2026-11-18，真实 Chromium）：头部 logo 装饰层 30×30 落在 32×32 盒内（修复前 1118×678 溢出被裁，图不可见），img natural 119、opacity 1、首字回退 opacity 0；mini 外壳 300×170、`header` 0 个、`PlayerControls` 不挂载、只剩 1 个「还原播放器」按钮（z-30、opacity 1），默认停机位底部留白 17px，从画面拖动 (−180, −120) 生效，真实鼠标点「还原」回到大窗。
 - 全量：`pnpm --filter @hmp/web exec vitest run` → 587 通过 / 1 跳过（2026-11-18 全量）；`tsc --noEmit`、eslint 零告警。

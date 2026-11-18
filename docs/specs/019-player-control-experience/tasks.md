@@ -16,6 +16,7 @@
 | T010 | 换流入口二选一（直播=线路 / 点播=换源），面板限高与线路名截断 | `playback-settings-overlay.tsx` | Done | 浏览器实测 sections 互斥、面板可滚动；`6ca93d8`、`761d3ab` |
 | T011 | 测试适配与新增单测（控制栏、设置收敛、直播态无角标） | `apps/web/test/**` | Done | 全量 570 通过 / 1 跳过 |
 | T012 | 补录规格与 ADR（本文件、`spec.md`、ADR-0018） | 本目录 + `docs/adr/0018-*` | Done | 本提交 |
+| T013 | 节目单切台改原地换装（`playRetarget` + 共享 `switchSessionInPlace`，播放面不卸载） | `app/action-coordinator.tsx`、`app/action-coordinator-core.ts` | Done | `test/features/live/in-place-zap.spec.tsx`（20ms 采样相位恒 `playing`）+ 浏览器实测（surface/video 节点不变、无 `playback-preparing`） |
 
 ## 未完成 / 后续候选
 

@@ -29,11 +29,11 @@
 
 ### User Story 2 - 直播观众在播放器内直接切台 (Priority: P1)
 
-直播控制栏点击「节目单」图标，在播放器内部呼出「正在直播」列表：每行含频道标识、频道名、当前节目、时段与实时播出进度条；点击任意行立即切到该频道并自动关闭面板；当前频道行标注「当前」且不可重复点击。
+直播控制栏点击「节目单」图标，在播放器内部呼出「正在直播」列表：每行含频道标识、频道名、当前节目、时段与实时播出进度条；点击任意行立即切到该频道并自动关闭面板；切换在**同一播放会话内原地换装**，播放器不卸载、不回到「准备中」黑屏，旧频道播到新会话就绪那一刻；当前频道行标注「当前」且不可重复点击。
 
 **Why this priority**: 切台是直播最高频动作，退出播放器回频道列表再播的路径过长。
 
-**Independent Test**: 直播播放中打开面板 → 行数 > 0、每行有进度；点击非当前行 → 播放目标切换、面板关闭、播放面保持挂载。
+**Independent Test**: 直播播放中打开面板 → 行数 > 0、每行有进度；点击非当前行 → 播放目标切换、面板关闭、播放面保持挂载且 `[data-testid=playback-surface]`/`video` 节点引用不变、全程不出现 `playback-preparing`；切台失败时保持当前频道继续播放并只提示一次。
 
 ### User Story 3 - 换流不中断画面（原地换装） (Priority: P1)
 
@@ -74,7 +74,7 @@
 - **FR-002**：控制栏 MUST 提供 播放/暂停、直播状态（LIVE 胶囊）或进度条、音量、全屏、最小化；进度条仅在点播且 `duration > 0` 时渲染。
 - **FR-003**：控制栏 MUST 在播放中 3 秒无操作后隐藏，且在**播放器容器**（非控制栏自身）监听指针移动/按下/触摸以唤回；指针停留控制栏期间不得隐藏；暂停态保持可见。
 - **FR-004**：直播控制栏 MUST 提供「节目单」入口，在播放器内部以 `role="dialog"` 覆盖层呈现全频道当前节目列表，含实时进度、当前频道标记与一键切台。
-- **FR-005**：切台 MUST 经统一播放入口发起（`usePlayAction`），面板在切台后自动关闭；同一频道行不得重复触发。
+- **FR-005**（2026-11-18 修订）：切台 MUST 在同一播放意图内原地换装（resolve → prepare → 换票 → `playRetarget`+`playPatch`），Phase 保持 `playing`，不得卸载 `PlayerView`、不得销毁媒体元素、不得出现 `playback-preparing`；旧频道播到新会话就绪时再换源，失败保持当前频道并提示一次；面板在切台后自动关闭，同一频道行不得重复触发。原「经统一 `usePlayAction` 播放入口发起」的实现约束由本修订替代（新建意图会经 `playStart` 把相位推到 `authorizing`/`preparing`，表现为播放器关闭后重开）。
 - **FR-006**：换线 MUST 在**同一播放意图**内完成（resolve → prepare → 换票 → 仅 patch 会话面），Phase 保持 `playing`，不得卸载 `PlayerView`、不得销毁媒体元素；失败保持原线路并提示。
 - **FR-007**：播放面 MUST 可最小化为可拖动悬浮窗，切换仅改变外壳定位/尺寸，不得改变 `PlayerView` 子树结构（避免重挂中断播放）。
 - **FR-008**：播放面头部 MUST 仅呈现「频道/影片 logo + 名称」与「退出」；logo 缺省时回退首字徽标。
@@ -91,6 +91,7 @@
 - **播放意图（Playback Intent）**：`PlaybackTarget{mediaId,title,startMode,lineId?,posterRef?}`；`posterRef` 仅本地展示，不进 resolve 请求体。
 - **线路（Stream Line）**：`StreamLineDto{lineId,label,sourceTitle}`，由 resolve 投影，优先级排序；播放器仅消费线路集合。
 - **会话面（Session Surface）**：`sessionId / playbackGeneration / playbackUrl / ticketExpiresAt / delivery / presentationStartSeconds`，原地换装时整体替换。
+- **目标面（Playback Target）**：同一播放意图内可经 `playRetarget` 改写（原地切台/换线不新建意图），改写与同一批次的会话面 `playPatch` 原子呈现。
 
 ---
 
@@ -99,10 +100,10 @@
 ### Measurable Outcomes
 
 - **SC-001**：控制栏隐藏后，鼠标在画面移动 1 次即可唤回（自动化用例覆盖：`player-controls.spec` 3 例全绿）。
-- **SC-002**：换线过程中 `[data-testid="playback-surface"]` 与 `video` 节点引用不变（浏览器实测：切台后面板关闭、播放面仍在、目标已更新）。
+- **SC-002**：换线与切台过程中 `[data-testid="playback-surface"]` 与 `video` 节点引用不变，且不出现 `playback-preparing`（2026-11-18 浏览器实测：切台 100ms 采样 surface 恒挂载、video 同一节点、标题由辽宁卫视切到 CCTV-16；自动化 `in-place-zap.spec` 每 20ms 采样相位恒为 `playing`）。
 - **SC-003**：mini 播放器宽度 300px，拖动后位置变化 > 100px 且不越界（浏览器实测通过）。
 - **SC-004**：设置面板内「线路」与「换源」互斥（浏览器实测：直播 sections = 音轨/字幕/清晰度/线路）。
-- **SC-005**：全量前端测试通过（2026-11-12：84→85 文件、570 通过 / 1 跳过），`tsc --noEmit` 与 eslint 零告警。
+- **SC-005**：全量前端测试通过（2026-11-18：90 文件、590 通过 / 1 跳过），`tsc --noEmit` 与 eslint 零告警。
 
 ### 证据索引（实现与验证留痕）
 
@@ -111,8 +112,8 @@
 | 自绘控制栏 | `apps/web/src/features/playback/player-controls.tsx` | `test/playback/player-controls.spec.tsx` |
 | 引擎控件关闭 | `video-player.tsx`（`nativeControls`） | 浏览器实测 vjs-control-bar `display:none` |
 | 控制栏接线/设置收敛 | `player-view.tsx`、`playback-settings-overlay.tsx` | `test/vod-switch.spec.tsx`（换源入口经设置） |
-| 原地换线 | `action-coordinator.tsx`（`lineSwitchInPlace` 逻辑） | 浏览器实测（播放面不重建） |
-| 直播切台面板 | `features/live/components/LiveGuidePanel.tsx` | 浏览器实测 14 行含进度、点击切台 |
+| 原地换线/切台 | `action-coordinator.tsx`（`switchSessionInPlace` + `playRetarget`） | `test/features/live/in-place-zap.spec.tsx`；浏览器实测（播放面不重建） |
+| 直播切台面板 | `features/live/components/LiveGuidePanel.tsx` | 浏览器实测 14 行含进度、点击切台（原地换装，播放面不卸载） |
 | mini 播放器 | `action-coordinator.tsx`（`minimized`/拖动） | 浏览器实测 300×200、拖动生效 |
 | 头部精简 | `action-coordinator.tsx` 播放面 header | 浏览器实测：仅「退出播放」 |
 

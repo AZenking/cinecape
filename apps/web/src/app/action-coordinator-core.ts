@@ -122,6 +122,17 @@ export type CoordinatorAction =
   | { type: 'playStart'; intentId: number; target: PlayTarget }
   /** 播放意图阶段推进/结果写入;intentId 不匹配即整体忽略(旧回调不得改写新意图) */
   | { type: 'playPatch'; intentId: number; patch: Partial<Omit<PlaybackIntentState, 'intentId' | 'target'>> }
+  /**
+   * 原地换装改写目标面(直播节目单切台/OSD 手动换线):与 playPatch 同款意图守卫,
+   * 只替换 target,相位与其余会话面全部保持。
+   *
+   * 为什么单独一个动作而不是扩展 playPatch:playPatch 的类型刻意
+   * `Omit<..., 'intentId' | 'target'>` —— 目标面只在 playStart 建立,阶段推进不得
+   * 篡改「在播的是谁」。而就地切台/换线的语义恰是「同一意图内换内容」:不新建意图
+   * (新建会经 playStart 把相位推到 authorizing/preparing,播放面随之卸载 ——
+   * 真机表现为播放器关闭后重新加载),只在新会话就绪时原子改写目标面。
+   */
+  | { type: 'playRetarget'; intentId: number; target: PlayTarget }
   /** 关闭/废弃播放意图(用户退出或身份失效;intentId 不匹配则忽略) */
   | { type: 'playEnd'; intentId: number }
   /** 游客/未选档播放意图暂存(选档完成后续跑;取消不自动播放) */
@@ -234,6 +245,14 @@ export function coordinatorReducer(state: CoordinatorState, action: CoordinatorA
         return state;
       }
       return { ...state, playback: { ...state.playback, ...action.patch } };
+    }
+    case 'playRetarget': {
+      // 与 playPatch 同一意图守卫:旧回调/旧意图不得改写当前在播目标
+      if (state.playback === null || state.playback.intentId !== action.intentId) {
+        return state;
+      }
+      // 只换 target:phase 与会话面由同批次 playPatch 写入,期间保持 playing
+      return { ...state, playback: { ...state.playback, target: action.target } };
     }
     case 'playEnd': {
       if (state.playback === null || state.playback.intentId !== action.intentId) {
