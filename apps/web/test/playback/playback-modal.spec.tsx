@@ -19,6 +19,7 @@ vi.mock('video.js', () => {
   return { default: () => new FakePlayer() };
 });
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { Link, MemoryRouter, Route, Routes } from 'react-router';
 import { ActionCoordinator } from '../../src/app/action-coordinator';
@@ -26,6 +27,7 @@ import { SettingsAccessProvider } from '../../src/features/settings/settings-acc
 import { SessionProvider } from '../../src/app/session-provider';
 import { usePlayAction } from '../../src/features/playback/use-play-action';
 import type { AccountSession } from '../../src/app/session-types';
+import { createTestQueryClient } from '../helpers/query-test-utils';
 
 /**
  * 规格 009(playback-modal)SC-101/102:播放面 Modal 化的结构性保证 ——
@@ -113,25 +115,27 @@ function PlayProbe(): ReactNode {
 
 function renderAppAt(initialPath: string): void {
   render(
-    <MemoryRouter initialEntries={[initialPath]}>
-      <SessionProvider>
-        <SettingsAccessProvider>
-          <ActionCoordinator>
-            <nav>
-              <Link to="/" data-testid="nav-home">home</Link>
-              <Link to="/vod" data-testid="nav-vod">vod</Link>
-              <Link to="/live" data-testid="nav-live">live</Link>
-            </nav>
-            <Routes>
-              <Route path="/" element={<p data-testid="page-home">home-page</p>} />
-              <Route path="/vod" element={<p data-testid="page-vod">vod-page</p>} />
-              <Route path="/live" element={<p data-testid="page-live">live-page</p>} />
-            </Routes>
-            <PlayProbe />
-          </ActionCoordinator>
-        </SettingsAccessProvider>
-      </SessionProvider>
-    </MemoryRouter>,
+    <QueryClientProvider client={createTestQueryClient()}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <SessionProvider>
+          <SettingsAccessProvider>
+            <ActionCoordinator>
+              <nav>
+                <Link to="/" data-testid="nav-home">home</Link>
+                <Link to="/vod" data-testid="nav-vod">vod</Link>
+                <Link to="/live" data-testid="nav-live">live</Link>
+              </nav>
+              <Routes>
+                <Route path="/" element={<p data-testid="page-home">home-page</p>} />
+                <Route path="/vod" element={<p data-testid="page-vod">vod-page</p>} />
+                <Route path="/live" element={<p data-testid="page-live">live-page</p>} />
+              </Routes>
+              <PlayProbe />
+            </ActionCoordinator>
+          </SettingsAccessProvider>
+        </SessionProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

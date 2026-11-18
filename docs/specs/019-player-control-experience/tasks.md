@@ -17,6 +17,7 @@
 | T011 | 测试适配与新增单测（控制栏、设置收敛、直播态无角标） | `apps/web/test/**` | Done | 全量 570 通过 / 1 跳过 |
 | T012 | 补录规格与 ADR（本文件、`spec.md`、ADR-0018） | 本目录 + `docs/adr/0018-*` | Done | 本提交 |
 | T013 | 节目单切台改原地换装（`playRetarget` + 共享 `switchSessionInPlace`，播放面不卸载） | `app/action-coordinator.tsx`、`app/action-coordinator-core.ts` | Done | `test/features/live/in-place-zap.spec.tsx`（20ms 采样相位恒 `playing`）+ 浏览器实测（surface/video 节点不变、无 `playback-preparing`） |
+| T014 | 操作台布局：视频满铺 + 顶栏身份覆盖层 + 两行控制栏（`ProgressBar` 只读节目进度 / `Chip` `LIVE · 正在直播`）；playing 相位外壳 header 移除（unavailable 保留极简 header）；直播节目元数据经 `queryKeys.public.channelProgrammes` 取数 | `features/playback/player-controls.tsx`、`features/playback/player-view.tsx`、`app/action-coordinator.tsx`、`shared/query/keys.ts` | Done | `test/playback/player-controls.spec.tsx`（两行布局/只读进度/Chip）、`test/playback/playback-modal.spec.tsx`（身份层 + 无 header + 返回退出）、浏览器实测 1440×900/390×844（顶栏/行 1 标签与 progressbar/行 2 Chip/无横向溢出/mini 仅还原按钮） |
 
 ## 未完成 / 后续候选
 

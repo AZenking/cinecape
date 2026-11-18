@@ -1207,10 +1207,10 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
                 : 'pointer-events-auto fixed left-1/2 top-1/2 z-50 flex w-[min(94vw,1120px,calc((100vh-12rem)*16/9))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-border bg-background shadow-2xl max-sm:left-0 max-sm:top-0 max-sm:h-[100dvh] max-sm:w-full max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none max-sm:border-0'
             }
           >
-            {/* 头部(仅大窗):频道/影片标识(logo + 名称)+ 退出。
-                线路切换、连播开关、最小化已全部收进播放器控制栏(产品要求),
-                头部只保留身份与退出;mini 不呈现头部,拖动由整个窗口承担。 */}
-            {!minimized ? (
+            {/* 头部(仅 unavailable 相位 + 大窗):播放失败面仍需要身份与退出。
+                playing 相位的身份/元数据已移入 PlayerView 顶栏覆盖层(019 操作台 mock),
+                外壳不再有独立 header;mini 不呈现头部,拖动由整个窗口承担。 */}
+            {!minimized && playback.phase === 'unavailable' ? (
               <header className="flex items-center justify-between gap-4 border-b border-border/60 px-3 py-2">
                 <div className="flex min-w-0 items-center gap-2">
                   {/* 该盒必须保持定位上下文(relative):ChannelLogo 装饰层为
@@ -1269,6 +1269,10 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
                   // 原地换装,不新建播放意图(否则相位离开 playing → 播放面卸载)
                   currentChannelId={playback.target.mediaId}
                   onZapChannel={handleChannelZap}
+                  // 019:身份层标题/logo 与返回入口(playing 相位无独立 header)
+                  title={playback.target.title}
+                  posterRef={playback.target.posterRef}
+                  onExit={close}
                   onRenew={(url, expiresAt) => {
                     // 续期换装:URL/到期时间更新(意图面收口;URL 不落任何持久存储)
                     dispatchWithMirror({

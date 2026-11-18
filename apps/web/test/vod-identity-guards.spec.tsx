@@ -38,6 +38,7 @@ vi.mock('video.js', () => {
   return { default: () => new FakePlayer() };
 });
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { Link, MemoryRouter, Route, Routes } from 'react-router';
 import type { Vod } from '@hmp/shared';
@@ -376,26 +377,29 @@ function PlayProbe(): ReactNode {
 }
 
 function renderCoordinatorApp(initialPath: string): void {
+  // QueryClientProvider:playing 相位 PlayerView 的 019 直播节目元数据查询依赖同一全局 client
   render(
-    <MemoryRouter initialEntries={[initialPath]}>
-      <SessionProvider>
-        <SettingsAccessProvider>
-          <ActionCoordinator>
-            <nav>
-              <Link to="/" data-testid="nav-home">home</Link>
-              <Link to="/vod" data-testid="nav-vod">vod</Link>
-              <Link to="/live" data-testid="nav-live">live</Link>
-            </nav>
-            <Routes>
-              <Route path="/" element={<p data-testid="page-home">home-page</p>} />
-              <Route path="/vod" element={<p data-testid="page-vod">vod-page</p>} />
-              <Route path="/live" element={<p data-testid="page-live">live-page</p>} />
-            </Routes>
-            <PlayProbe />
-          </ActionCoordinator>
-        </SettingsAccessProvider>
-      </SessionProvider>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <SessionProvider>
+          <SettingsAccessProvider>
+            <ActionCoordinator>
+              <nav>
+                <Link to="/" data-testid="nav-home">home</Link>
+                <Link to="/vod" data-testid="nav-vod">vod</Link>
+                <Link to="/live" data-testid="nav-live">live</Link>
+              </nav>
+              <Routes>
+                <Route path="/" element={<p data-testid="page-home">home-page</p>} />
+                <Route path="/vod" element={<p data-testid="page-vod">vod-page</p>} />
+                <Route path="/live" element={<p data-testid="page-live">live-page</p>} />
+              </Routes>
+              <PlayProbe />
+            </ActionCoordinator>
+          </SettingsAccessProvider>
+        </SessionProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

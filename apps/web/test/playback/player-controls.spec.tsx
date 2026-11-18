@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useRef, type ReactNode } from 'react';
-import { PlayerControls } from '../../src/features/playback/player-controls';
+import { PlayerControls, type PlayerLiveWindow } from '../../src/features/playback/player-controls';
 
 /**
  * 控制栏自动隐藏 / 悬浮唤回(产品回归:控制栏隐藏后必须能再次唤出)。
@@ -12,12 +12,18 @@ import { PlayerControls } from '../../src/features/playback/player-controls';
  * jsdom 无媒体实现,这里用可写 paused 属性 + play 事件模拟播放态。
  */
 
-function Harness(): ReactNode {
+function Harness({
+  isLive = true,
+  liveWindow = null,
+}: {
+  readonly isLive?: boolean;
+  readonly liveWindow?: PlayerLiveWindow | null;
+}): ReactNode {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   return (
     <div data-testid="player-host">
       <video ref={videoRef} data-testid="fake-video" />
-      <PlayerControls videoRef={videoRef} isLive canSeek={false} />
+      <PlayerControls videoRef={videoRef} isLive={isLive} canSeek={!isLive} liveWindow={liveWindow} />
     </div>
   );
 }
@@ -89,5 +95,33 @@ describe('PlayerControls · 自动隐藏与悬浮唤回', () => {
       vi.advanceTimersByTime(6000);
     });
     expect(controlsClass()).toContain('opacity-100');
+  });
+});
+describe('PlayerControls · 两行控制栏(019 操作台 mock)', () => {
+  it('直播:第 1 行呈现节目起止时间 + 只读节目进度;第 2 行中央为 LIVE Chip', () => {
+    render(<Harness isLive liveWindow={{ startLabel: '20:00', endLabel: '21:00', progress: 42 }} />);
+    expect(screen.getByText('20:00')).toBeInTheDocument();
+    expect(screen.getByText('21:00')).toBeInTheDocument();
+    expect(screen.getByLabelText('节目进度')).toBeInTheDocument();
+    expect(screen.getByText('LIVE · 正在直播')).toBeInTheDocument();
+  });
+
+  it('直播无节目元数据:第 1 行整行隐藏(不以假数据占位)', () => {
+    render(<Harness isLive liveWindow={null} />);
+    expect(screen.queryByLabelText('节目进度')).toBeNull();
+    expect(screen.queryByText('20:00')).toBeNull();
+    expect(screen.getByText('LIVE · 正在直播')).toBeInTheDocument();
+  });
+
+  it('点播:第 1 行两端为当前时间与总时长,中央承载播放/暂停,不渲染 LIVE Chip', () => {
+    render(<Harness isLive={false} />);
+    const video = screen.getByTestId('fake-video') as HTMLVideoElement;
+    Object.defineProperty(video, 'duration', { configurable: true, get: () => 3600 });
+    fireEvent(video, new Event('durationchange'));
+    expect(screen.getByText('00:00')).toBeInTheDocument();
+    expect(screen.getByText('1:00:00')).toBeInTheDocument();
+    expect(screen.getByLabelText('播放进度')).toBeInTheDocument();
+    expect(screen.queryByText('LIVE · 正在直播')).toBeNull();
+    expect(screen.getByRole('button', { name: '播放' })).toBeInTheDocument();
   });
 });

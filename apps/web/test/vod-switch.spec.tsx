@@ -34,6 +34,7 @@ vi.mock('video.js', () => {
   return { default: () => new FakePlayer() };
 });
 import { act, fireEvent, render, screen, within, type RenderResult } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { useRef, type ReactNode } from 'react';
 import { MemoryRouter } from 'react-router';
 import { ActionCoordinator, usePlayAction } from '../src/app/action-coordinator';
@@ -514,21 +515,30 @@ function getVideo(): HTMLVideoElement {
 }
 
 /** PlayerView 直挂(props 驱动;票据远期避免续期定时器干扰;fake timers 下心跳可控) */
+/** PlayerView 直挂需要 QueryClientProvider(019 直播节目元数据查询;点播 enabled=false) */
+function withTestQuery(node: ReactNode): ReactNode {
+  return <QueryClientProvider client={createTestQueryClient()}>{node}</QueryClientProvider>;
+}
+
 function renderPlayerView(
   props: { readonly sessionId?: string } = {},
 ): RenderResult {
   const sessionId = props.sessionId ?? 'sess-vod-1';
   return render(
-    <PlayerView
-      sessionId={sessionId}
-      generation={1}
-      playbackUrl={`/api/playback/stream/${sessionId}/1/index?ticket=t`}
-      ticketExpiresAt="2026-11-26T00:00:00.000Z"
-      delivery="hls_proxy"
-      durationSeconds={3600}
-      onTerminated={terminated}
-      onRenew={() => undefined}
-    />,
+    withTestQuery(
+      <PlayerView
+        sessionId={sessionId}
+        generation={1}
+        playbackUrl={`/api/playback/stream/${sessionId}/1/index?ticket=t`}
+        ticketExpiresAt="2026-11-26T00:00:00.000Z"
+        delivery="hls_proxy"
+        durationSeconds={3600}
+        title="例牌单集"
+        onExit={() => undefined}
+        onTerminated={terminated}
+        onRenew={() => undefined}
+      />,
+    ),
   );
 }
 
@@ -1303,16 +1313,20 @@ describe('010 T069 · E 切档旧响应守卫(→T074/T075)', () => {
     await awaitUi(() => expect(switchCandidateCalls().length).toBeGreaterThanOrEqual(1));
     // 切档(会话身份变化;vod-resume B6 同形):旧会话候选请求必须作废
     rerender(
-      <PlayerView
-        sessionId="sess-vod-2"
-        generation={1}
-        playbackUrl="/api/playback/stream/sess-vod-2/1/index?ticket=t"
-        ticketExpiresAt="2026-11-26T00:00:00.000Z"
-        delivery="hls_proxy"
-        durationSeconds={3600}
-        onTerminated={terminated}
-        onRenew={() => undefined}
-      />,
+      withTestQuery(
+        <PlayerView
+          sessionId="sess-vod-2"
+          generation={1}
+          playbackUrl="/api/playback/stream/sess-vod-2/1/index?ticket=t"
+          ticketExpiresAt="2026-11-26T00:00:00.000Z"
+          delivery="hls_proxy"
+          durationSeconds={3600}
+          title="例牌单集"
+          onExit={() => undefined}
+          onTerminated={terminated}
+          onRenew={() => undefined}
+        />,
+      ),
     );
     candidatesGate.release(
       jsonResponse({ items: WORLD_CANDIDATES, nextCursor: null, partial: false, reasons: [] }),
@@ -1338,16 +1352,20 @@ describe('010 T069 · E 切档旧响应守卫(→T074/T075)', () => {
     await openSwitchDrawer();
     await awaitUi(() => expect(switchProbeRequests()).toHaveLength(1));
     rerender(
-      <PlayerView
-        sessionId="sess-vod-2"
-        generation={1}
-        playbackUrl="/api/playback/stream/sess-vod-2/1/index?ticket=t"
-        ticketExpiresAt="2026-11-26T00:00:00.000Z"
-        delivery="hls_proxy"
-        durationSeconds={3600}
-        onTerminated={terminated}
-        onRenew={() => undefined}
-      />,
+      withTestQuery(
+        <PlayerView
+          sessionId="sess-vod-2"
+          generation={1}
+          playbackUrl="/api/playback/stream/sess-vod-2/1/index?ticket=t"
+          ticketExpiresAt="2026-11-26T00:00:00.000Z"
+          delivery="hls_proxy"
+          durationSeconds={3600}
+          title="例牌单集"
+          onExit={() => undefined}
+          onTerminated={terminated}
+          onRenew={() => undefined}
+        />,
+      ),
     );
     probesGate.release(
       jsonResponse({

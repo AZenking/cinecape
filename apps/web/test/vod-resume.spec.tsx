@@ -19,6 +19,7 @@ vi.mock('video.js', () => {
   return { default: () => new FakePlayer() };
 });
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router';
@@ -262,19 +263,28 @@ function getVideo(): HTMLVideoElement {
   return el as HTMLVideoElement;
 }
 
+/** PlayerView 直挂需要 QueryClientProvider(019 直播节目元数据查询;点播 enabled=false) */
+function withTestQuery(node: ReactNode): ReactNode {
+  return <QueryClientProvider client={createTestQueryClient()}>{node}</QueryClientProvider>;
+}
+
 /** PlayerView 直挂(props 驱动;票据远期避免续期定时器干扰;fake timers 下心跳可控) */
 function renderPlayerView(props: { readonly presentationStartSeconds?: number } = {}): void {
   render(
-    <PlayerView
-      sessionId="sess-vod-1"
-      generation={1}
-      playbackUrl="/api/playback/stream/sess-vod-1/1/index?ticket=t"
-      ticketExpiresAt="2026-11-26T00:00:00.000Z"
-      delivery="hls_proxy"
-      presentationStartSeconds={props.presentationStartSeconds ?? 0}
-      onTerminated={() => undefined}
-      onRenew={() => undefined}
-    />,
+    withTestQuery(
+      <PlayerView
+        sessionId="sess-vod-1"
+        generation={1}
+        playbackUrl="/api/playback/stream/sess-vod-1/1/index?ticket=t"
+        ticketExpiresAt="2026-11-26T00:00:00.000Z"
+        delivery="hls_proxy"
+        presentationStartSeconds={props.presentationStartSeconds ?? 0}
+        title="例牌单集"
+        onExit={() => undefined}
+        onTerminated={() => undefined}
+        onRenew={() => undefined}
+      />,
+    ),
   );
 }
 
@@ -519,15 +529,19 @@ describe('010 T047 · 切档/身份清理与 duration_unknown', () => {
       return new Response(null, { status: 204 });
     });
     const { rerender } = render(
-      <PlayerView
-        sessionId="sess-old"
-        generation={1}
-        playbackUrl="/api/playback/stream/sess-old/1/index?ticket=t"
-        ticketExpiresAt="2026-11-26T00:00:00.000Z"
-        delivery="hls_proxy"
-        onTerminated={() => undefined}
-        onRenew={() => undefined}
-      />,
+      withTestQuery(
+        <PlayerView
+          sessionId="sess-old"
+          generation={1}
+          playbackUrl="/api/playback/stream/sess-old/1/index?ticket=t"
+          ticketExpiresAt="2026-11-26T00:00:00.000Z"
+          delivery="hls_proxy"
+          title="例牌单集"
+          onExit={() => undefined}
+          onTerminated={() => undefined}
+          onRenew={() => undefined}
+        />,
+      ),
     );
     const videoEl = getVideo();
     videoEl.currentTime = 12;
@@ -538,15 +552,19 @@ describe('010 T047 · 切档/身份清理与 duration_unknown', () => {
     expect(progressCalls).toHaveLength(1); // 旧会话 started 在途
     // 换档(切档/退出):sessionId 变化即会话身份变化
     rerender(
-      <PlayerView
-        sessionId="sess-new"
-        generation={1}
-        playbackUrl="/api/playback/stream/sess-new/1/index?ticket=t"
-        ticketExpiresAt="2026-11-26T00:00:00.000Z"
-        delivery="hls_proxy"
-        onTerminated={() => undefined}
-        onRenew={() => undefined}
-      />,
+      withTestQuery(
+        <PlayerView
+          sessionId="sess-new"
+          generation={1}
+          playbackUrl="/api/playback/stream/sess-new/1/index?ticket=t"
+          ticketExpiresAt="2026-11-26T00:00:00.000Z"
+          delivery="hls_proxy"
+          title="例牌单集"
+          onExit={() => undefined}
+          onTerminated={() => undefined}
+          onRenew={() => undefined}
+        />,
+      ),
     );
     // 取消在途保存:旧会话请求 signal 已 abort(ui.md §5「旧请求 AbortSignal 取消」)
     expect(progressCalls[0]?.signal?.aborted).toBe(true);

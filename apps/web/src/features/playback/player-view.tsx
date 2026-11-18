@@ -36,15 +36,26 @@
  *   selection 当前值控制(重建音轨同会话换代换票,零第二会话),清晰度为探测交付
  *   只读展示(无质量端点,红线不新增);浮层开关不触媒体元素,播放零中断;
  * - 直播状态徽标(FR-020 第 2 项):探针确认时长 null(直播契约)即呈现「正在直播」
- *   文字状态(不仅靠颜色,FR-030);进度对齐节目时间窗的数据不在播放面承载(缺口
- *   登记:入口目标为频道语义,节目窗归详情面)。
+ *   文字状态(不仅靠颜色,FR-030);019 操作台身份层经公共 programmes 端点
+ *   (useAppQuery + queryKeys.public.channelProgrammes)取当前/下一档,只用于顶栏
+ *   标题/元数据/描述与底栏只读节目进度;数据不可用或 status=unavailable 时隐藏
+ *   进度行与描述,绝不把上游占位文案「暂无节目描述」当描述呈现。
+ * - 身份层(019 操作台 mock):顶栏覆盖层常驻(不参与自动隐藏),左上返回 + 品牌,
+ *   右上状态/标题/元数据/描述;playing 相位外壳 header 已移除,unavailable 相位仍由
+ *   协调器保留极简 header;mini 不渲染任何覆盖层(外壳级「还原」唯一控件)。
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
-import { Button } from '@heroui/react';
-import { ListVideo } from 'lucide-react';
-import type { Vod } from '@hmp/shared';
+import { Button, Chip } from '@heroui/react';
+import { ArrowLeft, ListVideo } from 'lucide-react';
+import type { ExperienceProgrammesDto, StreamLineDto, Vod } from '@hmp/shared';
 import { isFetchApiError, privateFetch } from '../../shared/fetch';
+import { useAppQuery } from '../../shared/query/hooks';
+import { queryKeys } from '../../shared/query/keys';
+import { useServerNow } from '../../shared/time/use-server-now';
+import { fetchChannelProgrammes } from '../live/live-api';
+import { formatRangeInZone, formatTimeInZone } from '../live/live-format';
+import { ChannelLogo } from '../live/components/channel-logo';
 import { usePlaybackProgress } from './use-playback-progress';
 import { usePlaybackTrackSelection } from './use-playback-track-selection';
 import { useVodAutoplay } from './use-vod-autoplay';
@@ -52,9 +63,8 @@ import { useOptionalAutoplayNextEnabled } from './vod-autoplay-preference';
 import { useVodTransition } from './use-vod-transition';
 import { VodAutoplayOverlay } from './vod-autoplay-overlay';
 import { VodSourceSwitcher } from './vod-source-switcher';
-import { PlayerControls } from './player-controls';
+import { PlayerControls, type PlayerLiveWindow } from './player-controls';
 import { LiveGuidePanel } from '../live/components/LiveGuidePanel';
-import type { StreamLineDto } from '@hmp/shared';
 import { VideoPlayer } from './video-player';
 import { PlaybackSettingsOverlay } from './playback-settings-overlay';
 
@@ -66,6 +76,10 @@ const RENEW_LEAD_SECONDS = 60;
 const RENEW_TIMER_MAX_DELAY_MS = 2 ** 31 - 1;
 /** 续播落点允许容差秒(api.md §7 I4「允许误差」;±3s 与 US2 恢复精度验收口径一致) */
 const RESUME_LANDING_TOLERANCE_SECONDS = 3;
+/** 播放面品牌名(019 操作台 mock:左上角身份层固定文案) */
+const BRAND_NAME = '映岬 Cinecape';
+/** 上游对「无节目描述」的占位文案:不得作为描述呈现(019 FR-008) */
+const EMPTY_PROGRAMME_DESCRIPTION = '暂无节目描述';
 
 /** 010 PlaybackDto(I4/U2 事实面;004/005 基座字段按需取用,交集扩展兼容缺省) */
 type PlaybackStatusDto = Vod.components['schemas']['PlaybackDto'];
@@ -135,6 +149,12 @@ export interface PlayerViewProps {
   readonly onZapChannel?: (mediaId: string, title: string, posterRef: string | null) => void;
   /** 当前播放频道 mediaId(节目单面板标记「当前」用) */
   readonly currentChannelId?: string | null;
+  /** 播放目标标题(直播=频道名,点播=影片名;身份层标题的回退值) */
+  readonly title: string;
+  /** 播放目标海报/频道 logo 的不透明引用(仅本地展示,可缺省) */
+  readonly posterRef?: string | null;
+  /** 退出播放(访问 close 统一收口路径;身份层返回按钮唯一动作) */
+  readonly onExit: () => void;
 }
 
 export function PlayerView({
@@ -157,6 +177,9 @@ export function PlayerView({
   onToggleMinimize,
   onZapChannel,
   currentChannelId = null,
+  title,
+  posterRef,
+  onExit,
 }: PlayerViewProps): ReactNode {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   /** 换装(续期)时待恢复的位置(direct 换 src 后回填;VHS 换源续装回填) */
@@ -182,6 +205,26 @@ export function PlayerView({
   const resumeReason = resumeReasonProp !== undefined ? resumeReasonProp : (status?.resumeReason ?? null);
   const durationSeconds = durationSecondsProp !== undefined ? durationSecondsProp : (status?.durationSeconds ?? null);
   const degradedNotice = resumeReason !== null ? (RESUME_REASON_NOTICES[resumeReason] ?? null) : null;
+  /** 直播契约:时长为 null(probe 或 props 确认;未知时长不冒进当直播) */
+  const isLive = durationSeconds === null;
+
+  /**
+   * 019 身份层节目元数据:直播且已知频道 mediaId 时取当前/下一档(GET
+   * /public/media/{mediaId}/programmes;公共域 30s 新鲜窗口)。键按 mediaId 分域,
+   * 原地切台换键即换数据面;点播/无频道不取数(enabled=false,零请求)。
+   */
+  const channelProgrammes = useAppQuery<ExperienceProgrammesDto>({
+    domain: 'public',
+    queryKey: queryKeys.public.channelProgrammes(currentChannelId ?? ''),
+    queryFn: ({ signal }) => fetchChannelProgrammes(currentChannelId ?? '', signal),
+    staleTime: 30_000,
+    enabled: isLive && currentChannelId !== null,
+  });
+  /**
+   * 直播节目进度的时间来源:15s tick 的服务端基准钟(未校准回落响应快照 now)。
+   * 只用 data.now 会把进度冻结在取数那一刻(实测条不前进);tick 后随真实时间推进。
+   */
+  const serverNow = useServerNow();
 
   // 稳定回调面:父层回调以 ref 转发,定时器/安装效果不因父层重渲染重排
   const terminatedRef = useRef(onTerminated);
@@ -549,7 +592,63 @@ export function PlayerView({
     };
     // 稳定回调经 ref 转发(见下)
     // 依赖面刻意收窄:稳定回调经 ref 转发;playbackUrl/generation 变化即换装
-  }, [sessionId, generation, ticketExpiresAt]);return (
+  }, [sessionId, generation, ticketExpiresAt]);
+
+  // ── 019 身份层派生(直播节目元数据;数据不可用/状态 unavailable 一律不呈现) ──
+  const programmeSnapshot =
+    isLive && channelProgrammes.data !== undefined && channelProgrammes.data.status === 'available'
+      ? channelProgrammes.data
+      : null;
+  /** 当前节目(now 已越过 endsAt 且存在下一档时本地提档,不额外发请求) */
+  const currentProgramme = ((): ExperienceProgrammesDto['current'] => {
+    if (programmeSnapshot === null || programmeSnapshot.current === null) {
+      return null;
+    }
+    const endMs = Date.parse(programmeSnapshot.current.endsAt);
+    const nowMs = serverNow.nowMs ?? Date.parse(programmeSnapshot.now);
+    if (Number.isFinite(endMs) && Number.isFinite(nowMs) && nowMs > endMs && programmeSnapshot.next !== null) {
+      return programmeSnapshot.next;
+    }
+    return programmeSnapshot.current;
+  })();
+  /** 第 1 行直播时间窗(只读;标签按服务端家庭时区格式化,progress 0–100) */
+  const liveWindow = ((): PlayerLiveWindow | null => {
+    if (programmeSnapshot === null || currentProgramme === null) {
+      return null;
+    }
+    const startMs = Date.parse(currentProgramme.startsAt);
+    const endMs = Date.parse(currentProgramme.endsAt);
+    const nowMs = serverNow.nowMs ?? Date.parse(programmeSnapshot.now);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || !Number.isFinite(nowMs) || endMs <= startMs) {
+      return null;
+    }
+    const progress = Math.min(100, Math.max(0, ((nowMs - startMs) / (endMs - startMs)) * 100));
+    return {
+      startLabel: formatTimeInZone(currentProgramme.startsAt, programmeSnapshot.timezone),
+      endLabel: formatTimeInZone(currentProgramme.endsAt, programmeSnapshot.timezone),
+      progress,
+    };
+  })();
+  /** 节目描述:缺失/空/上游占位文案不呈现(绝不把「暂无节目描述」当描述) */
+  const programmeDescription = ((): string | null => {
+    if (programmeSnapshot === null || currentProgramme === null) {
+      return null;
+    }
+    const description = currentProgramme.description?.trim() ?? '';
+    if (description === '' || description === EMPTY_PROGRAMME_DESCRIPTION) {
+      return null;
+    }
+    return description;
+  })();
+  const identityTitle = isLive && currentProgramme !== null ? currentProgramme.title : title;
+  const identityMeta =
+    isLive && programmeSnapshot !== null && currentProgramme !== null
+      ? `${title} · ${formatRangeInZone(currentProgramme.startsAt, currentProgramme.endsAt, programmeSnapshot.timezone)}`
+      : isLive
+        ? title
+        : '点播';
+
+  return (
     /* 控制栏密度以**播放器容器宽度**为断点(@container;同一子树在 1120px 大窗
        与 390px 手机全出血面复用),不按视口断点。见 player-controls 的
        @max-[28rem]: 紧凑档。 */
@@ -571,31 +670,89 @@ export function PlayerView({
         onPlayGestureRequired={handlePlayGestureRequired}
         onManualPlayReady={handleManualPlayReady}
       />
-      {/* 直播状态:控制栏已用 LIVE 胶囊承载(产品要求:去掉画面内的常驻角标,
-          避免与控制栏重复的过度提示) */}
-      {/* 控制栏(自绘 HeroUI):基础播放控件 + 右侧业务动作区。
+      {/* 019 身份层(顶栏覆盖):左上「返回 + 映岬 Cinecape」,右上状态/标题/元数据/
+          描述。身份不是临时 chrome —— 不参与自动隐藏,常驻可见;整层
+          pointer-events-none,只有返回按钮可点(不挡画面点击)。mini 不渲染任何
+          覆盖层(外壳级「还原」按钮承担唯一动作)。 */}
+      {minimized ? null : (
+        <div
+          data-testid="player-identity"
+          className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 bg-gradient-to-b from-background/85 via-background/35 to-transparent px-3 pb-8 pt-2 @max-[28rem]:gap-2 @max-[28rem]:px-2"
+        >
+          <div className="flex min-w-0 shrink-0 items-center gap-1.5">
+            <Button
+              size="sm"
+              variant="ghost"
+              isIconOnly
+              aria-label="退出播放"
+              className="pointer-events-auto shrink-0 text-foreground data-[hovered=true]:bg-foreground/15"
+              onPress={onExit}
+            >
+              <ArrowLeft className="size-4" aria-hidden="true" />
+            </Button>
+            <span className="whitespace-nowrap text-xs font-semibold tracking-wide text-foreground/90">
+              {BRAND_NAME}
+            </span>
+          </div>
+
+          <div className="flex min-w-0 flex-col items-end gap-0.5 text-end">
+            <div className="flex items-center justify-end gap-1.5">
+              {isLive ? (
+                // 直播状态不只靠颜色(文字 + 圆点);与底部 LIVE Chip 呼应,不承载动作
+                <span className="flex items-center gap-1 text-2xs font-medium text-success">
+                  <span className="size-1.5 rounded-full bg-success" aria-hidden="true" />
+                  正在直播
+                </span>
+              ) : (
+                <Chip size="sm" variant="soft">
+                  <Chip.Label>点播</Chip.Label>
+                </Chip>
+              )}
+              <span
+                aria-hidden="true"
+                className="relative inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-sm border border-border/60 bg-surface-secondary/40"
+              >
+                {posterRef !== undefined && posterRef !== null ? (
+                  <ChannelLogo
+                    key={posterRef}
+                    posterRef={posterRef}
+                    channelTitle={title}
+                    fallbackClassName="text-3xs font-black leading-none text-muted"
+                  />
+                ) : (
+                  // posterRef 缺省的回退首字徽标(与旧播放面头部同形)
+                  <span className="text-3xs font-black leading-none text-muted">{title.slice(0, 1).toUpperCase()}</span>
+                )}
+              </span>
+            </div>
+            <h2 className="max-w-full min-w-0 truncate text-base font-semibold text-foreground @min-[28rem]:text-lg">
+              {identityTitle}
+            </h2>
+            <p className="hmp-tabular-nums max-w-full min-w-0 truncate text-2xs text-foreground/80">
+              {identityMeta}
+            </p>
+            {programmeDescription !== null ? (
+              <p className="line-clamp-2 hidden max-w-full min-w-0 text-2xs leading-snug text-foreground/75 @min-[28rem]:block">
+                {programmeDescription}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* 控制栏(自绘 HeroUI):两行动作条 + 右侧业务动作区(019 mock)。
           换源/播放设置/线路/节目单全部收拢于此(产品要求:不再四角浮动)。
           mini 不挂控制栏:mini 的唯一控件是外壳级「还原」按钮(见 action-coordinator)。 */}
       {minimized ? null : (
         <PlayerControls
           videoRef={videoRef}
-          isLive={durationSeconds === null}
+          isLive={isLive}
           canSeek={seekCapability !== 'none'}
+          liveWindow={liveWindow}
           onToggleMinimize={onToggleMinimize}
         >
-          {/* 播放设置(012 T028;FR-023):音轨/字幕/清晰度 + 线路 + 换源全部收敛于此
-              (产品要求:控制栏只保留高频道具,低频动作进设置);开关不触媒体元素 */}
-          <PlaybackSettingsOverlay
-            settings={trackSelection}
-            delivery={delivery}
-            lines={lines}
-            selectedLineId={selectedLineId}
-            onSelectLine={onSelectLine}
-            onOpenSourceSwitch={transition.openDrawer}
-            isLive={durationSeconds === null}
-          />
           {/* 直播节目单(切台器):点击在播放器内呼出正在直播列表 */}
-          {durationSeconds === null && onZapChannel !== undefined ? (
+          {isLive && onZapChannel !== undefined ? (
             <Button
               size="sm"
               variant="ghost"
@@ -610,6 +767,17 @@ export function PlayerView({
               <ListVideo aria-hidden="true" className="size-4" />
             </Button>
           ) : null}
+          {/* 播放设置(012 T028;FR-023):音轨/字幕/清晰度 + 线路 + 换源全部收敛于此
+              (产品要求:控制栏只保留高频道具,低频动作进设置);开关不触媒体元素 */}
+          <PlaybackSettingsOverlay
+            settings={trackSelection}
+            delivery={delivery}
+            lines={lines}
+            selectedLineId={selectedLineId}
+            onSelectLine={onSelectLine}
+            onOpenSourceSwitch={transition.openDrawer}
+            isLive={isLive}
+          />
         </PlayerControls>
       )}
       {/* 播放器内节目单面板(不拦截视频播放;点击行即切台) */}

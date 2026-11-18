@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router';
 import { ActionCoordinator, usePlayAction } from '../../src/app/action-coordinator';
 import { SessionProvider, useSession } from '../../src/app/session-provider';
 import { SettingsAccessProvider } from '../../src/features/settings/settings-access-provider';
 import type { AccountSession } from '../../src/app/session-types';
+import { createTestQueryClient } from '../helpers/query-test-utils';
 
 function useSessionProviderStatus(): string {
   return useSession().status;
@@ -171,16 +173,19 @@ function PlayProbe(): ReactNode {
 }
 
 function renderCoordinator(): void {
+  // QueryClientProvider:playing 相位 PlayerView 的 019 直播节目元数据查询依赖数据层 Provider
   render(
-    <MemoryRouter initialEntries={['/vod']}>
-      <SessionProvider>
-        <SettingsAccessProvider>
-          <ActionCoordinator>
-            <PlayProbe />
-          </ActionCoordinator>
-        </SettingsAccessProvider>
-      </SessionProvider>
-    </MemoryRouter>,
+    <QueryClientProvider client={createTestQueryClient()}>
+      <MemoryRouter initialEntries={['/vod']}>
+        <SessionProvider>
+          <SettingsAccessProvider>
+            <ActionCoordinator>
+              <PlayProbe />
+            </ActionCoordinator>
+          </SettingsAccessProvider>
+        </SessionProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

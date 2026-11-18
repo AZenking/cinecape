@@ -20,8 +20,8 @@
 
 ## Decision
 
-1. **自绘 HeroUI 控制栏，关闭引擎原生控件**
-   新增 `PlayerControls`，以 HeroUI `Button`/`Slider` 实现播放/暂停、进度、音量、全屏、最小化；`VideoPlayer` 增加 `nativeControls` 开关（默认 true，播放面传 false），底层仍使用同一 `<video>` 元素，媒体事件与 `currentTime`/`paused` 语义不变。控制栏 3 秒自动隐藏，唤出监听挂在**播放器容器**（隐藏态控制栏自身 `pointer-events-none`，只挂栏内会导致「隐藏后再也唤不出」）。
+1. **自绘 HeroUI 控制栏，关闭引擎原生控件（2026-11-18 修订：两行操作台）**
+   新增 `PlayerControls`，以 HeroUI `Button`/`Slider`/`ProgressBar`/`Chip` 实现两行操作台：第 1 行时间轴（直播 = 节目起止时刻 + 只读 `ProgressBar`（aria-label 节目进度）；点播 = 当前位置 + 可拖动 `Slider` + 总时长），第 2 行动作行（左：直播播放/暂停与音量、点播音量；中：直播 `Chip` `LIVE · 正在直播`、点播播放/暂停；右：业务动作 + 最小化/全屏）。`VideoPlayer` 增加 `nativeControls` 开关（默认 true，播放面传 false），底层仍使用同一 `<video>` 元素，媒体事件与 `currentTime`/`paused` 语义不变。控制栏 3 秒自动隐藏，唤出监听挂在**播放器容器**（隐藏态控制栏自身 `pointer-events-none`，只挂栏内会导致「隐藏后再也唤不出」）；容器宽度 `@max-[28rem]` 紧凑档隐藏音量滑杆。直播无节目元数据时第 1 行整行隐藏（不以假数据占位）。
 
 2. **低频动作收敛到「播放设置」**
    线路切换、换源从控制栏移入设置面板（音轨/字幕/清晰度之后）。控制栏只保留高频道具。
@@ -38,14 +38,15 @@
 6. **mini 播放器**
    播放面可最小化为 300×171 悬浮窗（16:9 画面 + 边框，无头部）；mini 只保留**底部右侧一个「还原」按钮**（外壳级、任何相位都在、不参与控制栏自动隐藏），标题、频道 logo、退出与其余播放控件全部隐藏，退出走「还原 → 退出」两步；拖动由整个窗口承担（指针捕获 + 视口 clamp，`cursor-move`），切换仅改外壳定位/尺寸，**不改变 `PlayerView` 子树结构**，避免重挂中断播放。
 
-7. **播放面头部只留身份与退出**
-   头部呈现「频道/影片 logo + 名称」+「退出」；`posterRef` 经 `PlayActionRequest`/`PlayTarget` 透传（仅本地展示，不进 resolve 请求体）。
+7. **身份进入 PlayerView 顶栏覆盖层，外壳 header 只服务失败态（2026-11-18 修订）**
+   playing 相位不再有外壳 `<header>`：身份信息由 `PlayerView` 顶栏覆盖层承担 —— 左上「返回图标 Button（`aria-label=退出播放`，走协调器 `close`）+ 品牌 `映岬 Cinecape`」，右上「状态（直播：绿点 + 正在直播，频道 logo 保留；点播：`Chip` 点播）/ 大标题 / 元数据（直播 `频道名 · HH:mm–HH:mm`；点播 `点播`）/ 两行直播描述」。身份层常驻可见（身份不是临时 chrome），整层 `pointer-events-none`、仅返回按钮可点；mini 不渲染任何覆盖层。`PlayerView` 新增 `title`/`posterRef`/`onExit` props，`posterRef` 经 `PlayActionRequest`/`PlayTarget` 透传（仅本地展示，不进 resolve 请求体）。unavailable 相位由协调器保留极简 header（logo + 标题 + 退出），使失败态仍有身份与退出。
+   直播节目元数据经既有公共端点 `GET /public/media/{mediaId}/programmes`（`useAppQuery` + `queryKeys.public.channelProgrammes(mediaId)`，public 域、staleTime 30s、仅直播且已知频道 id 时 enabled）；只读进度与时刻以 15s tick 的服务端基准钟（`useServerNow`，未校准回落响应 `now`）计算，不冻结在取数瞬间；`now > current.endsAt` 且存在 `next` 时本地提档；数据缺失/失败/`status=unavailable` 隐藏第 1 行与描述；上游占位文案「暂无节目描述」不作为描述呈现；容器 <28rem（手机）时描述隐藏，只保留状态/标题/元数据。
 
 8. **移除画面内常驻提示**
    删除「正在直播」角标与「进度不可保存」常驻说明；直播状态由控制栏 LIVE 胶囊承载（文字 + 脉冲点，不只靠颜色），进度能力判定仍驱动进度条可用性。
 
 9. **大屏/小屏分档（容器宽度优先，视口只决定外壳）**
-   同一 `PlayerView` 子树同时服务 1120px 大窗、390px 手机与 300px mini 窗，故**控制栏密度以播放器容器宽度为准**：根节点 `@container`，`@max-[28rem]`（<448px）为紧凑档 —— 隐藏音量滑杆（保留静音按钮）、点播只显示当前时间、收紧横向/顶部间距；LIVE 胶囊与时间不换行、右侧动作组不参与压缩。外壳按视口分档：`<sm`（<640px）播放面改为全出血（`100dvh`、无圆角/边框，16:9 画面垂直居中），大屏保持居中浮层，mini 窗 300px 不变。**不在控制栏里用视口断点**——否则桌面上的 mini 窗会误用大窗排版。
+   同一 `PlayerView` 子树同时服务 1120px 大窗、390px 手机与 300px mini 窗，故**控制栏密度以播放器容器宽度为准**：根节点 `@container`，`@max-[28rem]`（<448px）为紧凑档 —— 隐藏音量滑杆（保留静音按钮）、图标按钮收至 32px、收紧横向/顶部间距；容器 `<24rem`（超窄屏）隐藏第 2 行中央 LIVE Chip（直播状态仍由顶栏「正在直播」呈现），避免三列动作横向溢出；时间不换行、右侧动作组不参与压缩。外壳按视口分档：`<sm`（<640px）播放面改为全出血（`100dvh`、无圆角/边框，16:9 画面垂直居中），大屏保持居中浮层，mini 窗 300px 不变。**不在控制栏里用视口断点**——否则桌面上的 mini 窗会误用大窗排版。
 
 ## HeroUI 能力缺口对照（约束 5 要求的偏离记录）
 
@@ -54,8 +55,9 @@
 | 需要的 UI 能力 | HeroUI 现有能力（3.2.6 实测） | 判定 | 本实现做法 |
 |---|---|---|---|
 | 播放/暂停、设置、音量、全屏、最小化按钮 | `Button`（`isIconOnly` + `variant`/`isDisabled`） | ✅ 覆盖 | 直接使用 |
-| 进度条、音量条 | `Slider`（`value`/`onChange`/`onChangeEnd`/`isDisabled` + `Track/Fill/Thumb`） | ✅ 覆盖 | 直接使用（拖动期本地值、松手写回媒体） |
-| 直播状态标识 | `Chip` / `Badge` | ✅ 覆盖 | LIVE 胶囊 = Chip 语义色 + 文字 |
+| 进度条、音量条 | `Slider`（`value`/`onChange`/`onChangeEnd`/`isDisabled` + `Track/Fill/Thumb`） | ✅ 覆盖 | 点播 seek/音量直接使用（拖动期本地值、松手写回媒体） |
+| 只读进度（直播节目进度） | `ProgressBar`（`value`/`minValue`/`maxValue`/`color`/`size` + `Track/Fill`，React Aria progressbar 语义） | ✅ 覆盖 | 直接使用（`aria-label=节目进度`，只读，不接受拖动） |
+| 直播/点播状态标识 | `Chip`（`variant=soft`、`color`、`size` + `Chip.Label`） | ✅ 覆盖 | 直播 = `Chip` `LIVE · 正在直播`（圆点 + 文字）；点播 = `Chip` `点播` |
 | 面板加载态 | `Skeleton` | ✅ 覆盖 | 切台面板加载骨架 |
 | 面板容器视觉 | `Surface` / `Card` | ✅ 覆盖 | 以语义 token 表达（面板为绝对定位覆盖层，未套 Surface 壳） |
 | 设置菜单面板 | `Popover`（portal 弹层，支持非模态） | ⚠️ 可用但未采用 | 现为自绘绝对定位弹层（`bottom-full end-0`），功能/键盘等价；**可迁移项，登记为技术债** |
@@ -66,6 +68,8 @@
 | 视频解码与 HLS 播放 | 无媒体引擎组件 | ❌ 无覆盖（且属引擎层） | 沿用既有 `video.js`（本 ADR 不改引擎选型） |
 
 **自研范围边界**：仅限「覆盖层容器 / 面板定位 / 悬浮拖动」这三类**布局与定位行为**；其中所有可交互元素（按钮、滑块、状态芯片、骨架）均为 HeroUI 组件，样式只用语义 token，图标只用 `lucide-react`。这与约束 5 的例外条款一致，也是本条偏离记录的全部范围。
+
+**mock 上出现、但有意不实现的控件（2026-11-18，操作台 mock 对照）**：上一集/下一集（域内无相邻集编排动作，连播倒计时是既有唯一「下一集」通道）、倍速（引擎未暴露 rate 通道）、清晰度徽标（无质量端点，清晰度仅在「播放设置」只读展示）、CC 按钮（字幕切换在「播放设置」内，避免双入口）、PiP（浏览器/引擎未接入）。这些不新增假控件、不伪造数据；当前能力仍全部可达：播放/暂停、点播 seek、音量/静音、全屏、最小化/还原、节目单（直播）、播放设置（音轨/字幕/清晰度/线路/换源）、退出。
 
 **版本口径**：skill 文档索引当日为 v3.2.7，仓库实际安装 `@heroui/react`/`@heroui/styles` 3.2.6。按宪章「组件 API 与 token 以安装版本为准」，上表判定以 3.2.6 的类型检查与运行时实测为准；`Slider`/`Button`/`Chip`/`Skeleton` 所用 props 在 3.2.6 均可用（`tsc --noEmit` 与浏览器实测通过）。若后续升级 HeroUI，需按约束 8 走宪章修订记录。
 
@@ -93,6 +97,7 @@
 
 **正**
 - 控制面统一为一套 HeroUI 语义视觉，与页面其余部分一致（约束 5/8/9 落地）。
+- 身份层移入画面顶栏后，playing 相位不再占用独立 header 高度，视频在圆角卡片内满铺；状态/标题/元数据与节目进度同屏可读，失败态仍保留极简 header。
 - 换流从「卸载重建」变为「原地换源」，播放中断只剩一次缓冲；`PlayerView` 的进度泵、探针、票据续期随 `sessionId` 变化自然重挂，无需额外生命周期。
 - 直播切台路径从「退出→列表→重播」缩短为「面板内一键」，且切台不再拆播放面（同一 `video` 节点、无 `preparing` 空窗）；切台数据与直播首页同源，无新增端点。
 - mini 播放器让「边看边浏览」成立，且不产生第二套播放器实例。
@@ -104,7 +109,9 @@
 - 控制栏密度与播放器容器宽度绑定（28rem 单断点）：新增控件或放宽间距时，320px 全出血面是最紧的实测界（当前无横向溢出）；mini 窗不挂控制栏，只看视频。
 - 手机全出血面覆盖页面，「边看边浏览」在 `<sm` 由 mini 窗承担；浮层的非模态语义只在大屏成立。
 - mini 只留「还原」一个控件：暂停、音量、退出都要先还原，窗口不可直退。这是本设计的取舍（最小化＝纯看画面）。
-- 播放面头部的频道 logo 盒必须自带定位上下文（`relative`）：`ChannelLogo` 装饰层是 `absolute inset-0`，宿主若是 `static`，装饰层会锚到整个 fixed 播放面并被 `overflow-hidden` 裁掉（2026-11-18 修复，实测装饰层 1118×678 vs 盒 32×32）。
+- 播放面身份层的频道 logo 盒必须自带定位上下文（`relative`）：`ChannelLogo` 装饰层是 `absolute inset-0`，宿主若是 `static`，装饰层会锚到整个 fixed 播放面并被 `overflow-hidden` 裁掉（2026-11-18 修复，实测装饰层 1118×678 vs 盒 32×32）。
+- 两行控制栏在窄容器（<28rem）把动作拆到三列，390px 全出血面为最紧实测界；新增图标或长文案必须先量行宽（当前无溢出，见 Verification）。
+- 顶栏身份层依赖 publics programmes 请求；元数据失败不阻塞播放，但第 1 行与描述会缺席（设计如此，不显示假数据）。
 - 头部去掉线路/连播后，连播开关在 v1 无 UI 入口（偏好 Provider 与其持久化仍在），若后续开放点播需补回入口。
 
 **被否方案**
@@ -114,9 +121,9 @@
 
 ## Verification
 
-- 单元：`test/playback/player-controls.spec.tsx`（隐藏/唤回/悬停不隐藏/暂停可见）、`test/vod-switch.spec.tsx`（换源入口经设置）、`test/playback/playback-settings.spec.tsx`（直播态无角标、设置面板）。
-- 运行/浏览器：控制栏 7 控件、vjs 控制条 `display:none`、mini 尺寸与拖动、切台面板 14 行含进度且切台生效、头部仅「退出播放」、设置面板线路/换源互斥。
+- 单元：`test/playback/player-controls.spec.tsx`（隐藏/唤回/悬停不隐藏/暂停可见 + 两行布局/只读节目进度/LIVE Chip）、`test/playback/playback-modal.spec.tsx`（身份层存在、外壳无 header、返回退出）、`test/vod-switch.spec.tsx`（换源入口经设置）、`test/playback/playback-settings.spec.tsx`（直播态无角标、设置面板）。
+- 运行/浏览器：两行控制栏（时间轴 + 动作行）、vjs 控制条 `display:none`、mini 尺寸与拖动、切台面板 14 行含进度且切台生效、playing 相位无外壳 header（身份在 PlayerView 顶栏，退出为返回图标）、unavailable 保留极简 header、设置面板线路/换源互斥。
 - 分档实测（2026-11-18，真实 Chromium，播放中暂停常显控制栏）：外壳 1288/1024/768/640 为居中浮层（圆角 8、边框 1）、480/390/320 为全出血（0,0、无圆角边框）；控制栏行宽 1094/937/696/576/456/374/304 全部等于可用宽度（无溢出，紧凑档在 390/320 命中：音量 `display:none`、LIVE 胶囊 44×19 单行）；mini 300 窗行宽 282/282、音量隐藏。真机点播档的「当前时间 / 总时长」截断由 mock 会话与生成 CSS 探针各验一次（`@container (width < 28rem)` / `>= 28rem` 规则均在产物 CSS 内）。
 - 切台实测（2026-11-18，真实 Chromium，播放 CCTV-16 打开节目单点 CCTV-13）：修复前 100ms 采样 `surface=false, playback-preparing=true`，约 700ms 后才重挂；修复后全程 `surface=true`、`preparing=false`、`video` 同一节点、`paused=false`，约 660ms 标题由旧频道切到新频道，服务端日志为 `resolve 201 → session GET → renew 200 → stop 旧会话 204`（无新 `playStart`）。自动化：`test/features/live/in-place-zap.spec.tsx`（20ms 采样相位恒 `playing`；失败保持当前频道）。
 - mini/头部实测（2026-11-18，真实 Chromium）：头部 logo 装饰层 30×30 落在 32×32 盒内（修复前 1118×678 溢出被裁，图不可见），img natural 119、opacity 1、首字回退 opacity 0；mini 外壳 300×170、`header` 0 个、`PlayerControls` 不挂载、只剩 1 个「还原播放器」按钮（z-30、opacity 1），默认停机位底部留白 17px，从画面拖动 (−180, −120) 生效，真实鼠标点「还原」回到大窗。
-- 全量：`pnpm --filter @hmp/web exec vitest run` → 587 通过 / 1 跳过（2026-11-18 全量）；`tsc --noEmit`、eslint 零告警。
+- 全量：`pnpm --filter @hmp/web exec vitest run` → 90 文件、593 通过 / 1 跳过（2026-11-18 操作台改版全量；新增 3 例两行控制栏/只读节目进度/身份层断言）；`tsc --noEmit`、eslint 零告警。

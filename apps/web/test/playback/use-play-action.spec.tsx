@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router';
 import { ActionCoordinator } from '../../src/app/action-coordinator';
@@ -7,6 +8,7 @@ import { SettingsAccessProvider } from '../../src/features/settings/settings-acc
 import { SessionProvider } from '../../src/app/session-provider';
 import { PlayButton, usePlayAction } from '../../src/features/playback/use-play-action';
 import type { AccountSession } from '../../src/app/session-types';
+import { createTestQueryClient } from '../helpers/query-test-utils';
 
 /**
  * T048(005 US3 前端单元测试,先 FAIL):use-play-action 统一入口与共享 PlayButton。
@@ -109,16 +111,18 @@ describe('T048 · usePlayAction 与共享 PlayButton(T054 统一入口)', () => 
   it('PlayButton 按压 → 经统一入口发起播放:resolve 携带 mediaId 与 startMode(缺省 beginning)', async () => {
     const { resolveBodies } = mockReadyWorld();
     render(
-      <MemoryRouter initialEntries={['/media/x']}>
-        <SessionProvider>
-          <SettingsAccessProvider>
-            <ActionCoordinator>
-            <PlayButton mediaId="media-a" title="影片A" />
-            <PlayPhaseProbe />
-            </ActionCoordinator>
-          </SettingsAccessProvider>
-        </SessionProvider>
-      </MemoryRouter>,
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/media/x']}>
+          <SessionProvider>
+            <SettingsAccessProvider>
+              <ActionCoordinator>
+                <PlayButton mediaId="media-a" title="影片A" />
+                <PlayPhaseProbe />
+              </ActionCoordinator>
+            </SettingsAccessProvider>
+          </SessionProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
     await waitFor(() => expect(screen.getByRole('button', { name: '播放 影片A' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: '播放 影片A' }));
@@ -140,15 +144,17 @@ describe('T048 · usePlayAction 与共享 PlayButton(T054 统一入口)', () => 
       );
     }
     render(
-      <MemoryRouter>
-        <SessionProvider>
-          <SettingsAccessProvider>
-            <ActionCoordinator>
-            <Probe />
-            </ActionCoordinator>
-          </SettingsAccessProvider>
-        </SessionProvider>
-      </MemoryRouter>,
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter>
+          <SessionProvider>
+            <SettingsAccessProvider>
+              <ActionCoordinator>
+                <Probe />
+              </ActionCoordinator>
+            </SettingsAccessProvider>
+          </SessionProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
     await waitFor(() => expect(screen.getByTestId('resume-play')).toBeEnabled());
     fireEvent.click(screen.getByTestId('resume-play'));

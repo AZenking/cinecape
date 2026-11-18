@@ -35,9 +35,11 @@ vi.mock('video.js', () => {
   return { default: () => new FakePlayer() };
 });
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import type { Vod } from '@hmp/shared';
 import { PlayerView } from '../../src/features/playback/player-view';
+import { createTestQueryClient } from '../helpers/query-test-utils';
 
 /**
  * 012 T028 · 播放设置浮层钉面(PlayerView 直挂;FR-020 第 4 项/FR-023、ui.md §4.4):
@@ -193,21 +195,30 @@ function getVideo(): HTMLVideoElement {
   return el as HTMLVideoElement;
 }
 
+/** PlayerView 直挂需要 QueryClientProvider(019 直播节目元数据查询;点播 enabled=false) */
+function withTestQuery(node: ReactNode): ReactNode {
+  return <QueryClientProvider client={createTestQueryClient()}>{node}</QueryClientProvider>;
+}
+
 /** PlayerView 直挂(vod-switch 同形;票据远期避免续期定时器干扰) */
 function renderPlayer(dtoOverrides: Partial<PlaybackDto> = {}): void {
   probeDto = playbackDto(dtoOverrides);
   render(
-    <PlayerView
-      sessionId="sess-a"
-      generation={1}
-      playbackUrl="/api/playback/stream/sess-a/1/index.m3u8?ticket=t1"
-      ticketExpiresAt="2099-01-01T00:00:00.000Z"
-      delivery="hls_proxy"
-      onTerminated={() => undefined}
-      onRenew={(url, expiresAt) => {
-        onRenewed(url, expiresAt);
-      }}
-    />,
+    withTestQuery(
+      <PlayerView
+        sessionId="sess-a"
+        generation={1}
+        playbackUrl="/api/playback/stream/sess-a/1/index.m3u8?ticket=t1"
+        ticketExpiresAt="2099-01-01T00:00:00.000Z"
+        delivery="hls_proxy"
+        title="例牌单集"
+        onExit={() => undefined}
+        onTerminated={() => undefined}
+        onRenew={(url, expiresAt) => {
+          onRenewed(url, expiresAt);
+        }}
+      />,
+    ),
   );
 }
 
@@ -436,7 +447,7 @@ describe('T028 · 浮层选择随会话身份重置', () => {
 /** 会话换挂探针(直挂 PlayerView 并可重挂 sessionId;E1 专用) */
 function SessionSwapProbe({ sessionId = 'sess-a' }: { readonly sessionId?: string }): ReactNode {
   // key 缺省:sessionId 变化走同一 PlayerView 实例的 props 更新(与协调器换装同形)
-  return (
+  return withTestQuery(
     <div>
       <span data-testid="session-label">{sessionId}</span>
       <PlayerView
@@ -445,9 +456,11 @@ function SessionSwapProbe({ sessionId = 'sess-a' }: { readonly sessionId?: strin
         playbackUrl={`/api/playback/stream/${sessionId}/1/index.m3u8?ticket=t1`}
         ticketExpiresAt="2099-01-01T00:00:00.000Z"
         delivery="hls_proxy"
+        title="例牌单集"
+        onExit={() => undefined}
         onTerminated={() => undefined}
         onRenew={() => undefined}
       />
-    </div>
+    </div>,
   );
 }

@@ -27,6 +27,7 @@ vi.mock('video.js', () => {
   return { default: () => new FakePlayer() };
 });
 import { act, fireEvent, render, screen, type RenderResult } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router';
 import { ActionCoordinator, usePlayAction } from '../src/app/action-coordinator';
@@ -374,22 +375,31 @@ function getVideo(): HTMLVideoElement {
   return el as HTMLVideoElement;
 }
 
+/** PlayerView 直挂需要 QueryClientProvider(019 直播节目元数据查询;点播 enabled=false) */
+function withTestQuery(node: ReactNode): ReactNode {
+  return <QueryClientProvider client={createTestQueryClient()}>{node}</QueryClientProvider>;
+}
+
 /** PlayerView 直挂(props 驱动;票据远期避免续期定时器干扰;fake timers 下心跳可控) */
 function renderPlayerView(
   props: { readonly sessionId?: string; readonly durationSeconds?: number | null } = {},
 ): RenderResult {
   const sessionId = props.sessionId ?? 'sess-vod-1';
   return render(
-    <PlayerView
-      sessionId={sessionId}
-      generation={1}
-      playbackUrl={`/api/playback/stream/${sessionId}/1/index?ticket=t`}
-      ticketExpiresAt="2026-11-26T00:00:00.000Z"
-      delivery="hls_proxy"
-      durationSeconds={props.durationSeconds}
-      onTerminated={terminated}
-      onRenew={() => undefined}
-    />,
+    withTestQuery(
+      <PlayerView
+        sessionId={sessionId}
+        generation={1}
+        playbackUrl={`/api/playback/stream/${sessionId}/1/index?ticket=t`}
+        ticketExpiresAt="2026-11-26T00:00:00.000Z"
+        delivery="hls_proxy"
+        durationSeconds={props.durationSeconds}
+        title="例牌单集"
+        onExit={() => undefined}
+        onTerminated={terminated}
+        onRenew={() => undefined}
+      />,
+    ),
   );
 }
 
@@ -677,15 +687,19 @@ describe('010 T063 · 取消/关闭/切档与偏好门', () => {
     await awaitUi(() => expect(screen.getByTestId('autoplay-countdown')).toBeInTheDocument());
     // 会话身份变化=切档语义(PlayerView 换 sessionId,与 vod-resume B6 同形)
     rerender(
-      <PlayerView
-        sessionId="sess-vod-2"
-        generation={1}
-        playbackUrl="/api/playback/stream/sess-vod-2/1/index?ticket=t"
-        ticketExpiresAt="2026-11-26T00:00:00.000Z"
-        delivery="hls_proxy"
-        onTerminated={terminated}
-        onRenew={() => undefined}
-      />,
+      withTestQuery(
+        <PlayerView
+          sessionId="sess-vod-2"
+          generation={1}
+          playbackUrl="/api/playback/stream/sess-vod-2/1/index?ticket=t"
+          ticketExpiresAt="2026-11-26T00:00:00.000Z"
+          delivery="hls_proxy"
+          title="例牌单集"
+          onExit={() => undefined}
+          onTerminated={terminated}
+          onRenew={() => undefined}
+        />,
+      ),
     );
     await pumpTimers(100);
     expect(screen.queryByTestId('autoplay-countdown'), '切档后倒计时必须销毁').not.toBeInTheDocument();

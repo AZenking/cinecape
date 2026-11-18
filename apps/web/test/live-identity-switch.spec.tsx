@@ -18,6 +18,7 @@ vi.mock('video.js', () => {
   return { default: () => new FakePlayer() };
 });
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router';
 import type { Vod } from '@hmp/shared';
@@ -259,16 +260,19 @@ function Probe(): ReactNode {
 }
 
 function renderCoordinatorApp(): void {
+  // QueryClientProvider:playing 相位 PlayerView 的 019 直播节目元数据查询依赖同一全局 client
   render(
-    <MemoryRouter initialEntries={['/live']}>
-      <SessionProvider>
-        <SettingsAccessProvider>
-          <ActionCoordinator>
-            <Probe />
-          </ActionCoordinator>
-        </SettingsAccessProvider>
-      </SessionProvider>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/live']}>
+        <SessionProvider>
+          <SettingsAccessProvider>
+            <ActionCoordinator>
+              <Probe />
+            </ActionCoordinator>
+          </SettingsAccessProvider>
+        </SessionProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

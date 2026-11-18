@@ -120,6 +120,11 @@ export const queryKeys = {
     liveGroups: () => ['public', 'live', 'groups'] as const,
     /** 直播频道列表(分区/分组/搜索/分页;30s 轮询契约不变) */
     liveChannels: (query: LiveChannelQuery) => ['public', 'live', 'channels', query] as const,
+    /**
+     * 单频道当前/下一档节目(019 播放面身份层;GET /public/media/{mediaId}/programmes)。
+     * 键按 mediaId 分域;playback 换台即换键,旧频道数据不串面。
+     */
+    channelProgrammes: (mediaId: string) => ['public', 'live', 'programme', mediaId] as const,
     /** 频道节目单 */
     epg: (query: EpgQuery) => ['public', 'epg', query] as const,
     /**
