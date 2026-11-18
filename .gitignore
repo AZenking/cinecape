@@ -55,3 +55,17 @@ apps/server/data/
 .gstack/
 # heroui-agents-md
 .heroui-docs/
+
+# 设计参考截图(本地留档,不参与构建与运行;设计规格 md/svg 仍入库)
+/design/**/*.png
+/design/**/*.jpg
+/design/**/*.webp
+
+# 根级测试与构建缓存(防止其他包的产物绕过上面按 app 列出的路径)
+test-results/
+playwright-report/
+.turbo/
+.cache/
+.eslintcache
+*.tgz
+*.pid
