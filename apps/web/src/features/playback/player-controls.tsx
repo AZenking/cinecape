@@ -12,6 +12,10 @@
  *   seek 能力不满足(canSeek=false)时进度条为只读外观(与既有 I4 语义一致);
  * - 控制栏 3 秒无操作自动隐藏(播放中);鼠标移动/键盘聚焦/暂停时保持可见,
  *   触屏与键盘均可操作(React Aria Button/Slider 自带焦点与键盘语义)。
+ * - 密度按**播放器容器宽度**适配(PlayerView 根 `@container`),不用视口断点 ——
+ *   同一子树同时服务 1120px 大窗、390px 手机全出血面与 300px mini 窗:
+ *   < 28rem(`@max-[28rem]:`,448px)为紧凑档 —— 隐藏音量滑杆(保留静音按钮)、
+ *   VOD 只显示当前时间、收紧横向/顶部间距;≥ 28rem 保持完整大窗排版。
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Button, Slider } from '@heroui/react';
@@ -227,7 +231,7 @@ export function PlayerControls({
   return (
     <div
       data-testid="player-controls"
-      className={`absolute inset-x-0 bottom-0 z-20 flex flex-col gap-1 bg-gradient-to-t from-background/85 via-background/45 to-transparent px-3 pb-2 pt-8 transition-opacity duration-200 ${
+      className={`absolute inset-x-0 bottom-0 z-20 flex flex-col gap-1 bg-gradient-to-t from-background/85 via-background/45 to-transparent px-3 pb-2 pt-8 @max-[28rem]:px-2 @max-[28rem]:pt-5 transition-opacity duration-200 ${
         visible ? 'opacity-100' : 'pointer-events-none opacity-0'
       }`}
       onPointerMove={revealControls}
@@ -270,7 +274,7 @@ export function PlayerControls({
         <div className="h-1" aria-hidden="true" />
       )}
 
-      <div className="flex items-center gap-1.5 text-foreground">
+      <div className="flex items-center gap-1.5 @max-[28rem]:gap-1 text-foreground">
         <Button
           size="sm"
           variant="ghost"
@@ -283,23 +287,24 @@ export function PlayerControls({
         </Button>
 
         {isLive ? (
-          <span className="flex items-center gap-1 rounded-sm bg-danger/90 px-1.5 py-0.5 text-2xs font-semibold text-danger-foreground">
+          <span className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-sm bg-danger/90 px-1.5 py-0.5 text-2xs font-semibold text-danger-foreground">
             <span className="size-1.5 rounded-full bg-danger-foreground animate-pulse" aria-hidden="true" />
             直播
           </span>
         ) : (
-          <span className="hmp-tabular-nums text-2xs text-foreground/85">
-            {formatClock(shownTime)} / {formatClock(progressMax)}
+          <span className="hmp-tabular-nums shrink-0 whitespace-nowrap text-2xs text-foreground/85">
+            {formatClock(shownTime)}
+            <span className="hidden @min-[28rem]:inline"> / {formatClock(progressMax)}</span>
           </span>
         )}
 
         <div className="mx-auto" />
 
         {/* 业务动作区(播放设置/换源/线路/节目单),样式由控制栏统一约束 */}
-        <div className="flex items-center gap-1 [&_button]:text-foreground">{children}</div>
+        <div className="flex shrink-0 items-center gap-1 [&_button]:text-foreground">{children}</div>
 
         {/* 音量 */}
-        <div className="group/vol flex items-center gap-1">
+        <div className="group/vol flex shrink-0 items-center gap-1">
           <Button
             size="sm"
             variant="ghost"
@@ -312,7 +317,7 @@ export function PlayerControls({
           </Button>
           <Slider
             aria-label="音量"
-            className="w-16"
+            className="w-16 @max-[28rem]:hidden"
             minValue={0}
             maxValue={1}
             step={0.05}
@@ -334,7 +339,7 @@ export function PlayerControls({
           variant="ghost"
           isIconOnly
           aria-label={isFullscreen ? '退出全屏' : '全屏'}
-          className="text-foreground data-[hovered=true]:bg-foreground/15"
+          className="shrink-0 text-foreground data-[hovered=true]:bg-foreground/15"
           onPress={toggleFullscreen}
         >
           {isFullscreen ? <Minimize2 className="size-4" aria-hidden="true" /> : <Maximize className="size-4" aria-hidden="true" />}
@@ -347,7 +352,7 @@ export function PlayerControls({
             variant="ghost"
             isIconOnly
             aria-label={minimized ? '还原播放器' : '最小化播放器'}
-            className="text-foreground data-[hovered=true]:bg-foreground/15"
+            className="shrink-0 text-foreground data-[hovered=true]:bg-foreground/15"
             onPress={onToggleMinimize}
           >
             {minimized ? <Maximize className="size-4" aria-hidden="true" /> : <Minimize2 className="size-4" aria-hidden="true" />}

@@ -547,7 +547,10 @@ export function PlayerView({
     // 稳定回调经 ref 转发(见下)
     // 依赖面刻意收窄:稳定回调经 ref 转发;playbackUrl/generation 变化即换装
   }, [sessionId, generation, ticketExpiresAt]);return (
-    <div className="relative h-full w-full">
+    /* 控制栏密度以**播放器容器宽度**为断点(@container;同一子树在 1120px 大窗、
+       390px 手机全出血面与 300px mini 窗复用),不按视口断点 —— 视口断点会让
+       mini 窗误用大窗排版。见 player-controls 的 @max-[28rem]: 紧凑档。 */
+    <div className="@container relative h-full w-full">
       <VideoPlayer
         videoRef={videoRef}
         src={playbackUrl}

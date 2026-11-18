@@ -1150,7 +1150,7 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
             className={
               minimized
                 ? 'pointer-events-auto fixed z-50 flex w-[300px] flex-col overflow-hidden rounded-lg border border-border bg-background shadow-2xl'
-                : 'pointer-events-auto fixed left-1/2 top-1/2 z-50 flex w-[min(94vw,1120px,calc((100vh-12rem)*16/9))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-border bg-background shadow-2xl'
+                : 'pointer-events-auto fixed left-1/2 top-1/2 z-50 flex w-[min(94vw,1120px,calc((100vh-12rem)*16/9))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-border bg-background shadow-2xl max-sm:left-0 max-sm:top-0 max-sm:h-[100dvh] max-sm:w-full max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none max-sm:border-0'
             }
           >
             {/* 头部兼作 mini 拖动手柄(cursor-move 仅提示,不改变交互语义);
@@ -1194,7 +1194,8 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
               </div>
             </header>
             {playback.phase === 'playing' && playback.playbackUrl !== null && playback.sessionId !== null ? (
-              <div className="aspect-video w-full bg-background">
+              /* 手机全出血面:16:9 画面在 100dvh 剩余空间内垂直居中(桌面浮层保持原样) */
+              <div className="aspect-video w-full bg-background max-sm:my-auto">
                 <PlayerView
                   sessionId={playback.sessionId}
                   generation={playback.playbackGeneration ?? 1}
