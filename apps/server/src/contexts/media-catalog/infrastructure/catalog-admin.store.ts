@@ -124,7 +124,14 @@ export function batchUpdateMediaVisibility(
   });
 }
 
-/** 查询频道的所有播放线路 */
+/**
+ * 查询频道的所有播放线路。
+ *
+ * 排序口径与播放解析一致:priority ASC(数值越小越优先;同权重按创建时间/行序稳定)。
+ * 视图与该序对齐后,「线路 #1 = 首选主线路」就是播放实际首 probe 的线路 —— 曾按 DESC
+ * 展示导致管理侧标「首选」的线路在播放时排在最后(与 016 契约 isDefault=首个 priority
+ * 最小线路的语义相反)。
+ */
 export function listMediaStreams(householdId: string, mediaId: string): ChannelStreamDto[] {
   const rows = Database.db
     .prepare(
@@ -134,7 +141,7 @@ export function listMediaStreams(householdId: string, mediaId: string): ChannelS
        FROM playback_source ps
        LEFT JOIN media_source ms ON ms.household_id = ps.household_id AND ms.id = ps.source_id
        WHERE ps.household_id = ? AND ps.media_item_id = ?
-       ORDER BY ps.priority DESC, ps.created_at ASC`,
+       ORDER BY ps.priority ASC, ps.created_at ASC, ps.id ASC`,
     )
     .all(householdId, mediaId) as ChannelStreamDto[];
   return rows;
@@ -235,7 +242,12 @@ export function addMediaStream(
   const nowIso = new Date().toISOString();
   const digest = createHash('sha256').update(`url:${trimmedLoc}:${playbackId}`).digest('hex');
   const protocol = input.protocol || (trimmedLoc.includes('.m3u8') ? 'hls' : 'http');
-  const priority = input.priority ?? 100;
+  // 缺省权重 = 追加为末位备用线路(ASC 序:现有最大权重 +10),不因「新增一条」而顶掉
+  // 当前首选;无既有线路时沿用 100 的既有缺省。显式 priority 仍以调用方为准。
+  const maxExisting = Database.db
+    .prepare('SELECT MAX(priority) AS maxPriority FROM playback_source WHERE household_id = ? AND media_item_id = ?')
+    .get(householdId, mediaId) as { maxPriority: number | null } | undefined;
+  const priority = input.priority ?? (maxExisting?.maxPriority == null ? 100 : maxExisting.maxPriority + 10);
 
   Database.db
     .prepare(

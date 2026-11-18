@@ -77,7 +77,7 @@ afterEach(async () => {
 });
 
 describe('频道直播源线路可配置性测试 (GET/POST/PATCH/DELETE /settings/catalog/media/:id/streams)', () => {
-  it('支持查看线路、修改线路 URL、设为主线路(提升优先级)、新增与删除线路', async () => {
+  it('支持查看线路、修改线路 URL、设为主线路(权重调小)与新增/删除线路,列表按 priority ASC 与播放同序', async () => {
     const media = await createControlledMediaServer();
     mediaServers.push(media);
 
@@ -139,26 +139,28 @@ describe('频道直播源线路可配置性测试 (GET/POST/PATCH/DELETE /settin
     expect(initialStream.location).toBe('http://upstream.example.com/cctv1-hd.m3u8');
     expect(initialStream.protocol).toBe('hls');
 
-    // 4. POST 为频道新增一条备用直播源线路
+    // 4. POST 为频道新增一条备用直播源线路(不传 priority:缺省追加为末位备用线路)
     const addRes = await request(rig.app.getHttpServer())
       .post(`/api/settings/catalog/media/${channel.id}/streams`)
       .set('Cookie', rig.cookie)
       .send({
         location: 'http://backup.example.com/cctv1-backup.m3u8',
         protocol: 'hls',
-        priority: 5,
       });
     expect(addRes.status).toBe(200);
     const newStream = addRes.body;
     expect(newStream.id).toBeDefined();
     expect(newStream.location).toBe('http://backup.example.com/cctv1-backup.m3u8');
 
-    // 再次 GET 确认有 2 条线路
+    // 再次 GET 确认有 2 条线路:priority ASC 与播放解析同序,原线路(权重更小)仍居首
     const streamsRes2 = await request(rig.app.getHttpServer())
       .get(`/api/settings/catalog/media/${channel.id}/streams`)
       .set('Cookie', rig.cookie);
     expect(streamsRes2.status).toBe(200);
     expect(streamsRes2.body.items).toHaveLength(2);
+    expect(streamsRes2.body.items[0].id).toBe(initialStream.id);
+    expect(streamsRes2.body.items[1].id).toBe(newStream.id);
+    expect(streamsRes2.body.items[1].priority).toBeGreaterThan(streamsRes2.body.items[0].priority);
 
     // 5. PATCH 修改新线路的 URL
     const updateRes = await request(rig.app.getHttpServer())
@@ -170,17 +172,17 @@ describe('频道直播源线路可配置性测试 (GET/POST/PATCH/DELETE /settin
     expect(updateRes.status).toBe(200);
     expect(updateRes.body.location).toBe('http://backup.example.com/cctv1-backup-edited.m3u8');
 
-    // 6. PATCH 将新线路提升为最高优先级 (设为主线路)
+    // 6. PATCH 把新线路设为主线路:priority ASC 语义下 = 权重取到最小(小于原线路)
     const promoteRes = await request(rig.app.getHttpServer())
       .patch(`/api/settings/catalog/media/${channel.id}/streams/${newStream.id}`)
       .set('Cookie', rig.cookie)
       .send({
-        priority: 200,
+        priority: 5,
       });
     expect(promoteRes.status).toBe(200);
-    expect(promoteRes.body.priority).toBe(200);
+    expect(promoteRes.body.priority).toBe(5);
 
-    // 验证重新 GET 后的排序：优先级 100 的排在首位
+    // 验证重新 GET 后的排序:权重最小的新线路居首(即播放默认线路)
     const streamsRes3 = await request(rig.app.getHttpServer())
       .get(`/api/settings/catalog/media/${channel.id}/streams`)
       .set('Cookie', rig.cookie);

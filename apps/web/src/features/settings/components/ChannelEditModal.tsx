@@ -186,14 +186,20 @@ export function ChannelEditModal({
     }
   };
 
-  // 设为默认首选线路 (提升优先级)
+  // 设为默认首选线路:线路权重按 priority ASC(数值越小越优先,与播放解析同口径),
+  // 因此「设为首选」= 取比现有最小权重再小 10 的值,而不是把数值调大。
   const handleSetPrimaryStream = async (stream: ChannelStreamDto) => {
     if (channel === null) return;
-    const maxPriority = streams.length > 0 ? Math.max(...streams.map((s) => s.priority)) : 0;
-    const newPriority = maxPriority + 10;
+    const minPriority = streams.length > 0 ? Math.min(...streams.map((s) => s.priority)) : 100;
+    const newPriority = Math.max(0, minPriority - 10);
     setIsSavingStreamId(stream.id);
     try {
       await settingsApi.updateStream(channel.id, stream.id, { priority: newPriority });
+      // 撞到下限(权重已到 0)时,把同权重的其他线路顺延 +10,保证目标稳定居首
+      const collided = streams.filter((line) => line.id !== stream.id && line.priority <= newPriority);
+      for (const line of collided) {
+        await settingsApi.updateStream(channel.id, line.id, { priority: newPriority + 10 });
+      }
       toast.success('已设为首选主线路');
       await loadStreams(channel.id);
       onSaved();
