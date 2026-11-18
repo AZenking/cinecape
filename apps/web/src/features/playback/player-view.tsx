@@ -128,7 +128,7 @@ export interface PlayerViewProps {
   readonly selectedLineId?: string | null;
   /** 手动换线:仅上报 lineId,由协调器决定是否原地换装 */
   readonly onSelectLine?: (lineId: string) => void;
-  /** mini 播放器状态与切换(控制栏最小化按钮;宿主负责悬浮/拖动) */
+  /** mini 播放器状态(仅门控控制栏;还原按钮由播放面外壳承担,宿主负责悬浮/拖动) */
   readonly minimized?: boolean;
   readonly onToggleMinimize?: () => void;
   /** 直播频道切换(节目单面板内点击某频道当前节目) */
@@ -547,9 +547,9 @@ export function PlayerView({
     // 稳定回调经 ref 转发(见下)
     // 依赖面刻意收窄:稳定回调经 ref 转发;playbackUrl/generation 变化即换装
   }, [sessionId, generation, ticketExpiresAt]);return (
-    /* 控制栏密度以**播放器容器宽度**为断点(@container;同一子树在 1120px 大窗、
-       390px 手机全出血面与 300px mini 窗复用),不按视口断点 —— 视口断点会让
-       mini 窗误用大窗排版。见 player-controls 的 @max-[28rem]: 紧凑档。 */
+    /* 控制栏密度以**播放器容器宽度**为断点(@container;同一子树在 1120px 大窗
+       与 390px 手机全出血面复用),不按视口断点。见 player-controls 的
+       @max-[28rem]: 紧凑档。 */
     <div className="@container relative h-full w-full">
       <VideoPlayer
         videoRef={videoRef}
@@ -571,42 +571,44 @@ export function PlayerView({
       {/* 直播状态:控制栏已用 LIVE 胶囊承载(产品要求:去掉画面内的常驻角标,
           避免与控制栏重复的过度提示) */}
       {/* 控制栏(自绘 HeroUI):基础播放控件 + 右侧业务动作区。
-          换源/播放设置/线路/节目单全部收拢于此(产品要求:不再四角浮动)。 */}
-      <PlayerControls
-        videoRef={videoRef}
-        isLive={durationSeconds === null}
-        canSeek={seekCapability !== 'none'}
-        minimized={minimized}
-        onToggleMinimize={onToggleMinimize}
-      >
-        {/* 播放设置(012 T028;FR-023):音轨/字幕/清晰度 + 线路 + 换源全部收敛于此
-            (产品要求:控制栏只保留高频道具,低频动作进设置);开关不触媒体元素 */}
-        <PlaybackSettingsOverlay
-          settings={trackSelection}
-          delivery={delivery}
-          lines={lines}
-          selectedLineId={selectedLineId}
-          onSelectLine={onSelectLine}
-          onOpenSourceSwitch={transition.openDrawer}
+          换源/播放设置/线路/节目单全部收拢于此(产品要求:不再四角浮动)。
+          mini 不挂控制栏:mini 的唯一控件是外壳级「还原」按钮(见 action-coordinator)。 */}
+      {minimized ? null : (
+        <PlayerControls
+          videoRef={videoRef}
           isLive={durationSeconds === null}
-        />
-        {/* 直播节目单(切台器):点击在播放器内呼出正在直播列表 */}
-        {durationSeconds === null && onZapChannel !== undefined ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            isIconOnly
-            aria-label="节目单"
-            aria-expanded={guideOpen}
-            className="text-foreground"
-            onPress={() => {
-              setGuideOpen((value) => !value);
-            }}
-          >
-            <ListVideo aria-hidden="true" className="size-4" />
-          </Button>
-        ) : null}
-      </PlayerControls>
+          canSeek={seekCapability !== 'none'}
+          onToggleMinimize={onToggleMinimize}
+        >
+          {/* 播放设置(012 T028;FR-023):音轨/字幕/清晰度 + 线路 + 换源全部收敛于此
+              (产品要求:控制栏只保留高频道具,低频动作进设置);开关不触媒体元素 */}
+          <PlaybackSettingsOverlay
+            settings={trackSelection}
+            delivery={delivery}
+            lines={lines}
+            selectedLineId={selectedLineId}
+            onSelectLine={onSelectLine}
+            onOpenSourceSwitch={transition.openDrawer}
+            isLive={durationSeconds === null}
+          />
+          {/* 直播节目单(切台器):点击在播放器内呼出正在直播列表 */}
+          {durationSeconds === null && onZapChannel !== undefined ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              isIconOnly
+              aria-label="节目单"
+              aria-expanded={guideOpen}
+              className="text-foreground"
+              onPress={() => {
+                setGuideOpen((value) => !value);
+              }}
+            >
+              <ListVideo aria-hidden="true" className="size-4" />
+            </Button>
+          ) : null}
+        </PlayerControls>
+      )}
       {/* 播放器内节目单面板(不拦截视频播放;点击行即切台) */}
       <LiveGuidePanel
         open={guideOpen}

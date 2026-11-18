@@ -35,6 +35,7 @@ import {
 import { useNavigate } from 'react-router';
 import { Alert, AlertContent, AlertDescription, AlertTitle, Button, Modal, Spinner } from '@heroui/react';
 import type { PlaybackDto, TicketReply } from '@hmp/shared';
+import { Maximize } from 'lucide-react';
 import { isFetchApiError, privateFetch, publicFetch } from '../shared/fetch';
 import { useSession } from './session-provider';
 import type { AccountSession, ProfileSummary, SetupStatus } from './session-types';
@@ -137,9 +138,11 @@ const PREPARE_BUDGET_MS = 30_000;
  *  客户端媒体故障时刻起算的 UI 镜像(服务端 failed+60s 为权威),过期收口为
  *  「重新播放」普通播放 —— 不自动携带过期 carry/意图,不自动循环尝试来源。 */
 const RECOVER_WINDOW_MS = 60_000;
-/** mini 播放器尺寸(宽 300,总高约 200:16:9 画面 + 控制栏) */
+/** mini 播放器尺寸:宽 300,高 = 16:9 画面(300×9/16≈169)+ 上下边框 2 ≈ 171。
+ *  mini 不再有头部/控制栏(唯一控件是放大按钮),尺寸随外壳实测同步;用于
+ *  默认停机位与拖动 clamp,数值失配会把窗口停在离视口底边过远的位置。 */
 const MINI_WIDTH_PX = 300;
-const MINI_HEIGHT_PX = 200;
+const MINI_HEIGHT_PX = 171;
 
 /** 换源恢复窗口相位(T075):idle=无故障;window=60s 内可 recover_switch;expired=过期 */
 type RecoverPhase = 'idle' | 'window' | 'expired';
@@ -1149,50 +1152,47 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
             style={minimized && miniPosition !== null ? { left: miniPosition.x, top: miniPosition.y } : undefined}
             className={
               minimized
-                ? 'pointer-events-auto fixed z-50 flex w-[300px] flex-col overflow-hidden rounded-lg border border-border bg-background shadow-2xl'
+                ? 'pointer-events-auto fixed z-50 flex w-[300px] cursor-move flex-col overflow-hidden rounded-lg border border-border bg-background shadow-2xl'
                 : 'pointer-events-auto fixed left-1/2 top-1/2 z-50 flex w-[min(94vw,1120px,calc((100vh-12rem)*16/9))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-border bg-background shadow-2xl max-sm:left-0 max-sm:top-0 max-sm:h-[100dvh] max-sm:w-full max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none max-sm:border-0'
             }
           >
-            {/* 头部兼作 mini 拖动手柄(cursor-move 仅提示,不改变交互语义);
-                mini 态隐藏标题与退出以外的高频动作,保留还原/关闭 */}
-            {/* 头部:频道/影片标识(logo + 名称)+ 退出。
+            {/* 头部(仅大窗):频道/影片标识(logo + 名称)+ 退出。
                 线路切换、连播开关、最小化已全部收进播放器控制栏(产品要求),
-                头部只保留身份与退出;mini 态标题栏兼作拖动手柄。 */}
-            <header
-              className={`flex items-center justify-between gap-4 border-b border-border/60 ${
-                minimized ? 'cursor-move px-2 py-1' : 'px-3 py-2'
-              }`}
-            >
-              <div className="flex min-w-0 items-center gap-2">
-                <span
-                  aria-hidden="true"
-                  className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-sm border border-border/60 bg-surface-secondary/40 ${
-                    minimized ? 'size-6' : 'size-8'
-                  }`}
-                >
-                  {playback.target.posterRef !== undefined && playback.target.posterRef !== null ? (
-                    <ChannelLogo
-                      key={playback.target.posterRef}
-                      posterRef={playback.target.posterRef}
-                      channelTitle={playback.target.title}
-                      fallbackClassName="text-3xs font-black leading-none text-muted"
-                    />
-                  ) : (
-                    <span className={`font-bold text-foreground/80 ${minimized ? 'text-3xs' : 'text-xs'}`}>
-                      {playback.target.title.slice(0, 1).toUpperCase()}
-                    </span>
-                  )}
-                </span>
-                <h2 className={`min-w-0 truncate font-medium text-foreground ${minimized ? 'text-xs' : 'text-base'}`}>
-                  {playback.target.title}
-                </h2>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <Button size="sm" variant="ghost" onPress={close} aria-label="退出播放">
-                  退出
-                </Button>
-              </div>
-            </header>
+                头部只保留身份与退出;mini 不呈现头部,拖动由整个窗口承担。 */}
+            {!minimized ? (
+              <header className="flex items-center justify-between gap-4 border-b border-border/60 px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  {/* 该盒必须保持定位上下文(relative):ChannelLogo 装饰层为
+                      absolute inset-0,否则会锚到整个 fixed 播放面并被 overflow-hidden
+                      裁掉(实测装饰层 1118x678 vs 盒 32x32,logo 因而不可见)。 */}
+                  <span
+                    aria-hidden="true"
+                    className="relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-sm border border-border/60 bg-surface-secondary/40 size-8"
+                  >
+                    {playback.target.posterRef !== undefined && playback.target.posterRef !== null ? (
+                      <ChannelLogo
+                        key={playback.target.posterRef}
+                        posterRef={playback.target.posterRef}
+                        channelTitle={playback.target.title}
+                        fallbackClassName="text-3xs font-black leading-none text-muted"
+                      />
+                    ) : (
+                      <span className="font-bold text-foreground/80 text-xs">
+                        {playback.target.title.slice(0, 1).toUpperCase()}
+                      </span>
+                    )}
+                  </span>
+                  <h2 className="min-w-0 truncate font-medium text-foreground text-base">
+                    {playback.target.title}
+                  </h2>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button size="sm" variant="ghost" onPress={close} aria-label="退出播放">
+                    退出
+                  </Button>
+                </div>
+              </header>
+            ) : null}
             {playback.phase === 'playing' && playback.playbackUrl !== null && playback.sessionId !== null ? (
               /* 手机全出血面:16:9 画面在 100dvh 剩余空间内垂直居中(桌面浮层保持原样) */
               <div className="aspect-video w-full bg-background max-sm:my-auto">
@@ -1267,6 +1267,20 @@ export function ActionCoordinator({ children }: { children: ReactNode }): ReactN
                 </Button>
               </div>
             )}
+            {/* mini 唯一控件:还原为大窗播放面。外壳级兄弟节点(不随相位内容卸载),
+                playing/unavailable 两相位均可见,不参与控制栏的自动隐藏。 */}
+            {minimized ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                isIconOnly
+                aria-label="还原播放器"
+                className="absolute bottom-2 end-2 z-30 cursor-pointer"
+                onPress={toggleMinimize}
+              >
+                <Maximize className="size-4" aria-hidden="true" />
+              </Button>
+            ) : null}
           </section>
         ) : null}
         </VodAutoplayPreferenceProvider>

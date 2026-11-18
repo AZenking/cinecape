@@ -13,7 +13,7 @@
  * - 控制栏 3 秒无操作自动隐藏(播放中);鼠标移动/键盘聚焦/暂停时保持可见,
  *   触屏与键盘均可操作(React Aria Button/Slider 自带焦点与键盘语义)。
  * - 密度按**播放器容器宽度**适配(PlayerView 根 `@container`),不用视口断点 ——
- *   同一子树同时服务 1120px 大窗、390px 手机全出血面与 300px mini 窗:
+ *   同一子树同时服务 1120px 大窗与 390px 手机全出血面:
  *   < 28rem(`@max-[28rem]:`,448px)为紧凑档 —— 隐藏音量滑杆(保留静音按钮)、
  *   VOD 只显示当前时间、收紧横向/顶部间距;≥ 28rem 保持完整大窗排版。
  */
@@ -30,8 +30,7 @@ export interface PlayerControlsProps {
   readonly isLive: boolean;
   /** 是否允许拖动定位(010 I4:能力不满足时进度条只读) */
   readonly canSeek: boolean;
-  /** 缩小为右下角 mini 播放器(已最小化时按钮呈还原态) */
-  readonly minimized?: boolean;
+  /** 缩小为右下角 mini 播放器(mini 态不渲染本控制栏,还原入口在播放面外壳) */
   readonly onToggleMinimize?: () => void;
   /** 右侧业务动作区(播放设置/换源/线路/节目单) */
   readonly children?: ReactNode;
@@ -56,7 +55,6 @@ export function PlayerControls({
   containerRef,
   isLive,
   canSeek,
-  minimized = false,
   onToggleMinimize,
   children,
 }: PlayerControlsProps): ReactNode {
@@ -345,17 +343,18 @@ export function PlayerControls({
           {isFullscreen ? <Minimize2 className="size-4" aria-hidden="true" /> : <Maximize className="size-4" aria-hidden="true" />}
         </Button>
 
-        {/* 最小化:收起为右下角 mini 播放器(宿主实现悬浮与拖动) */}
+        {/* 最小化:收起为右下角 mini 播放器(宿主实现悬浮与拖动);
+            本栏只在大窗渲染,故这里只保留「最小化」一种动作 */}
         {onToggleMinimize !== undefined ? (
           <Button
             size="sm"
             variant="ghost"
             isIconOnly
-            aria-label={minimized ? '还原播放器' : '最小化播放器'}
+            aria-label="最小化播放器"
             className="shrink-0 text-foreground data-[hovered=true]:bg-foreground/15"
             onPress={onToggleMinimize}
           >
-            {minimized ? <Maximize className="size-4" aria-hidden="true" /> : <Minimize2 className="size-4" aria-hidden="true" />}
+            <Minimize2 className="size-4" aria-hidden="true" />
           </Button>
         ) : null}
       </div>
