@@ -418,7 +418,11 @@ export async function parseXMLTV(
           // 零时长(start==stop)或超过修正上限的倒置:跳过该条并计数;
           // 若畸形条目占比过高(源整体损坏),在解析结束时统一抛 TIME_INVALID,
           // 避免"静默导入垃圾"。
+          // 注意:跳过是「丢弃语义」而非「忽略元素」——programme 帧仍须占位,
+          // 否则它的 </programme> 会错位 pop 父帧,元素栈与 depth 记账漂移,
+          // 上游一旦出现 start==stop(真实聚合源常见)就误报 DEPTH_EXCEEDED。
           invalidProgrammeWindows += 1;
+          stack.push({ kind: 'other' });
           return;
         }
       }

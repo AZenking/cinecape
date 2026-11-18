@@ -520,6 +520,41 @@ describe('时间语义(必须带合法时区,统一 UTC)', () => {
     expect(result.programmes.length).toBe(30);
   });
 
+  it('跳过的坏节目不破坏元素深度记账:跳过后仍可继续解析数十条正常节目', async () => {
+    const fmt = (ms: number): string => {
+      const d = new Date(ms);
+      const p = (n: number): string => String(n).padStart(2, '0');
+      return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())} +0000`;
+    };
+    const base = Date.UTC(2026, 0, 1, 0, 0, 0);
+    // 真实聚合源常见 start==stop 占位条目。跳过的 programme 若不留帧占位,
+    // 其 </programme> 会错位 pop 父帧;每跳过一次 depth 就漏减 1,累计 30+ 次后
+    // 在正常节目流上误报 DEPTH_EXCEEDED(32 层上限)。
+    const badCount = 33;
+    const validCount = 667;
+    const programmes = [
+      ...Array.from({ length: validCount }, (_, index) => ({
+        channel: 'cctv1',
+        start: fmt(base + index * 30 * 60_000),
+        stop: fmt(base + (index + 1) * 30 * 60_000),
+        title: `节目${index}`,
+      })),
+      ...Array.from({ length: badCount }, (_, index) => ({
+        channel: 'cctv2',
+        start: fmt(base + (validCount + index) * 30 * 60_000),
+        stop: fmt(base + (validCount + index) * 30 * 60_000),
+        title: '零时长坏节目',
+      })),
+    ];
+    const xml = buildXmltv([{ id: 'cctv1' }, { id: 'cctv2' }], programmes);
+
+    const result = await parseXMLTV(streamOf(xml));
+
+    // 33/700 ≈ 4.7% ≤ 5%:全部坏条目按跳过处理,其余 667 条正常导入且不触顶
+    expect(result.skippedInvalidProgrammes).toBe(badCount);
+    expect(result.programmes).toHaveLength(validCount);
+  });
+
   it('时间格式非法整次失败(TIME_INVALID)', async () => {
     for (const bad of ['2026-01-01T08:00:00+08:00', '2026010108', '20260101080000 +08']) {
       const xml = buildXmltv([{ id: 'cctv1' }], [
